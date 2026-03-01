@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>mdvdb Editor - Textured Neutral Dark (V1)</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        primary: "#00E5FF","primary-dark": "#00B8CC",
+                        "primary-dim": "rgba(0, 229, 255, 0.1)",
+                        "background-dark": "#0f0f10","surface-dark": "#161617",
+                        "surface-darker": "#0a0a0a",
+                        "border-dark": "#27272a",
+                        "text-main": "#e4e4e7",
+                        "text-dim": "#71717a",
+                        "text-syntax": "#526366",},
+                    fontFamily: {
+                        display: ["Space Grotesk", "sans-serif"],
+                        mono: ["JetBrains Mono", "monospace"],
+                    },
+                },
+            },
+        }
+    </script>
+<style>.bg-grain {
+            position: relative;
+        }
+        .bg-grain::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 50;
+            opacity: 0.04;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+        }::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f0f10; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #27272a; 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #3f3f46; 
+        }
+        .markdown-editor {
+            font-family: 'Space Grotesk', sans-serif;
+            line-height: 1.8;
+        }
+        .markdown-syntax {
+            color: #526366; 
+            font-weight: normal;
+        }
+    </style>
+</head>
+<body class="bg-background-dark text-text-main font-display h-screen flex overflow-hidden bg-grain antialiased selection:bg-primary selection:text-surface-darker">
+<aside class="w-64 bg-surface-darker border-r border-border-dark flex flex-col shrink-0 h-full relative z-20">
+<div class="h-14 flex items-center px-5 border-b border-border-dark gap-3">
+<div class="w-6 h-6 rounded-sm bg-primary flex items-center justify-center text-surface-darker shadow-[0_0_10px_rgba(0,229,255,0.4)]">
+<span class="material-symbols-outlined text-sm font-bold">database</span>
+</div>
+<span class="font-bold text-lg tracking-tight text-white">mdvdb</span>
+</div>
+<div class="flex-1 overflow-y-auto py-6">
+<div class="px-3 mb-6">
+<h3 class="px-3 text-[11px] font-bold text-text-dim uppercase tracking-widest mb-3">Collections</h3>
+<nav class="flex flex-col gap-0.5">
+<a class="flex items-center gap-3 px-3 py-2 rounded hover:bg-surface-dark text-text-dim hover:text-white transition-colors group" href="#">
+<span class="material-symbols-outlined text-[18px] group-hover:text-primary transition-colors">star</span>
+<span class="text-sm">Favorites</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded hover:bg-surface-dark text-text-dim hover:text-white transition-colors group" href="#">
+<span class="material-symbols-outlined text-[18px] group-hover:text-primary transition-colors">schedule</span>
+<span class="text-sm">Recent</span>
+</a>
+</nav>
+</div>
+<div class="px-3">
+<h3 class="px-3 text-[11px] font-bold text-text-dim uppercase tracking-widest mb-3">Knowledge Base</h3>
+<nav class="flex flex-col gap-0.5">
+<div class="group">
+<button class="flex w-full items-center gap-2 px-3 py-2 rounded bg-surface-dark text-white border border-border-dark/50">
+<span class="material-symbols-outlined text-[18px] text-primary">folder_open</span>
+<span class="text-sm font-medium flex-1 text-left">Project Alpha</span>
+<span class="material-symbols-outlined text-[16px] text-text-dim">expand_more</span>
+</button>
+<div class="pl-3 mt-1 flex flex-col gap-0.5 border-l border-border-dark ml-4 py-1">
+<a class="flex items-center gap-2 px-3 py-1.5 rounded hover:bg-surface-dark text-text-dim hover:text-white group/item" href="#">
+<span class="material-symbols-outlined text-[16px]">description</span>
+<span class="text-sm">Research Notes</span>
+</a>
+<a class="flex items-center gap-2 px-3 py-1.5 rounded bg-primary-dim text-primary group/item border-r-2 border-primary" href="#">
+<span class="material-symbols-outlined text-[16px]">description</span>
+<span class="text-sm font-medium">Design Specs.md</span>
+</a>
+<a class="flex items-center gap-2 px-3 py-1.5 rounded hover:bg-surface-dark text-text-dim hover:text-white group/item" href="#">
+<span class="material-symbols-outlined text-[16px]">description</span>
+<span class="text-sm">Meeting Logs</span>
+</a>
+</div>
+</div>
+<div class="group mt-1">
+<button class="flex w-full items-center gap-2 px-3 py-2 rounded hover:bg-surface-dark text-text-dim hover:text-white transition-colors">
+<span class="material-symbols-outlined text-[18px]">folder</span>
+<span class="text-sm font-medium flex-1 text-left">Marketing</span>
+<span class="material-symbols-outlined text-[16px] opacity-0 group-hover:opacity-100 transition-opacity">chevron_right</span>
+</button>
+</div>
+<div class="group">
+<button class="flex w-full items-center gap-2 px-3 py-2 rounded hover:bg-surface-dark text-text-dim hover:text-white transition-colors">
+<span class="material-symbols-outlined text-[18px]">folder</span>
+<span class="text-sm font-medium flex-1 text-left">Engineering</span>
+<span class="material-symbols-outlined text-[16px] opacity-0 group-hover:opacity-100 transition-opacity">chevron_right</span>
+</button>
+</div>
+</nav>
+</div>
+</div>
+<div class="p-4 border-t border-border-dark mt-auto bg-surface-darker">
+<button class="flex w-full items-center gap-3 hover:bg-surface-dark p-2 rounded transition-colors group">
+<div class="w-8 h-8 rounded bg-gradient-to-br from-gray-700 to-gray-900 border border-border-dark relative flex items-center justify-center text-text-dim font-bold text-xs group-hover:border-primary transition-colors">AD</div>
+<div class="flex flex-col items-start">
+<span class="text-sm font-medium text-white">Alex Designer</span>
+<span class="text-[10px] text-text-dim uppercase tracking-wider">Pro</span>
+</div>
+</button>
+</div>
+</aside>
+<main class="flex-1 flex flex-col h-full bg-background-dark relative z-10">
+<header class="h-14 border-b border-border-dark flex items-center justify-between px-6 bg-background-dark/95 backdrop-blur-md z-30">
+<div class="flex items-center gap-2 text-sm font-mono text-xs tracking-tight">
+<span class="text-text-dim hover:text-white cursor-pointer transition-colors">Project Alpha</span>
+<span class="text-border-dark material-symbols-outlined text-[14px]">chevron_right</span>
+<span class="text-primary font-medium flex items-center gap-2">
+                    Design Specs.md
+                </span>
+</div>
+<div class="flex items-center gap-3">
+<div class="relative group">
+<span class="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim material-symbols-outlined text-[18px] group-focus-within:text-primary transition-colors">search</span>
+<input class="bg-surface-darker border border-border-dark rounded-md py-1.5 pl-9 pr-12 text-sm text-white focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary w-56 transition-all focus:w-72 placeholder-text-dim/50 font-mono text-xs" placeholder="Search database..." type="text"/>
+<div class="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1 pointer-events-none">
+<kbd class="hidden group-focus-within:inline-flex h-5 items-center gap-1 rounded border border-border-dark bg-surface-dark px-1.5 font-mono text-[10px] font-medium text-text-dim">
+<span class="text-[10px]">⌘</span>K
+                        </kbd>
+</div>
+</div>
+<div class="h-4 w-px bg-border-dark mx-2"></div>
+<button class="p-2 text-text-dim hover:text-primary hover:bg-surface-darker rounded transition-colors" title="Toggle Properties">
+<span class="material-symbols-outlined text-[20px]">side_navigation</span>
+</button>
+<button class="flex items-center gap-2 px-4 py-1.5 bg-primary text-surface-darker rounded-sm font-bold text-xs hover:bg-primary-dark transition-colors tracking-wide uppercase">
+<span>Edit</span>
+</button>
+</div>
+</header>
+<div class="flex-1 flex overflow-hidden relative">
+<div class="flex-1 overflow-y-auto relative z-10">
+<div class="max-w-3xl mx-auto py-16 px-10 markdown-editor text-gray-300">
+<h1 class="text-4xl font-bold text-white mb-8 leading-tight group tracking-tight">
+<span class="markdown-syntax mr-1 text-2xl align-middle select-none opacity-40"># </span>Markdown Database Editor View
+                    </h1>
+<div class="mb-10 p-5 rounded-md bg-surface-darker border border-border-dark font-mono text-[13px] text-text-dim relative overflow-hidden group hover:border-text-dim/30 transition-colors">
+<div class="absolute top-0 left-0 w-1 h-full bg-border-dark group-hover:bg-primary transition-colors"></div>
+<div class="flex gap-4 opacity-50 mb-2">
+<span class="text-text-syntax">---</span>
+</div>
+<div class="grid grid-cols-[100px_1fr] gap-y-1.5 pl-2">
+<span class="text-text-dim">type:</span> <span class="text-primary">specification</span>
+<span class="text-text-dim">status:</span> <span class="text-emerald-400">in-progress</span>
+<span class="text-text-dim">tags:</span> <span class="text-blue-400">[ui, design, v1]</span>
+<span class="text-text-dim">updated:</span> <span class="text-orange-300">2023-10-27</span>
+</div>
+<div class="flex gap-4 opacity-50 mt-2">
+<span class="text-text-syntax">---</span>
+</div>
+</div>
+<p class="mb-6 text-[17px] text-gray-300 leading-8">
+                        This is a <strong class="text-white font-semibold"><span class="markdown-syntax font-normal">**</span>soft-render view<span class="markdown-syntax font-normal">**</span></strong> of the document. The goal is to provide a distraction-free environment that still hints at the underlying Markdown structure.
+                    </p>
+<h2 class="text-2xl font-semibold text-white mt-12 mb-6 flex items-baseline tracking-tight">
+<span class="markdown-syntax mr-2 text-xl select-none opacity-60">## </span>Core Components
+                    </h2>
+<ul class="space-y-3 mb-8 ml-1">
+<li class="flex items-start">
+<span class="markdown-syntax mr-3 min-w-[1rem] text-center select-none">-</span>
+<span>The <code class="bg-surface-darker border border-border-dark px-1.5 py-0.5 rounded text-primary text-[13px] font-mono"><span class="markdown-syntax text-text-dim">`</span>Sidebar<span class="markdown-syntax text-text-dim">`</span></code> organizes the <a class="text-primary hover:underline decoration-primary/30 underline-offset-4" href="#">[[Knowledge Base]]</a> hierarchy.</span>
+</li>
+<li class="flex items-start">
+<span class="markdown-syntax mr-3 min-w-[1rem] text-center select-none">-</span>
+<span>The <code class="bg-surface-darker border border-border-dark px-1.5 py-0.5 rounded text-primary text-[13px] font-mono"><span class="markdown-syntax text-text-dim">`</span>Editor<span class="markdown-syntax text-text-dim">`</span></code> dims syntax characters to focus on content.</span>
+</li>
+<li class="flex items-start">
+<span class="markdown-syntax mr-3 min-w-[1rem] text-center select-none">-</span>
+<span>Frontmatter properties drive the database queries.</span>
+</li>
+</ul>
+<h2 class="text-2xl font-semibold text-white mt-12 mb-6 flex items-baseline tracking-tight">
+<span class="markdown-syntax mr-2 text-xl select-none opacity-60">## </span>Design Principles
+                    </h2>
+<blockquote class="border-l-2 border-primary pl-5 py-2 my-8 ml-1 italic text-gray-400 relative">
+<span class="markdown-syntax absolute -left-5 top-2 text-text-dim select-none">&gt;</span>
+<p>The interface should recede. Functionality should emerge only when needed.</p>
+</blockquote>
+<p class="mb-6 text-[17px] text-gray-300 leading-8">
+                        We use a textured, neutral dark palette to reduce eye strain during long writing sessions. The primary accent color is strictly used for interactive elements and active states.
+                    </p>
+<div class="my-8 rounded border border-border-dark bg-[#0a0a0a]">
+<div class="flex items-center justify-between px-4 py-2 bg-surface-dark border-b border-border-dark">
+<span class="text-[11px] text-text-dim font-mono">theme.config.js</span>
+<span class="text-[11px] text-text-dim cursor-pointer hover:text-white uppercase tracking-wider">Copy</span>
+</div>
+<div class="p-5 overflow-x-auto font-mono text-[13px] leading-relaxed">
+<div class="text-text-dim"><span class="text-purple-400">const</span> <span class="text-blue-400">palette</span> = {</div>
+<div class="pl-4 text-text-dim">primary: <span class="text-primary">'#00E5FF'</span>,</div>
+<div class="pl-4 text-text-dim">background: <span class="text-green-400">'#0f0f10'</span>,</div>
+<div class="pl-4 text-text-dim">surface: <span class="text-green-400">'#161617'</span>,</div>
+<div class="text-text-dim">}</div>
+</div>
+</div>
+<h3 class="text-xl font-medium text-white mt-10 mb-4 flex items-baseline tracking-tight">
+<span class="markdown-syntax mr-2 text-lg select-none opacity-60">### </span>Next Steps
+                    </h3>
+<div class="flex flex-col gap-3 mt-4">
+<div class="flex items-center gap-3 group cursor-pointer">
+<div class="w-4 h-4 border border-text-dim rounded-sm flex items-center justify-center group-hover:border-primary transition-colors bg-surface-darker"></div>
+<span class="text-text-dim group-hover:text-white transition-colors"><span class="markdown-syntax mr-2 select-none text-text-syntax">- [ ]</span>Implement full-text search</span>
+</div>
+<div class="flex items-center gap-3 group cursor-pointer">
+<div class="w-4 h-4 border border-primary bg-primary rounded-sm flex items-center justify-center shadow-[0_0_8px_rgba(0,229,255,0.3)]">
+<span class="material-symbols-outlined text-surface-darker text-[12px] font-bold">check</span>
+</div>
+<span class="text-text-dim line-through decoration-text-dim/50"><span class="markdown-syntax mr-2 select-none text-text-syntax">- [x]</span>Finalize cyan palette</span>
+</div>
+</div>
+<div class="h-40"></div>
+</div>
+</div>
+<aside class="w-72 bg-surface-darker border-l border-border-dark hidden lg:flex flex-col z-20">
+<div class="h-10 flex items-center px-4 border-b border-border-dark">
+<span class="text-[10px] font-bold text-text-dim uppercase tracking-widest">Metadata</span>
+</div>
+<div class="p-4 flex flex-col gap-8 overflow-y-auto custom-scrollbar">
+<div class="flex flex-col gap-4">
+<span class="text-[11px] font-bold text-text-dim uppercase tracking-wider flex items-center gap-2">
+<span class="material-symbols-outlined text-[14px]">tune</span> Properties
+                        </span>
+<div class="grid grid-cols-[80px_1fr] items-center gap-2 text-sm">
+<span class="text-text-dim text-xs">Status</span>
+<button class="px-2 py-1 rounded bg-yellow-500/10 text-yellow-500 border border-yellow-500/20 text-xs font-medium w-fit flex items-center gap-1.5 hover:bg-yellow-500/20 transition-colors">
+<span class="w-1.5 h-1.5 rounded-full bg-yellow-500"></span>
+                                In Progress
+                            </button>
+</div>
+<div class="grid grid-cols-[80px_1fr] items-start gap-2 text-sm">
+<span class="text-text-dim text-xs mt-1.5">Tags</span>
+<div class="flex flex-wrap gap-1.5">
+<span class="px-2 py-1 rounded bg-surface-dark text-text-dim border border-border-dark text-[11px] hover:border-primary hover:text-primary cursor-pointer transition-colors">#design</span>
+<span class="px-2 py-1 rounded bg-surface-dark text-text-dim border border-border-dark text-[11px] hover:border-primary hover:text-primary cursor-pointer transition-colors">#specs</span>
+<span class="px-2 py-1 rounded bg-surface-dark text-text-dim border border-border-dark text-[11px] hover:border-primary hover:text-primary cursor-pointer transition-colors">#v1</span>
+</div>
+</div>
+<div class="grid grid-cols-[80px_1fr] items-center gap-2 text-sm">
+<span class="text-text-dim text-xs">Created</span>
+<span class="text-gray-400 text-xs font-mono">Oct 24, 2023</span>
+</div>
+</div>
+<div class="h-px bg-border-dark"></div>
+<div class="flex flex-col gap-3">
+<div class="flex items-center justify-between">
+<span class="text-[11px] font-bold text-text-dim uppercase tracking-wider flex items-center gap-2">
+<span class="material-symbols-outlined text-[14px]">link</span> Backlinks
+                            </span>
+<span class="bg-surface-dark px-1.5 py-0.5 rounded text-[10px] text-text-dim font-mono border border-border-dark">2</span>
+</div>
+<div class="flex flex-col gap-2">
+<a class="block p-3 rounded bg-surface-dark border border-border-dark hover:border-primary/50 transition-colors group cursor-pointer" href="#">
+<div class="text-[13px] text-gray-300 font-medium mb-1 group-hover:text-primary transition-colors flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px] text-text-dim">article</span>
+                                    Product Roadmap
+                                </div>
+<div class="text-[11px] text-text-dim line-clamp-2 leading-relaxed font-mono">
+                                    ...as referenced in the [[Design Specs]], we will be moving to...
+                                </div>
+</a>
+<a class="block p-3 rounded bg-surface-dark border border-border-dark hover:border-primary/50 transition-colors group cursor-pointer" href="#">
+<div class="text-[13px] text-gray-300 font-medium mb-1 group-hover:text-primary transition-colors flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px] text-text-dim">article</span>
+                                    Daily Standup 10/24
+                                </div>
+<div class="text-[11px] text-text-dim line-clamp-2 leading-relaxed font-mono">
+                                    ...discussed the [[Design Specs]] with the engineering team...
+                                </div>
+</a>
+</div>
+</div>
+<div class="h-px bg-border-dark"></div>
+<div class="flex flex-col gap-2">
+<span class="text-[11px] font-bold text-text-dim uppercase tracking-wider flex items-center gap-2">
+<span class="material-symbols-outlined text-[14px]">toc</span> Outline
+                        </span>
+<nav class="flex flex-col gap-1 text-[13px] mt-1 relative border-l border-border-dark ml-1.5 pl-3">
+<a class="text-primary hover:underline truncate py-0.5 font-medium" href="#">Markdown Editor View</a>
+<a class="text-text-dim hover:text-white truncate py-0.5 transition-colors" href="#">Core Components</a>
+<a class="text-text-dim hover:text-white truncate py-0.5 transition-colors" href="#">Design Principles</a>
+<a class="text-text-dim hover:text-white truncate py-0.5 transition-colors" href="#">Next Steps</a>
+</nav>
+</div>
+</div>
+</aside>
+</div>
+<div class="h-7 bg-surface-darker border-t border-border-dark flex items-center justify-between px-4 text-[10px] text-text-dim select-none font-mono tracking-tight z-30">
+<div class="flex items-center gap-4">
+<span class="hover:text-white cursor-pointer flex items-center gap-1.5"><span class="material-symbols-outlined text-[12px]">markdown</span> Markdown</span>
+<span class="hover:text-white cursor-pointer">742 words</span>
+<span class="hover:text-white cursor-pointer">4 mins</span>
+</div>
+<div class="flex items-center gap-4">
+<span class="flex items-center gap-1.5 hover:text-white cursor-pointer text-emerald-500">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    Synced
+                </span>
+<span class="hover:text-white cursor-pointer">UTF-8</span>
+</div>
+</div>
+</main>
+
+</body></html>
