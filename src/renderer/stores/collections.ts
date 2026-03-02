@@ -1,0 +1,74 @@
+import { writable, derived, get } from 'svelte/store'
+import type { Collection } from '../../preload/api'
+import type { IndexStatus } from '../types/cli'
+
+/** All collections managed by the app. */
+export const collections = writable<Collection[]>([])
+
+/** ID of the currently active collection. */
+export const activeCollectionId = writable<string | null>(null)
+
+/** Derived store resolving the active collection object. */
+export const activeCollection = derived(
+  [collections, activeCollectionId],
+  ([$collections, $activeCollectionId]) =>
+    $collections.find((c) => c.id === $activeCollectionId) ?? null
+)
+
+/** Index status for the active collection (fetched on demand). */
+export const collectionStatus = writable<IndexStatus | null>(null)
+
+/** Whether collections are currently loading. */
+export const collectionsLoading = writable<boolean>(false)
+
+/** Load all collections from the main process store. */
+export async function loadCollections(): Promise<void> {
+  collectionsLoading.set(true)
+  try {
+    const list = await window.api.listCollections()
+    collections.set(list)
+    const active = await window.api.getActiveCollection()
+    activeCollectionId.set(active?.id ?? null)
+  } finally {
+    collectionsLoading.set(false)
+  }
+}
+
+/** Open native folder picker and add a new collection. */
+export async function addCollection(): Promise<Collection | null> {
+  const collection = await window.api.addCollection()
+  if (collection) {
+    collections.update((list) => [...list, collection])
+  }
+  return collection
+}
+
+/** Remove a collection by ID (does not delete files on disk). */
+export async function removeCollection(id: string): Promise<void> {
+  await window.api.removeCollection(id)
+  collections.update((list) => list.filter((c) => c.id !== id))
+  activeCollectionId.update((current) => (current === id ? null : current))
+  collectionStatus.set(null)
+}
+
+/** Set the active collection and fetch its status. */
+export async function setActiveCollection(id: string): Promise<void> {
+  await window.api.setActiveCollection(id)
+  activeCollectionId.set(id)
+  collectionStatus.set(null)
+  await fetchCollectionStatus(id)
+}
+
+/** Fetch index status for a collection by ID. */
+async function fetchCollectionStatus(id: string): Promise<void> {
+  const collection = get(collections).find((c) => c.id === id)
+  if (!collection) return
+  const path = collection.path
+
+  try {
+    const status = await window.api.status(path)
+    collectionStatus.set(status)
+  } catch {
+    collectionStatus.set(null)
+  }
+}
