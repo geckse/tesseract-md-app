@@ -17,6 +17,13 @@
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
+    "@codemirror/commands": "^6.7.1",
+    "@codemirror/lang-markdown": "^6.3.1",
+    "@codemirror/language": "^6.10.6",
+    "@codemirror/language-data": "^6.5.1",
+    "@codemirror/state": "^6.5.1",
+    "@codemirror/view": "^6.36.2",
+    "@lezer/highlight": "^1.2.1",
     "electron-store": "^10.0.0",
     "electron-updater": "^6.3.9"
   },
