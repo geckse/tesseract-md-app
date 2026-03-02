@@ -14,6 +14,15 @@ import type {
   DoctorResult
 } from '../renderer/types/cli'
 
+/** A collection (project folder) managed by the app. */
+export interface Collection {
+  id: string
+  name: string
+  path: string
+  addedAt: number
+  lastOpenedAt: number
+}
+
 /** Options for the search command. */
 export interface SearchOptions {
   limit?: number
@@ -45,6 +54,16 @@ export interface MdvdbApi {
   config(root: string): Promise<Config>
   doctor(root: string): Promise<DoctorResult>
   init(root: string): Promise<void>
+
+  // Collection management
+  listCollections(): Promise<Collection[]>
+  addCollection(): Promise<Collection | null>
+  removeCollection(id: string): Promise<void>
+  setActiveCollection(id: string): Promise<void>
+  getActiveCollection(): Promise<Collection | null>
+
+  // File operations
+  readFile(absolutePath: string): Promise<string>
 }
 
 declare global {
