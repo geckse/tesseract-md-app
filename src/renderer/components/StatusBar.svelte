@@ -1,12 +1,33 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
+
   export let language = 'Markdown';
   export let wordCount = 742;
   export let readingTime = 4;
   export let syncStatus: 'synced' | 'syncing' | 'error' = 'synced';
   export let encoding = 'UTF-8';
 
+  let cliVersion: string | null = null;
+  let cliFound = false;
+
   $: syncLabel = syncStatus === 'synced' ? 'Synced' : syncStatus === 'syncing' ? 'Syncing...' : 'Error';
   $: syncColor = syncStatus === 'error' ? 'error' : 'synced';
+
+  onMount(async () => {
+    try {
+      const result = await window.api.findCli();
+      if (result.data) {
+        cliFound = true;
+        const versionResult = await window.api.getCliVersion();
+        if (versionResult.data) {
+          cliVersion = versionResult.data;
+        }
+      }
+    } catch {
+      cliFound = false;
+      cliVersion = null;
+    }
+  });
 </script>
 
 <!-- h-7 bg-surface-darker font-mono: 28px status bar with monospace text -->
@@ -21,6 +42,14 @@
   </div>
 
   <div class="status-group">
+    <span class="status-item cli-indicator" class:cli-found={cliFound} class:cli-missing={!cliFound}>
+      <span class="cli-dot" class:cli-dot-found={cliFound} class:cli-dot-missing={!cliFound}></span>
+      {#if cliFound}
+        mdvdb {cliVersion ? `v${cliVersion}` : ''}
+      {:else}
+        CLI not found
+      {/if}
+    </span>
     <span class="status-item interactive sync-indicator" class:sync-error={syncColor === 'error'}>
       <span class="sync-dot" class:sync-dot-error={syncColor === 'error'}></span>
       {syncLabel}
@@ -70,6 +99,34 @@
 
   .status-icon {
     font-size: 12px;
+  }
+
+  .cli-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .cli-found {
+    color: #10b981;
+  }
+
+  .cli-missing {
+    color: #ef4444;
+  }
+
+  .cli-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+  }
+
+  .cli-dot-found {
+    background: #10b981;
+  }
+
+  .cli-dot-missing {
+    background: #ef4444;
   }
 
   .sync-indicator {
