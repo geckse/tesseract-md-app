@@ -1,26 +1,32 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
+  interface HeaderProps {
+    breadcrumb?: { folder?: string; file?: string };
+    propertiesOpen?: boolean;
+    onsearch?: (detail: { query: string }) => void;
+    ontoggleproperties?: (detail: { open: boolean }) => void;
+    onedit?: () => void;
+  }
 
-  const dispatch = createEventDispatcher();
-
-  export let breadcrumb: { folder?: string; file?: string } = {
-    folder: 'Project Alpha',
-    file: 'Design Specs.md',
-  };
-  export let propertiesOpen = false;
+  let {
+    breadcrumb = { folder: 'Project Alpha', file: 'Design Specs.md' },
+    propertiesOpen = $bindable(false),
+    onsearch,
+    ontoggleproperties,
+    onedit,
+  }: HeaderProps = $props();
 
   function handleSearch(event: Event) {
     const target = event.target as HTMLInputElement;
-    dispatch('search', { query: target.value });
+    onsearch?.({ query: target.value });
   }
 
   function toggleProperties() {
     propertiesOpen = !propertiesOpen;
-    dispatch('toggle-properties', { open: propertiesOpen });
+    ontoggleproperties?.({ open: propertiesOpen });
   }
 
   function handleEdit() {
-    dispatch('edit');
+    onedit?.();
   }
 </script>
 
@@ -44,7 +50,7 @@
         class="search-input"
         type="text"
         placeholder="Search database..."
-        on:input={handleSearch}
+        oninput={handleSearch}
       />
       <div class="search-shortcut">
         <kbd class="kbd"><span class="kbd-symbol">⌘</span>K</kbd>
@@ -57,12 +63,12 @@
       class="icon-button"
       class:active={propertiesOpen}
       title="Toggle Properties"
-      on:click={toggleProperties}
+      onclick={toggleProperties}
     >
       <span class="material-symbols-outlined">side_navigation</span>
     </button>
 
-    <button class="edit-button" on:click={handleEdit}>
+    <button class="edit-button" onclick={handleEdit}>
       <span>Edit</span>
     </button>
   </div>

@@ -1,8 +1,4 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
-
-  const dispatch = createEventDispatcher();
-
   interface NavItem {
     icon: string;
     label: string;
@@ -17,16 +13,28 @@
     children?: { label: string; id: string; active?: boolean }[];
   }
 
-  export let userName = 'Alex Designer';
-  export let userInitials = 'AD';
-  export let userPlan = 'Pro';
+  interface SidebarProps {
+    userName?: string;
+    userInitials?: string;
+    userPlan?: string;
+    onnavigate?: (detail: { id: string }) => void;
+    onfileselect?: (detail: { folderId: string; fileId: string }) => void;
+  }
+
+  let {
+    userName = 'Alex Designer',
+    userInitials = 'AD',
+    userPlan = 'Pro',
+    onnavigate,
+    onfileselect,
+  }: SidebarProps = $props();
 
   const collections: NavItem[] = [
     { icon: 'star', label: 'Favorites', id: 'favorites' },
     { icon: 'schedule', label: 'Recent', id: 'recent' },
   ];
 
-  let folders: FolderItem[] = [
+  let folders: FolderItem[] = $state([
     {
       icon: 'folder_open',
       label: 'Project Alpha',
@@ -40,10 +48,10 @@
     },
     { icon: 'folder', label: 'Marketing', id: 'marketing', expanded: false, children: [] },
     { icon: 'folder', label: 'Engineering', id: 'engineering', expanded: false, children: [] },
-  ];
+  ]);
 
   function handleNavClick(id: string) {
-    dispatch('navigate', { id });
+    onnavigate?.({ id });
   }
 
   function toggleFolder(index: number) {
@@ -51,7 +59,7 @@
   }
 
   function handleFileClick(folderId: string, fileId: string) {
-    dispatch('file-select', { folderId, fileId });
+    onfileselect?.({ folderId, fileId });
   }
 </script>
 
@@ -71,7 +79,7 @@
       <h3 class="section-header">Collections</h3>
       <nav class="nav-list">
         {#each collections as item}
-          <button class="nav-item" on:click={() => handleNavClick(item.id)}>
+          <button class="nav-item" onclick={() => handleNavClick(item.id)}>
             <span class="material-symbols-outlined nav-icon">{item.icon}</span>
             <span class="nav-label">{item.label}</span>
           </button>
@@ -88,7 +96,7 @@
             <button
               class="nav-item folder-button"
               class:expanded={folder.expanded}
-              on:click={() => toggleFolder(i)}
+              onclick={() => toggleFolder(i)}
             >
               <span class="material-symbols-outlined nav-icon folder-icon">
                 {folder.expanded ? 'folder_open' : 'folder'}
@@ -105,7 +113,7 @@
                   <button
                     class="file-item"
                     class:active={child.active}
-                    on:click={() => handleFileClick(folder.id, child.id)}
+                    onclick={() => handleFileClick(folder.id, child.id)}
                   >
                     <span class="material-symbols-outlined file-icon">description</span>
                     <span class="file-label">{child.label}</span>

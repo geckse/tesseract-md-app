@@ -1,21 +1,24 @@
 <script lang="ts">
+  import type { Snippet } from 'svelte';
   import Sidebar from './components/Sidebar.svelte';
   import Header from './components/Header.svelte';
   import StatusBar from './components/StatusBar.svelte';
 
-  function handleNavigate(event: CustomEvent<{ id: string }>) {
+  let { children }: { children?: Snippet } = $props();
+
+  function handleNavigate(detail: { id: string }) {
     // TODO: handle navigation
   }
 
-  function handleFileSelect(event: CustomEvent<{ folderId: string; fileId: string }>) {
+  function handleFileSelect(detail: { folderId: string; fileId: string }) {
     // TODO: handle file selection
   }
 
-  function handleSearch(event: CustomEvent<{ query: string }>) {
+  function handleSearch(detail: { query: string }) {
     // TODO: handle search
   }
 
-  function handleToggleProperties(event: CustomEvent<{ open: boolean }>) {
+  function handleToggleProperties(detail: { open: boolean }) {
     // TODO: handle properties panel toggle
   }
 
@@ -26,21 +29,21 @@
 
 <div class="app-shell bg-grain">
   <Sidebar
-    on:navigate={handleNavigate}
-    on:file-select={handleFileSelect}
+    onnavigate={handleNavigate}
+    onfileselect={handleFileSelect}
   />
 
   <main class="main-area">
     <Header
-      on:search={handleSearch}
-      on:toggle-properties={handleToggleProperties}
-      on:edit={handleEdit}
+      onsearch={handleSearch}
+      ontoggleproperties={handleToggleProperties}
+      onedit={handleEdit}
     />
 
     <div class="content-area">
       <div class="content-scroll">
         <div class="content-inner">
-          <slot />
+          {@render children?.()}
         </div>
       </div>
     </div>

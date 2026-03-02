@@ -1,17 +1,27 @@
 <script lang="ts">
   import { onMount } from 'svelte';
 
-  export let language = 'Markdown';
-  export let wordCount = 742;
-  export let readingTime = 4;
-  export let syncStatus: 'synced' | 'syncing' | 'error' = 'synced';
-  export let encoding = 'UTF-8';
+  interface StatusBarProps {
+    language?: string;
+    wordCount?: number;
+    readingTime?: number;
+    syncStatus?: 'synced' | 'syncing' | 'error';
+    encoding?: string;
+  }
 
-  let cliVersion: string | null = null;
-  let cliFound = false;
+  let {
+    language = 'Markdown',
+    wordCount = 742,
+    readingTime = 4,
+    syncStatus = 'synced',
+    encoding = 'UTF-8',
+  }: StatusBarProps = $props();
 
-  $: syncLabel = syncStatus === 'synced' ? 'Synced' : syncStatus === 'syncing' ? 'Syncing...' : 'Error';
-  $: syncColor = syncStatus === 'error' ? 'error' : 'synced';
+  let cliVersion: string | null = $state(null);
+  let cliFound = $state(false);
+
+  let syncLabel = $derived(syncStatus === 'synced' ? 'Synced' : syncStatus === 'syncing' ? 'Syncing...' : 'Error');
+  let syncColor = $derived(syncStatus === 'error' ? 'error' : 'synced');
 
   onMount(async () => {
     try {
