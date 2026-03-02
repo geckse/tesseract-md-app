@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { activeCollection } from '../stores/collections';
+
   interface HeaderProps {
     breadcrumb?: { folder?: string; file?: string };
     propertiesOpen?: boolean;
@@ -14,6 +16,11 @@
     ontoggleproperties,
     onedit,
   }: HeaderProps = $props();
+
+  let $activeCollection: import('../../preload/api').Collection | null = $state(null);
+  activeCollection.subscribe((v) => ($activeCollection = v));
+
+  let collectionName = $derived($activeCollection?.name ?? breadcrumb.folder);
 
   function handleSearch(event: Event) {
     const target = event.target as HTMLInputElement;
@@ -33,8 +40,8 @@
 <header class="header">
   <!-- Breadcrumb -->
   <div class="breadcrumb">
-    {#if breadcrumb.folder}
-      <span class="breadcrumb-folder">{breadcrumb.folder}</span>
+    {#if collectionName}
+      <span class="breadcrumb-folder">{collectionName}</span>
       <span class="material-symbols-outlined breadcrumb-separator">chevron_right</span>
     {/if}
     {#if breadcrumb.file}
