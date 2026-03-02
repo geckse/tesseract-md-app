@@ -1,5 +1,6 @@
 <script lang="ts">
   import { activeCollection } from '../stores/collections';
+  import { selectedFilePath } from '../stores/files';
 
   interface HeaderProps {
     breadcrumb?: { folder?: string; file?: string };
@@ -20,7 +21,28 @@
   let $activeCollection: import('../../preload/api').Collection | null = $state(null);
   activeCollection.subscribe((v) => ($activeCollection = v));
 
+  let $selectedFilePath: string | null = $state(null);
+  selectedFilePath.subscribe((v) => ($selectedFilePath = v));
+
   let collectionName = $derived($activeCollection?.name ?? breadcrumb.folder);
+
+  /** Parse selected file path into breadcrumb segments: [dir1, dir2, ..., filename] */
+  let pathSegments = $derived.by(() => {
+    if ($selectedFilePath) {
+      return $selectedFilePath.split('/').filter((s) => s.length > 0);
+    }
+    // Fall back to legacy breadcrumb prop
+    const segments: string[] = [];
+    if (breadcrumb.folder && !collectionName) segments.push(breadcrumb.folder);
+    if (breadcrumb.file) segments.push(breadcrumb.file);
+    return segments;
+  });
+
+  /** Directory segments (everything except the last segment / filename) */
+  let dirSegments = $derived(pathSegments.length > 1 ? pathSegments.slice(0, -1) : []);
+
+  /** The filename (last segment) */
+  let fileName = $derived(pathSegments.length > 0 ? pathSegments[pathSegments.length - 1] : breadcrumb.file);
 
   function handleSearch(event: Event) {
     const target = event.target as HTMLInputElement;
@@ -44,8 +66,12 @@
       <span class="breadcrumb-folder">{collectionName}</span>
       <span class="material-symbols-outlined breadcrumb-separator">chevron_right</span>
     {/if}
-    {#if breadcrumb.file}
-      <span class="breadcrumb-file">{breadcrumb.file}</span>
+    {#each dirSegments as segment}
+      <span class="breadcrumb-folder">{segment}</span>
+      <span class="material-symbols-outlined breadcrumb-separator">chevron_right</span>
+    {/each}
+    {#if fileName}
+      <span class="breadcrumb-file">{fileName}</span>
     {/if}
   </div>
 
