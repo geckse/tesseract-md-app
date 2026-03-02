@@ -14,14 +14,14 @@
     encoding = 'UTF-8',
   }: StatusBarProps = $props();
 
-  let $isDirty = $state(false);
-  isDirty.subscribe((v) => ($isDirty = v));
+  let currentIsDirty = $state(false);
+  isDirty.subscribe((v) => (currentIsDirty = v));
 
-  let $wordCount = $state(0);
-  wordCountStore.subscribe((v) => ($wordCount = v));
+  let currentWordCount = $state(0);
+  wordCountStore.subscribe((v) => (currentWordCount = v));
 
-  let $readingTime = $state(0);
-  readingTimeStore.subscribe((v) => ($readingTime = v));
+  let currentReadingTime = $state(0);
+  readingTimeStore.subscribe((v) => (currentReadingTime = v));
 
   let cliVersion: string | null = $state(null);
   let cliFound = $state(false);
@@ -45,12 +45,12 @@
     <span class="status-item interactive">
       <span class="material-symbols-outlined status-icon">markdown</span>
       {language}
-      {#if $isDirty}
+      {#if currentIsDirty}
         <span class="dirty-dot"></span>
       {/if}
     </span>
-    <span class="status-item interactive">{$wordCount} words</span>
-    <span class="status-item interactive">{$readingTime} mins</span>
+    <span class="status-item interactive">{currentWordCount} words</span>
+    <span class="status-item interactive">{currentReadingTime} mins</span>
   </div>
 
   <div class="status-group">

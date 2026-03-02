@@ -4,6 +4,7 @@ import { render, screen, fireEvent } from '@testing-library/svelte'
 // Mock window.api before importing stores
 const mockApi = {
   tree: vi.fn(),
+  ingest: vi.fn(),
   listCollections: vi.fn(),
   getActiveCollection: vi.fn(),
   addCollection: vi.fn(),
@@ -22,7 +23,8 @@ import {
   fileTreeLoading,
   fileTreeError,
 } from '../../src/renderer/stores/files'
-import { activeCollection } from '../../src/renderer/stores/collections'
+import { collections, activeCollectionId } from '../../src/renderer/stores/collections'
+import { ingestRunning } from '../../src/renderer/stores/ingest'
 import FileTree from '@renderer/components/FileTree.svelte'
 import type { FileTree as FileTreeType } from '../../src/renderer/types/cli'
 
@@ -71,11 +73,20 @@ const sampleTree: FileTreeType = {
   deleted_count: 0,
 }
 
+const testCollection = { id: '1', name: 'Test', path: '/test', addedAt: 1, lastOpenedAt: 1 }
+
+function setActiveCollection() {
+  collections.set([testCollection])
+  activeCollectionId.set('1')
+}
+
 function resetStores() {
   fileTree.set(null)
   fileTreeLoading.set(false)
   fileTreeError.set(null)
-  activeCollection.set(null)
+  collections.set([])
+  activeCollectionId.set(null)
+  ingestRunning.set(false)
 }
 
 beforeEach(() => {
@@ -91,7 +102,7 @@ describe('FileTree component', () => {
   })
 
   it('shows loading state when loading', () => {
-    activeCollection.set({ id: '1', name: 'Test', path: '/test' })
+    setActiveCollection()
     fileTreeLoading.set(true)
 
     render(FileTree)
@@ -100,7 +111,7 @@ describe('FileTree component', () => {
   })
 
   it('shows error state with retry button', () => {
-    activeCollection.set({ id: '1', name: 'Test', path: '/test' })
+    setActiveCollection()
     fileTreeError.set('Something went wrong')
 
     render(FileTree)
@@ -110,7 +121,7 @@ describe('FileTree component', () => {
   })
 
   it('shows empty files state when tree has no children', () => {
-    activeCollection.set({ id: '1', name: 'Test', path: '/test' })
+    setActiveCollection()
     fileTree.set({
       root: { name: '.', path: '.', is_dir: true, state: null, children: [] },
       total_files: 0,
@@ -134,23 +145,93 @@ describe('FileTree component', () => {
   it('renders action buttons in header', () => {
     render(FileTree)
 
+    expect(screen.getByTitle('Index Collection')).toBeTruthy()
+    expect(screen.getByTitle('More index options')).toBeTruthy()
     expect(screen.getByTitle('Collapse All')).toBeTruthy()
     expect(screen.getByTitle('Expand All')).toBeTruthy()
     expect(screen.getByTitle('Refresh')).toBeTruthy()
   })
 
+  it('shows Index text label on the ingest button', () => {
+    render(FileTree)
+
+    expect(screen.getByText('Index')).toBeTruthy()
+  })
+
+  it('shows Indexing... text when ingest is running', () => {
+    ingestRunning.set(true)
+
+    render(FileTree)
+
+    expect(screen.getByText('Indexing...')).toBeTruthy()
+  })
+
+  it('disables ingest button when no collection', () => {
+    render(FileTree)
+
+    const btn = screen.getByTitle('Index Collection') as HTMLButtonElement
+    expect(btn.disabled).toBe(true)
+  })
+
+  it('calls ingest with reindex=false on Index click', async () => {
+    setActiveCollection()
+    mockApi.ingest.mockResolvedValue({
+      files_indexed: 0, files_skipped: 0, files_removed: 0,
+      chunks_created: 0, api_calls: 0, files_failed: 0,
+      errors: [], duration_secs: 0, cancelled: false,
+    })
+    mockApi.tree.mockResolvedValue(sampleTree)
+    mockApi.status.mockResolvedValue({})
+
+    render(FileTree)
+
+    await fireEvent.click(screen.getByTitle('Index Collection'))
+
+    expect(mockApi.ingest).toHaveBeenCalledWith('/test', { reindex: false })
+  })
+
+  it('opens dropdown menu on chevron click and shows Reindex All', async () => {
+    setActiveCollection()
+
+    render(FileTree)
+
+    expect(screen.queryByText('Reindex All')).toBeNull()
+
+    await fireEvent.click(screen.getByTitle('More index options'))
+
+    expect(screen.getByText('Reindex All')).toBeTruthy()
+  })
+
+  it('calls ingest with reindex=true on Reindex All click', async () => {
+    setActiveCollection()
+    mockApi.ingest.mockResolvedValue({
+      files_indexed: 0, files_skipped: 0, files_removed: 0,
+      chunks_created: 0, api_calls: 0, files_failed: 0,
+      errors: [], duration_secs: 0, cancelled: false,
+    })
+    mockApi.tree.mockResolvedValue(sampleTree)
+    mockApi.status.mockResolvedValue({})
+
+    render(FileTree)
+
+    await fireEvent.click(screen.getByTitle('More index options'))
+    await fireEvent.click(screen.getByText('Reindex All'))
+
+    expect(mockApi.ingest).toHaveBeenCalledWith('/test', { reindex: true })
+  })
+
   it('disables refresh button when loading', () => {
-    activeCollection.set({ id: '1', name: 'Test', path: '/test' })
+    setActiveCollection()
     fileTreeLoading.set(true)
 
     render(FileTree)
 
-    const refreshBtn = screen.getByTitle('Refresh')
-    expect(refreshBtn).toBeDisabled()
+    const refreshBtn = screen.getByTitle('Refresh') as HTMLButtonElement
+    expect(refreshBtn.disabled).toBe(true)
   })
 
   it('shows file count summary when tree is loaded', () => {
-    activeCollection.set({ id: '1', name: 'Test', path: '/test' })
+    setActiveCollection()
     fileTree.set(sampleTree)
 
     render(FileTree)
@@ -159,7 +240,7 @@ describe('FileTree component', () => {
   })
 
   it('shows modified count in summary', () => {
-    activeCollection.set({ id: '1', name: 'Test', path: '/test' })
+    setActiveCollection()
     fileTree.set(sampleTree)
 
     render(FileTree)
@@ -168,7 +249,7 @@ describe('FileTree component', () => {
   })
 
   it('shows new count in summary', () => {
-    activeCollection.set({ id: '1', name: 'Test', path: '/test' })
+    setActiveCollection()
     fileTree.set(sampleTree)
 
     render(FileTree)
@@ -177,7 +258,7 @@ describe('FileTree component', () => {
   })
 
   it('renders tree nodes when data is available', () => {
-    activeCollection.set({ id: '1', name: 'Test', path: '/test' })
+    setActiveCollection()
     fileTree.set(sampleTree)
 
     render(FileTree)
@@ -188,7 +269,7 @@ describe('FileTree component', () => {
   })
 
   it('calls loadFileTree on retry click', async () => {
-    activeCollection.set({ id: '1', name: 'Test', path: '/test' })
+    setActiveCollection()
     fileTreeError.set('Failed to load')
     mockApi.tree.mockResolvedValue(sampleTree)
 

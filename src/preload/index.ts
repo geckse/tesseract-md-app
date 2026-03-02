@@ -2,34 +2,59 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { MdvdbApi } from './api'
 
+/**
+ * Check if an IPC result is a serialized error from wrapHandler.
+ * If so, throw it as a proper Error so renderer catch blocks work.
+ */
+function unwrapResult<T>(result: T): T {
+  if (
+    typeof result === 'object' &&
+    result !== null &&
+    'error' in result &&
+    (result as Record<string, unknown>).error === true &&
+    'type' in result &&
+    'message' in result
+  ) {
+    const err = result as { type: string; message: string }
+    throw new Error(`[${err.type}] ${err.message}`)
+  }
+  return result
+}
+
+/** Invoke IPC channel and unwrap serialized errors. */
+async function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
+  const result = await ipcRenderer.invoke(channel, ...args)
+  return unwrapResult(result) as T
+}
+
 const api: MdvdbApi = {
-  findCli: () => ipcRenderer.invoke('cli:find'),
-  getCliVersion: () => ipcRenderer.invoke('cli:version'),
-  search: (root, query, options?) => ipcRenderer.invoke('cli:search', root, query, options),
-  status: (root) => ipcRenderer.invoke('cli:status', root),
-  ingest: (root, options?) => ipcRenderer.invoke('cli:ingest', root, options),
-  ingestPreview: (root) => ipcRenderer.invoke('cli:ingest-preview', root),
-  tree: (root, path?) => ipcRenderer.invoke('cli:tree', root, path),
-  getFile: (root, filePath) => ipcRenderer.invoke('cli:get', root, filePath),
-  links: (root, filePath) => ipcRenderer.invoke('cli:links', root, filePath),
-  backlinks: (root, filePath) => ipcRenderer.invoke('cli:backlinks', root, filePath),
-  orphans: (root) => ipcRenderer.invoke('cli:orphans', root),
-  clusters: (root) => ipcRenderer.invoke('cli:clusters', root),
-  schema: (root) => ipcRenderer.invoke('cli:schema', root),
-  config: (root) => ipcRenderer.invoke('cli:config', root),
-  doctor: (root) => ipcRenderer.invoke('cli:doctor', root),
-  init: (root) => ipcRenderer.invoke('cli:init', root),
+  findCli: () => invoke('cli:find'),
+  getCliVersion: () => invoke('cli:version'),
+  search: (root, query, options?) => invoke('cli:search', root, query, options),
+  status: (root) => invoke('cli:status', root),
+  ingest: (root, options?) => invoke('cli:ingest', root, options),
+  ingestPreview: (root) => invoke('cli:ingest-preview', root),
+  tree: (root, path?) => invoke('cli:tree', root, path),
+  getFile: (root, filePath) => invoke('cli:get', root, filePath),
+  links: (root, filePath) => invoke('cli:links', root, filePath),
+  backlinks: (root, filePath) => invoke('cli:backlinks', root, filePath),
+  orphans: (root) => invoke('cli:orphans', root),
+  clusters: (root) => invoke('cli:clusters', root),
+  schema: (root) => invoke('cli:schema', root),
+  config: (root) => invoke('cli:config', root),
+  doctor: (root) => invoke('cli:doctor', root),
+  init: (root) => invoke('cli:init', root),
 
   // Collection management
-  listCollections: () => ipcRenderer.invoke('collections:list'),
-  addCollection: () => ipcRenderer.invoke('collections:add'),
-  removeCollection: (id) => ipcRenderer.invoke('collections:remove', id),
-  setActiveCollection: (id) => ipcRenderer.invoke('collections:set-active', id),
-  getActiveCollection: () => ipcRenderer.invoke('collections:get-active'),
+  listCollections: () => invoke('collections:list'),
+  addCollection: () => invoke('collections:add'),
+  removeCollection: (id) => invoke('collections:remove', id),
+  setActiveCollection: (id) => invoke('collections:set-active', id),
+  getActiveCollection: () => invoke('collections:get-active'),
 
   // File operations
-  readFile: (absolutePath) => ipcRenderer.invoke('fs:read-file', absolutePath),
-  writeFile: (absolutePath, content) => ipcRenderer.invoke('fs:write-file', absolutePath, content)
+  readFile: (absolutePath) => invoke('fs:read-file', absolutePath),
+  writeFile: (absolutePath, content) => invoke('fs:write-file', absolutePath, content)
 }
 
 if (process.contextIsolated) {

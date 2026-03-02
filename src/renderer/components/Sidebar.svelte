@@ -227,7 +227,14 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.10) transparent;
   }
+
+  .nav-content::-webkit-scrollbar { width: 6px; }
+  .nav-content::-webkit-scrollbar-track { background: transparent; }
+  .nav-content::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.10); border-radius: 3px; }
+  .nav-content::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.20); }
 
   .collections-section {
     flex-shrink: 0;

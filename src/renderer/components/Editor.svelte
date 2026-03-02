@@ -8,7 +8,7 @@
   import { editorTheme } from '../lib/editor-theme';
   import { softRender } from '../lib/soft-render';
   import { frontmatterDecoration } from '../lib/frontmatter-decoration';
-  import { fileContent, selectedFilePath } from '../stores/files';
+  import { fileContent, selectedFilePath, loadFileTree } from '../stores/files';
   import { activeCollection } from '../stores/collections';
   import { isDirty, wordCount, countWords } from '../stores/editor';
 
@@ -16,13 +16,13 @@
   let view: EditorView | null = null;
   let lastSavedContent: string = '';
 
-  let $fileContent: string | null = $state(null);
-  let $selectedFilePath: string | null = $state(null);
-  let $activeCollection: import('../../preload/api').Collection | null = $state(null);
+  let currentFileContent: string | null = $state(null);
+  let currentSelectedFilePath: string | null = $state(null);
+  let currentActiveCollection: import('../../preload/api').Collection | null = $state(null);
 
-  const unsubFileContent = fileContent.subscribe((v) => ($fileContent = v));
-  const unsubSelectedFile = selectedFilePath.subscribe((v) => ($selectedFilePath = v));
-  const unsubCollection = activeCollection.subscribe((v) => ($activeCollection = v));
+  const unsubFileContent = fileContent.subscribe((v) => (currentFileContent = v));
+  const unsubSelectedFile = selectedFilePath.subscribe((v) => (currentSelectedFilePath = v));
+  const unsubCollection = activeCollection.subscribe((v) => (currentActiveCollection = v));
 
   function handleUpdate(update: import('@codemirror/view').ViewUpdate) {
     if (update.docChanged) {
@@ -33,12 +33,13 @@
   }
 
   function handleSave(): boolean {
-    if (!view || !$activeCollection || !$selectedFilePath) return true;
+    if (!view || !currentActiveCollection || !currentSelectedFilePath) return true;
     const content = view.state.doc.toString();
-    const fullPath = `${$activeCollection.path}/${$selectedFilePath}`;
+    const fullPath = `${currentActiveCollection.path}/${currentSelectedFilePath}`;
     window.api.writeFile(fullPath, content).then(() => {
       lastSavedContent = content;
       isDirty.set(false);
+      loadFileTree();
     }).catch((err) => {
       console.error('Save failed:', err);
     });
@@ -94,11 +95,11 @@
 
   // React to file content changes
   $effect(() => {
-    if ($fileContent !== null && $selectedFilePath !== null) {
+    if (currentFileContent !== null && currentSelectedFilePath !== null) {
       if (view) {
-        replaceContent($fileContent);
+        replaceContent(currentFileContent);
       } else if (editorEl) {
-        createView($fileContent);
+        createView(currentFileContent);
       }
     } else {
       destroyView();
@@ -108,8 +109,8 @@
   });
 
   onMount(() => {
-    if ($fileContent !== null && $selectedFilePath !== null && editorEl) {
-      createView($fileContent);
+    if (currentFileContent !== null && currentSelectedFilePath !== null && editorEl) {
+      createView(currentFileContent);
     }
   });
 
@@ -123,11 +124,9 @@
   });
 </script>
 
-{#if $selectedFilePath}
+{#if currentSelectedFilePath}
   <div class="editor-container">
-    <div class="editor-scroll">
-      <div class="editor-content" bind:this={editorEl}></div>
-    </div>
+    <div class="editor-content" bind:this={editorEl}></div>
   </div>
 {:else}
   <div class="empty-state">
@@ -139,32 +138,53 @@
 <style>
   .editor-container {
     flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     overflow: hidden;
     background: #0f0f10;
   }
 
-  .editor-scroll {
-    flex: 1;
-    overflow-y: auto;
-    display: flex;
-    justify-content: center;
-  }
-
   .editor-content {
-    width: 100%;
-    max-width: 768px;
-    padding: 48px 24px;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
 
   .editor-content :global(.cm-editor) {
-    height: 100%;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
   }
 
   .editor-content :global(.cm-focused) {
     outline: none;
   }
+
+  .editor-content :global(.cm-content) {
+    padding: 24px 32px 24px 48px;
+  }
+
+  .editor-content :global(.cm-gutters) {
+    display: none;
+  }
+
+  .editor-content :global(.cm-scroller) {
+    flex: 1;
+    min-height: 0;
+    overflow: auto !important;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.10) transparent;
+  }
+
+  .editor-content :global(.cm-scroller)::-webkit-scrollbar { width: 6px; height: 6px; }
+  .editor-content :global(.cm-scroller)::-webkit-scrollbar-track { background: transparent; }
+  .editor-content :global(.cm-scroller)::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.10); border-radius: 3px; }
+  .editor-content :global(.cm-scroller)::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.20); }
+  .editor-content :global(.cm-scroller)::-webkit-scrollbar-corner { background: transparent; }
 
   .empty-state {
     flex: 1;

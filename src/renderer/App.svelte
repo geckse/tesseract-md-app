@@ -4,9 +4,13 @@
   import Header from './components/Header.svelte';
   import StatusBar from './components/StatusBar.svelte';
   import Editor from './components/Editor.svelte';
+  import PropertiesPanel from './components/PropertiesPanel.svelte';
+  import IngestModal from './components/IngestModal.svelte';
   import { loadCollections, setActiveCollection } from './stores/collections';
   import { selectFile } from './stores/files';
 
+
+  let propertiesOpen = $state(false);
 
   onMount(() => {
     loadCollections();
@@ -25,7 +29,7 @@
   }
 
   function handleToggleProperties(detail: { open: boolean }) {
-    // TODO: handle properties panel toggle
+    propertiesOpen = detail.open;
   }
 
   function handleEdit() {
@@ -41,6 +45,7 @@
 
   <main class="main-area">
     <Header
+      bind:propertiesOpen
       onsearch={handleSearch}
       ontoggleproperties={handleToggleProperties}
       onedit={handleEdit}
@@ -48,10 +53,15 @@
 
     <div class="content-area">
       <Editor />
+      {#if propertiesOpen}
+        <PropertiesPanel onfileselect={(detail) => handleFileSelect({ folderId: '', fileId: detail.path })} />
+      {/if}
     </div>
 
     <StatusBar />
   </main>
+
+  <IngestModal />
 </div>
 
 <style>
@@ -87,7 +97,7 @@
   .content-area {
     flex: 1;
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     overflow: hidden;
     position: relative;
     min-height: 0;

@@ -1,6 +1,7 @@
 import { writable, derived, get } from 'svelte/store'
 import type { FileTree, FileTreeNode, FileState } from '../types/cli'
 import { activeCollection } from './collections'
+import { loadProperties, clearProperties, propertiesFileContent } from './properties'
 
 /** The current file tree for the active collection. */
 export const fileTree = writable<FileTree | null>(null)
@@ -71,7 +72,10 @@ export async function selectFile(path: string | null): Promise<void> {
   fileContent.set(null)
   fileContentError.set(null)
 
-  if (!path) return
+  if (!path) {
+    clearProperties()
+    return
+  }
 
   const collection = get(activeCollection)
   if (!collection) return
@@ -81,11 +85,15 @@ export async function selectFile(path: string | null): Promise<void> {
   try {
     const content = await window.api.readFile(fullPath)
     fileContent.set(content)
+    propertiesFileContent.set(content)
   } catch (err) {
     fileContentError.set(err instanceof Error ? err.message : String(err))
   } finally {
     fileContentLoading.set(false)
   }
+
+  // Load properties panel data (document info + backlinks) in parallel
+  loadProperties(path)
 }
 
 /** Toggle a directory's expanded state. */

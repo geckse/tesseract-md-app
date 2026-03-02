@@ -23,8 +23,8 @@
   let currentSelectedFilePath: string | null = $state(null);
   selectedFilePath.subscribe((v) => (currentSelectedFilePath = v));
 
-  let $isDirty = $state(false);
-  isDirty.subscribe((v) => ($isDirty = v));
+  let currentIsDirty = $state(false);
+  isDirty.subscribe((v) => (currentIsDirty = v));
 
   let collectionName = $derived(currentActiveCollection?.name ?? null);
 
@@ -70,7 +70,7 @@
         <span class="material-symbols-outlined breadcrumb-separator">chevron_right</span>
       {/each}
       {#if fileName}
-        <span class="breadcrumb-file">{fileName}{#if $isDirty}<span class="dirty-indicator"> ●</span>{/if}</span>
+        <span class="breadcrumb-file">{fileName}{#if currentIsDirty}<span class="dirty-indicator"> ●</span>{/if}</span>
       {/if}
     </div>
   {:else}
