@@ -20,24 +20,24 @@
   let { onfileselect }: FileTreeProps = $props()
 
   // Reactive subscriptions
-  let $fileTree: FileTreeType | null = $state(null)
-  let $fileTreeLoading: boolean = $state(false)
-  let $fileTreeError: string | null = $state(null)
-  let $fileStateCounts: Record<FileState, number> = $state({ indexed: 0, modified: 0, new: 0, deleted: 0 })
-  let $activeCollection: Collection | null = $state(null)
+  let currentFileTree: FileTreeType | null = $state(null)
+  let currentFileTreeLoading: boolean = $state(false)
+  let currentFileTreeError: string | null = $state(null)
+  let currentFileStateCounts: Record<FileState, number> = $state({ indexed: 0, modified: 0, new: 0, deleted: 0 })
+  let currentActiveCollection: Collection | null = $state(null)
 
-  fileTree.subscribe((v) => ($fileTree = v))
-  fileTreeLoading.subscribe((v) => ($fileTreeLoading = v))
-  fileTreeError.subscribe((v) => ($fileTreeError = v))
-  fileStateCounts.subscribe((v) => ($fileStateCounts = v))
-  activeCollection.subscribe((v) => ($activeCollection = v))
+  fileTree.subscribe((v) => (currentFileTree = v))
+  fileTreeLoading.subscribe((v) => (currentFileTreeLoading = v))
+  fileTreeError.subscribe((v) => (currentFileTreeError = v))
+  fileStateCounts.subscribe((v) => (currentFileStateCounts = v))
+  activeCollection.subscribe((v) => (currentActiveCollection = v))
 
   async function handleRefresh() {
     await loadFileTree()
   }
 
   function totalFiles(): number {
-    return $fileTree?.total_files ?? 0
+    return currentFileTree?.total_files ?? 0
   }
 </script>
 
@@ -52,54 +52,54 @@
       <button class="icon-btn" onclick={expandAll} title="Expand All">
         <span class="material-symbols-outlined">unfold_more</span>
       </button>
-      <button class="icon-btn" onclick={handleRefresh} title="Refresh" disabled={$fileTreeLoading}>
-        <span class="material-symbols-outlined" class:spinning={$fileTreeLoading}>refresh</span>
+      <button class="icon-btn" onclick={handleRefresh} title="Refresh" disabled={currentFileTreeLoading}>
+        <span class="material-symbols-outlined" class:spinning={currentFileTreeLoading}>refresh</span>
       </button>
     </div>
   </div>
 
   <!-- Summary -->
-  {#if $fileTree}
+  {#if currentFileTree}
     <div class="file-tree-summary">
       <span class="summary-item">{totalFiles()} files</span>
-      {#if $fileStateCounts.modified > 0}
-        <span class="summary-item state-modified">{$fileStateCounts.modified} modified</span>
+      {#if currentFileStateCounts.modified > 0}
+        <span class="summary-item state-modified">{currentFileStateCounts.modified} modified</span>
       {/if}
-      {#if $fileStateCounts.new > 0}
-        <span class="summary-item state-new">{$fileStateCounts.new} new</span>
+      {#if currentFileStateCounts.new > 0}
+        <span class="summary-item state-new">{currentFileStateCounts.new} new</span>
       {/if}
     </div>
   {/if}
 
   <!-- Content -->
   <div class="file-tree-content">
-    {#if !$activeCollection}
+    {#if !currentActiveCollection}
       <div class="empty-state">
         <span class="material-symbols-outlined empty-icon">folder_off</span>
         <span class="empty-text">No collection selected</span>
       </div>
-    {:else if $fileTreeLoading}
+    {:else if currentFileTreeLoading}
       <div class="empty-state">
         <span class="material-symbols-outlined empty-icon spinning">hourglass_empty</span>
         <span class="empty-text">Loading files...</span>
       </div>
-    {:else if $fileTreeError}
+    {:else if currentFileTreeError}
       <div class="empty-state">
         <span class="material-symbols-outlined empty-icon error-icon">error</span>
-        <span class="empty-text">{$fileTreeError}</span>
+        <span class="empty-text">{currentFileTreeError}</span>
         <button class="retry-btn" onclick={handleRefresh}>
           <span class="material-symbols-outlined">refresh</span>
           Retry
         </button>
       </div>
-    {:else if $fileTree && $fileTree.root.children.length === 0}
+    {:else if currentFileTree && currentFileTree.root.children.length === 0}
       <div class="empty-state">
         <span class="material-symbols-outlined empty-icon">description</span>
         <span class="empty-text">No markdown files found</span>
       </div>
-    {:else if $fileTree}
+    {:else if currentFileTree}
       <div class="tree-nodes">
-        {#each $fileTree.root.children as child (child.path)}
+        {#each currentFileTree.root.children as child (child.path)}
           <FileTreeNode node={child} {onfileselect} />
         {/each}
       </div>

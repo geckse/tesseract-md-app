@@ -1,27 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
 
-  interface StatusBarProps {
-    language?: string;
-    wordCount?: number;
-    readingTime?: number;
-    syncStatus?: 'synced' | 'syncing' | 'error';
-    encoding?: string;
-  }
-
-  let {
-    language = 'Markdown',
-    wordCount = 742,
-    readingTime = 4,
-    syncStatus = 'synced',
-    encoding = 'UTF-8',
-  }: StatusBarProps = $props();
-
   let cliVersion: string | null = $state(null);
   let cliFound = $state(false);
-
-  let syncLabel = $derived(syncStatus === 'synced' ? 'Synced' : syncStatus === 'syncing' ? 'Syncing...' : 'Error');
-  let syncColor = $derived(syncStatus === 'error' ? 'error' : 'synced');
 
   onMount(async () => {
     try {
@@ -37,16 +18,8 @@
   });
 </script>
 
-<!-- h-7 bg-surface-darker font-mono: 28px status bar with monospace text -->
 <div class="status-bar">
-  <div class="status-group">
-    <span class="status-item interactive">
-      <span class="material-symbols-outlined status-icon">markdown</span>
-      {language}
-    </span>
-    <span class="status-item interactive">{wordCount} words</span>
-    <span class="status-item interactive">{readingTime} mins</span>
-  </div>
+  <div class="status-group"></div>
 
   <div class="status-group">
     <span class="status-item cli-indicator" class:cli-found={cliFound} class:cli-missing={!cliFound}>
@@ -57,18 +30,13 @@
         CLI not found
       {/if}
     </span>
-    <span class="status-item interactive sync-indicator" class:sync-error={syncColor === 'error'}>
-      <span class="sync-dot" class:sync-dot-error={syncColor === 'error'}></span>
-      {syncLabel}
-    </span>
-    <span class="status-item interactive">{encoding}</span>
   </div>
 </div>
 
 <style>
   .status-bar {
-    height: 28px;
-    min-height: 28px;
+    height: 32px;
+    min-height: 32px;
     background: var(--color-surface-darker, #0a0a0a);
     border-top: 1px solid var(--color-border, #27272a);
     display: flex;
@@ -76,7 +44,8 @@
     justify-content: space-between;
     padding: 0 16px;
     font-family: var(--font-mono, 'JetBrains Mono', monospace);
-    font-size: 10px;
+    font-size: 11px;
+    line-height: 32px;
     color: var(--color-text-dim, #71717a);
     user-select: none;
     letter-spacing: -0.025em;
@@ -93,19 +62,6 @@
     display: flex;
     align-items: center;
     gap: 6px;
-  }
-
-  .status-item.interactive {
-    cursor: pointer;
-    transition: color 0.15s;
-  }
-
-  .status-item.interactive:hover {
-    color: #fff;
-  }
-
-  .status-icon {
-    font-size: 12px;
   }
 
   .cli-indicator {
@@ -126,6 +82,7 @@
     width: 6px;
     height: 6px;
     border-radius: 50%;
+    flex-shrink: 0;
   }
 
   .cli-dot-found {
@@ -134,35 +91,5 @@
 
   .cli-dot-missing {
     background: #ef4444;
-  }
-
-  .sync-indicator {
-    color: #10b981;
-  }
-
-  .sync-indicator:hover {
-    color: #fff;
-  }
-
-  .sync-error {
-    color: #ef4444;
-  }
-
-  .sync-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: #10b981;
-    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-  }
-
-  .sync-dot-error {
-    background: #ef4444;
-    animation: none;
-  }
-
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
   }
 </style>

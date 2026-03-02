@@ -11,14 +11,14 @@
   let { node, depth = 0, onfileselect }: FileTreeNodeProps = $props()
 
   // Reactive subscriptions
-  let $selectedFilePath: string | null = $state(null)
-  let $expandedPaths: Set<string> = $state(new Set())
+  let currentSelectedFilePath: string | null = $state(null)
+  let currentExpandedPaths: Set<string> = $state(new Set())
 
-  selectedFilePath.subscribe((v) => ($selectedFilePath = v))
-  expandedPaths.subscribe((v) => ($expandedPaths = v))
+  selectedFilePath.subscribe((v) => (currentSelectedFilePath = v))
+  expandedPaths.subscribe((v) => (currentExpandedPaths = v))
 
-  let isExpanded = $derived($expandedPaths.has(node.path))
-  let isSelected = $derived(!node.is_dir && $selectedFilePath === node.path)
+  let isExpanded = $derived(currentExpandedPaths.has(node.path))
+  let isSelected = $derived(!node.is_dir && currentSelectedFilePath === node.path)
 
   function handleClick() {
     if (node.is_dir) {

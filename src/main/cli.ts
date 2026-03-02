@@ -71,13 +71,12 @@ export async function getCliVersion(): Promise<string> {
   const cliPath = await findCli()
 
   try {
-    const { stdout } = await execFileAsync(cliPath, ['--version'], {
+    const { stdout } = await execFileAsync(cliPath, ['--version', '--json'], {
       timeout: 5_000,
       maxBuffer: MAX_BUFFER
     })
-    // Output is typically "mdvdb 0.1.0" or just "0.1.0"
-    const version = stdout.trim().replace(/^mdvdb\s+/, '')
-    return version
+    const parsed = JSON.parse(stdout.trim())
+    return parsed.version as string
   } catch {
     throw new CliExecutionError('Failed to get CLI version', 1, '')
   }

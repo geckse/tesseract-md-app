@@ -68,35 +68,20 @@ describe('findCli', () => {
 })
 
 describe('getCliVersion', () => {
-  it('returns version string', async () => {
-    // First call: which, second call: --version
+  it('returns version string from JSON output', async () => {
+    // First call: which, second call: --version --json
     let callCount = 0
     mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
       callCount++
       if (callCount === 1) {
         cb(null, '/usr/local/bin/mdvdb\n', '')
       } else {
-        cb(null, 'mdvdb 0.1.0\n', '')
+        cb(null, '{"version":"0.1.0"}\n', '')
       }
     })
 
     const version = await getCliVersion()
     expect(version).toBe('0.1.0')
-  })
-
-  it('handles plain version output without prefix', async () => {
-    let callCount = 0
-    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
-      callCount++
-      if (callCount === 1) {
-        cb(null, '/usr/local/bin/mdvdb\n', '')
-      } else {
-        cb(null, '0.2.0\n', '')
-      }
-    })
-
-    const version = await getCliVersion()
-    expect(version).toBe('0.2.0')
   })
 
   it('throws CliNotFoundError when binary not found', async () => {

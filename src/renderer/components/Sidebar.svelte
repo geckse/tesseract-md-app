@@ -14,17 +14,11 @@
   import type { Collection } from '../../preload/api'
 
   interface SidebarProps {
-    userName?: string
-    userInitials?: string
-    userPlan?: string
     onnavigate?: (detail: { id: string }) => void
     onfileselect?: (detail: { folderId: string; fileId: string }) => void
   }
 
   let {
-    userName = 'Alex Designer',
-    userInitials = 'AD',
-    userPlan = 'Pro',
     onnavigate,
     onfileselect,
   }: SidebarProps = $props()
@@ -61,27 +55,30 @@
     contextMenuCollection = null
   }
 
-  function formatStats(status: typeof $collectionStatus): string {
+  function formatStats(status: typeof currentCollectionStatus): string {
     if (!status) return ''
     const docs = status.document_count ?? 0
     return `${docs} docs`
   }
 
   // Reactive subscriptions
-  let $collections: Collection[] = $state([])
-  let $activeCollectionId: string | null = $state(null)
-  let $collectionStatus: import('../types/cli').IndexStatus | null = $state(null)
-  let $collectionsLoading: boolean = $state(false)
+  let currentCollections: Collection[] = $state([])
+  let currentActiveCollectionId: string | null = $state(null)
+  let currentCollectionStatus: import('../types/cli').IndexStatus | null = $state(null)
+  let currentCollectionsLoading: boolean = $state(false)
 
-  collections.subscribe((v) => ($collections = v))
-  activeCollectionId.subscribe((v) => ($activeCollectionId = v))
-  collectionStatus.subscribe((v) => ($collectionStatus = v))
-  collectionsLoading.subscribe((v) => ($collectionsLoading = v))
+  collections.subscribe((v) => (currentCollections = v))
+  activeCollectionId.subscribe((v) => (currentActiveCollectionId = v))
+  collectionStatus.subscribe((v) => (currentCollectionStatus = v))
+  collectionsLoading.subscribe((v) => (currentCollectionsLoading = v))
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <aside class="sidebar" onclick={closeContextMenu}>
+  <!-- Traffic light spacer (macOS window controls) -->
+  <div class="traffic-light-spacer"></div>
+
   <!-- Logo -->
   <div class="logo-area">
     <div class="logo-icon">
@@ -101,12 +98,12 @@
         </button>
       </div>
 
-      {#if $collectionsLoading}
+      {#if currentCollectionsLoading}
         <div class="empty-state">
           <span class="material-symbols-outlined empty-icon">hourglass_empty</span>
           <span class="empty-text">Loading...</span>
         </div>
-      {:else if $collections.length === 0}
+      {:else if currentCollections.length === 0}
         <div class="empty-state">
           <span class="material-symbols-outlined empty-icon">folder_off</span>
           <span class="empty-text">No collections yet</span>
@@ -117,20 +114,20 @@
         </div>
       {:else}
         <nav class="nav-list">
-          {#each $collections as collection}
+          {#each currentCollections as collection}
             <button
               class="nav-item collection-item"
-              class:active={$activeCollectionId === collection.id}
+              class:active={currentActiveCollectionId === collection.id}
               onclick={() => handleCollectionClick(collection)}
               oncontextmenu={(e) => handleCollectionContextMenu(e, collection)}
             >
               <span class="material-symbols-outlined nav-icon">
-                {$activeCollectionId === collection.id ? 'folder_open' : 'folder'}
+                {currentActiveCollectionId === collection.id ? 'folder_open' : 'folder'}
               </span>
               <div class="collection-info">
                 <span class="nav-label">{collection.name}</span>
-                {#if $activeCollectionId === collection.id && $collectionStatus}
-                  <span class="collection-stats">{formatStats($collectionStatus)}</span>
+                {#if currentActiveCollectionId === collection.id && currentCollectionStatus}
+                  <span class="collection-stats">{formatStats(currentCollectionStatus)}</span>
                 {/if}
               </div>
             </button>
@@ -140,23 +137,13 @@
     </div>
 
     <!-- File Tree -->
-    {#if $activeCollectionId}
+    {#if currentActiveCollectionId}
       <div class="file-tree-section">
-        <FileTree onfileselect={(detail) => onfileselect?.({ folderId: $activeCollectionId!, fileId: detail.path })} />
+        <FileTree onfileselect={(detail) => onfileselect?.({ folderId: currentActiveCollectionId!, fileId: detail.path })} />
       </div>
     {/if}
   </div>
 
-  <!-- User area -->
-  <div class="user-area">
-    <button class="user-button">
-      <div class="user-avatar">{userInitials}</div>
-      <div class="user-info">
-        <span class="user-name">{userName}</span>
-        <span class="user-plan">{userPlan}</span>
-      </div>
-    </button>
-  </div>
 </aside>
 
 <!-- Context menu -->
@@ -193,11 +180,17 @@
     z-index: 20;
   }
 
+  .traffic-light-spacer {
+    height: 28px;
+    min-height: 28px;
+    -webkit-app-region: drag;
+  }
+
   .logo-area {
-    height: 56px;
+    height: 40px;
     display: flex;
     align-items: center;
-    padding: 0 20px;
+    padding: 0 10px;
     border-bottom: 1px solid var(--color-border, #27272a);
     gap: 12px;
   }
@@ -409,69 +402,6 @@
 
   .add-folder-btn .material-symbols-outlined {
     font-size: 18px;
-  }
-
-  .user-area {
-    padding: 16px;
-    border-top: 1px solid var(--color-border, #27272a);
-    margin-top: auto;
-    background: var(--color-surface-darker, #0a0a0a);
-  }
-
-  .user-button {
-    display: flex;
-    width: 100%;
-    align-items: center;
-    gap: 12px;
-    padding: 8px;
-    border-radius: 6px;
-    background: none;
-    border: none;
-    cursor: pointer;
-    transition: background 0.15s;
-    font-family: inherit;
-  }
-
-  .user-button:hover {
-    background: var(--color-surface, #161617);
-  }
-
-  .user-button:hover .user-avatar {
-    border-color: var(--color-primary, #00E5FF);
-  }
-
-  .user-avatar {
-    width: 32px;
-    height: 32px;
-    border-radius: 6px;
-    background: linear-gradient(135deg, #374151, #111827);
-    border: 1px solid var(--color-border, #27272a);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--color-text-dim, #71717a);
-    font-weight: 700;
-    font-size: 12px;
-    transition: border-color 0.15s;
-  }
-
-  .user-info {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .user-name {
-    font-size: 14px;
-    font-weight: 500;
-    color: #fff;
-  }
-
-  .user-plan {
-    font-size: 10px;
-    color: var(--color-text-dim, #71717a);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
   }
 
   .context-menu-overlay {

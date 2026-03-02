@@ -3,7 +3,6 @@
   import { selectedFilePath } from '../stores/files';
 
   interface HeaderProps {
-    breadcrumb?: { folder?: string; file?: string };
     propertiesOpen?: boolean;
     onsearch?: (detail: { query: string }) => void;
     ontoggleproperties?: (detail: { open: boolean }) => void;
@@ -11,38 +10,33 @@
   }
 
   let {
-    breadcrumb = { folder: 'Project Alpha', file: 'Design Specs.md' },
     propertiesOpen = $bindable(false),
     onsearch,
     ontoggleproperties,
     onedit,
   }: HeaderProps = $props();
 
-  let $activeCollection: import('../../preload/api').Collection | null = $state(null);
-  activeCollection.subscribe((v) => ($activeCollection = v));
+  let currentActiveCollection: import('../../preload/api').Collection | null = $state(null);
+  activeCollection.subscribe((v) => (currentActiveCollection = v));
 
-  let $selectedFilePath: string | null = $state(null);
-  selectedFilePath.subscribe((v) => ($selectedFilePath = v));
+  let currentSelectedFilePath: string | null = $state(null);
+  selectedFilePath.subscribe((v) => (currentSelectedFilePath = v));
 
-  let collectionName = $derived($activeCollection?.name ?? breadcrumb.folder);
+  let collectionName = $derived(currentActiveCollection?.name ?? null);
 
   /** Parse selected file path into breadcrumb segments: [dir1, dir2, ..., filename] */
   let pathSegments = $derived.by(() => {
-    if ($selectedFilePath) {
-      return $selectedFilePath.split('/').filter((s) => s.length > 0);
+    if (currentSelectedFilePath) {
+      return currentSelectedFilePath.split('/').filter((s) => s.length > 0);
     }
-    // Fall back to legacy breadcrumb prop
-    const segments: string[] = [];
-    if (breadcrumb.folder && !collectionName) segments.push(breadcrumb.folder);
-    if (breadcrumb.file) segments.push(breadcrumb.file);
-    return segments;
+    return [];
   });
 
   /** Directory segments (everything except the last segment / filename) */
   let dirSegments = $derived(pathSegments.length > 1 ? pathSegments.slice(0, -1) : []);
 
   /** The filename (last segment) */
-  let fileName = $derived(pathSegments.length > 0 ? pathSegments[pathSegments.length - 1] : breadcrumb.file);
+  let fileName = $derived(pathSegments.length > 0 ? pathSegments[pathSegments.length - 1] : null);
 
   function handleSearch(event: Event) {
     const target = event.target as HTMLInputElement;
@@ -60,20 +54,24 @@
 </script>
 
 <header class="header">
-  <!-- Breadcrumb -->
-  <div class="breadcrumb">
-    {#if collectionName}
+  <!-- Breadcrumb (only shown when a collection is active) -->
+  {#if collectionName}
+    <div class="breadcrumb">
       <span class="breadcrumb-folder">{collectionName}</span>
-      <span class="material-symbols-outlined breadcrumb-separator">chevron_right</span>
-    {/if}
-    {#each dirSegments as segment}
-      <span class="breadcrumb-folder">{segment}</span>
-      <span class="material-symbols-outlined breadcrumb-separator">chevron_right</span>
-    {/each}
-    {#if fileName}
-      <span class="breadcrumb-file">{fileName}</span>
-    {/if}
-  </div>
+      {#if pathSegments.length > 0}
+        <span class="material-symbols-outlined breadcrumb-separator">chevron_right</span>
+      {/if}
+      {#each dirSegments as segment}
+        <span class="breadcrumb-folder">{segment}</span>
+        <span class="material-symbols-outlined breadcrumb-separator">chevron_right</span>
+      {/each}
+      {#if fileName}
+        <span class="breadcrumb-file">{fileName}</span>
+      {/if}
+    </div>
+  {:else}
+    <div></div>
+  {/if}
 
   <!-- Actions -->
   <div class="actions">
@@ -120,6 +118,7 @@
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     z-index: 30;
+    -webkit-app-region: drag;
   }
 
   .breadcrumb {
@@ -129,6 +128,7 @@
     font-family: var(--font-mono, 'JetBrains Mono', monospace);
     font-size: 12px;
     letter-spacing: -0.025em;
+    -webkit-app-region: no-drag;
   }
 
   .breadcrumb-folder {
@@ -155,6 +155,7 @@
     display: flex;
     align-items: center;
     gap: 12px;
+    -webkit-app-region: no-drag;
   }
 
   .search-wrapper {
