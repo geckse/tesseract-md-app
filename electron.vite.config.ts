@@ -5,7 +5,7 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [externalizeDepsPlugin({ exclude: ['electron-store'] })],
     build: {
       outDir: 'out/main',
       rollupOptions: {
@@ -16,7 +16,7 @@ export default defineConfig({
     }
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [externalizeDepsPlugin({ exclude: ['electron-store'] })],
     build: {
       outDir: 'out/preload',
       rollupOptions: {

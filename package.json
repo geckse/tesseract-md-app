@@ -17,6 +17,7 @@
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
+    "electron-store": "^10.0.0",
     "electron-updater": "^6.3.9"
   },
   "devDependencies": {
