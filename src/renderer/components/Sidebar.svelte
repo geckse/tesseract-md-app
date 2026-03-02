@@ -63,7 +63,7 @@
 
   function formatStats(status: typeof $collectionStatus): string {
     if (!status) return ''
-    const docs = status.total_documents ?? status.documents ?? 0
+    const docs = status.document_count ?? 0
     return `${docs} docs`
   }
 

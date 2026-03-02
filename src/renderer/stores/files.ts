@@ -14,6 +14,15 @@ export const fileTreeError = writable<string | null>(null)
 /** Currently selected file path in the tree. */
 export const selectedFilePath = writable<string | null>(null)
 
+/** Content of the currently selected file. */
+export const fileContent = writable<string | null>(null)
+
+/** Whether file content is currently loading. */
+export const fileContentLoading = writable<boolean>(false)
+
+/** Error message if file content loading failed. */
+export const fileContentError = writable<string | null>(null)
+
 /** Set of expanded directory paths in the tree UI. */
 export const expandedPaths = writable<Set<string>>(new Set())
 
@@ -56,9 +65,27 @@ export async function loadFileTree(subPath?: string): Promise<void> {
   }
 }
 
-/** Select a file path in the tree. */
-export function selectFile(path: string | null): void {
+/** Select a file path in the tree and load its content. */
+export async function selectFile(path: string | null): Promise<void> {
   selectedFilePath.set(path)
+  fileContent.set(null)
+  fileContentError.set(null)
+
+  if (!path) return
+
+  const collection = get(activeCollection)
+  if (!collection) return
+
+  const fullPath = `${collection.path}/${path}`
+  fileContentLoading.set(true)
+  try {
+    const content = await window.api.readFile(fullPath)
+    fileContent.set(content)
+  } catch (err) {
+    fileContentError.set(err instanceof Error ? err.message : String(err))
+  } finally {
+    fileContentLoading.set(false)
+  }
 }
 
 /** Toggle a directory's expanded state. */
