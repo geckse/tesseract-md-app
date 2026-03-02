@@ -1,0 +1,164 @@
+/**
+ * IPC handler registration for all CLI bridge channels.
+ *
+ * Each handler maps an IPC channel to a CLI command via execCommand().
+ * Called once from the main process on app ready.
+ */
+
+import { ipcMain } from 'electron'
+import { findCli, getCliVersion, execCommand } from './cli'
+import type {
+  SearchOutput,
+  IndexStatus,
+  IngestResult,
+  IngestPreview,
+  FileTree,
+  DocumentInfo,
+  LinksOutput,
+  BacklinksOutput,
+  OrphansOutput,
+  ClusterSummary,
+  Schema,
+  Config,
+  DoctorResult
+} from '../renderer/types/cli'
+import type { SerializedError } from './errors'
+import {
+  CliNotFoundError,
+  CliExecutionError,
+  CliParseError,
+  CliTimeoutError
+} from './errors'
+
+/** Ingest timeout: 5 minutes */
+const INGEST_TIMEOUT_MS = 300_000
+
+/**
+ * Serialize any error into an IPC-safe object.
+ * IPC strips Error prototypes, so we convert to plain objects.
+ */
+function serializeError(error: unknown): SerializedError {
+  if (
+    error instanceof CliNotFoundError ||
+    error instanceof CliExecutionError ||
+    error instanceof CliParseError ||
+    error instanceof CliTimeoutError
+  ) {
+    return error.serialize()
+  }
+
+  if (error instanceof Error) {
+    return { name: error.name, message: error.message }
+  }
+
+  return { name: 'Error', message: String(error) }
+}
+
+/**
+ * Wrap an async handler so errors are serialized for IPC transport.
+ */
+function wrapHandler<T>(fn: () => Promise<T>): Promise<T> {
+  return fn().catch((error: unknown) => {
+    throw serializeError(error)
+  })
+}
+
+/**
+ * Register all IPC handlers for CLI bridge channels.
+ * Must be called once after app is ready.
+ */
+export function registerIpcHandlers(): void {
+  // CLI detection
+  ipcMain.handle('cli:find', () => wrapHandler(() => findCli()))
+
+  ipcMain.handle('cli:version', () => wrapHandler(() => getCliVersion()))
+
+  // Search
+  ipcMain.handle(
+    'cli:search',
+    (_event, root: string, query: string, options?: { limit?: number; mode?: string; path?: string; filter?: string }) => {
+      const args: string[] = [query]
+      if (options?.limit != null) args.push('--limit', String(options.limit))
+      if (options?.mode) args.push('--mode', options.mode)
+      if (options?.path) args.push('--path', options.path)
+      if (options?.filter) args.push('--filter', options.filter)
+      return wrapHandler(() => execCommand<SearchOutput>('search', args, root))
+    }
+  )
+
+  // Status
+  ipcMain.handle('cli:status', (_event, root: string) =>
+    wrapHandler(() => execCommand<IndexStatus>('status', [], root))
+  )
+
+  // Ingest
+  ipcMain.handle(
+    'cli:ingest',
+    (_event, root: string, options?: { reindex?: boolean }) => {
+      const args: string[] = []
+      if (options?.reindex) args.push('--reindex')
+      return wrapHandler(() =>
+        execCommand<IngestResult>('ingest', args, root, { timeout: INGEST_TIMEOUT_MS })
+      )
+    }
+  )
+
+  // Ingest preview
+  ipcMain.handle('cli:ingest-preview', (_event, root: string) =>
+    wrapHandler(() =>
+      execCommand<IngestPreview>('ingest', ['--preview'], root)
+    )
+  )
+
+  // File tree
+  ipcMain.handle('cli:tree', (_event, root: string, path?: string) => {
+    const args: string[] = []
+    if (path) args.push('--path', path)
+    return wrapHandler(() => execCommand<FileTree>('tree', args, root))
+  })
+
+  // Get document
+  ipcMain.handle('cli:get', (_event, root: string, filePath: string) =>
+    wrapHandler(() => execCommand<DocumentInfo>('get', [filePath], root))
+  )
+
+  // Links
+  ipcMain.handle('cli:links', (_event, root: string, filePath: string) =>
+    wrapHandler(() => execCommand<LinksOutput>('links', [filePath], root))
+  )
+
+  // Backlinks
+  ipcMain.handle('cli:backlinks', (_event, root: string, filePath: string) =>
+    wrapHandler(() => execCommand<BacklinksOutput>('backlinks', [filePath], root))
+  )
+
+  // Orphans
+  ipcMain.handle('cli:orphans', (_event, root: string) =>
+    wrapHandler(() => execCommand<OrphansOutput>('orphans', [], root))
+  )
+
+  // Clusters
+  ipcMain.handle('cli:clusters', (_event, root: string) =>
+    wrapHandler(() => execCommand<ClusterSummary[]>('clusters', [], root))
+  )
+
+  // Schema
+  ipcMain.handle('cli:schema', (_event, root: string) =>
+    wrapHandler(() => execCommand<Schema>('schema', [], root))
+  )
+
+  // Config
+  ipcMain.handle('cli:config', (_event, root: string) =>
+    wrapHandler(() => execCommand<Config>('config', [], root))
+  )
+
+  // Doctor
+  ipcMain.handle('cli:doctor', (_event, root: string) =>
+    wrapHandler(() => execCommand<DoctorResult>('doctor', [], root))
+  )
+
+  // Init
+  ipcMain.handle('cli:init', (_event, root: string) =>
+    wrapHandler(() => execCommand<void>('init', [], root))
+  )
+}
