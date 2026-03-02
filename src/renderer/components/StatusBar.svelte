@@ -1,5 +1,27 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { isDirty, wordCount as wordCountStore, readingTime as readingTimeStore } from '../stores/editor';
+
+  interface StatusBarProps {
+    language?: string;
+    syncStatus?: 'synced' | 'syncing' | 'error';
+    encoding?: string;
+  }
+
+  let {
+    language = 'Markdown',
+    syncStatus = 'synced',
+    encoding = 'UTF-8',
+  }: StatusBarProps = $props();
+
+  let $isDirty = $state(false);
+  isDirty.subscribe((v) => ($isDirty = v));
+
+  let $wordCount = $state(0);
+  wordCountStore.subscribe((v) => ($wordCount = v));
+
+  let $readingTime = $state(0);
+  readingTimeStore.subscribe((v) => ($readingTime = v));
 
   let cliVersion: string | null = $state(null);
   let cliFound = $state(false);
@@ -19,7 +41,17 @@
 </script>
 
 <div class="status-bar">
-  <div class="status-group"></div>
+  <div class="status-group">
+    <span class="status-item interactive">
+      <span class="material-symbols-outlined status-icon">markdown</span>
+      {language}
+      {#if $isDirty}
+        <span class="dirty-dot"></span>
+      {/if}
+    </span>
+    <span class="status-item interactive">{$wordCount} words</span>
+    <span class="status-item interactive">{$readingTime} mins</span>
+  </div>
 
   <div class="status-group">
     <span class="status-item cli-indicator" class:cli-found={cliFound} class:cli-missing={!cliFound}>
@@ -62,6 +94,26 @@
     display: flex;
     align-items: center;
     gap: 6px;
+  }
+
+  .status-item.interactive {
+    cursor: pointer;
+    transition: color 0.15s;
+  }
+
+  .status-item.interactive:hover {
+    color: #fff;
+  }
+
+  .status-icon {
+    font-size: 12px;
+  }
+
+  .dirty-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #f59e0b;
   }
 
   .cli-indicator {
