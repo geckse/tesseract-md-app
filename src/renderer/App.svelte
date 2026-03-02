@@ -5,6 +5,7 @@
   import Header from './components/Header.svelte';
   import StatusBar from './components/StatusBar.svelte';
   import { loadCollections, setActiveCollection } from './stores/collections';
+  import { selectFile } from './stores/files';
 
   let { children }: { children?: Snippet } = $props();
 
@@ -17,7 +18,7 @@
   }
 
   function handleFileSelect(detail: { folderId: string; fileId: string }) {
-    // TODO: handle file selection (Phase 4 — file tree navigation)
+    selectFile(detail.fileId);
   }
 
   function handleSearch(detail: { query: string }) {

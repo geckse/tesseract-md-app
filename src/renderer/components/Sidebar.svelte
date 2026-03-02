@@ -9,6 +9,8 @@
     removeCollection,
     setActiveCollection,
   } from '../stores/collections'
+  import { loadFileTree } from '../stores/files'
+  import FileTree from './FileTree.svelte'
   import type { Collection } from '../../preload/api'
 
   interface SidebarProps {
@@ -40,6 +42,7 @@
 
   async function handleCollectionClick(collection: Collection) {
     await setActiveCollection(collection.id)
+    await loadFileTree()
   }
 
   function handleCollectionContextMenu(event: MouseEvent, collection: Collection) {
@@ -90,7 +93,7 @@
   <!-- Scrollable content -->
   <div class="nav-content">
     <!-- Collections -->
-    <div class="nav-section">
+    <div class="nav-section collections-section">
       <div class="section-header-row">
         <h3 class="section-header">Collections</h3>
         <button class="add-collection-btn" onclick={handleAddCollection} title="Add Collection">
@@ -135,6 +138,13 @@
         </nav>
       {/if}
     </div>
+
+    <!-- File Tree -->
+    {#if $activeCollectionId}
+      <div class="file-tree-section">
+        <FileTree onfileselect={(detail) => onfileselect?.({ folderId: $activeCollectionId!, fileId: detail.path })} />
+      </div>
+    {/if}
   </div>
 
   <!-- User area -->
@@ -219,12 +229,29 @@
   .nav-content {
     flex: 1;
     overflow-y: auto;
-    padding: 24px 0;
+    overflow-x: hidden;
+    padding: 24px 0 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .collections-section {
+    flex-shrink: 0;
   }
 
   .nav-section {
     padding: 0 12px;
     margin-bottom: 24px;
+  }
+
+  .file-tree-section {
+    flex: 1;
+    min-height: 0;
+    border-top: 1px solid var(--color-border, #27272a);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
   }
 
   .section-header-row {
