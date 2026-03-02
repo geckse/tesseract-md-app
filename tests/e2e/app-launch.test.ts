@@ -48,4 +48,32 @@ test.describe('App Launch', () => {
 
     await electronApp.close()
   })
+
+  test('should display CLI status indicator in the status bar', async () => {
+    const electronApp = await electron.launch({
+      args: [appPath]
+    })
+
+    const window = await electronApp.firstWindow()
+    await window.waitForLoadState('domcontentloaded')
+
+    const statusBar = window.locator('.status-bar')
+    await expect(statusBar).toBeVisible()
+
+    const cliIndicator = window.locator('.cli-indicator')
+    await expect(cliIndicator).toBeVisible()
+
+    // CLI indicator should show either "mdvdb v..." (found) or "CLI not found"
+    const cliText = await cliIndicator.textContent()
+    expect(cliText).toBeTruthy()
+    expect(
+      cliText!.includes('mdvdb') || cliText!.includes('CLI not found')
+    ).toBe(true)
+
+    // Should have the status dot
+    const cliDot = window.locator('.cli-dot')
+    await expect(cliDot).toBeVisible()
+
+    await electronApp.close()
+  })
 })
