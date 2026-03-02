@@ -1,0 +1,102 @@
+/* ==========================================================================
+   Design Tokens — mdvdb Editor
+   CSS custom properties for colors, typography, spacing, and layout.
+   ========================================================================== */
+
+:root {
+  /* --- Colors: Primary --- */
+  --color-primary: #00E5FF;
+  --color-primary-dark: #00B8CC;
+  --color-primary-dim: rgba(0, 229, 255, 0.1);
+  --color-primary-glow: rgba(0, 229, 255, 0.4);
+
+  /* --- Colors: Backgrounds --- */
+  --color-bg: #0f0f10;
+  --color-surface: #161617;
+  --color-surface-dark: #0a0a0a;
+
+  /* --- Colors: Borders --- */
+  --color-border: #27272a;
+  --color-border-hover: #3f3f46;
+
+  /* --- Colors: Text --- */
+  --color-text: #e4e4e7;
+  --color-text-dim: #71717a;
+  --color-text-syntax: #526366;
+  --color-text-white: #ffffff;
+
+  /* --- Colors: Semantic --- */
+  --color-success: #34d399;
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+  --color-info: #60a5fa;
+
+  /* --- Fonts --- */
+  --font-display: 'Space Grotesk', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* --- Font Sizes --- */
+  --text-xs: 0.625rem;   /* 10px */
+  --text-sm: 0.75rem;    /* 12px */
+  --text-base: 0.875rem; /* 14px */
+  --text-lg: 1.125rem;   /* 18px */
+  --text-xl: 1.5rem;     /* 24px */
+  --text-2xl: 2rem;      /* 32px */
+  --text-3xl: 2.5rem;    /* 40px */
+
+  /* --- Font Weights --- */
+  --weight-light: 300;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  /* --- Line Heights --- */
+  --leading-tight: 1.2;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.8;
+
+  /* --- Spacing --- */
+  --space-1: 0.25rem;  /* 4px  */
+  --space-2: 0.5rem;   /* 8px  */
+  --space-3: 0.75rem;  /* 12px */
+  --space-4: 1rem;     /* 16px */
+  --space-5: 1.25rem;  /* 20px */
+  --space-6: 1.5rem;   /* 24px */
+  --space-8: 2rem;     /* 32px */
+  --space-10: 2.5rem;  /* 40px */
+  --space-12: 3rem;    /* 48px */
+  --space-16: 4rem;    /* 64px */
+
+  /* --- Layout --- */
+  --sidebar-width: 16rem;    /* 256px */
+  --header-height: 3.5rem;   /* 56px  */
+  --panel-width: 18rem;      /* 288px */
+  --content-max-width: 48rem; /* 768px */
+
+  /* --- Border Radius --- */
+  --radius-sm: 0.25rem; /* 4px */
+  --radius-md: 0.375rem; /* 6px */
+  --radius-lg: 0.5rem;  /* 8px */
+  --radius-full: 9999px;
+
+  /* --- Scrollbar --- */
+  --scrollbar-width: 8px;
+  --scrollbar-track: var(--color-bg);
+  --scrollbar-thumb: var(--color-border);
+  --scrollbar-thumb-hover: var(--color-border-hover);
+
+  /* --- Transitions --- */
+  --transition-fast: 150ms ease;
+  --transition-normal: 200ms ease;
+
+  /* --- Shadows --- */
+  --shadow-glow: 0 0 10px var(--color-primary-glow);
+
+  /* --- Z-Index --- */
+  --z-base: 10;
+  --z-sidebar: 20;
+  --z-header: 30;
+  --z-overlay: 40;
+  --z-grain: 50;
+}

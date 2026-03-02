@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "target": "ESNext",
+    "lib": ["ESNext"],
+    "outDir": "./out/tsconfig.node.tsbuildinfo",
+    "types": ["node"],
+    "strict": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true
+  },
+  "include": [
+    "src/main/**/*.ts",
+    "src/preload/**/*.ts",
+    "electron.vite.config.ts"
+  ]
+}

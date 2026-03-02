@@ -1,0 +1,51 @@
+/* ==========================================================================
+   app.css — Main stylesheet for mdvdb desktop app
+   Tailwind CSS v4 entry point with design token theme mapping.
+   ========================================================================== */
+
+@import 'tailwindcss';
+
+/* Import design tokens and global styles */
+@import './tokens.css';
+@import './global.css';
+
+/* ==========================================================================
+   Tailwind v4 Theme — maps CSS custom properties to Tailwind utilities
+   ========================================================================== */
+
+@theme {
+  /* --- Colors: Primary --- */
+  --color-primary: #00E5FF;
+  --color-primary-dark: #00B8CC;
+  --color-primary-dim: rgba(0, 229, 255, 0.1);
+  --color-primary-glow: rgba(0, 229, 255, 0.4);
+
+  /* --- Colors: Backgrounds --- */
+  --color-bg: #0f0f10;
+  --color-surface: #161617;
+  --color-surface-dark: #0a0a0a;
+
+  /* --- Colors: Borders --- */
+  --color-border: #27272a;
+  --color-border-hover: #3f3f46;
+
+  /* --- Colors: Text --- */
+  --color-text: #e4e4e7;
+  --color-text-dim: #71717a;
+  --color-text-syntax: #526366;
+  --color-text-white: #ffffff;
+
+  /* --- Colors: Semantic --- */
+  --color-success: #34d399;
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+  --color-info: #60a5fa;
+
+  /* --- Fonts --- */
+  --font-display: 'Space Grotesk', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* --- Layout --- */
+  --sidebar-width: 16rem;
+  --header-height: 3.5rem;
+}
