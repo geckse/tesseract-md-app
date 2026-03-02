@@ -6,7 +6,23 @@
  */
 
 import { ipcMain } from 'electron'
+import { promises as fs } from 'node:fs'
 import { findCli, getCliVersion, execCommand, execRaw } from './cli'
+import {
+  getCollections,
+  addCollection,
+  removeCollection,
+  setActiveCollection,
+  getActiveCollection
+} from './store'
+import type { Collection } from './store'
+import {
+  pickCollectionFolder,
+  validateCollectionPath,
+  initCollection,
+  confirmRemoveCollection,
+  promptInitCollection
+} from './collections'
 import type {
   SearchOutput,
   IndexStatus,
@@ -160,5 +176,67 @@ export function registerIpcHandlers(): void {
   // Init
   ipcMain.handle('cli:init', (_event, root: string) =>
     wrapHandler(() => execRaw('init', [], root))
+  )
+
+  // Collection management
+  ipcMain.handle('collections:list', () =>
+    wrapHandler(async () => getCollections())
+  )
+
+  ipcMain.handle('collections:add', () =>
+    wrapHandler(async (): Promise<Collection | null> => {
+      const path = await pickCollectionFolder()
+      if (!path) return null
+
+      const validation = await validateCollectionPath(path)
+      if (!validation.valid) {
+        throw new Error(validation.error ?? 'Invalid collection path')
+      }
+
+      if (!validation.hasConfig) {
+        const shouldInit = await promptInitCollection(validation.name)
+        if (!shouldInit) return null
+        await initCollection(path)
+      }
+
+      return addCollection(path)
+    })
+  )
+
+  ipcMain.handle('collections:remove', (_event, id: string) =>
+    wrapHandler(async () => {
+      const collections = getCollections()
+      const collection = collections.find((c) => c.id === id)
+      if (!collection) {
+        throw new Error(`Collection not found: ${id}`)
+      }
+
+      const confirmed = await confirmRemoveCollection(collection.name)
+      if (!confirmed) return
+
+      removeCollection(id)
+    })
+  )
+
+  ipcMain.handle('collections:set-active', (_event, id: string) =>
+    wrapHandler(async () => {
+      setActiveCollection(id)
+    })
+  )
+
+  ipcMain.handle('collections:get-active', () =>
+    wrapHandler(async () => getActiveCollection())
+  )
+
+  // File reading (with security validation)
+  ipcMain.handle('fs:read-file', (_event, absolutePath: string) =>
+    wrapHandler(async () => {
+      const collections = getCollections()
+      const isWithinCollection = collections.some((c) => absolutePath.startsWith(c.path))
+      if (!isWithinCollection) {
+        throw new Error('Access denied: path is not within a known collection')
+      }
+      return fs.readFile(absolutePath, 'utf-8')
+    })
   )
 }
