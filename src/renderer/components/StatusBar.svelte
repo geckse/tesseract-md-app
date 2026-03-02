@@ -25,13 +25,10 @@
 
   onMount(async () => {
     try {
-      const result = await window.api.findCli();
-      if (result.data) {
+      const path = await window.api.findCli();
+      if (path) {
         cliFound = true;
-        const versionResult = await window.api.getCliVersion();
-        if (versionResult.data) {
-          cliVersion = versionResult.data;
-        }
+        cliVersion = await window.api.getCliVersion();
       }
     } catch {
       cliFound = false;

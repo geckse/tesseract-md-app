@@ -6,7 +6,7 @@
  */
 
 import { ipcMain } from 'electron'
-import { findCli, getCliVersion, execCommand } from './cli'
+import { findCli, getCliVersion, execCommand, execRaw } from './cli'
 import type {
   SearchOutput,
   IndexStatus,
@@ -48,18 +48,18 @@ function serializeError(error: unknown): SerializedError {
   }
 
   if (error instanceof Error) {
-    return { name: error.name, message: error.message }
+    return { error: true as const, type: 'CliExecutionError' as const, message: error.message }
   }
 
-  return { name: 'Error', message: String(error) }
+  return { error: true as const, type: 'CliExecutionError' as const, message: String(error) }
 }
 
 /**
  * Wrap an async handler so errors are serialized for IPC transport.
  */
-function wrapHandler<T>(fn: () => Promise<T>): Promise<T> {
+function wrapHandler<T>(fn: () => Promise<T>): Promise<T | SerializedError> {
   return fn().catch((error: unknown) => {
-    throw serializeError(error)
+    return serializeError(error)
   })
 }
 
@@ -159,6 +159,6 @@ export function registerIpcHandlers(): void {
 
   // Init
   ipcMain.handle('cli:init', (_event, root: string) =>
-    wrapHandler(() => execCommand<void>('init', [], root))
+    wrapHandler(() => execRaw('init', [], root))
   )
 }

@@ -11,8 +11,7 @@ import type {
   ClusterSummary,
   Schema,
   Config,
-  DoctorResult,
-  CliResult
+  DoctorResult
 } from '../renderer/types/cli'
 
 /** Options for the search command. */
@@ -30,22 +29,22 @@ export interface IngestOptions {
 
 /** Typed API exposed to the renderer process via contextBridge. */
 export interface MdvdbApi {
-  findCli(): Promise<CliResult<string>>
-  getCliVersion(): Promise<CliResult<string>>
-  search(root: string, query: string, options?: SearchOptions): Promise<CliResult<SearchOutput>>
-  status(root: string): Promise<CliResult<IndexStatus>>
-  ingest(root: string, options?: IngestOptions): Promise<CliResult<IngestResult>>
-  ingestPreview(root: string): Promise<CliResult<IngestPreview>>
-  tree(root: string, path?: string): Promise<CliResult<FileTree>>
-  getFile(root: string, filePath: string): Promise<CliResult<DocumentInfo>>
-  links(root: string, filePath: string): Promise<CliResult<LinksOutput>>
-  backlinks(root: string, filePath: string): Promise<CliResult<BacklinksOutput>>
-  orphans(root: string): Promise<CliResult<OrphansOutput>>
-  clusters(root: string): Promise<CliResult<ClusterSummary[]>>
-  schema(root: string): Promise<CliResult<Schema>>
-  config(root: string): Promise<CliResult<Config>>
-  doctor(root: string): Promise<CliResult<DoctorResult>>
-  init(root: string): Promise<CliResult<void>>
+  findCli(): Promise<string>
+  getCliVersion(): Promise<string>
+  search(root: string, query: string, options?: SearchOptions): Promise<SearchOutput>
+  status(root: string): Promise<IndexStatus>
+  ingest(root: string, options?: IngestOptions): Promise<IngestResult>
+  ingestPreview(root: string): Promise<IngestPreview>
+  tree(root: string, path?: string): Promise<FileTree>
+  getFile(root: string, filePath: string): Promise<DocumentInfo>
+  links(root: string, filePath: string): Promise<LinksOutput>
+  backlinks(root: string, filePath: string): Promise<BacklinksOutput>
+  orphans(root: string): Promise<OrphansOutput>
+  clusters(root: string): Promise<ClusterSummary[]>
+  schema(root: string): Promise<Schema>
+  config(root: string): Promise<Config>
+  doctor(root: string): Promise<DoctorResult>
+  init(root: string): Promise<void>
 }
 
 declare global {

@@ -12,10 +12,12 @@ vi.mock('electron', () => ({
 const mockFindCli = vi.fn()
 const mockGetCliVersion = vi.fn()
 const mockExecCommand = vi.fn()
+const mockExecRaw = vi.fn()
 vi.mock('../../src/main/cli', () => ({
   findCli: (...args: unknown[]) => mockFindCli(...args),
   getCliVersion: (...args: unknown[]) => mockGetCliVersion(...args),
-  execCommand: (...args: unknown[]) => mockExecCommand(...args)
+  execCommand: (...args: unknown[]) => mockExecCommand(...args),
+  execRaw: (...args: unknown[]) => mockExecRaw(...args)
 }))
 
 import { registerIpcHandlers } from '../../src/main/ipc-handlers'
@@ -25,6 +27,7 @@ beforeEach(() => {
   mockFindCli.mockReset()
   mockGetCliVersion.mockReset()
   mockExecCommand.mockReset()
+  mockExecRaw.mockReset()
 })
 
 describe('registerIpcHandlers', () => {
@@ -279,11 +282,11 @@ describe('IPC handler argument passing', () => {
 
   describe('cli:init', () => {
     it('calls with empty args', async () => {
-      mockExecCommand.mockResolvedValue(undefined)
+      mockExecRaw.mockResolvedValue('')
       const handler = getHandler('cli:init')
       await handler(fakeEvent, '/tmp/project')
 
-      expect(mockExecCommand).toHaveBeenCalledWith('init', [], '/tmp/project')
+      expect(mockExecRaw).toHaveBeenCalledWith('init', [], '/tmp/project')
     })
   })
 })
@@ -301,8 +304,10 @@ describe('IPC error serialization', () => {
     mockFindCli.mockRejectedValue(new CliNotFoundError())
     const handler = getHandler('cli:find')
 
-    await expect(handler()).rejects.toEqual({
-      name: 'CliNotFoundError',
+    const result = await handler()
+    expect(result).toEqual({
+      error: true,
+      type: 'CliNotFoundError',
       message: 'mdvdb CLI binary not found on PATH'
     })
   })
@@ -312,8 +317,10 @@ describe('IPC error serialization', () => {
     mockExecCommand.mockRejectedValue(new CliExecutionError('command failed', 2, 'index not found'))
     const handler = getHandler('cli:status')
 
-    await expect(handler({}, '/tmp/project')).rejects.toEqual({
-      name: 'CliExecutionError',
+    const result = await handler({}, '/tmp/project')
+    expect(result).toEqual({
+      error: true,
+      type: 'CliExecutionError',
       message: 'command failed',
       exitCode: 2,
       stderr: 'index not found'
@@ -325,18 +332,22 @@ describe('IPC error serialization', () => {
     mockExecCommand.mockRejectedValue(new CliTimeoutError())
     const handler = getHandler('cli:ingest')
 
-    await expect(handler({}, '/tmp/project')).rejects.toEqual({
-      name: 'CliTimeoutError',
+    const result = await handler({}, '/tmp/project')
+    expect(result).toEqual({
+      error: true,
+      type: 'CliTimeoutError',
       message: 'CLI command timed out'
     })
   })
 
-  it('serializes generic errors with name and message', async () => {
+  it('serializes generic errors with type and message', async () => {
     mockExecCommand.mockRejectedValue(new TypeError('unexpected'))
     const handler = getHandler('cli:status')
 
-    await expect(handler({}, '/tmp/project')).rejects.toEqual({
-      name: 'TypeError',
+    const result = await handler({}, '/tmp/project')
+    expect(result).toEqual({
+      error: true,
+      type: 'CliExecutionError',
       message: 'unexpected'
     })
   })
@@ -345,8 +356,10 @@ describe('IPC error serialization', () => {
     mockExecCommand.mockRejectedValue('string error')
     const handler = getHandler('cli:status')
 
-    await expect(handler({}, '/tmp/project')).rejects.toEqual({
-      name: 'Error',
+    const result = await handler({}, '/tmp/project')
+    expect(result).toEqual({
+      error: true,
+      type: 'CliExecutionError',
       message: 'string error'
     })
   })

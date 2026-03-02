@@ -2,9 +2,13 @@
  * Error classes for CLI bridge operations.
  */
 
+/** Known CLI error types for discriminated unions. */
+export type CliErrorType = 'CliNotFoundError' | 'CliExecutionError' | 'CliParseError' | 'CliTimeoutError'
+
 /** Serialized error shape for IPC transport */
 export interface SerializedError {
-  name: string
+  error: true
+  type: CliErrorType
   message: string
   exitCode?: number
   stderr?: string
@@ -19,7 +23,7 @@ export class CliNotFoundError extends Error {
   }
 
   serialize(): SerializedError {
-    return { name: this.name, message: this.message }
+    return { error: true, type: 'CliNotFoundError', message: this.message }
   }
 }
 
@@ -36,7 +40,7 @@ export class CliExecutionError extends Error {
   }
 
   serialize(): SerializedError {
-    return { name: this.name, message: this.message, exitCode: this.exitCode, stderr: this.stderr }
+    return { error: true, type: 'CliExecutionError', message: this.message, exitCode: this.exitCode, stderr: this.stderr }
   }
 }
 
@@ -49,7 +53,7 @@ export class CliParseError extends Error {
   }
 
   serialize(): SerializedError {
-    return { name: this.name, message: this.message }
+    return { error: true, type: 'CliParseError', message: this.message }
   }
 }
 
@@ -62,7 +66,7 @@ export class CliTimeoutError extends Error {
   }
 
   serialize(): SerializedError {
-    return { name: this.name, message: this.message }
+    return { error: true, type: 'CliTimeoutError', message: this.message }
   }
 }
 
@@ -71,16 +75,18 @@ export function isSerializedError(value: unknown): value is SerializedError {
   return (
     typeof value === 'object' &&
     value !== null &&
-    'name' in value &&
+    'error' in value &&
+    (value as SerializedError).error === true &&
+    'type' in value &&
     'message' in value &&
-    typeof (value as SerializedError).name === 'string' &&
+    typeof (value as SerializedError).type === 'string' &&
     typeof (value as SerializedError).message === 'string'
   )
 }
 
 /** Deserialize an error from IPC transport back into a typed Error instance */
 export function deserializeError(err: SerializedError): Error {
-  switch (err.name) {
+  switch (err.type) {
     case 'CliNotFoundError':
       return new CliNotFoundError(err.message)
     case 'CliExecutionError':

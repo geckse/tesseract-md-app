@@ -32,6 +32,7 @@ export interface SearchResultFile {
   frontmatter: JsonValue | null;
   file_size: number;
   path_components: string[];
+  modified_at: number | null;
 }
 
 /** A single search result with relevance score, chunk, and file context. */
