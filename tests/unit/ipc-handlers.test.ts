@@ -20,6 +20,42 @@ vi.mock('../../src/main/cli', () => ({
   execRaw: (...args: unknown[]) => mockExecRaw(...args)
 }))
 
+// Mock store module
+const mockGetCollections = vi.fn()
+const mockAddCollection = vi.fn()
+const mockRemoveCollection = vi.fn()
+const mockSetActiveCollection = vi.fn()
+const mockGetActiveCollection = vi.fn()
+vi.mock('../../src/main/store', () => ({
+  getCollections: (...args: unknown[]) => mockGetCollections(...args),
+  addCollection: (...args: unknown[]) => mockAddCollection(...args),
+  removeCollection: (...args: unknown[]) => mockRemoveCollection(...args),
+  setActiveCollection: (...args: unknown[]) => mockSetActiveCollection(...args),
+  getActiveCollection: (...args: unknown[]) => mockGetActiveCollection(...args)
+}))
+
+// Mock collections module
+const mockPickCollectionFolder = vi.fn()
+const mockValidateCollectionPath = vi.fn()
+const mockInitCollection = vi.fn()
+const mockConfirmRemoveCollection = vi.fn()
+const mockPromptInitCollection = vi.fn()
+vi.mock('../../src/main/collections', () => ({
+  pickCollectionFolder: (...args: unknown[]) => mockPickCollectionFolder(...args),
+  validateCollectionPath: (...args: unknown[]) => mockValidateCollectionPath(...args),
+  initCollection: (...args: unknown[]) => mockInitCollection(...args),
+  confirmRemoveCollection: (...args: unknown[]) => mockConfirmRemoveCollection(...args),
+  promptInitCollection: (...args: unknown[]) => mockPromptInitCollection(...args)
+}))
+
+// Mock node:fs for fs:read-file handler
+const mockReadFile = vi.fn()
+vi.mock('node:fs', () => ({
+  promises: {
+    readFile: (...args: unknown[]) => mockReadFile(...args)
+  }
+}))
+
 import { registerIpcHandlers } from '../../src/main/ipc-handlers'
 
 beforeEach(() => {
@@ -28,6 +64,17 @@ beforeEach(() => {
   mockGetCliVersion.mockReset()
   mockExecCommand.mockReset()
   mockExecRaw.mockReset()
+  mockGetCollections.mockReset()
+  mockAddCollection.mockReset()
+  mockRemoveCollection.mockReset()
+  mockSetActiveCollection.mockReset()
+  mockGetActiveCollection.mockReset()
+  mockPickCollectionFolder.mockReset()
+  mockValidateCollectionPath.mockReset()
+  mockInitCollection.mockReset()
+  mockConfirmRemoveCollection.mockReset()
+  mockPromptInitCollection.mockReset()
+  mockReadFile.mockReset()
 })
 
 describe('registerIpcHandlers', () => {
@@ -51,7 +98,13 @@ describe('registerIpcHandlers', () => {
     expect(channels).toContain('cli:config')
     expect(channels).toContain('cli:doctor')
     expect(channels).toContain('cli:init')
-    expect(channels).toHaveLength(16)
+    expect(channels).toContain('collections:list')
+    expect(channels).toContain('collections:add')
+    expect(channels).toContain('collections:remove')
+    expect(channels).toContain('collections:set-active')
+    expect(channels).toContain('collections:get-active')
+    expect(channels).toContain('fs:read-file')
+    expect(channels).toHaveLength(22)
   })
 })
 
@@ -287,6 +340,149 @@ describe('IPC handler argument passing', () => {
       await handler(fakeEvent, '/tmp/project')
 
       expect(mockExecRaw).toHaveBeenCalledWith('init', [], '/tmp/project')
+    })
+  })
+})
+
+describe('Collection IPC handlers', () => {
+  function getHandler(channel: string): (...args: unknown[]) => Promise<unknown> {
+    registerIpcHandlers()
+    const call = mockHandle.mock.calls.find((c: unknown[]) => c[0] === channel)
+    if (!call) throw new Error(`No handler for channel: ${channel}`)
+    return call[1] as (...args: unknown[]) => Promise<unknown>
+  }
+
+  const fakeEvent = {}
+
+  describe('collections:list', () => {
+    it('returns all collections', async () => {
+      const cols = [{ id: '1', name: 'docs', path: '/docs', addedAt: 1, lastOpenedAt: 1 }]
+      mockGetCollections.mockReturnValue(cols)
+      const handler = getHandler('collections:list')
+      const result = await handler()
+      expect(result).toEqual(cols)
+      expect(mockGetCollections).toHaveBeenCalled()
+    })
+  })
+
+  describe('collections:add', () => {
+    it('returns null when folder picker is canceled', async () => {
+      mockPickCollectionFolder.mockResolvedValue(null)
+      const handler = getHandler('collections:add')
+      const result = await handler()
+      expect(result).toBeNull()
+    })
+
+    it('adds collection when path is valid with config', async () => {
+      const col = { id: '1', name: 'proj', path: '/proj', addedAt: 1, lastOpenedAt: 1 }
+      mockPickCollectionFolder.mockResolvedValue('/proj')
+      mockValidateCollectionPath.mockResolvedValue({ valid: true, hasConfig: true, name: 'proj' })
+      mockAddCollection.mockReturnValue(col)
+      const handler = getHandler('collections:add')
+      const result = await handler()
+      expect(result).toEqual(col)
+      expect(mockAddCollection).toHaveBeenCalledWith('/proj')
+    })
+
+    it('prompts init when path has no config and user accepts', async () => {
+      const col = { id: '1', name: 'proj', path: '/proj', addedAt: 1, lastOpenedAt: 1 }
+      mockPickCollectionFolder.mockResolvedValue('/proj')
+      mockValidateCollectionPath.mockResolvedValue({ valid: true, hasConfig: false, name: 'proj' })
+      mockPromptInitCollection.mockResolvedValue(true)
+      mockInitCollection.mockResolvedValue(undefined)
+      mockAddCollection.mockReturnValue(col)
+      const handler = getHandler('collections:add')
+      const result = await handler()
+      expect(mockPromptInitCollection).toHaveBeenCalledWith('proj')
+      expect(mockInitCollection).toHaveBeenCalledWith('/proj')
+      expect(result).toEqual(col)
+    })
+
+    it('returns null when user declines init', async () => {
+      mockPickCollectionFolder.mockResolvedValue('/proj')
+      mockValidateCollectionPath.mockResolvedValue({ valid: true, hasConfig: false, name: 'proj' })
+      mockPromptInitCollection.mockResolvedValue(false)
+      const handler = getHandler('collections:add')
+      const result = await handler()
+      expect(result).toBeNull()
+    })
+
+    it('returns error when path is invalid', async () => {
+      mockPickCollectionFolder.mockResolvedValue('/bad')
+      mockValidateCollectionPath.mockResolvedValue({ valid: false, hasConfig: false, name: 'bad', error: 'Path does not exist' })
+      const handler = getHandler('collections:add')
+      const result = await handler()
+      expect(result).toEqual(expect.objectContaining({ error: true, message: 'Path does not exist' }))
+    })
+  })
+
+  describe('collections:remove', () => {
+    it('removes collection when user confirms', async () => {
+      mockGetCollections.mockReturnValue([{ id: 'x', name: 'proj', path: '/proj' }])
+      mockConfirmRemoveCollection.mockResolvedValue(true)
+      const handler = getHandler('collections:remove')
+      await handler(fakeEvent, 'x')
+      expect(mockConfirmRemoveCollection).toHaveBeenCalledWith('proj')
+      expect(mockRemoveCollection).toHaveBeenCalledWith('x')
+    })
+
+    it('does not remove when user cancels', async () => {
+      mockGetCollections.mockReturnValue([{ id: 'x', name: 'proj', path: '/proj' }])
+      mockConfirmRemoveCollection.mockResolvedValue(false)
+      const handler = getHandler('collections:remove')
+      await handler(fakeEvent, 'x')
+      expect(mockRemoveCollection).not.toHaveBeenCalled()
+    })
+
+    it('returns error when collection not found', async () => {
+      mockGetCollections.mockReturnValue([])
+      const handler = getHandler('collections:remove')
+      const result = await handler(fakeEvent, 'missing')
+      expect(result).toEqual(expect.objectContaining({ error: true }))
+    })
+  })
+
+  describe('collections:set-active', () => {
+    it('calls setActiveCollection with id', async () => {
+      const handler = getHandler('collections:set-active')
+      await handler(fakeEvent, 'abc')
+      expect(mockSetActiveCollection).toHaveBeenCalledWith('abc')
+    })
+  })
+
+  describe('collections:get-active', () => {
+    it('returns active collection', async () => {
+      const col = { id: '1', name: 'proj', path: '/proj', addedAt: 1, lastOpenedAt: 1 }
+      mockGetActiveCollection.mockReturnValue(col)
+      const handler = getHandler('collections:get-active')
+      const result = await handler()
+      expect(result).toEqual(col)
+    })
+
+    it('returns null when no active collection', async () => {
+      mockGetActiveCollection.mockReturnValue(null)
+      const handler = getHandler('collections:get-active')
+      const result = await handler()
+      expect(result).toBeNull()
+    })
+  })
+
+  describe('fs:read-file', () => {
+    it('reads file within a known collection', async () => {
+      mockGetCollections.mockReturnValue([{ id: '1', name: 'proj', path: '/proj' }])
+      mockReadFile.mockResolvedValue('# Hello')
+      const handler = getHandler('fs:read-file')
+      const result = await handler(fakeEvent, '/proj/readme.md')
+      expect(mockReadFile).toHaveBeenCalledWith('/proj/readme.md', 'utf-8')
+      expect(result).toBe('# Hello')
+    })
+
+    it('denies access to paths outside collections', async () => {
+      mockGetCollections.mockReturnValue([{ id: '1', name: 'proj', path: '/proj' }])
+      const handler = getHandler('fs:read-file')
+      const result = await handler(fakeEvent, '/etc/passwd')
+      expect(result).toEqual(expect.objectContaining({ error: true, message: 'Access denied: path is not within a known collection' }))
+      expect(mockReadFile).not.toHaveBeenCalled()
     })
   })
 })

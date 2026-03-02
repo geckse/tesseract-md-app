@@ -1,21 +1,28 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import type { Snippet } from 'svelte';
   import Sidebar from './components/Sidebar.svelte';
   import Header from './components/Header.svelte';
   import StatusBar from './components/StatusBar.svelte';
+  import { loadCollections, setActiveCollection } from './stores/collections';
+  import { selectFile } from './stores/files';
 
   let { children }: { children?: Snippet } = $props();
 
+  onMount(() => {
+    loadCollections();
+  });
+
   function handleNavigate(detail: { id: string }) {
-    // TODO: handle navigation
+    setActiveCollection(detail.id);
   }
 
   function handleFileSelect(detail: { folderId: string; fileId: string }) {
-    // TODO: handle file selection
+    selectFile(detail.fileId);
   }
 
   function handleSearch(detail: { query: string }) {
-    // TODO: handle search
+    // TODO: handle search (Phase 6)
   }
 
   function handleToggleProperties(detail: { open: boolean }) {

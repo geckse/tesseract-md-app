@@ -18,7 +18,17 @@ const api: MdvdbApi = {
   schema: (root) => ipcRenderer.invoke('cli:schema', root),
   config: (root) => ipcRenderer.invoke('cli:config', root),
   doctor: (root) => ipcRenderer.invoke('cli:doctor', root),
-  init: (root) => ipcRenderer.invoke('cli:init', root)
+  init: (root) => ipcRenderer.invoke('cli:init', root),
+
+  // Collection management
+  listCollections: () => ipcRenderer.invoke('collections:list'),
+  addCollection: () => ipcRenderer.invoke('collections:add'),
+  removeCollection: (id) => ipcRenderer.invoke('collections:remove', id),
+  setActiveCollection: (id) => ipcRenderer.invoke('collections:set-active', id),
+  getActiveCollection: () => ipcRenderer.invoke('collections:get-active'),
+
+  // File operations
+  readFile: (absolutePath) => ipcRenderer.invoke('fs:read-file', absolutePath)
 }
 
 if (process.contextIsolated) {
