@@ -243,4 +243,20 @@ export function registerIpcHandlers(): void {
       return fs.readFile(normalizedPath, 'utf-8')
     })
   )
+
+  // File writing (with security validation)
+  ipcMain.handle('fs:write-file', (_event, absolutePath: string, content: string) =>
+    wrapHandler(async () => {
+      const { resolve, sep } = await import('node:path')
+      const normalizedPath = resolve(absolutePath)
+      const collections = getCollections()
+      const isWithinCollection = collections.some(
+        (c) => normalizedPath === c.path || normalizedPath.startsWith(c.path + sep)
+      )
+      if (!isWithinCollection) {
+        throw new Error('Access denied: path is not within a known collection')
+      }
+      await fs.writeFile(normalizedPath, content, 'utf-8')
+    })
+  )
 }

@@ -1,13 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type { Snippet } from 'svelte';
   import Sidebar from './components/Sidebar.svelte';
   import Header from './components/Header.svelte';
   import StatusBar from './components/StatusBar.svelte';
+  import Editor from './components/Editor.svelte';
   import { loadCollections, setActiveCollection } from './stores/collections';
   import { selectFile } from './stores/files';
 
-  let { children }: { children?: Snippet } = $props();
 
   onMount(() => {
     loadCollections();
@@ -48,11 +47,7 @@
     />
 
     <div class="content-area">
-      <div class="content-scroll">
-        <div class="content-inner">
-          {@render children?.()}
-        </div>
-      </div>
+      <Editor />
     </div>
 
     <StatusBar />
@@ -92,20 +87,9 @@
   .content-area {
     flex: 1;
     display: flex;
+    flex-direction: column;
     overflow: hidden;
     position: relative;
-  }
-
-  .content-scroll {
-    flex: 1;
-    overflow-y: auto;
-    position: relative;
-    z-index: 10;
-  }
-
-  .content-inner {
-    max-width: 768px;
-    margin: 0 auto;
-    padding: 64px 40px;
+    min-height: 0;
   }
 </style>

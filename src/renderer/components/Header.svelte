@@ -1,6 +1,7 @@
 <script lang="ts">
   import { activeCollection } from '../stores/collections';
   import { selectedFilePath } from '../stores/files';
+  import { isDirty } from '../stores/editor';
 
   interface HeaderProps {
     propertiesOpen?: boolean;
@@ -21,6 +22,9 @@
 
   let currentSelectedFilePath: string | null = $state(null);
   selectedFilePath.subscribe((v) => (currentSelectedFilePath = v));
+
+  let $isDirty = $state(false);
+  isDirty.subscribe((v) => ($isDirty = v));
 
   let collectionName = $derived(currentActiveCollection?.name ?? null);
 
@@ -66,7 +70,7 @@
         <span class="material-symbols-outlined breadcrumb-separator">chevron_right</span>
       {/each}
       {#if fileName}
-        <span class="breadcrumb-file">{fileName}</span>
+        <span class="breadcrumb-file">{fileName}{#if $isDirty}<span class="dirty-indicator"> ●</span>{/if}</span>
       {/if}
     </div>
   {:else}
@@ -149,6 +153,10 @@
   .breadcrumb-file {
     color: var(--color-primary, #00E5FF);
     font-weight: 500;
+  }
+
+  .dirty-indicator {
+    color: var(--color-warning, #f59e0b);
   }
 
   .actions {

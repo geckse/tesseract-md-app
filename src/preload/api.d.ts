@@ -64,6 +64,7 @@ export interface MdvdbApi {
 
   // File operations
   readFile(absolutePath: string): Promise<string>
+  writeFile(absolutePath: string, content: string): Promise<void>
 }
 
 declare global {

@@ -48,11 +48,13 @@ vi.mock('../../src/main/collections', () => ({
   promptInitCollection: (...args: unknown[]) => mockPromptInitCollection(...args)
 }))
 
-// Mock node:fs for fs:read-file handler
+// Mock node:fs for fs:read-file and fs:write-file handlers
 const mockReadFile = vi.fn()
+const mockWriteFile = vi.fn()
 vi.mock('node:fs', () => ({
   promises: {
-    readFile: (...args: unknown[]) => mockReadFile(...args)
+    readFile: (...args: unknown[]) => mockReadFile(...args),
+    writeFile: (...args: unknown[]) => mockWriteFile(...args)
   }
 }))
 
@@ -75,6 +77,7 @@ beforeEach(() => {
   mockConfirmRemoveCollection.mockReset()
   mockPromptInitCollection.mockReset()
   mockReadFile.mockReset()
+  mockWriteFile.mockReset()
 })
 
 describe('registerIpcHandlers', () => {
@@ -104,7 +107,8 @@ describe('registerIpcHandlers', () => {
     expect(channels).toContain('collections:set-active')
     expect(channels).toContain('collections:get-active')
     expect(channels).toContain('fs:read-file')
-    expect(channels).toHaveLength(22)
+    expect(channels).toContain('fs:write-file')
+    expect(channels).toHaveLength(23)
   })
 })
 
@@ -483,6 +487,41 @@ describe('Collection IPC handlers', () => {
       const result = await handler(fakeEvent, '/etc/passwd')
       expect(result).toEqual(expect.objectContaining({ error: true, message: 'Access denied: path is not within a known collection' }))
       expect(mockReadFile).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('fs:write-file', () => {
+    it('writes file within a known collection', async () => {
+      mockGetCollections.mockReturnValue([{ id: '1', name: 'proj', path: '/proj' }])
+      mockWriteFile.mockResolvedValue(undefined)
+      const handler = getHandler('fs:write-file')
+      const result = await handler(fakeEvent, '/proj/readme.md', '# Updated')
+      expect(mockWriteFile).toHaveBeenCalledWith('/proj/readme.md', '# Updated', 'utf-8')
+      expect(result).toBeUndefined()
+    })
+
+    it('denies access to paths outside collections', async () => {
+      mockGetCollections.mockReturnValue([{ id: '1', name: 'proj', path: '/proj' }])
+      const handler = getHandler('fs:write-file')
+      const result = await handler(fakeEvent, '/etc/shadow', 'malicious')
+      expect(result).toEqual(expect.objectContaining({ error: true, message: 'Access denied: path is not within a known collection' }))
+      expect(mockWriteFile).not.toHaveBeenCalled()
+    })
+
+    it('passes utf-8 encoding to writeFile', async () => {
+      mockGetCollections.mockReturnValue([{ id: '1', name: 'proj', path: '/proj' }])
+      mockWriteFile.mockResolvedValue(undefined)
+      const handler = getHandler('fs:write-file')
+      await handler(fakeEvent, '/proj/notes.md', 'Héllo wörld 日本語')
+      expect(mockWriteFile).toHaveBeenCalledWith('/proj/notes.md', 'Héllo wörld 日本語', 'utf-8')
+    })
+
+    it('returns serialized error when writeFile fails', async () => {
+      mockGetCollections.mockReturnValue([{ id: '1', name: 'proj', path: '/proj' }])
+      mockWriteFile.mockRejectedValue(new Error('EACCES: permission denied'))
+      const handler = getHandler('fs:write-file')
+      const result = await handler(fakeEvent, '/proj/readme.md', 'content')
+      expect(result).toEqual(expect.objectContaining({ error: true, message: 'EACCES: permission denied' }))
     })
   })
 })

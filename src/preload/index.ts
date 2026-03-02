@@ -28,7 +28,8 @@ const api: MdvdbApi = {
   getActiveCollection: () => ipcRenderer.invoke('collections:get-active'),
 
   // File operations
-  readFile: (absolutePath) => ipcRenderer.invoke('fs:read-file', absolutePath)
+  readFile: (absolutePath) => ipcRenderer.invoke('fs:read-file', absolutePath),
+  writeFile: (absolutePath, content) => ipcRenderer.invoke('fs:write-file', absolutePath, content)
 }
 
 if (process.contextIsolated) {
