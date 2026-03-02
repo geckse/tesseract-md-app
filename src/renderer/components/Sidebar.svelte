@@ -1,24 +1,22 @@
 <script lang="ts">
-  interface NavItem {
-    icon: string;
-    label: string;
-    id: string;
-  }
-
-  interface FolderItem {
-    icon: string;
-    label: string;
-    id: string;
-    expanded?: boolean;
-    children?: { label: string; id: string; active?: boolean }[];
-  }
+  import {
+    collections,
+    activeCollectionId,
+    activeCollection,
+    collectionStatus,
+    collectionsLoading,
+    addCollection,
+    removeCollection,
+    setActiveCollection,
+  } from '../stores/collections'
+  import type { Collection } from '../../preload/api'
 
   interface SidebarProps {
-    userName?: string;
-    userInitials?: string;
-    userPlan?: string;
-    onnavigate?: (detail: { id: string }) => void;
-    onfileselect?: (detail: { folderId: string; fileId: string }) => void;
+    userName?: string
+    userInitials?: string
+    userPlan?: string
+    onnavigate?: (detail: { id: string }) => void
+    onfileselect?: (detail: { folderId: string; fileId: string }) => void
   }
 
   let {
@@ -27,43 +25,60 @@
     userPlan = 'Pro',
     onnavigate,
     onfileselect,
-  }: SidebarProps = $props();
+  }: SidebarProps = $props()
 
-  const collections: NavItem[] = [
-    { icon: 'star', label: 'Favorites', id: 'favorites' },
-    { icon: 'schedule', label: 'Recent', id: 'recent' },
-  ];
-
-  let folders: FolderItem[] = $state([
-    {
-      icon: 'folder_open',
-      label: 'Project Alpha',
-      id: 'project-alpha',
-      expanded: true,
-      children: [
-        { label: 'Research Notes', id: 'research-notes' },
-        { label: 'Design Specs.md', id: 'design-specs', active: true },
-        { label: 'Meeting Logs', id: 'meeting-logs' },
-      ],
-    },
-    { icon: 'folder', label: 'Marketing', id: 'marketing', expanded: false, children: [] },
-    { icon: 'folder', label: 'Engineering', id: 'engineering', expanded: false, children: [] },
-  ]);
+  let contextMenuCollection: Collection | null = $state(null)
+  let contextMenuPosition = $state({ x: 0, y: 0 })
 
   function handleNavClick(id: string) {
-    onnavigate?.({ id });
+    onnavigate?.({ id })
   }
 
-  function toggleFolder(index: number) {
-    folders[index].expanded = !folders[index].expanded;
+  async function handleAddCollection() {
+    await addCollection()
   }
 
-  function handleFileClick(folderId: string, fileId: string) {
-    onfileselect?.({ folderId, fileId });
+  async function handleCollectionClick(collection: Collection) {
+    await setActiveCollection(collection.id)
   }
+
+  function handleCollectionContextMenu(event: MouseEvent, collection: Collection) {
+    event.preventDefault()
+    contextMenuCollection = collection
+    contextMenuPosition = { x: event.clientX, y: event.clientY }
+  }
+
+  async function handleRemoveCollection() {
+    if (!contextMenuCollection) return
+    await removeCollection(contextMenuCollection.id)
+    contextMenuCollection = null
+  }
+
+  function closeContextMenu() {
+    contextMenuCollection = null
+  }
+
+  function formatStats(status: typeof $collectionStatus): string {
+    if (!status) return ''
+    const docs = status.total_documents ?? status.documents ?? 0
+    return `${docs} docs`
+  }
+
+  // Reactive subscriptions
+  let $collections: Collection[] = $state([])
+  let $activeCollectionId: string | null = $state(null)
+  let $collectionStatus: import('../types/cli').IndexStatus | null = $state(null)
+  let $collectionsLoading: boolean = $state(false)
+
+  collections.subscribe((v) => ($collections = v))
+  activeCollectionId.subscribe((v) => ($activeCollectionId = v))
+  collectionStatus.subscribe((v) => ($collectionStatus = v))
+  collectionsLoading.subscribe((v) => ($collectionsLoading = v))
 </script>
 
-<aside class="sidebar">
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<aside class="sidebar" onclick={closeContextMenu}>
   <!-- Logo -->
   <div class="logo-area">
     <div class="logo-icon">
@@ -76,54 +91,49 @@
   <div class="nav-content">
     <!-- Collections -->
     <div class="nav-section">
-      <h3 class="section-header">Collections</h3>
-      <nav class="nav-list">
-        {#each collections as item}
-          <button class="nav-item" onclick={() => handleNavClick(item.id)}>
-            <span class="material-symbols-outlined nav-icon">{item.icon}</span>
-            <span class="nav-label">{item.label}</span>
+      <div class="section-header-row">
+        <h3 class="section-header">Collections</h3>
+        <button class="add-collection-btn" onclick={handleAddCollection} title="Add Collection">
+          <span class="material-symbols-outlined">add</span>
+        </button>
+      </div>
+
+      {#if $collectionsLoading}
+        <div class="empty-state">
+          <span class="material-symbols-outlined empty-icon">hourglass_empty</span>
+          <span class="empty-text">Loading...</span>
+        </div>
+      {:else if $collections.length === 0}
+        <div class="empty-state">
+          <span class="material-symbols-outlined empty-icon">folder_off</span>
+          <span class="empty-text">No collections yet</span>
+          <button class="add-folder-btn" onclick={handleAddCollection}>
+            <span class="material-symbols-outlined">create_new_folder</span>
+            Add Folder
           </button>
-        {/each}
-      </nav>
-    </div>
-
-    <!-- Knowledge Base -->
-    <div class="nav-section">
-      <h3 class="section-header">Knowledge Base</h3>
-      <nav class="nav-list">
-        {#each folders as folder, i}
-          <div class="folder-group">
+        </div>
+      {:else}
+        <nav class="nav-list">
+          {#each $collections as collection}
             <button
-              class="nav-item folder-button"
-              class:expanded={folder.expanded}
-              onclick={() => toggleFolder(i)}
+              class="nav-item collection-item"
+              class:active={$activeCollectionId === collection.id}
+              onclick={() => handleCollectionClick(collection)}
+              oncontextmenu={(e) => handleCollectionContextMenu(e, collection)}
             >
-              <span class="material-symbols-outlined nav-icon folder-icon">
-                {folder.expanded ? 'folder_open' : 'folder'}
+              <span class="material-symbols-outlined nav-icon">
+                {$activeCollectionId === collection.id ? 'folder_open' : 'folder'}
               </span>
-              <span class="nav-label folder-label">{folder.label}</span>
-              <span class="material-symbols-outlined chevron">
-                {folder.expanded ? 'expand_more' : 'chevron_right'}
-              </span>
-            </button>
-
-            {#if folder.expanded && folder.children && folder.children.length > 0}
-              <div class="folder-children">
-                {#each folder.children as child}
-                  <button
-                    class="file-item"
-                    class:active={child.active}
-                    onclick={() => handleFileClick(folder.id, child.id)}
-                  >
-                    <span class="material-symbols-outlined file-icon">description</span>
-                    <span class="file-label">{child.label}</span>
-                  </button>
-                {/each}
+              <div class="collection-info">
+                <span class="nav-label">{collection.name}</span>
+                {#if $activeCollectionId === collection.id && $collectionStatus}
+                  <span class="collection-stats">{formatStats($collectionStatus)}</span>
+                {/if}
               </div>
-            {/if}
-          </div>
-        {/each}
-      </nav>
+            </button>
+          {/each}
+        </nav>
+      {/if}
     </div>
   </div>
 
@@ -138,6 +148,27 @@
     </button>
   </div>
 </aside>
+
+<!-- Context menu -->
+{#if contextMenuCollection}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="context-menu-overlay"
+    onclick={closeContextMenu}
+  >
+    <div
+      class="context-menu"
+      style="left: {contextMenuPosition.x}px; top: {contextMenuPosition.y}px;"
+      onclick={(e) => e.stopPropagation()}
+    >
+      <button class="context-menu-item danger" onclick={handleRemoveCollection}>
+        <span class="material-symbols-outlined">delete</span>
+        Remove Collection
+      </button>
+    </div>
+  </div>
+{/if}
 
 <style>
   .sidebar {
@@ -196,14 +227,46 @@
     margin-bottom: 24px;
   }
 
-  .section-header {
+  .section-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     padding: 0 12px;
+    margin-bottom: 12px;
+  }
+
+  .section-header {
     font-size: 11px;
     font-weight: 700;
     color: var(--color-text-dim, #71717a);
     text-transform: uppercase;
     letter-spacing: 0.1em;
-    margin-bottom: 12px;
+    margin: 0;
+    padding: 0;
+  }
+
+  .add-collection-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    background: none;
+    border: none;
+    color: var(--color-text-dim, #71717a);
+    cursor: pointer;
+    transition: all 0.15s;
+    padding: 0;
+  }
+
+  .add-collection-btn:hover {
+    background: var(--color-surface, #161617);
+    color: var(--color-primary, #00E5FF);
+  }
+
+  .add-collection-btn .material-symbols-outlined {
+    font-size: 16px;
   }
 
   .nav-list {
@@ -246,86 +309,79 @@
     font-size: 14px;
   }
 
-  .folder-button {
-    position: relative;
-  }
-
-  .folder-button.expanded {
+  .collection-item.active {
     background: var(--color-surface, #161617);
     color: #fff;
     border: 1px solid rgba(39, 39, 42, 0.5);
   }
 
-  .folder-button.expanded .folder-icon {
+  .collection-item.active .nav-icon {
     color: var(--color-primary, #00E5FF);
   }
 
-  .folder-label {
-    flex: 1;
-    font-weight: 500;
-  }
-
-  .chevron {
-    font-size: 16px;
-    color: var(--color-text-dim, #71717a);
-    opacity: 0;
-    transition: opacity 0.15s;
-  }
-
-  .folder-button:hover .chevron,
-  .folder-button.expanded .chevron {
-    opacity: 1;
-  }
-
-  .folder-children {
-    padding-left: 12px;
-    margin-left: 16px;
-    margin-top: 4px;
-    border-left: 1px solid var(--color-border, #27272a);
+  .collection-info {
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    padding-top: 4px;
-    padding-bottom: 4px;
+    align-items: flex-start;
+    flex: 1;
+    min-width: 0;
   }
 
-  .file-item {
+  .collection-info .nav-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    width: 100%;
+  }
+
+  .collection-stats {
+    font-size: 11px;
+    color: var(--color-text-dim, #71717a);
+    margin-top: 1px;
+  }
+
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 12px;
+    gap: 8px;
+  }
+
+  .empty-icon {
+    font-size: 32px;
+    color: var(--color-text-dim, #71717a);
+    opacity: 0.5;
+  }
+
+  .empty-text {
+    font-size: 13px;
+    color: var(--color-text-dim, #71717a);
+  }
+
+  .add-folder-btn {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 6px 12px;
+    margin-top: 8px;
+    padding: 8px 16px;
     border-radius: 6px;
-    background: none;
-    border: none;
-    color: var(--color-text-dim, #71717a);
-    cursor: pointer;
-    width: 100%;
-    text-align: left;
-    transition: all 0.15s;
-    font-family: inherit;
-  }
-
-  .file-item:hover {
     background: var(--color-surface, #161617);
-    color: #fff;
-  }
-
-  .file-item.active {
-    background: rgba(0, 229, 255, 0.1);
+    border: 1px solid var(--color-border, #27272a);
     color: var(--color-primary, #00E5FF);
-    border-right: 2px solid var(--color-primary, #00E5FF);
+    cursor: pointer;
+    font-size: 13px;
+    font-family: inherit;
+    transition: all 0.15s;
   }
 
-  .file-item.active .file-label {
-    font-weight: 500;
+  .add-folder-btn:hover {
+    background: var(--color-surface-darker, #0a0a0a);
+    border-color: var(--color-primary, #00E5FF);
   }
 
-  .file-icon {
-    font-size: 16px;
-  }
-
-  .file-label {
-    font-size: 14px;
+  .add-folder-btn .material-symbols-outlined {
+    font-size: 18px;
   }
 
   .user-area {
@@ -389,5 +445,54 @@
     color: var(--color-text-dim, #71717a);
     text-transform: uppercase;
     letter-spacing: 0.05em;
+  }
+
+  .context-menu-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 100;
+  }
+
+  .context-menu {
+    position: fixed;
+    background: var(--color-surface, #161617);
+    border: 1px solid var(--color-border, #27272a);
+    border-radius: 8px;
+    padding: 4px;
+    min-width: 180px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    z-index: 101;
+  }
+
+  .context-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 12px;
+    border: none;
+    background: none;
+    border-radius: 4px;
+    color: var(--color-text-dim, #71717a);
+    font-size: 13px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.15s;
+  }
+
+  .context-menu-item:hover {
+    background: var(--color-surface-darker, #0a0a0a);
+    color: #fff;
+  }
+
+  .context-menu-item.danger:hover {
+    color: #ef4444;
+  }
+
+  .context-menu-item .material-symbols-outlined {
+    font-size: 16px;
   }
 </style>
