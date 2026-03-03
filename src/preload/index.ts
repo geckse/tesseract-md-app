@@ -60,7 +60,21 @@ const api: MdvdbApi = {
   showItemInFolder: (absolutePath) => invoke('shell:show-item-in-folder', absolutePath),
 
   // Single-file ingest
-  ingestFile: (root, filePath, options?) => invoke('cli:ingest-file', root, filePath, options)
+  ingestFile: (root, filePath, options?) => invoke('cli:ingest-file', root, filePath, options),
+
+  // Ingest cancellation
+  cancelIngest: () => invoke('cli:cancel-ingest'),
+
+  // Watcher management
+  startWatcher: (root) => invoke('watcher:start', root),
+  stopWatcher: () => invoke('watcher:stop'),
+  getWatcherStatus: () => invoke('watcher:status'),
+  onWatcherEvent: (callback) => {
+    ipcRenderer.on('watcher:event', (_event, data) => callback(data))
+  },
+  removeWatcherEventListener: () => {
+    ipcRenderer.removeAllListeners('watcher:event')
+  }
 }
 
 if (process.contextIsolated) {
