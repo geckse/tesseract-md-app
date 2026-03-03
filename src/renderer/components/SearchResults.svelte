@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import {
     searchQuery,
     searchResults,
@@ -19,25 +20,29 @@
   let { onresultclick, oncloserequest }: SearchResultsProps = $props();
 
   let currentQuery = $state('');
-  searchQuery.subscribe((v) => (currentQuery = v));
+  const unsub1 = searchQuery.subscribe((v) => (currentQuery = v));
 
   let currentResults: import('../types/cli').SearchOutput | null = $state(null);
-  searchResults.subscribe((v) => (currentResults = v));
+  const unsub2 = searchResults.subscribe((v) => (currentResults = v));
 
   let currentLoading = $state(false);
-  searchLoading.subscribe((v) => (currentLoading = v));
+  const unsub3 = searchLoading.subscribe((v) => (currentLoading = v));
 
   let currentMode: SearchMode = $state('hybrid');
-  searchMode.subscribe((v) => (currentMode = v));
+  const unsub4 = searchMode.subscribe((v) => (currentMode = v));
 
   let currentError: string | null = $state(null);
-  searchError.subscribe((v) => (currentError = v));
+  const unsub5 = searchError.subscribe((v) => (currentError = v));
 
   let currentHighlighted = $state(-1);
-  highlightedIndex.subscribe((v) => (currentHighlighted = v));
+  const unsub6 = highlightedIndex.subscribe((v) => (currentHighlighted = v));
 
   let currentCollection: import('../../preload/api').Collection | null = $state(null);
-  activeCollection.subscribe((v) => (currentCollection = v));
+  const unsub7 = activeCollection.subscribe((v) => (currentCollection = v));
+
+  onDestroy(() => {
+    unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6(); unsub7();
+  });
 
   let results = $derived(currentResults?.results ?? []);
   let totalResults = $derived(currentResults?.total_results ?? 0);

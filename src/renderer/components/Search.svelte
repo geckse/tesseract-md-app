@@ -8,10 +8,10 @@
     executeSearch,
     clearSearch,
   } from '../stores/search';
-  import type { SearchOutput } from '../types/cli';
+  import type { SearchOutput, SearchResult } from '../types/cli';
 
   interface SearchProps {
-    onsearchresultclick?: (detail: { path: string }) => void;
+    onsearchresultclick?: (result: SearchResult) => void;
   }
 
   let { onsearchresultclick }: SearchProps = $props();
@@ -33,6 +33,13 @@
 
   let inputEl: HTMLInputElement | undefined = $state();
   let focused = $state(false);
+
+  // Auto-focus input when search opens (e.g. via Cmd+K)
+  $effect(() => {
+    if (currentOpen && inputEl) {
+      inputEl.focus();
+    }
+  });
 
   function handleInput(event: Event) {
     const target = event.target as HTMLInputElement;
@@ -78,7 +85,7 @@
       const idx = currentHighlightedIndex >= 0 ? currentHighlightedIndex : 0;
       const result = results[idx];
       if (result) {
-        onsearchresultclick?.({ path: result.file.path });
+        onsearchresultclick?.(result);
         clearSearch();
       }
     }

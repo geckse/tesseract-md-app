@@ -89,7 +89,7 @@
   <!-- Actions -->
   <div class="actions">
     <div class="search-area">
-      <Search />
+      <Search onsearchresultclick={handleResultClick} />
       {#if resultsCount > 0}
         <span class="results-badge">{resultsCount} result{resultsCount !== 1 ? 's' : ''}</span>
       {/if}

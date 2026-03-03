@@ -30,6 +30,7 @@
     // Click-away to close search
     function handleClickAway(e: MouseEvent) {
       if (searchAreaEl && !searchAreaEl.contains(e.target as Node)) {
+        clearSearch();
         searchOpen.set(false);
       }
     }
@@ -59,13 +60,13 @@
 
   function navigateToResult(result: SearchResult) {
     selectFile(result.file.path);
-    // Wait briefly for file content to load, then scroll to the line
+    // Track null→non-null transition to avoid race with stale content
+    let sawNull = false;
     const unsub = fileContent.subscribe((content) => {
-      if (content !== null) {
-        setTimeout(() => {
-          scrollToLine.set(result.chunk.start_line);
-          unsub();
-        }, 50);
+      if (content === null) { sawNull = true; return; }
+      if (sawNull) {
+        scrollToLine.set(result.chunk.start_line);
+        unsub();
       }
     });
     clearSearch();
