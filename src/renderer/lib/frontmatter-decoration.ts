@@ -44,17 +44,15 @@ const frontmatterTheme = EditorView.theme({
     borderLeft: '2px solid #27272a',
     paddingLeft: '8px',
     fontFamily: 'JetBrains Mono, monospace',
-    fontSize: '11px',
-    lineHeight: '1.5',
   },
   '.cm-fm-line:hover': {
     borderLeftColor: '#00E5FF',
   },
   '.cm-fm-delimiter': {
-    color: '#526366',
+    color: '#7b8a8d',
   },
   '.cm-fm-key': {
-    color: '#71717a',
+    color: '#9ca3af',
   },
   '.cm-fm-string': {
     color: '#00E5FF',

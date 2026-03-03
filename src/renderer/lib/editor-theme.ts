@@ -44,7 +44,7 @@ const baseTheme = EditorView.theme(
 
     '.cm-gutters': {
       backgroundColor: '#0f0f10',
-      color: '#526366',
+      color: '#7b8a8d',
       border: 'none',
     },
 
@@ -122,20 +122,20 @@ const markdownHighlightStyle = HighlightStyle.define([
   },
 
   // Meta (frontmatter delimiters, heading markers, etc.)
-  { tag: tags.meta, color: '#526366' },
-  { tag: tags.processingInstruction, color: '#526366' },
+  { tag: tags.meta, color: '#7b8a8d' },
+  { tag: tags.processingInstruction, color: '#7b8a8d' },
 
   // Blockquotes
-  { tag: tags.quote, color: '#9ca3af', fontStyle: 'italic' },
+  { tag: tags.quote, color: '#b0b8bf', fontStyle: 'italic' },
 
   // Lists
-  { tag: tags.list, color: '#71717a' },
+  { tag: tags.list, color: '#8c8c96' },
 
   // Horizontal rule
-  { tag: tags.contentSeparator, color: '#27272a' },
+  { tag: tags.contentSeparator, color: '#3f3f46' },
 
   // Comments
-  { tag: tags.comment, color: '#526366', fontStyle: 'italic' },
+  { tag: tags.comment, color: '#7b8a8d', fontStyle: 'italic' },
 ]);
 
 /* -------------------------------------------------------------------------- */

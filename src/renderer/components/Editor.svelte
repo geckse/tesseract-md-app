@@ -181,6 +181,12 @@
     display: none;
   }
 
+  .editor-content :global(.cm-editor .cm-content .cm-line.cm-fm-line),
+  .editor-content :global(.cm-editor .cm-content .cm-line.cm-fm-line) :global(span) {
+    font-size: 12.5px;
+    line-height: 22px;
+  }
+
   .editor-content :global(.cm-scroller) {
     flex: 1;
     min-height: 0;
