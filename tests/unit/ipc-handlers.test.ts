@@ -1,12 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-// Mock electron ipcMain
+// Mock electron ipcMain and shell
 const mockHandle = vi.fn()
-vi.mock('electron', () => ({
-  ipcMain: {
-    handle: (...args: unknown[]) => mockHandle(...args)
-  }
-}))
 
 // Mock CLI module
 const mockFindCli = vi.fn()
@@ -52,9 +47,49 @@ vi.mock('../../src/main/collections', () => ({
 const mockReadFile = vi.fn()
 const mockWriteFile = vi.fn()
 vi.mock('node:fs', () => ({
+  default: {
+    promises: {
+      readFile: (...args: unknown[]) => mockReadFile(...args),
+      writeFile: (...args: unknown[]) => mockWriteFile(...args)
+    }
+  },
   promises: {
     readFile: (...args: unknown[]) => mockReadFile(...args),
     writeFile: (...args: unknown[]) => mockWriteFile(...args)
+  }
+}))
+
+// Mock watcher module
+const mockWatcherStart = vi.fn()
+const mockWatcherStop = vi.fn()
+const mockWatcherDestroy = vi.fn()
+const mockWatcherGetState = vi.fn()
+const mockWatcherIsRunning = vi.fn()
+const mockWatcherOnEvent = vi.fn()
+const mockWatcherOnError = vi.fn()
+const mockWatcherOnStateChange = vi.fn()
+const mockWatcherRemoveAllListeners = vi.fn()
+vi.mock('../../src/main/watcher', () => ({
+  WatcherManager: vi.fn().mockImplementation(() => ({
+    start: (...args: unknown[]) => mockWatcherStart(...args),
+    stop: (...args: unknown[]) => mockWatcherStop(...args),
+    destroy: (...args: unknown[]) => mockWatcherDestroy(...args),
+    getState: (...args: unknown[]) => mockWatcherGetState(...args),
+    isRunning: (...args: unknown[]) => mockWatcherIsRunning(...args),
+    onEvent: (...args: unknown[]) => mockWatcherOnEvent(...args),
+    onError: (...args: unknown[]) => mockWatcherOnError(...args),
+    onStateChange: (...args: unknown[]) => mockWatcherOnStateChange(...args),
+    removeAllListeners: (...args: unknown[]) => mockWatcherRemoveAllListeners(...args)
+  }))
+}))
+
+// Mock electron shell
+vi.mock('electron', () => ({
+  ipcMain: {
+    handle: (...args: unknown[]) => mockHandle(...args)
+  },
+  shell: {
+    showItemInFolder: vi.fn()
   }
 }))
 
@@ -78,6 +113,15 @@ beforeEach(() => {
   mockPromptInitCollection.mockReset()
   mockReadFile.mockReset()
   mockWriteFile.mockReset()
+  mockWatcherStart.mockReset()
+  mockWatcherStop.mockReset()
+  mockWatcherDestroy.mockReset()
+  mockWatcherGetState.mockReset()
+  mockWatcherIsRunning.mockReset()
+  mockWatcherOnEvent.mockReset()
+  mockWatcherOnError.mockReset()
+  mockWatcherOnStateChange.mockReset()
+  mockWatcherRemoveAllListeners.mockReset()
 })
 
 describe('registerIpcHandlers', () => {
@@ -108,7 +152,12 @@ describe('registerIpcHandlers', () => {
     expect(channels).toContain('collections:get-active')
     expect(channels).toContain('fs:read-file')
     expect(channels).toContain('fs:write-file')
-    expect(channels).toHaveLength(23)
+    expect(channels).toContain('shell:show-item-in-folder')
+    expect(channels).toContain('cli:ingest-file')
+    expect(channels).toContain('watcher:start')
+    expect(channels).toContain('watcher:stop')
+    expect(channels).toContain('watcher:status')
+    expect(channels).toHaveLength(28)
   })
 })
 
@@ -597,5 +646,105 @@ describe('IPC error serialization', () => {
       type: 'CliExecutionError',
       message: 'string error'
     })
+  })
+})
+
+describe('Watcher IPC handlers', () => {
+  function getHandler(channel: string): (...args: unknown[]) => Promise<unknown> {
+    registerIpcHandlers()
+    const call = mockHandle.mock.calls.find((c: unknown[]) => c[0] === channel)
+    if (!call) throw new Error(`No handler for channel: ${channel}`)
+    return call[1] as (...args: unknown[]) => Promise<unknown>
+  }
+
+  const fakeEvent = {}
+
+  describe('watcher:start', () => {
+    it('calls watcher start with root path', async () => {
+      mockWatcherStart.mockResolvedValue(undefined)
+      const handler = getHandler('watcher:start')
+      await handler(fakeEvent, '/tmp/project')
+      expect(mockWatcherStart).toHaveBeenCalledWith('/tmp/project')
+    })
+
+    it('sets up event forwarding listeners when mainWindow is provided', async () => {
+      mockWatcherStart.mockResolvedValue(undefined)
+      mockHandle.mockReset()
+      const mockWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } }
+      registerIpcHandlers(mockWindow as unknown as import('electron').BrowserWindow)
+      const call = mockHandle.mock.calls.find((c: unknown[]) => c[0] === 'watcher:start')
+      const handler = call![1] as (...args: unknown[]) => Promise<unknown>
+      await handler(fakeEvent, '/tmp/project')
+      expect(mockWatcherRemoveAllListeners).toHaveBeenCalled()
+      expect(mockWatcherOnEvent).toHaveBeenCalled()
+      expect(mockWatcherOnError).toHaveBeenCalled()
+      expect(mockWatcherOnStateChange).toHaveBeenCalled()
+    })
+
+    it('skips event forwarding when no mainWindow', async () => {
+      mockWatcherStart.mockResolvedValue(undefined)
+      const handler = getHandler('watcher:start')
+      await handler(fakeEvent, '/tmp/project')
+      expect(mockWatcherRemoveAllListeners).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('watcher:stop', () => {
+    it('calls watcher stop', async () => {
+      mockWatcherStop.mockResolvedValue(undefined)
+      const handler = getHandler('watcher:stop')
+      await handler(fakeEvent)
+      expect(mockWatcherStop).toHaveBeenCalled()
+    })
+  })
+
+  describe('watcher:status', () => {
+    it('returns watcher state and running status', async () => {
+      mockWatcherGetState.mockReturnValue('running')
+      mockWatcherIsRunning.mockReturnValue(true)
+      const handler = getHandler('watcher:status')
+      const result = await handler(fakeEvent)
+      expect(result).toEqual({ state: 'running', running: true })
+    })
+
+    it('returns stopped state when not running', async () => {
+      mockWatcherGetState.mockReturnValue('stopped')
+      mockWatcherIsRunning.mockReturnValue(false)
+      const handler = getHandler('watcher:status')
+      const result = await handler(fakeEvent)
+      expect(result).toEqual({ state: 'stopped', running: false })
+    })
+  })
+})
+
+describe('cli:ingest-file IPC handler', () => {
+  function getHandler(channel: string): (...args: unknown[]) => Promise<unknown> {
+    registerIpcHandlers()
+    const call = mockHandle.mock.calls.find((c: unknown[]) => c[0] === channel)
+    if (!call) throw new Error(`No handler for channel: ${channel}`)
+    return call[1] as (...args: unknown[]) => Promise<unknown>
+  }
+
+  const fakeEvent = {}
+
+  it('passes --file flag with file path', async () => {
+    mockExecCommand.mockResolvedValue({ files_indexed: 1 })
+    const handler = getHandler('cli:ingest-file')
+    await handler(fakeEvent, '/tmp/project', 'readme.md')
+
+    expect(mockExecCommand).toHaveBeenCalledWith(
+      'ingest', ['--file', 'readme.md'], '/tmp/project', { timeout: 300_000 }
+    )
+  })
+
+  it('passes --reindex flag when requested', async () => {
+    mockExecCommand.mockResolvedValue({ files_indexed: 1 })
+    const handler = getHandler('cli:ingest-file')
+    await handler(fakeEvent, '/tmp/project', 'readme.md', { reindex: true })
+
+    const args = mockExecCommand.mock.calls[0][1] as string[]
+    expect(args).toContain('--file')
+    expect(args).toContain('readme.md')
+    expect(args).toContain('--reindex')
   })
 })
