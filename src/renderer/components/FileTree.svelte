@@ -36,6 +36,50 @@
   activeCollection.subscribe((v) => (currentActiveCollection = v))
   ingestRunning.subscribe((v) => (currentIngestRunning = v))
 
+  // Context menu state
+  let contextMenuPath: string | null = $state(null)
+  let contextMenuIsDir: boolean = $state(false)
+  let contextMenuPosition = $state({ x: 0, y: 0 })
+  let reindexingFile: string | null = $state(null)
+
+  const isMac = navigator.platform.toUpperCase().includes('MAC')
+
+  function handleNodeContextMenu(detail: { path: string; isDir: boolean; x: number; y: number }) {
+    contextMenuPath = detail.path
+    contextMenuIsDir = detail.isDir
+    contextMenuPosition = { x: detail.x, y: detail.y }
+  }
+
+  function closeContextMenu() {
+    contextMenuPath = null
+  }
+
+  async function handleRevealInFolder() {
+    if (!contextMenuPath || !currentActiveCollection) return
+    const absolutePath = `${currentActiveCollection.path}/${contextMenuPath}`
+    closeContextMenu()
+    try {
+      await window.api.showItemInFolder(absolutePath)
+    } catch (err) {
+      console.error('Reveal in folder failed:', err, 'path:', absolutePath)
+    }
+  }
+
+  async function handleReindexFile() {
+    if (!contextMenuPath || !currentActiveCollection || contextMenuIsDir) return
+    const filePath = contextMenuPath
+    closeContextMenu()
+    reindexingFile = filePath
+    try {
+      await window.api.ingestFile(currentActiveCollection.path, filePath, { reindex: true })
+      await loadFileTree()
+    } catch (err) {
+      console.error('Reindex file failed:', err, 'path:', filePath)
+    } finally {
+      reindexingFile = null
+    }
+  }
+
   async function handleRefresh() {
     await loadFileTree()
   }
@@ -63,6 +107,9 @@
       if (!target.closest('.ingest-split-btn')) {
         ingestMenuOpen = false
       }
+    }
+    if (contextMenuPath) {
+      closeContextMenu()
     }
   }
 </script>
@@ -157,12 +204,42 @@
     {:else if currentFileTree}
       <div class="tree-nodes">
         {#each currentFileTree.root.children as child (child.path)}
-          <FileTreeNode node={child} {onfileselect} />
+          <FileTreeNode node={child} {onfileselect} oncontextmenu={handleNodeContextMenu} />
         {/each}
       </div>
     {/if}
   </div>
 </div>
+
+<!-- File context menu -->
+{#if contextMenuPath}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="context-menu-overlay" onclick={closeContextMenu}>
+    <div
+      class="context-menu"
+      style="left: {contextMenuPosition.x}px; top: {contextMenuPosition.y}px;"
+      onclick={(e) => e.stopPropagation()}
+    >
+      <button class="context-menu-item" onclick={handleRevealInFolder}>
+        <span class="material-symbols-outlined">folder_open</span>
+        {isMac ? 'Reveal in Finder' : 'Reveal in File Explorer'}
+      </button>
+      {#if !contextMenuIsDir}
+        <button
+          class="context-menu-item"
+          onclick={handleReindexFile}
+          disabled={reindexingFile !== null}
+        >
+          <span class="material-symbols-outlined" class:spinning={reindexingFile === contextMenuPath}>
+            {reindexingFile === contextMenuPath ? 'sync' : 'refresh'}
+          </span>
+          {reindexingFile === contextMenuPath ? 'Reindexing...' : 'Reindex File'}
+        </button>
+      {/if}
+    </div>
+  </div>
+{/if}
 
 <style>
   .file-tree-container {
@@ -422,5 +499,56 @@
 
   .retry-btn .material-symbols-outlined {
     font-size: 14px;
+  }
+
+  /* --- File context menu --- */
+  .context-menu-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 100;
+  }
+
+  .context-menu {
+    position: fixed;
+    background: var(--color-surface, #161617);
+    border: 1px solid var(--color-border, #27272a);
+    border-radius: 8px;
+    padding: 4px;
+    min-width: 180px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    z-index: 101;
+  }
+
+  .context-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 12px;
+    border: none;
+    background: none;
+    border-radius: 4px;
+    color: var(--color-text-dim, #71717a);
+    font-size: 13px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.15s;
+  }
+
+  .context-menu-item:hover {
+    background: var(--color-surface-darker, #0a0a0a);
+    color: #fff;
+  }
+
+  .context-menu-item:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .context-menu-item .material-symbols-outlined {
+    font-size: 16px;
   }
 </style>

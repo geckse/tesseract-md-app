@@ -65,6 +65,12 @@ export interface MdvdbApi {
   // File operations
   readFile(absolutePath: string): Promise<string>
   writeFile(absolutePath: string, content: string): Promise<void>
+
+  // Shell operations
+  showItemInFolder(absolutePath: string): Promise<void>
+
+  // Single-file ingest
+  ingestFile(root: string, filePath: string, options?: IngestOptions): Promise<IngestResult>
 }
 
 declare global {

@@ -5,6 +5,7 @@
   import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
   import { history, historyKeymap } from '@codemirror/commands';
   import { defaultKeymap } from '@codemirror/commands';
+  import { search, searchKeymap } from '@codemirror/search';
   import { editorTheme } from '../lib/editor-theme';
   import { softRender } from '../lib/soft-render';
   import { frontmatterDecoration } from '../lib/frontmatter-decoration';
@@ -78,7 +79,8 @@
       softRender(),
       frontmatterDecoration(),
       keymap.of([{ key: 'Mod-s', run: () => handleSave() }]),
-      keymap.of([...defaultKeymap, ...historyKeymap]),
+      search({ top: true }),
+      keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
       EditorView.updateListener.of(handleUpdate),
     ];
   }
@@ -209,14 +211,14 @@
     min-height: 0;
     overflow: auto !important;
     scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.10) transparent;
+    scrollbar-color: var(--scrollbar-thumb, rgba(255, 255, 255, 0.10)) var(--scrollbar-track, transparent);
   }
 
-  .editor-content :global(.cm-scroller)::-webkit-scrollbar { width: 6px; height: 6px; }
-  .editor-content :global(.cm-scroller)::-webkit-scrollbar-track { background: transparent; }
-  .editor-content :global(.cm-scroller)::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.10); border-radius: 3px; }
-  .editor-content :global(.cm-scroller)::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.20); }
-  .editor-content :global(.cm-scroller)::-webkit-scrollbar-corner { background: transparent; }
+  .editor-content :global(.cm-scroller)::-webkit-scrollbar { width: var(--scrollbar-width, 6px); height: var(--scrollbar-width, 6px); }
+  .editor-content :global(.cm-scroller)::-webkit-scrollbar-track { background: var(--scrollbar-track, transparent); }
+  .editor-content :global(.cm-scroller)::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb, rgba(255, 255, 255, 0.10)); border-radius: 3px; }
+  .editor-content :global(.cm-scroller)::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover, rgba(255, 255, 255, 0.20)); }
+  .editor-content :global(.cm-scroller)::-webkit-scrollbar-corner { background: var(--scrollbar-track, transparent); }
 
   .empty-state {
     flex: 1;

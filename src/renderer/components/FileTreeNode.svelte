@@ -6,9 +6,15 @@
     node: FileTreeNode
     depth?: number
     onfileselect?: (detail: { path: string }) => void
+    oncontextmenu?: (detail: { path: string; isDir: boolean; x: number; y: number }) => void
   }
 
-  let { node, depth = 0, onfileselect }: FileTreeNodeProps = $props()
+  let { node, depth = 0, onfileselect, oncontextmenu: onctx }: FileTreeNodeProps = $props()
+
+  function handleContextMenu(event: MouseEvent) {
+    event.preventDefault()
+    onctx?.({ path: node.path, isDir: node.is_dir, x: event.clientX, y: event.clientY })
+  }
 
   // Reactive subscriptions
   let currentSelectedFilePath: string | null = $state(null)
@@ -66,6 +72,7 @@
     class:directory={node.is_dir}
     style="padding-left: {12 + depth * 16}px;"
     onclick={handleClick}
+    oncontextmenu={handleContextMenu}
     title={node.path}
   >
     {#if node.is_dir}
@@ -94,7 +101,7 @@
   {#if node.is_dir && isExpanded}
     <div class="tree-children">
       {#each node.children as child (child.path)}
-        <svelte:self node={child} depth={depth + 1} {onfileselect} />
+        <svelte:self node={child} depth={depth + 1} {onfileselect} oncontextmenu={onctx} />
       {/each}
     </div>
   {/if}

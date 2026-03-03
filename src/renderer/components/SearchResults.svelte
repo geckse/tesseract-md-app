@@ -252,6 +252,7 @@
   }
 
   .score-bar-track {
+    max-width: 80px;
     height: 4px;
     background: var(--color-surface-dark, #0a0a0a);
     border-radius: var(--radius-full, 9999px);

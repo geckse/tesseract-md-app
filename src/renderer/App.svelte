@@ -65,7 +65,10 @@
     const unsub = fileContent.subscribe((content) => {
       if (content === null) { sawNull = true; return; }
       if (sawNull) {
-        scrollToLine.set(result.chunk.start_line);
+        // Defer scroll so the editor's content $effect creates the view first
+        requestAnimationFrame(() => {
+          scrollToLine.set(result.chunk.start_line);
+        });
         unsub();
       }
     });

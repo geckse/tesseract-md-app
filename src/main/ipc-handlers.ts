@@ -5,7 +5,7 @@
  * Called once from the main process on app ready.
  */
 
-import { ipcMain } from 'electron'
+import { ipcMain, shell } from 'electron'
 import { promises as fs } from 'node:fs'
 import { findCli, getCliVersion, execCommand, execRaw } from './cli'
 import {
@@ -226,6 +226,34 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle('collections:get-active', () =>
     wrapHandler(async () => getActiveCollection())
+  )
+
+  // Reveal file in OS file manager (Finder on macOS, Explorer on Windows)
+  ipcMain.handle('shell:show-item-in-folder', (_event, absolutePath: string) =>
+    wrapHandler(async () => {
+      const { resolve, sep } = await import('node:path')
+      const normalizedPath = resolve(absolutePath)
+      const collections = getCollections()
+      const isWithinCollection = collections.some(
+        (c) => normalizedPath === c.path || normalizedPath.startsWith(c.path + sep)
+      )
+      if (!isWithinCollection) {
+        throw new Error('Access denied: path is not within a known collection')
+      }
+      shell.showItemInFolder(normalizedPath)
+    })
+  )
+
+  // Ingest a single file
+  ipcMain.handle(
+    'cli:ingest-file',
+    (_event, root: string, filePath: string, options?: { reindex?: boolean }) => {
+      const args: string[] = ['--file', filePath]
+      if (options?.reindex) args.push('--reindex')
+      return wrapHandler(() =>
+        execCommand<IngestResult>('ingest', args, root, { timeout: INGEST_TIMEOUT_MS })
+      )
+    }
   )
 
   // File reading (with security validation)

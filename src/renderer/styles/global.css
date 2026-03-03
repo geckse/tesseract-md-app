@@ -46,31 +46,31 @@ body {
    ============================================================ */
 
 *::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: var(--scrollbar-width, 6px);
+  height: var(--scrollbar-width, 6px);
 }
 
 *::-webkit-scrollbar-track {
-  background: transparent;
+  background: var(--scrollbar-track, transparent);
 }
 
 *::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.10);
-  border-radius: 3px;
+  background: var(--scrollbar-thumb, rgba(255, 255, 255, 0.10));
+  border-radius: calc(var(--scrollbar-width, 6px) / 2);
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.20);
+  background: var(--scrollbar-thumb-hover, rgba(255, 255, 255, 0.20));
 }
 
 *::-webkit-scrollbar-corner {
-  background: transparent;
+  background: var(--scrollbar-track, transparent);
 }
 
 /* Firefox scrollbar */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.10) transparent;
+  scrollbar-color: var(--scrollbar-thumb, rgba(255, 255, 255, 0.10)) var(--scrollbar-track, transparent);
 }
 
 /* ============================================================

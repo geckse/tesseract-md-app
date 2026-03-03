@@ -81,10 +81,10 @@
   --radius-full: 9999px;
 
   /* --- Scrollbar --- */
-  --scrollbar-width: 8px;
-  --scrollbar-track: var(--color-bg);
-  --scrollbar-thumb: var(--color-border);
-  --scrollbar-thumb-hover: var(--color-border-hover);
+  --scrollbar-width: 6px;
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: rgba(255, 255, 255, 0.10);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.20);
 
   /* --- Transitions --- */
   --transition-fast: 150ms ease;

@@ -38,7 +38,7 @@ export function restoreSearchMode(collectionId: string): void {
   }
 }
 
-/** Set search mode and persist per collection. */
+/** Set search mode, persist per collection, and re-run active search. */
 export function setSearchMode(mode: SearchMode): void {
   searchMode.set(mode)
   const collection = get(activeCollection)
@@ -48,6 +48,12 @@ export function setSearchMode(mode: SearchMode): void {
     } catch {
       // localStorage unavailable
     }
+  }
+  // Re-run search with the new mode if there's an active query
+  const query = get(searchQuery)
+  if (query.length >= 2) {
+    searchLoading.set(true)
+    performSearch(query)
   }
 }
 

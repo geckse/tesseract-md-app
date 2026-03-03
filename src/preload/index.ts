@@ -54,7 +54,13 @@ const api: MdvdbApi = {
 
   // File operations
   readFile: (absolutePath) => invoke('fs:read-file', absolutePath),
-  writeFile: (absolutePath, content) => invoke('fs:write-file', absolutePath, content)
+  writeFile: (absolutePath, content) => invoke('fs:write-file', absolutePath, content),
+
+  // Shell operations
+  showItemInFolder: (absolutePath) => invoke('shell:show-item-in-folder', absolutePath),
+
+  // Single-file ingest
+  ingestFile: (root, filePath, options?) => invoke('cli:ingest-file', root, filePath, options)
 }
 
 if (process.contextIsolated) {
