@@ -6,14 +6,47 @@
   import Editor from './components/Editor.svelte';
   import PropertiesPanel from './components/PropertiesPanel.svelte';
   import IngestModal from './components/IngestModal.svelte';
-  import { loadCollections, setActiveCollection } from './stores/collections';
-  import { selectFile } from './stores/files';
+  import { loadCollections, setActiveCollection, activeCollectionId } from './stores/collections';
+  import { selectFile, fileContent } from './stores/files';
+  import { searchOpen, clearSearch } from './stores/search';
+  import { scrollToLine } from './stores/editor';
+  import type { SearchResult } from './types/cli';
 
 
   let propertiesOpen = $state(false);
+  let searchAreaEl: HTMLElement | undefined = $state(undefined);
 
   onMount(() => {
     loadCollections();
+
+    // Global Cmd+K / Ctrl+K to open search
+    function handleKeydown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        searchOpen.set(true);
+      }
+    }
+
+    // Click-away to close search
+    function handleClickAway(e: MouseEvent) {
+      if (searchAreaEl && !searchAreaEl.contains(e.target as Node)) {
+        searchOpen.set(false);
+      }
+    }
+
+    document.addEventListener('keydown', handleKeydown);
+    document.addEventListener('mousedown', handleClickAway);
+
+    // Clear search when active collection changes
+    const unsub = activeCollectionId.subscribe(() => {
+      clearSearch();
+    });
+
+    return () => {
+      document.removeEventListener('keydown', handleKeydown);
+      document.removeEventListener('mousedown', handleClickAway);
+      unsub();
+    };
   });
 
   function handleNavigate(detail: { id: string }) {
@@ -24,8 +57,19 @@
     selectFile(detail.fileId);
   }
 
-  function handleSearch(detail: { query: string }) {
-    // TODO: handle search (Phase 6)
+  function navigateToResult(result: SearchResult) {
+    selectFile(result.file.path);
+    // Wait briefly for file content to load, then scroll to the line
+    const unsub = fileContent.subscribe((content) => {
+      if (content !== null) {
+        setTimeout(() => {
+          scrollToLine.set(result.chunk.start_line);
+          unsub();
+        }, 50);
+      }
+    });
+    clearSearch();
+    searchOpen.set(false);
   }
 
   function handleToggleProperties(detail: { open: boolean }) {
@@ -40,10 +84,10 @@
     onfileselect={handleFileSelect}
   />
 
-  <main class="main-area">
+  <main class="main-area" bind:this={searchAreaEl}>
     <Header
       bind:propertiesOpen
-      onsearch={handleSearch}
+      onsearchresultclick={navigateToResult}
       ontoggleproperties={handleToggleProperties}
     />
 
