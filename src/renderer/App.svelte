@@ -10,6 +10,7 @@
   import { selectFile, fileContent } from './stores/files';
   import { searchOpen, clearSearch } from './stores/search';
   import { scrollToLine } from './stores/editor';
+  import { setupWatcherListener, teardownWatcherListener, fetchWatcherStatus } from './stores/watcher';
   import type { SearchResult } from './types/cli';
 
 
@@ -18,6 +19,8 @@
 
   onMount(() => {
     loadCollections();
+    setupWatcherListener();
+    fetchWatcherStatus();
 
     // Global Cmd+K / Ctrl+K to open search
     function handleKeydown(e: KeyboardEvent) {
@@ -46,6 +49,7 @@
     return () => {
       document.removeEventListener('keydown', handleKeydown);
       document.removeEventListener('mousedown', handleClickAway);
+      teardownWatcherListener();
       unsub();
     };
   });
