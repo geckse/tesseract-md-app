@@ -272,3 +272,41 @@ Actions (exported functions) mutate stores and call `window.api.*` methods. Comp
 - Material Symbols icon font for all icons — no icon component library
 - Scoped styles in components, tokens in `tokens.css` — no inline styles
 - `console.log` only in dev — use structured logging or remove before commit
+
+## Polish & Performance Rules
+
+### Animations
+
+- Every `transition` and `animation` MUST have a `@media (prefers-reduced-motion: reduce)` fallback that disables it
+- Use CSS transitions or Svelte `transition:` directives — never `setTimeout` for visual state changes
+- Keep durations short (100–200ms) and use standard easings (`ease-out` for entrances, `ease-in-out` for state changes)
+
+### Keyboard & Focus
+
+- Never override browser-native shortcuts (`Cmd+C/V/Z/A`) — they must always work in the editor
+- Suppress custom shortcuts inside input/textarea unless they're universal (`Cmd+S`, `Escape`)
+- All shortcuts must be platform-aware: `Cmd` on macOS, `Ctrl` on Windows/Linux
+- Modals must trap focus and restore it to the previous element on close
+- Tab/Shift+Tab should cycle between major UI regions; arrow keys navigate within lists/trees
+
+### Accessibility
+
+- Add ARIA attributes only where native HTML semantics are insufficient — don't over-label
+- Use landmark roles on major regions (`navigation`, `main`, `complementary`)
+- Dynamic content changes (result counts, progress, status) need `aria-live="polite"` regions
+- All interactive elements must have a visible focus indicator
+
+### Performance
+
+- Virtualize long lists (500+ items) — only render what's in the viewport plus a buffer
+- Cache recently viewed documents (LRU, bounded) to avoid redundant disk reads
+- Debounce and deduplicate CLI calls — never fire duplicate concurrent requests for the same command
+- Diff data before re-rendering — update only what changed, don't replace entire trees
+- Lazy-load heavy or rarely-used components via dynamic import
+
+### Error & Edge Case Handling
+
+- CLI/network failures must show user-friendly messages with a retry action — never silent failures
+- Long operations should have a visible progress indicator and a way to cancel
+- When external changes conflict with the editor, prompt the user — never auto-overwrite
+- Degrade gracefully for large files: warn and disable expensive decorations/parsing
