@@ -367,6 +367,27 @@ describe('PropertiesPanel component', () => {
       expect(screen.getByText('Real Heading')).toBeTruthy()
       expect(screen.queryByText('title: Test')).toBeNull()
     })
+
+    it('skips headings inside code blocks', () => {
+      selectedFilePath.set('docs/test.md')
+      propertiesFileContent.set('# Real\n\n```\n# Fake\n```\n\n## Also Real\n')
+
+      render(PropertiesPanel)
+
+      expect(screen.getByText('Real')).toBeTruthy()
+      expect(screen.getByText('Also Real')).toBeTruthy()
+      expect(screen.queryByText('Fake')).toBeNull()
+    })
+
+    it('outline items have clickable cursor style', () => {
+      selectedFilePath.set('docs/test.md')
+      propertiesFileContent.set('# Title\n')
+
+      render(PropertiesPanel)
+
+      const item = screen.getByText('Title').closest('[role="button"]')
+      expect(item).toBeTruthy()
+    })
   })
 
   describe('section collapse', () => {

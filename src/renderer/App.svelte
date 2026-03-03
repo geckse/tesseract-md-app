@@ -13,7 +13,7 @@
   import type { SearchResult } from './types/cli';
 
 
-  let propertiesOpen = $state(false);
+  let propertiesOpen = $state(localStorage.getItem('mdvdb-properties-open') === 'true');
   let searchAreaEl: HTMLElement | undefined = $state(undefined);
 
   onMount(() => {
@@ -78,6 +78,7 @@
 
   function handleToggleProperties(detail: { open: boolean }) {
     propertiesOpen = detail.open;
+    localStorage.setItem('mdvdb-properties-open', String(propertiesOpen));
   }
 
 </script>

@@ -111,6 +111,7 @@ export const frontmatter = derived(
 export interface OutlineHeading {
   heading: string
   level: number
+  line: number
 }
 
 /** Outline headings parsed from the file content. */
@@ -119,19 +120,29 @@ export const outline = derived(propertiesFileContent, ($content): OutlineHeading
   const headings: OutlineHeading[] = []
   const lines = $content.split('\n')
   let inFrontmatter = false
-  for (const line of lines) {
-    // Skip frontmatter block
-    if (line.trimEnd() === '---') {
+  let inCodeBlock = false
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    // Skip frontmatter block (only at start of file)
+    if (line.trimEnd() === '---' && (!inFrontmatter ? i === 0 || (i > 0 && headings.length === 0 && !inCodeBlock) : true)) {
       inFrontmatter = !inFrontmatter
       continue
     }
     if (inFrontmatter) continue
+
+    // Track fenced code blocks
+    if (line.trimStart().startsWith('```')) {
+      inCodeBlock = !inCodeBlock
+      continue
+    }
+    if (inCodeBlock) continue
 
     const match = line.match(/^(#{1,6})\s+(.+)$/)
     if (match) {
       headings.push({
         level: match[1].length,
         heading: match[2].trim(),
+        line: i + 1, // 1-indexed line number
       })
     }
   }

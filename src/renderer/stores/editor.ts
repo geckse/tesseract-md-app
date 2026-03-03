@@ -14,6 +14,9 @@ export const readingTime = derived(wordCount, ($wordCount) =>
 /** Target line number to scroll to in the editor, or null when idle. */
 export const scrollToLine = writable<number | null>(null)
 
+/** Currently active heading index in the outline (based on editor scroll position). */
+export const activeHeadingIndex = writable<number>(-1)
+
 /** Monotonic counter — increment to request a save from the Editor. */
 export const saveRequested = writable<number>(0)
 

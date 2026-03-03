@@ -11,6 +11,7 @@
     propertiesError,
   } from '../stores/properties'
   import { selectedFilePath } from '../stores/files'
+  import { scrollToLine, activeHeadingIndex } from '../stores/editor'
   import type { DocumentInfo, BacklinksOutput, LinksOutput, JsonValue } from '../types/cli'
   import type { OutlineHeading } from '../stores/properties'
 
@@ -29,6 +30,7 @@
   let currentLoading = $state(false)
   let currentError: string | null = $state(null)
   let currentFilePath: string | null = $state(null)
+  let currentActiveHeadingIndex = $state(-1)
 
   const unsubs = [
     documentInfo.subscribe((v) => (currentDocInfo = v)),
@@ -39,6 +41,7 @@
     propertiesLoading.subscribe((v) => (currentLoading = v)),
     propertiesError.subscribe((v) => (currentError = v)),
     selectedFilePath.subscribe((v) => (currentFilePath = v)),
+    activeHeadingIndex.subscribe((v) => (currentActiveHeadingIndex = v)),
   ]
 
   onDestroy(() => unsubs.forEach((u) => u()))
@@ -84,6 +87,10 @@
 
   function handleBacklinkClick(path: string) {
     onfileselect?.({ path })
+  }
+
+  function handleOutlineClick(heading: OutlineHeading) {
+    scrollToLine.set(heading.line)
   }
 
   /** Pick a badge variant based on common status values. */
@@ -282,8 +289,17 @@
         <div class="section-content">
           {#if currentOutline.length > 0}
             <nav class="outline-list">
-              {#each currentOutline as item}
-                <div class="outline-item" style="padding-left: {(item.level - 1) * 12}px">
+              {#each currentOutline as item, i}
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <div
+                  class="outline-item"
+                  class:active={i === currentActiveHeadingIndex}
+                  style="padding-left: {(item.level - 1) * 12}px"
+                  role="button"
+                  tabindex="0"
+                  onclick={() => handleOutlineClick(item)}
+                >
                   <span class="outline-text">{item.heading}</span>
                 </div>
               {/each}
@@ -573,7 +589,7 @@
   .outline-item {
     padding: var(--space-1, 4px) var(--space-2, 8px);
     border-radius: var(--radius-sm, 4px);
-    cursor: default;
+    cursor: pointer;
     transition: background var(--transition-fast, 150ms ease);
   }
 
@@ -589,5 +605,10 @@
 
   .outline-item:hover .outline-text {
     color: var(--color-text, #e4e4e7);
+  }
+
+  .outline-item.active .outline-text {
+    color: var(--color-primary, #00e5ff);
+    font-weight: var(--weight-medium, 500);
   }
 </style>

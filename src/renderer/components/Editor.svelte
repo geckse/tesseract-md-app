@@ -11,12 +11,16 @@
   import { frontmatterDecoration } from '../lib/frontmatter-decoration';
   import { fileContent, selectedFilePath, loadFileTree } from '../stores/files';
   import { activeCollection } from '../stores/collections';
-  import { isDirty, wordCount, countWords, saveRequested, scrollToLine } from '../stores/editor';
-  import { propertiesFileContent } from '../stores/properties';
+  import { isDirty, wordCount, countWords, saveRequested, scrollToLine, activeHeadingIndex } from '../stores/editor';
+  import { propertiesFileContent, outline } from '../stores/properties';
 
   let editorEl: HTMLDivElement | undefined = $state(undefined);
   let view: EditorView | null = null;
   let lastSavedContent: string = '';
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  let currentOutline: import('../stores/properties').OutlineHeading[] = [];
+  const unsubOutline = outline.subscribe((v) => (currentOutline = v));
 
   let currentFileContent: string | null = $state(null);
   let currentSelectedFilePath: string | null = $state(null);
@@ -53,8 +57,35 @@
       const content = update.state.doc.toString();
       isDirty.set(content !== lastSavedContent);
       wordCount.set(countWords(content));
-      propertiesFileContent.set(content);
+      // Debounce metadata store update (200ms) to avoid parsing YAML on every keystroke
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        propertiesFileContent.set(content);
+      }, 200);
     }
+  }
+
+  /** Update activeHeadingIndex based on the editor's scroll position. */
+  function updateActiveHeading() {
+    if (!view || currentOutline.length === 0) {
+      activeHeadingIndex.set(-1);
+      return;
+    }
+    // Find the topmost visible line
+    const rect = view.dom.getBoundingClientRect();
+    const topPos = view.lineBlockAtHeight(view.scrollDOM.scrollTop);
+    const topLine = view.state.doc.lineAt(topPos.from).number;
+
+    // Find the last heading at or before the topmost visible line
+    let idx = -1;
+    for (let i = 0; i < currentOutline.length; i++) {
+      if (currentOutline[i].line <= topLine + 1) {
+        idx = i;
+      } else {
+        break;
+      }
+    }
+    activeHeadingIndex.set(idx);
   }
 
   function handleSave(): boolean {
@@ -82,6 +113,9 @@
       search({ top: true }),
       keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
       EditorView.updateListener.of(handleUpdate),
+      EditorView.domEventHandler('scroll', () => {
+        updateActiveHeading();
+      }),
     ];
   }
 
@@ -141,6 +175,7 @@
   });
 
   onDestroy(() => {
+    if (debounceTimer) clearTimeout(debounceTimer);
     destroyView();
     isDirty.set(false);
     wordCount.set(0);
@@ -149,6 +184,7 @@
     unsubCollection();
     unsubSave();
     unsubScrollToLine();
+    unsubOutline();
   });
 </script>
 

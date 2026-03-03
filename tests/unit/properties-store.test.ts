@@ -284,13 +284,13 @@ describe('properties store', () => {
   })
 
   describe('outline derived store', () => {
-    it('parses headings from markdown content', () => {
+    it('parses headings from markdown content with line numbers', () => {
       propertiesFileContent.set('# Title\n\nSome text.\n\n## Section One\n\n### Subsection\n')
 
       expect(get(outline)).toEqual([
-        { level: 1, heading: 'Title' },
-        { level: 2, heading: 'Section One' },
-        { level: 3, heading: 'Subsection' },
+        { level: 1, heading: 'Title', line: 1 },
+        { level: 2, heading: 'Section One', line: 5 },
+        { level: 3, heading: 'Subsection', line: 7 },
       ])
     })
 
@@ -300,8 +300,8 @@ describe('properties store', () => {
       )
 
       expect(get(outline)).toEqual([
-        { level: 1, heading: 'Real Heading' },
-        { level: 2, heading: 'Another' },
+        { level: 1, heading: 'Real Heading', line: 6 },
+        { level: 2, heading: 'Another', line: 8 },
       ])
     })
 
@@ -321,19 +321,53 @@ describe('properties store', () => {
       )
 
       expect(get(outline)).toEqual([
-        { level: 1, heading: 'H1' },
-        { level: 2, heading: 'H2' },
-        { level: 3, heading: 'H3' },
-        { level: 4, heading: 'H4' },
-        { level: 5, heading: 'H5' },
-        { level: 6, heading: 'H6' },
+        { level: 1, heading: 'H1', line: 1 },
+        { level: 2, heading: 'H2', line: 2 },
+        { level: 3, heading: 'H3', line: 3 },
+        { level: 4, heading: 'H4', line: 4 },
+        { level: 5, heading: 'H5', line: 5 },
+        { level: 6, heading: 'H6', line: 6 },
       ])
     })
 
     it('does not treat lines without space after # as headings', () => {
       propertiesFileContent.set('#NotAHeading\n\n# Real Heading\n')
 
-      expect(get(outline)).toEqual([{ level: 1, heading: 'Real Heading' }])
+      expect(get(outline)).toEqual([{ level: 1, heading: 'Real Heading', line: 3 }])
+    })
+
+    it('skips headings inside fenced code blocks', () => {
+      propertiesFileContent.set(
+        '# Real Heading\n\n```\n# Not A Heading\n## Also Not\n```\n\n## After Code Block\n'
+      )
+
+      expect(get(outline)).toEqual([
+        { level: 1, heading: 'Real Heading', line: 1 },
+        { level: 2, heading: 'After Code Block', line: 8 },
+      ])
+    })
+
+    it('skips headings inside indented code blocks with language tag', () => {
+      propertiesFileContent.set(
+        '# Title\n\n```markdown\n# Code Heading\n```\n\n## Real Section\n'
+      )
+
+      expect(get(outline)).toEqual([
+        { level: 1, heading: 'Title', line: 1 },
+        { level: 2, heading: 'Real Section', line: 7 },
+      ])
+    })
+
+    it('handles multiple code blocks correctly', () => {
+      propertiesFileContent.set(
+        '# First\n\n```\n# fake1\n```\n\n## Second\n\n```\n# fake2\n```\n\n### Third\n'
+      )
+
+      expect(get(outline)).toEqual([
+        { level: 1, heading: 'First', line: 1 },
+        { level: 2, heading: 'Second', line: 7 },
+        { level: 3, heading: 'Third', line: 13 },
+      ])
     })
   })
 })
