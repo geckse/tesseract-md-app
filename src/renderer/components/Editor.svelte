@@ -10,7 +10,7 @@
   import { frontmatterDecoration } from '../lib/frontmatter-decoration';
   import { fileContent, selectedFilePath, loadFileTree } from '../stores/files';
   import { activeCollection } from '../stores/collections';
-  import { isDirty, wordCount, countWords, saveRequested } from '../stores/editor';
+  import { isDirty, wordCount, countWords, saveRequested, scrollToLine } from '../stores/editor';
   import { propertiesFileContent } from '../stores/properties';
 
   let editorEl: HTMLDivElement | undefined = $state(undefined);
@@ -25,10 +25,26 @@
   const unsubSelectedFile = selectedFilePath.subscribe((v) => (currentSelectedFilePath = v));
   const unsubCollection = activeCollection.subscribe((v) => (currentActiveCollection = v));
 
+  let currentScrollToLine: number | null = $state(null);
+  const unsubScrollToLine = scrollToLine.subscribe((v) => (currentScrollToLine = v));
+
   let saveCounter = $state(0);
   const unsubSave = saveRequested.subscribe((v) => (saveCounter = v));
   $effect(() => {
     if (saveCounter > 0) handleSave();
+  });
+
+  // Scroll editor to a specific line when requested
+  $effect(() => {
+    if (currentScrollToLine !== null && view) {
+      const doc = view.state.doc;
+      const lineNumber = Math.max(1, Math.min(currentScrollToLine, doc.lines));
+      const line = doc.line(lineNumber);
+      view.dispatch({
+        effects: EditorView.scrollIntoView(line.from, { y: 'start' }),
+      });
+      scrollToLine.set(null);
+    }
   });
 
   function handleUpdate(update: import('@codemirror/view').ViewUpdate) {
@@ -130,6 +146,7 @@
     unsubSelectedFile();
     unsubCollection();
     unsubSave();
+    unsubScrollToLine();
   });
 </script>
 
