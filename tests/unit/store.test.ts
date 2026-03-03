@@ -12,9 +12,10 @@ vi.mock('electron-store', () => ({
 
 // Mock crypto
 const mockUUID = vi.fn()
-vi.mock('node:crypto', () => ({
-  randomUUID: () => mockUUID()
-}))
+vi.mock('node:crypto', () => {
+  const mod = { randomUUID: () => mockUUID() }
+  return { ...mod, default: mod }
+})
 
 import {
   initStore,
