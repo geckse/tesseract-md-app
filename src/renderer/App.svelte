@@ -32,9 +32,6 @@
     propertiesOpen = detail.open;
   }
 
-  function handleEdit() {
-    // TODO: handle edit mode
-  }
 </script>
 
 <div class="app-shell bg-grain">
@@ -48,7 +45,6 @@
       bind:propertiesOpen
       onsearch={handleSearch}
       ontoggleproperties={handleToggleProperties}
-      onedit={handleEdit}
     />
 
     <div class="content-area">

@@ -11,6 +11,14 @@ export const readingTime = derived(wordCount, ($wordCount) =>
   Math.ceil($wordCount / 250)
 )
 
+/** Monotonic counter — increment to request a save from the Editor. */
+export const saveRequested = writable<number>(0)
+
+/** Request the Editor to save the current file. */
+export function requestSave(): void {
+  saveRequested.update((n) => n + 1)
+}
+
 /** Count words in a text string. */
 export function countWords(text: string): number {
   const trimmed = text.trim()

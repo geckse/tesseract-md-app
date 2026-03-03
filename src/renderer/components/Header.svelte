@@ -1,20 +1,18 @@
 <script lang="ts">
   import { activeCollection } from '../stores/collections';
   import { selectedFilePath } from '../stores/files';
-  import { isDirty } from '../stores/editor';
+  import { isDirty, requestSave } from '../stores/editor';
 
   interface HeaderProps {
     propertiesOpen?: boolean;
     onsearch?: (detail: { query: string }) => void;
     ontoggleproperties?: (detail: { open: boolean }) => void;
-    onedit?: () => void;
   }
 
   let {
     propertiesOpen = $bindable(false),
     onsearch,
     ontoggleproperties,
-    onedit,
   }: HeaderProps = $props();
 
   let currentActiveCollection: import('../../preload/api').Collection | null = $state(null);
@@ -50,10 +48,6 @@
   function toggleProperties() {
     propertiesOpen = !propertiesOpen;
     ontoggleproperties?.({ open: propertiesOpen });
-  }
-
-  function handleEdit() {
-    onedit?.();
   }
 </script>
 
@@ -103,9 +97,12 @@
       <span class="material-symbols-outlined">side_navigation</span>
     </button>
 
-    <button class="edit-button" onclick={handleEdit}>
-      <span>Edit</span>
-    </button>
+    {#if currentIsDirty}
+      <button class="save-button" onclick={requestSave}>
+        <span>Save</span>
+        <kbd class="save-kbd"><span class="kbd-symbol">⌘</span>S</kbd>
+      </button>
+    {/if}
   </div>
 </header>
 
@@ -268,15 +265,15 @@
     font-size: 20px;
   }
 
-  .edit-button {
+  .save-button {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 6px 16px;
+    padding: 6px 12px;
     background: var(--color-primary, #00E5FF);
     color: var(--color-surface-darker, #0a0a0a);
     border: none;
-    border-radius: 2px;
+    border-radius: 4px;
     font-weight: 700;
     font-size: 12px;
     cursor: pointer;
@@ -286,7 +283,22 @@
     font-family: inherit;
   }
 
-  .edit-button:hover {
+  .save-button:hover {
     background: var(--color-primary-dark, #00B8CC);
+  }
+
+  .save-kbd {
+    display: inline-flex;
+    height: 18px;
+    align-items: center;
+    gap: 1px;
+    border-radius: 3px;
+    background: rgba(0, 0, 0, 0.15);
+    padding: 0 5px;
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--color-surface-darker, #0a0a0a);
+    border: none;
   }
 </style>

@@ -44,7 +44,8 @@ const frontmatterTheme = EditorView.theme({
     borderLeft: '2px solid #27272a',
     paddingLeft: '8px',
     fontFamily: 'JetBrains Mono, monospace',
-    fontSize: '13px',
+    fontSize: '11px',
+    lineHeight: '1.5',
   },
   '.cm-fm-line:hover': {
     borderLeftColor: '#00E5FF',

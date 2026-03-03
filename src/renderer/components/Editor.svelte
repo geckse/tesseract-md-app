@@ -10,7 +10,8 @@
   import { frontmatterDecoration } from '../lib/frontmatter-decoration';
   import { fileContent, selectedFilePath, loadFileTree } from '../stores/files';
   import { activeCollection } from '../stores/collections';
-  import { isDirty, wordCount, countWords } from '../stores/editor';
+  import { isDirty, wordCount, countWords, saveRequested } from '../stores/editor';
+  import { propertiesFileContent } from '../stores/properties';
 
   let editorEl: HTMLDivElement | undefined = $state(undefined);
   let view: EditorView | null = null;
@@ -24,11 +25,18 @@
   const unsubSelectedFile = selectedFilePath.subscribe((v) => (currentSelectedFilePath = v));
   const unsubCollection = activeCollection.subscribe((v) => (currentActiveCollection = v));
 
+  let saveCounter = $state(0);
+  const unsubSave = saveRequested.subscribe((v) => (saveCounter = v));
+  $effect(() => {
+    if (saveCounter > 0) handleSave();
+  });
+
   function handleUpdate(update: import('@codemirror/view').ViewUpdate) {
     if (update.docChanged) {
       const content = update.state.doc.toString();
       isDirty.set(content !== lastSavedContent);
       wordCount.set(countWords(content));
+      propertiesFileContent.set(content);
     }
   }
 
@@ -121,6 +129,7 @@
     unsubFileContent();
     unsubSelectedFile();
     unsubCollection();
+    unsubSave();
   });
 </script>
 
