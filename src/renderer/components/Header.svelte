@@ -2,16 +2,20 @@
   import { activeCollection } from '../stores/collections';
   import { selectedFilePath } from '../stores/files';
   import { isDirty, requestSave } from '../stores/editor';
+  import { searchResults, searchOpen, clearSearch } from '../stores/search';
+  import type { SearchOutput, SearchResult } from '../types/cli';
+  import Search from './Search.svelte';
+  import SearchResults from './SearchResults.svelte';
 
   interface HeaderProps {
     propertiesOpen?: boolean;
-    onsearch?: (detail: { query: string }) => void;
+    onsearchresultclick?: (result: SearchResult) => void;
     ontoggleproperties?: (detail: { open: boolean }) => void;
   }
 
   let {
     propertiesOpen = $bindable(false),
-    onsearch,
+    onsearchresultclick,
     ontoggleproperties,
   }: HeaderProps = $props();
 
@@ -24,7 +28,15 @@
   let currentIsDirty = $state(false);
   isDirty.subscribe((v) => (currentIsDirty = v));
 
+  let currentSearchResults: SearchOutput | null = $state(null);
+  searchResults.subscribe((v) => (currentSearchResults = v));
+
+  let currentSearchOpen = $state(false);
+  searchOpen.subscribe((v) => (currentSearchOpen = v));
+
   let collectionName = $derived(currentActiveCollection?.name ?? null);
+
+  let resultsCount = $derived(currentSearchResults?.total_results ?? 0);
 
   /** Parse selected file path into breadcrumb segments: [dir1, dir2, ..., filename] */
   let pathSegments = $derived.by(() => {
@@ -40,9 +52,12 @@
   /** The filename (last segment) */
   let fileName = $derived(pathSegments.length > 0 ? pathSegments[pathSegments.length - 1] : null);
 
-  function handleSearch(event: Event) {
-    const target = event.target as HTMLInputElement;
-    onsearch?.({ query: target.value });
+  function handleResultClick(result: SearchResult) {
+    onsearchresultclick?.(result);
+  }
+
+  function handleCloseRequest() {
+    clearSearch();
   }
 
   function toggleProperties() {
@@ -73,17 +88,11 @@
 
   <!-- Actions -->
   <div class="actions">
-    <div class="search-wrapper">
-      <span class="material-symbols-outlined search-icon">search</span>
-      <input
-        class="search-input"
-        type="text"
-        placeholder="Search database..."
-        oninput={handleSearch}
-      />
-      <div class="search-shortcut">
-        <kbd class="kbd"><span class="kbd-symbol">⌘</span>K</kbd>
-      </div>
+    <div class="search-area">
+      <Search onsearchresultclick={handleResultClick} />
+      {#if resultsCount > 0}
+        <span class="results-badge">{resultsCount} result{resultsCount !== 1 ? 's' : ''}</span>
+      {/if}
     </div>
 
     <div class="divider"></div>
@@ -105,6 +114,12 @@
     {/if}
   </div>
 </header>
+
+{#if currentSearchOpen}
+  <div class="search-results-overlay">
+    <SearchResults onresultclick={handleResultClick} oncloserequest={handleCloseRequest} />
+  </div>
+{/if}
 
 <style>
   .header {
@@ -163,76 +178,25 @@
     -webkit-app-region: no-drag;
   }
 
-  .search-wrapper {
-    position: relative;
+  .search-area {
     display: flex;
     align-items: center;
+    gap: 8px;
   }
 
-  .search-icon {
-    position: absolute;
-    left: 12px;
-    font-size: 18px;
-    color: var(--color-text-dim, #71717a);
-    pointer-events: none;
-    transition: color 0.15s;
-  }
-
-  .search-wrapper:focus-within .search-icon {
+  .results-badge {
+    font-size: 11px;
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
     color: var(--color-primary, #00E5FF);
+    white-space: nowrap;
   }
 
-  .search-input {
-    background: var(--color-surface-darker, #0a0a0a);
-    border: 1px solid var(--color-border, #27272a);
-    border-radius: 6px;
-    padding: 6px 48px 6px 36px;
-    font-size: 12px;
-    color: #fff;
-    width: 224px;
-    transition: all 0.2s;
-    font-family: var(--font-mono, 'JetBrains Mono', monospace);
-    outline: none;
-  }
-
-  .search-input::placeholder {
-    color: rgba(113, 113, 122, 0.5);
-  }
-
-  .search-input:focus {
-    border-color: var(--color-primary, #00E5FF);
-    box-shadow: 0 0 0 1px var(--color-primary, #00E5FF);
-    width: 288px;
-  }
-
-  .search-shortcut {
+  .search-results-overlay {
     position: absolute;
-    right: 8px;
-    pointer-events: none;
-    display: none;
-  }
-
-  .search-wrapper:focus-within .search-shortcut {
-    display: flex;
-  }
-
-  .kbd {
-    display: inline-flex;
-    height: 20px;
-    align-items: center;
-    gap: 2px;
-    border-radius: 4px;
-    border: 1px solid var(--color-border, #27272a);
-    background: var(--color-surface, #161617);
-    padding: 0 6px;
-    font-family: var(--font-mono, 'JetBrains Mono', monospace);
-    font-size: 10px;
-    font-weight: 500;
-    color: var(--color-text-dim, #71717a);
-  }
-
-  .kbd-symbol {
-    font-size: 10px;
+    top: 56px;
+    left: 0;
+    right: 0;
+    z-index: 40;
   }
 
   .divider {
