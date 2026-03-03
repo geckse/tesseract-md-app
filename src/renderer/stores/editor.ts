@@ -11,6 +11,9 @@ export const readingTime = derived(wordCount, ($wordCount) =>
   Math.ceil($wordCount / 250)
 )
 
+/** Target line number to scroll to in the editor, or null when idle. */
+export const scrollToLine = writable<number | null>(null)
+
 /** Monotonic counter — increment to request a save from the Editor. */
 export const saveRequested = writable<number>(0)
 
