@@ -36,6 +36,7 @@ import type {
   BacklinksOutput,
   OrphansOutput,
   ClusterSummary,
+  GraphData,
   Schema,
   Config,
   DoctorResult
@@ -207,6 +208,11 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   // Clusters
   ipcMain.handle('cli:clusters', (_event, root: string) =>
     wrapHandler(() => execCommand<ClusterSummary[]>('clusters', [], root))
+  )
+
+  // Graph data
+  ipcMain.handle('cli:graph', (_event, root: string) =>
+    wrapHandler(() => execCommand<GraphData>('graph', [], root))
   )
 
   // Schema
