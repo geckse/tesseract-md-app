@@ -20,6 +20,11 @@
   let propertiesOpen = $state(localStorage.getItem('mdvdb-properties-open') === 'true');
   let searchAreaEl: HTMLElement | undefined = $state(undefined);
 
+  // Focus management refs for Tab navigation
+  let sidebarEl: HTMLElement | undefined = $state(undefined);
+  let editorEl: HTMLElement | undefined = $state(undefined);
+  let propertiesEl: HTMLElement | undefined = $state(undefined);
+
   onMount(() => {
     loadCollections();
 
@@ -70,6 +75,37 @@
         handler: () => {
           selectFile(null);
         },
+      }),
+
+      // Tab: Cycle focus forward through regions (sidebar → editor → metadata)
+      shortcutManager.register({
+        key: 'Tab',
+        handler: (event) => {
+          // Only handle Tab if we're not in an input/textarea
+          const target = event.target as HTMLElement;
+          if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+            return;
+          }
+
+          cycleFocus(false);
+        },
+        preventDefault: true,
+      }),
+
+      // Shift+Tab: Cycle focus backward through regions
+      shortcutManager.register({
+        key: 'Tab',
+        shift: true,
+        handler: (event) => {
+          // Only handle Shift+Tab if we're not in an input/textarea
+          const target = event.target as HTMLElement;
+          if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+            return;
+          }
+
+          cycleFocus(true);
+        },
+        preventDefault: true,
       }),
     ];
 
@@ -131,13 +167,52 @@
     localStorage.setItem('mdvdb-properties-open', String(propertiesOpen));
   }
 
+  /**
+   * Cycle focus between the three main regions: sidebar, editor, and metadata panel.
+   * @param reverse - If true, cycle backward (Shift+Tab), otherwise forward (Tab)
+   */
+  function cycleFocus(reverse: boolean = false) {
+    const regions = [sidebarEl, editorEl, propertiesOpen ? propertiesEl : null].filter(Boolean) as HTMLElement[];
+
+    if (regions.length === 0) return;
+
+    // Find currently focused region
+    const activeElement = document.activeElement as HTMLElement;
+    let currentIndex = -1;
+
+    for (let i = 0; i < regions.length; i++) {
+      if (regions[i] === activeElement || regions[i].contains(activeElement)) {
+        currentIndex = i;
+        break;
+      }
+    }
+
+    // Calculate next index
+    let nextIndex: number;
+    if (currentIndex === -1) {
+      // No region focused, start at the beginning
+      nextIndex = reverse ? regions.length - 1 : 0;
+    } else {
+      if (reverse) {
+        nextIndex = (currentIndex - 1 + regions.length) % regions.length;
+      } else {
+        nextIndex = (currentIndex + 1) % regions.length;
+      }
+    }
+
+    // Focus the next region
+    regions[nextIndex]?.focus();
+  }
+
 </script>
 
 <div class="app-shell bg-grain">
-  <Sidebar
-    onnavigate={handleNavigate}
-    onfileselect={handleFileSelect}
-  />
+  <div class="sidebar-region" bind:this={sidebarEl} tabindex="-1">
+    <Sidebar
+      onnavigate={handleNavigate}
+      onfileselect={handleFileSelect}
+    />
+  </div>
 
   <main class="main-area" bind:this={searchAreaEl}>
     <Header
@@ -147,9 +222,13 @@
     />
 
     <div class="content-area">
-      <Editor />
+      <div class="editor-region" bind:this={editorEl} tabindex="-1">
+        <Editor />
+      </div>
       {#if propertiesOpen}
-        <PropertiesPanel onfileselect={(detail) => handleFileSelect({ folderId: '', fileId: detail.path })} />
+        <div class="properties-region" bind:this={propertiesEl} tabindex="-1">
+          <PropertiesPanel onfileselect={(detail) => handleFileSelect({ folderId: '', fileId: detail.path })} />
+        </div>
       {/if}
     </div>
 
@@ -180,6 +259,18 @@
     color: var(--color-surface-darker, #0a0a0a);
   }
 
+  .sidebar-region {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    outline: none;
+  }
+
+  .sidebar-region:focus-within {
+    outline: 2px solid var(--color-primary, #00E5FF);
+    outline-offset: -2px;
+  }
+
   .main-area {
     flex: 1;
     display: flex;
@@ -197,5 +288,30 @@
     overflow: hidden;
     position: relative;
     min-height: 0;
+  }
+
+  .editor-region {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    outline: none;
+  }
+
+  .editor-region:focus-within {
+    outline: 2px solid var(--color-primary, #00E5FF);
+    outline-offset: -2px;
+  }
+
+  .properties-region {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    outline: none;
+  }
+
+  .properties-region:focus-within {
+    outline: 2px solid var(--color-primary, #00E5FF);
+    outline-offset: -2px;
   }
 </style>
