@@ -2,6 +2,7 @@ import { writable, derived, get } from 'svelte/store'
 import type { FileTree, FileTreeNode, FileState } from '../types/cli'
 import { activeCollection } from './collections'
 import { loadProperties, clearProperties, propertiesFileContent } from './properties'
+import { trackRecent } from './favorites'
 
 /** The current file tree for the active collection. */
 export const fileTree = writable<FileTree | null>(null)
@@ -79,6 +80,9 @@ export async function selectFile(path: string | null): Promise<void> {
 
   const collection = get(activeCollection)
   if (!collection) return
+
+  // Track this file as recently opened
+  trackRecent(collection.id, path)
 
   const fullPath = `${collection.path}/${path}`
   fileContentLoading.set(true)
