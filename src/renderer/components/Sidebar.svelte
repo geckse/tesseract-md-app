@@ -13,6 +13,7 @@
   import FileTree from './FileTree.svelte'
   import ResizeHandle from './ResizeHandle.svelte'
   import type { Collection } from '../../preload/api'
+  import logoIcon from '../../../resources/icon.png'
 
   interface SidebarProps {
     onnavigate?: (detail: { id: string }) => void
@@ -96,14 +97,9 @@
   style:min-width="{sidebarWidth}px"
   onclick={closeContextMenu}
 >
-  <!-- Traffic light spacer (macOS window controls) -->
-  <div class="traffic-light-spacer"></div>
-
   <!-- Logo -->
   <div class="logo-area">
-    <div class="logo-icon">
-      <span class="material-symbols-outlined">database</span>
-    </div>
+    <img class="logo-icon" src={logoIcon} alt="mdvdb" />
     <span class="logo-text">mdvdb</span>
   </div>
 
@@ -207,37 +203,24 @@
     z-index: 20;
   }
 
-  .traffic-light-spacer {
-    height: 28px;
-    min-height: 28px;
-    -webkit-app-region: drag;
-  }
-
   .logo-area {
-    height: 40px;
+    height: 56px;
+    -webkit-app-region: drag;
     display: flex;
     align-items: center;
-    padding: 0 10px;
+    justify-content: flex-end;
+    padding: 10px 12px;
     border-bottom: 1px solid var(--color-border, #27272a);
-    gap: 12px;
+    gap: 10px;
     position: relative;
+    box-sizing: border-box;
   }
 
   .logo-icon {
-    width: 24px;
-    height: 24px;
-    border-radius: 4px;
-    background: var(--color-primary, #00E5FF);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--color-surface-darker, #0a0a0a);
-    box-shadow: 0 0 10px rgba(0, 229, 255, 0.4);
-  }
-
-  .logo-icon .material-symbols-outlined {
-    font-size: 14px;
-    font-weight: bold;
+    height: 100%;
+    width: auto;
+    object-fit: contain;
+    filter: drop-shadow(0 0 6px rgba(0, 229, 255, 0.4));
   }
 
   .logo-text {
