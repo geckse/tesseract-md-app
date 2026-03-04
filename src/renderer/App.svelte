@@ -6,11 +6,13 @@
   import Editor from './components/Editor.svelte';
   import PropertiesPanel from './components/PropertiesPanel.svelte';
   import IngestModal from './components/IngestModal.svelte';
+  import QuickOpen from './components/QuickOpen.svelte';
   import { loadCollections, setActiveCollection, activeCollectionId } from './stores/collections';
   import { selectFile, fileContent } from './stores/files';
   import { searchOpen, clearSearch } from './stores/search';
   import { scrollToLine } from './stores/editor';
   import { toggleSidebar } from './stores/ui';
+  import { openQuickOpen } from './stores/quickopen';
   import { shortcutManager } from './lib/shortcuts';
   import type { SearchResult } from './types/cli';
 
@@ -23,6 +25,15 @@
 
     // Register keyboard shortcuts
     const unregisterShortcuts = [
+      // Cmd+P / Ctrl+P: Open quick file finder
+      shortcutManager.register({
+        key: 'p',
+        meta: true,
+        handler: () => {
+          openQuickOpen();
+        },
+      }),
+
       // Cmd+K / Ctrl+K: Open search
       shortcutManager.register({
         key: 'k',
@@ -146,6 +157,7 @@
   </main>
 
   <IngestModal />
+  <QuickOpen />
 </div>
 
 <style>
