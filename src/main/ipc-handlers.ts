@@ -104,6 +104,28 @@ export async function destroyWatcherManager(): Promise<void> {
 }
 
 /**
+ * Run a callback with the watcher temporarily paused.
+ * Stops the watcher if running, executes the callback, then restarts it.
+ * If the watcher was not running, just executes the callback directly.
+ */
+async function withWatcherPaused<T>(root: string, fn: () => Promise<T>): Promise<T> {
+  const watcher = watcherManager
+  const wasRunning = watcher?.isRunning() ?? false
+
+  if (wasRunning && watcher) {
+    await watcher.stop()
+  }
+
+  try {
+    return await fn()
+  } finally {
+    if (wasRunning && watcher) {
+      await watcher.start(root)
+    }
+  }
+}
+
+/**
  * Register all IPC handlers for CLI bridge channels.
  * Must be called once after app is ready.
  *
@@ -140,7 +162,9 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
       const args: string[] = []
       if (options?.reindex) args.push('--reindex')
       return wrapHandler(() =>
-        execCommand<IngestResult>('ingest', args, root, { timeout: INGEST_TIMEOUT_MS })
+        withWatcherPaused(root, () =>
+          execCommand<IngestResult>('ingest', args, root, { timeout: INGEST_TIMEOUT_MS })
+        )
       )
     }
   )
@@ -277,7 +301,9 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
       const args: string[] = ['--file', filePath]
       if (options?.reindex) args.push('--reindex')
       return wrapHandler(() =>
-        execCommand<IngestResult>('ingest', args, root, { timeout: INGEST_TIMEOUT_MS })
+        withWatcherPaused(root, () =>
+          execCommand<IngestResult>('ingest', args, root, { timeout: INGEST_TIMEOUT_MS })
+        )
       )
     }
   )
@@ -325,19 +351,19 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
 
         watcher.onEvent((event) => {
           if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('watcher:event', event)
+            mainWindow.webContents.send('watcher:event', { type: 'watch-event', data: event })
           }
         })
 
         watcher.onError((error) => {
           if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('watcher:error', { message: error.message })
+            mainWindow.webContents.send('watcher:event', { type: 'error', data: { message: error.message } })
           }
         })
 
         watcher.onStateChange((state: WatcherState) => {
           if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('watcher:state', state)
+            mainWindow.webContents.send('watcher:event', { type: 'state-change', data: state })
           }
         })
       }

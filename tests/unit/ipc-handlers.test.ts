@@ -748,3 +748,191 @@ describe('cli:ingest-file IPC handler', () => {
     expect(args).toContain('--reindex')
   })
 })
+
+describe('Watcher pause during ingest', () => {
+  function getHandler(channel: string): (...args: unknown[]) => Promise<unknown> {
+    registerIpcHandlers()
+    const call = mockHandle.mock.calls.find((c: unknown[]) => c[0] === channel)
+    if (!call) throw new Error(`No handler for channel: ${channel}`)
+    return call[1] as (...args: unknown[]) => Promise<unknown>
+  }
+
+  const fakeEvent = {}
+
+  it('stops watcher before ingest and restarts after', async () => {
+    // Trigger watcher:start first to initialise the watcherManager singleton
+    mockWatcherStart.mockResolvedValue(undefined)
+    const startHandler = getHandler('watcher:start')
+    await startHandler(fakeEvent, '/tmp/project')
+
+    // Now the watcher is "running"
+    mockWatcherIsRunning.mockReturnValue(true)
+    mockWatcherStop.mockResolvedValue(undefined)
+    mockExecCommand.mockResolvedValue({ files_indexed: 3 })
+
+    const ingestHandler = getHandler('cli:ingest')
+    await ingestHandler(fakeEvent, '/tmp/project')
+
+    // Watcher should have been stopped before ingest
+    expect(mockWatcherStop).toHaveBeenCalled()
+    // Ingest should have run
+    expect(mockExecCommand).toHaveBeenCalledWith(
+      'ingest', [], '/tmp/project', { timeout: 300_000 }
+    )
+    // Watcher should have been restarted after ingest
+    expect(mockWatcherStart).toHaveBeenCalledWith('/tmp/project')
+  })
+
+  it('stops watcher before ingest-file and restarts after', async () => {
+    mockWatcherStart.mockResolvedValue(undefined)
+    const startHandler = getHandler('watcher:start')
+    await startHandler(fakeEvent, '/tmp/project')
+
+    mockWatcherIsRunning.mockReturnValue(true)
+    mockWatcherStop.mockResolvedValue(undefined)
+    mockExecCommand.mockResolvedValue({ files_indexed: 1 })
+
+    const handler = getHandler('cli:ingest-file')
+    await handler(fakeEvent, '/tmp/project', 'readme.md', { reindex: true })
+
+    expect(mockWatcherStop).toHaveBeenCalled()
+    expect(mockExecCommand).toHaveBeenCalled()
+    expect(mockWatcherStart).toHaveBeenCalledWith('/tmp/project')
+  })
+
+  it('does not stop or restart watcher when it is not running', async () => {
+    mockWatcherIsRunning.mockReturnValue(false)
+    mockExecCommand.mockResolvedValue({ files_indexed: 3 })
+
+    const handler = getHandler('cli:ingest')
+    await handler(fakeEvent, '/tmp/project')
+
+    expect(mockWatcherStop).not.toHaveBeenCalled()
+    expect(mockExecCommand).toHaveBeenCalled()
+    // watcher.start should not be called for restart
+    // (it may have been called during registerIpcHandlers, so check call count)
+    const startCallsAfterIngest = mockWatcherStart.mock.calls.filter(
+      (c: unknown[]) => c[0] === '/tmp/project'
+    )
+    expect(startCallsAfterIngest).toHaveLength(0)
+  })
+
+  it('restarts watcher even when ingest fails', async () => {
+    mockWatcherStart.mockResolvedValue(undefined)
+    const startHandler = getHandler('watcher:start')
+    await startHandler(fakeEvent, '/tmp/project')
+
+    mockWatcherIsRunning.mockReturnValue(true)
+    mockWatcherStop.mockResolvedValue(undefined)
+    mockExecCommand.mockRejectedValue(new Error('Tantivy lock error'))
+
+    const handler = getHandler('cli:ingest')
+    const result = await handler(fakeEvent, '/tmp/project')
+
+    // Should be an error result (wrapHandler catches it)
+    expect(result).toEqual(expect.objectContaining({ error: true }))
+    // Watcher should still have been restarted
+    expect(mockWatcherStart).toHaveBeenCalledWith('/tmp/project')
+  })
+})
+
+describe('Watcher event envelope wrapping', () => {
+  it('wraps watch events in { type: "watch-event", data } envelope', async () => {
+    mockWatcherStart.mockResolvedValue(undefined)
+    mockHandle.mockReset()
+
+    const mockSend = vi.fn()
+    const mockWindow = { isDestroyed: () => false, webContents: { send: mockSend } }
+    registerIpcHandlers(mockWindow as unknown as import('electron').BrowserWindow)
+
+    const startCall = mockHandle.mock.calls.find((c: unknown[]) => c[0] === 'watcher:start')
+    const handler = startCall![1] as (...args: unknown[]) => Promise<unknown>
+    await handler({}, '/tmp/project')
+
+    // Get the onEvent callback that was registered
+    const onEventCall = mockWatcherOnEvent.mock.calls[0]
+    const onEventCallback = onEventCall[0] as (event: unknown) => void
+
+    // Simulate a raw watcher event (as it comes from NDJSON)
+    const rawEvent = { event_type: 'Modified', path: 'readme.md', chunks_processed: 3, duration_ms: 42, success: true, error: null }
+    onEventCallback(rawEvent)
+
+    expect(mockSend).toHaveBeenCalledWith('watcher:event', {
+      type: 'watch-event',
+      data: rawEvent
+    })
+  })
+
+  it('wraps errors in { type: "error", data } envelope', async () => {
+    mockWatcherStart.mockResolvedValue(undefined)
+    mockHandle.mockReset()
+
+    const mockSend = vi.fn()
+    const mockWindow = { isDestroyed: () => false, webContents: { send: mockSend } }
+    registerIpcHandlers(mockWindow as unknown as import('electron').BrowserWindow)
+
+    const startCall = mockHandle.mock.calls.find((c: unknown[]) => c[0] === 'watcher:start')
+    const handler = startCall![1] as (...args: unknown[]) => Promise<unknown>
+    await handler({}, '/tmp/project')
+
+    const onErrorCall = mockWatcherOnError.mock.calls[0]
+    const onErrorCallback = onErrorCall[0] as (error: Error) => void
+
+    onErrorCallback(new Error('watcher crashed'))
+
+    expect(mockSend).toHaveBeenCalledWith('watcher:event', {
+      type: 'error',
+      data: { message: 'watcher crashed' }
+    })
+  })
+
+  it('wraps state changes in { type: "state-change", data } envelope', async () => {
+    mockWatcherStart.mockResolvedValue(undefined)
+    mockHandle.mockReset()
+
+    const mockSend = vi.fn()
+    const mockWindow = { isDestroyed: () => false, webContents: { send: mockSend } }
+    registerIpcHandlers(mockWindow as unknown as import('electron').BrowserWindow)
+
+    const startCall = mockHandle.mock.calls.find((c: unknown[]) => c[0] === 'watcher:start')
+    const handler = startCall![1] as (...args: unknown[]) => Promise<unknown>
+    await handler({}, '/tmp/project')
+
+    const onStateCall = mockWatcherOnStateChange.mock.calls[0]
+    const onStateCallback = onStateCall[0] as (state: string) => void
+
+    onStateCallback('running')
+
+    expect(mockSend).toHaveBeenCalledWith('watcher:event', {
+      type: 'state-change',
+      data: 'running'
+    })
+  })
+
+  it('sends all event types on the single watcher:event channel', async () => {
+    mockWatcherStart.mockResolvedValue(undefined)
+    mockHandle.mockReset()
+
+    const mockSend = vi.fn()
+    const mockWindow = { isDestroyed: () => false, webContents: { send: mockSend } }
+    registerIpcHandlers(mockWindow as unknown as import('electron').BrowserWindow)
+
+    const startCall = mockHandle.mock.calls.find((c: unknown[]) => c[0] === 'watcher:start')
+    const handler = startCall![1] as (...args: unknown[]) => Promise<unknown>
+    await handler({}, '/tmp/project')
+
+    // Fire all three callback types
+    const onEventCb = mockWatcherOnEvent.mock.calls[0][0] as (e: unknown) => void
+    const onErrorCb = mockWatcherOnError.mock.calls[0][0] as (e: Error) => void
+    const onStateCb = mockWatcherOnStateChange.mock.calls[0][0] as (s: string) => void
+
+    onEventCb({ event_type: 'Created', path: 'new.md' })
+    onErrorCb(new Error('fail'))
+    onStateCb('stopped')
+
+    // All three should go to 'watcher:event' channel, not separate channels
+    const channels = mockSend.mock.calls.map((c: unknown[]) => c[0])
+    expect(channels.every((ch: string) => ch === 'watcher:event')).toBe(true)
+    expect(mockSend).toHaveBeenCalledTimes(3)
+  })
+})
