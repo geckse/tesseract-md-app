@@ -16,7 +16,7 @@ import {
   setActiveCollection,
   getActiveCollection
 } from './store'
-import type { Collection } from './store'
+import type { Collection, FavoriteEntry, RecentEntry } from './store'
 import {
   pickCollectionFolder,
   validateCollectionPath,
@@ -265,6 +265,15 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
       if (!confirmed) return
 
       removeCollection(id)
+
+      // Clean up stale favorites and recents for this collection
+      const s = await import('./store').then((m) => m.initStore())
+
+      const favorites = s.get('favorites', [])
+      s.set('favorites', favorites.filter((f) => f.collectionId !== id))
+
+      const recents = s.get('recentFiles', [])
+      s.set('recentFiles', recents.filter((r) => r.collectionId !== id))
     })
   )
 
@@ -276,6 +285,78 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
 
   ipcMain.handle('collections:get-active', () =>
     wrapHandler(async () => getActiveCollection())
+  )
+
+  // Favorites management
+  ipcMain.handle('favorites:list', () =>
+    wrapHandler(async (): Promise<FavoriteEntry[]> => {
+      const s = await import('./store').then((m) => m.initStore())
+      return s.get('favorites', [])
+    })
+  )
+
+  ipcMain.handle('favorites:add', (_event, collectionId: string, filePath: string) =>
+    wrapHandler(async () => {
+      const s = await import('./store').then((m) => m.initStore())
+      const favorites = s.get('favorites', [])
+      const exists = favorites.some(
+        (f) => f.collectionId === collectionId && f.filePath === filePath
+      )
+      if (!exists) {
+        favorites.push({ collectionId, filePath, addedAt: Date.now() })
+        s.set('favorites', favorites)
+      }
+    })
+  )
+
+  ipcMain.handle('favorites:remove', (_event, collectionId: string, filePath: string) =>
+    wrapHandler(async () => {
+      const s = await import('./store').then((m) => m.initStore())
+      const favorites = s.get('favorites', [])
+      s.set(
+        'favorites',
+        favorites.filter((f) => !(f.collectionId === collectionId && f.filePath === filePath))
+      )
+    })
+  )
+
+  ipcMain.handle('favorites:is-favorite', (_event, collectionId: string, filePath: string) =>
+    wrapHandler(async (): Promise<boolean> => {
+      const s = await import('./store').then((m) => m.initStore())
+      const favorites = s.get('favorites', [])
+      return favorites.some((f) => f.collectionId === collectionId && f.filePath === filePath)
+    })
+  )
+
+  // Recents management
+  ipcMain.handle('recents:list', () =>
+    wrapHandler(async () => {
+      const s = await import('./store').then((m) => m.initStore())
+      return s.get('recentFiles', [])
+    })
+  )
+
+  ipcMain.handle('recents:add', (_event, collectionId: string, filePath: string) =>
+    wrapHandler(async () => {
+      const s = await import('./store').then((m) => m.initStore())
+      let recents = s.get('recentFiles', [])
+      // Remove existing entry for same file (dedup)
+      recents = recents.filter(
+        (r) => !(r.collectionId === collectionId && r.filePath === filePath)
+      )
+      // Add to front (most recent first)
+      recents.unshift({ collectionId, filePath, openedAt: Date.now() })
+      // Cap at 50 entries
+      recents = recents.slice(0, 50)
+      s.set('recentFiles', recents)
+    })
+  )
+
+  ipcMain.handle('recents:clear', () =>
+    wrapHandler(async () => {
+      const s = await import('./store').then((m) => m.initStore())
+      s.set('recentFiles', [])
+    })
   )
 
   // Reveal file in OS file manager (Finder on macOS, Explorer on Windows)

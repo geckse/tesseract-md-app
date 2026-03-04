@@ -11,6 +11,8 @@
   } from '../stores/collections'
   import { loadFileTree } from '../stores/files'
   import FileTree from './FileTree.svelte'
+  import Favorites from './Favorites.svelte'
+  import Recents from './Recents.svelte'
   import ResizeHandle from './ResizeHandle.svelte'
   import type { Collection } from '../../preload/api'
   import logoIcon from '../../../resources/icon.png'
@@ -105,6 +107,12 @@
 
   <!-- Scrollable content -->
   <div class="nav-content">
+    <!-- Favorites -->
+    <Favorites />
+
+    <!-- Recents -->
+    <Recents />
+
     <!-- Collections -->
     <div class="nav-section collections-section">
       <div class="section-header-row">

@@ -11,6 +11,7 @@
   import { selectFile, fileContentLoading } from './stores/files';
   import { searchOpen, clearSearch } from './stores/search';
   import { scrollToLine } from './stores/editor';
+  import { loadFavorites, loadRecents } from './stores/favorites';
   import { openQuickOpen } from './stores/quickopen';
   import { shortcutManager } from './lib/shortcuts';
   import { setupWatcherListener, teardownWatcherListener, fetchWatcherStatus } from './stores/watcher';
@@ -27,6 +28,8 @@
 
   onMount(() => {
     loadCollections();
+    loadFavorites();
+    loadRecents();
     setupWatcherListener();
     fetchWatcherStatus();
 

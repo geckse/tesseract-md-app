@@ -18,11 +18,27 @@ export interface Collection {
   lastOpenedAt: number
 }
 
+/** A favorited file entry */
+export interface FavoriteEntry {
+  collectionId: string // Which collection this file belongs to
+  filePath: string // Relative path within the collection
+  addedAt: number // Unix timestamp
+}
+
+/** A recently opened file entry */
+export interface RecentEntry {
+  collectionId: string
+  filePath: string
+  openedAt: number // Unix timestamp, updated on each open
+}
+
 /** Schema for the persistent store */
 export interface AppStore {
   collections: Collection[]
   activeCollectionId: string | null
   windowBounds: { x: number; y: number; width: number; height: number }
+  favorites: FavoriteEntry[]
+  recentFiles: RecentEntry[]
   sidebarWidth: number
   metadataPanelWidth: number
 }
@@ -56,6 +72,32 @@ const schema = {
       y: { type: 'number' as const },
       width: { type: 'number' as const },
       height: { type: 'number' as const }
+    }
+  },
+  favorites: {
+    type: 'array' as const,
+    default: [] as FavoriteEntry[],
+    items: {
+      type: 'object' as const,
+      properties: {
+        collectionId: { type: 'string' as const },
+        filePath: { type: 'string' as const },
+        addedAt: { type: 'number' as const }
+      },
+      required: ['collectionId', 'filePath', 'addedAt'] as const
+    }
+  },
+  recentFiles: {
+    type: 'array' as const,
+    default: [] as RecentEntry[],
+    items: {
+      type: 'object' as const,
+      properties: {
+        collectionId: { type: 'string' as const },
+        filePath: { type: 'string' as const },
+        openedAt: { type: 'number' as const }
+      },
+      required: ['collectionId', 'filePath', 'openedAt'] as const
     }
   },
   sidebarWidth: {

@@ -62,6 +62,17 @@ const api: MdvdbApi = {
   // Single-file ingest
   ingestFile: (root, filePath, options?) => invoke('cli:ingest-file', root, filePath, options),
 
+  // Favorites management
+  listFavorites: () => invoke('favorites:list'),
+  addFavorite: (collectionId, filePath) => invoke('favorites:add', collectionId, filePath),
+  removeFavorite: (collectionId, filePath) => invoke('favorites:remove', collectionId, filePath),
+  isFavorite: (collectionId, filePath) => invoke('favorites:is-favorite', collectionId, filePath),
+
+  // Recents management
+  listRecents: () => invoke('recents:list'),
+  addRecent: (collectionId, filePath) => invoke('recents:add', collectionId, filePath),
+  clearRecents: () => invoke('recents:clear'),
+
   // Window state persistence
   setSidebarWidth: (width) => invoke('store:set-sidebar-width', width),
   setMetadataPanelWidth: (width) => invoke('store:set-metadata-panel-width', width),
