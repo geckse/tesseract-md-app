@@ -11,6 +11,8 @@
   } from '../stores/collections'
   import { loadFileTree } from '../stores/files'
   import FileTree from './FileTree.svelte'
+  import Favorites from './Favorites.svelte'
+  import Recents from './Recents.svelte'
   import type { Collection } from '../../preload/api'
 
   interface SidebarProps {
@@ -89,6 +91,12 @@
 
   <!-- Scrollable content -->
   <div class="nav-content">
+    <!-- Favorites -->
+    <Favorites />
+
+    <!-- Recents -->
+    <Recents />
+
     <!-- Collections -->
     <div class="nav-section collections-section">
       <div class="section-header-row">
