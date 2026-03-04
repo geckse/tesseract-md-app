@@ -24,6 +24,11 @@
   // LRU cache for recently opened documents (last 5 files)
   const docCache = new DocumentCache(5);
 
+  // Large file handling (>1MB)
+  const LARGE_FILE_THRESHOLD = 1024 * 1024; // 1MB in bytes
+  let largeFileWarning = $state(false);
+  let useBasicMode = $state(false);
+
   let currentOutline: import('../stores/properties').OutlineHeading[] = [];
   const unsubOutline = outline.subscribe((v) => (currentOutline = v));
 
@@ -93,6 +98,10 @@
     activeHeadingIndex.set(idx);
   }
 
+  function dismissLargeFileWarning() {
+    largeFileWarning = false;
+  }
+
   function handleSave(): boolean {
     if (!view || !currentActiveCollection || !currentSelectedFilePath) return true;
     const content = view.state.doc.toString();
@@ -137,6 +146,18 @@
   function restoreFromCache(filePath: string): boolean {
     const cached = docCache.get(filePath);
     if (!cached) return false;
+
+    // Check if file is large (>1MB)
+    const contentSize = new Blob([cached.content]).size;
+    const isLargeFile = contentSize > LARGE_FILE_THRESHOLD;
+
+    if (isLargeFile && !largeFileWarning) {
+      largeFileWarning = true;
+      useBasicMode = true;
+    } else if (!isLargeFile) {
+      largeFileWarning = false;
+      useBasicMode = false;
+    }
 
     if (view) {
       // Replace content
@@ -200,25 +221,46 @@
   }
 
   function createExtensions() {
-    return [
+    const baseExtensions = [
       markdown({ base: markdownLanguage }),
       history(),
       editorTheme(),
-      softRender(),
-      frontmatterDecoration(),
       keymap.of([{ key: 'Mod-s', run: () => handleSave() }]),
       search({ top: true }),
       keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
       EditorView.updateListener.of(handleUpdate),
-      EditorView.domEventHandler('scroll', () => {
-        updateActiveHeading();
-      }),
     ];
+
+    // Add heavy decorations only for normal-sized files
+    if (!useBasicMode) {
+      baseExtensions.push(
+        softRender(),
+        frontmatterDecoration(),
+        EditorView.domEventHandler('scroll', () => {
+          updateActiveHeading();
+        })
+      );
+    }
+
+    return baseExtensions;
   }
 
   function createView(content: string) {
     if (!editorEl) return;
     destroyView();
+
+    // Check if file is large (>1MB)
+    const contentSize = new Blob([content]).size;
+    const isLargeFile = contentSize > LARGE_FILE_THRESHOLD;
+
+    if (isLargeFile && !largeFileWarning) {
+      largeFileWarning = true;
+      useBasicMode = true;
+    } else if (!isLargeFile) {
+      largeFileWarning = false;
+      useBasicMode = false;
+    }
+
     lastSavedContent = content;
     isDirty.set(false);
     wordCount.set(countWords(content));
@@ -241,6 +283,27 @@
 
   function replaceContent(content: string) {
     if (!view) return;
+
+    // Check if file is large (>1MB)
+    const contentSize = new Blob([content]).size;
+    const isLargeFile = contentSize > LARGE_FILE_THRESHOLD;
+
+    if (isLargeFile && !largeFileWarning) {
+      largeFileWarning = true;
+      useBasicMode = true;
+      // Recreate view with basic mode extensions
+      destroyView();
+      createView(content);
+      return;
+    } else if (!isLargeFile && useBasicMode) {
+      largeFileWarning = false;
+      useBasicMode = false;
+      // Recreate view with full extensions
+      destroyView();
+      createView(content);
+      return;
+    }
+
     lastSavedContent = content;
     isDirty.set(false);
     const doc = view.state.doc;
@@ -315,6 +378,18 @@
 
 {#if currentSelectedFilePath}
   <div class="editor-container">
+    {#if largeFileWarning}
+      <div class="large-file-warning">
+        <span class="material-symbols-outlined warning-icon">warning</span>
+        <div class="warning-content">
+          <p class="warning-title">Large file detected</p>
+          <p class="warning-message">This file is larger than 1MB. Some advanced features like frontmatter highlighting and outline parsing have been disabled for better performance.</p>
+        </div>
+        <button class="warning-dismiss" onclick={dismissLargeFileWarning} aria-label="Dismiss warning">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+    {/if}
     <div class="editor-content" bind:this={editorEl}></div>
   </div>
 {:else}
@@ -401,5 +476,69 @@
     font-size: 14px;
     color: var(--color-text-dim, #71717a);
     margin: 0;
+  }
+
+  .large-file-warning {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 16px;
+    background: rgba(234, 179, 8, 0.1);
+    border-bottom: 1px solid rgba(234, 179, 8, 0.2);
+    color: #fbbf24;
+  }
+
+  .warning-icon {
+    font-size: 20px;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  .warning-content {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .warning-title {
+    font-size: 13px;
+    font-weight: 600;
+    margin: 0 0 4px 0;
+    color: #fbbf24;
+  }
+
+  .warning-message {
+    font-size: 12px;
+    margin: 0;
+    color: #fde047;
+    line-height: 1.5;
+  }
+
+  .warning-dismiss {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    color: #fbbf24;
+    cursor: pointer;
+    padding: 0;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: background-color 150ms ease;
+  }
+
+  .warning-dismiss:hover {
+    background: rgba(234, 179, 8, 0.1);
+  }
+
+  .warning-dismiss:focus {
+    outline: 2px solid #fbbf24;
+    outline-offset: 2px;
+  }
+
+  .warning-dismiss .material-symbols-outlined {
+    font-size: 16px;
   }
 </style>
