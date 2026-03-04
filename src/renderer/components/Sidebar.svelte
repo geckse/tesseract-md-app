@@ -25,9 +25,14 @@
 
   let contextMenuCollection: Collection | null = $state(null)
   let contextMenuPosition = $state({ x: 0, y: 0 })
+  let collapsed = $state(false)
 
   function handleNavClick(id: string) {
     onnavigate?.({ id })
+  }
+
+  function toggleSidebar() {
+    collapsed = !collapsed
   }
 
   async function handleAddCollection() {
@@ -73,9 +78,9 @@
   collectionsLoading.subscribe((v) => (currentCollectionsLoading = v))
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_click_events_have_key_keys -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<aside class="sidebar" onclick={closeContextMenu}>
+<aside class="sidebar" class:collapsed={collapsed} onclick={closeContextMenu}>
   <!-- Traffic light spacer (macOS window controls) -->
   <div class="traffic-light-spacer"></div>
 
@@ -84,19 +89,34 @@
     <div class="logo-icon">
       <span class="material-symbols-outlined">database</span>
     </div>
-    <span class="logo-text">mdvdb</span>
+    {#if !collapsed}
+      <span class="logo-text">mdvdb</span>
+    {/if}
+    <button class="sidebar-toggle" onclick={toggleSidebar} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
+      <span class="material-symbols-outlined">
+        {collapsed ? 'chevron_right' : 'chevron_left'}
+      </span>
+    </button>
   </div>
 
   <!-- Scrollable content -->
   <div class="nav-content">
     <!-- Collections -->
     <div class="nav-section collections-section">
-      <div class="section-header-row">
-        <h3 class="section-header">Collections</h3>
-        <button class="add-collection-btn" onclick={handleAddCollection} title="Add Collection">
-          <span class="material-symbols-outlined">add</span>
-        </button>
-      </div>
+      {#if !collapsed}
+        <div class="section-header-row">
+          <h3 class="section-header">Collections</h3>
+          <button class="add-collection-btn" onclick={handleAddCollection} title="Add Collection">
+            <span class="material-symbols-outlined">add</span>
+          </button>
+        </div>
+      {:else}
+        <div class="section-header-row-collapsed">
+          <button class="add-collection-btn" onclick={handleAddCollection} title="Add Collection">
+            <span class="material-symbols-outlined">add</span>
+          </button>
+        </div>
+      {/if}
 
       {#if currentCollectionsLoading}
         <div class="empty-state">
@@ -120,16 +140,19 @@
               class:active={currentActiveCollectionId === collection.id}
               onclick={() => handleCollectionClick(collection)}
               oncontextmenu={(e) => handleCollectionContextMenu(e, collection)}
+              title={collapsed ? collection.name : ''}
             >
               <span class="material-symbols-outlined nav-icon">
                 {currentActiveCollectionId === collection.id ? 'folder_open' : 'folder'}
               </span>
-              <div class="collection-info">
-                <span class="nav-label">{collection.name}</span>
-                {#if currentActiveCollectionId === collection.id && currentCollectionStatus}
-                  <span class="collection-stats">{formatStats(currentCollectionStatus)}</span>
-                {/if}
-              </div>
+              {#if !collapsed}
+                <div class="collection-info">
+                  <span class="nav-label">{collection.name}</span>
+                  {#if currentActiveCollectionId === collection.id && currentCollectionStatus}
+                    <span class="collection-stats">{formatStats(currentCollectionStatus)}</span>
+                  {/if}
+                </div>
+              {/if}
             </button>
           {/each}
         </nav>
@@ -178,6 +201,18 @@
     height: 100%;
     position: relative;
     z-index: 20;
+    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), min-width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .sidebar.collapsed {
+    width: 56px;
+    min-width: 56px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sidebar {
+      transition: none;
+    }
   }
 
   .traffic-light-spacer {
@@ -193,6 +228,12 @@
     padding: 0 10px;
     border-bottom: 1px solid var(--color-border, #27272a);
     gap: 12px;
+    position: relative;
+  }
+
+  .sidebar.collapsed .logo-area {
+    justify-content: center;
+    padding: 0;
   }
 
   .logo-icon {
@@ -217,6 +258,43 @@
     font-size: 18px;
     letter-spacing: -0.025em;
     color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+
+  .sidebar-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    background: none;
+    border: none;
+    color: var(--color-text-dim, #71717a);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    padding: 0;
+    margin-left: auto;
+  }
+
+  .sidebar.collapsed .sidebar-toggle {
+    margin-left: 0;
+  }
+
+  .sidebar-toggle:hover {
+    background: var(--color-surface, #161617);
+    color: var(--color-primary, #00E5FF);
+  }
+
+  .sidebar-toggle .material-symbols-outlined {
+    font-size: 18px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sidebar-toggle {
+      transition: none;
+    }
   }
 
   .nav-content {
@@ -245,6 +323,10 @@
     margin-bottom: 24px;
   }
 
+  .sidebar.collapsed .nav-section {
+    padding: 0 8px;
+  }
+
   .file-tree-section {
     flex: 1;
     min-height: 0;
@@ -259,6 +341,14 @@
     align-items: center;
     justify-content: space-between;
     padding: 0 12px;
+    margin-bottom: 12px;
+  }
+
+  .section-header-row-collapsed {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
     margin-bottom: 12px;
   }
 
@@ -283,8 +373,14 @@
     border: none;
     color: var(--color-text-dim, #71717a);
     cursor: pointer;
-    transition: all 0.15s;
+    transition: all 0.15s ease;
     padding: 0;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .add-collection-btn {
+      transition: none;
+    }
   }
 
   .add-collection-btn:hover {
@@ -314,8 +410,19 @@
     cursor: pointer;
     width: 100%;
     text-align: left;
-    transition: all 0.15s;
+    transition: all 0.15s ease;
     font-family: inherit;
+  }
+
+  .sidebar.collapsed .nav-item {
+    justify-content: center;
+    padding: 8px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .nav-item {
+      transition: none;
+    }
   }
 
   .nav-item:hover {
