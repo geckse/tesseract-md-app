@@ -8,9 +8,12 @@
     depth?: number
     onfileselect?: (detail: { path: string }) => void
     oncontextmenu?: (detail: { path: string; isDir: boolean; x: number; y: number }) => void
+    focusedPath?: string
   }
 
-  let { node, depth = 0, onfileselect, oncontextmenu: onctx }: FileTreeNodeProps = $props()
+  let { node, depth = 0, onfileselect, oncontextmenu: onctx, focusedPath }: FileTreeNodeProps = $props()
+
+  let buttonElement: HTMLButtonElement | null = $state(null)
 
   function handleContextMenu(event: MouseEvent) {
     event.preventDefault()
@@ -26,6 +29,7 @@
 
   let isExpanded = $derived(currentExpandedPaths.has(node.path))
   let isSelected = $derived(!node.is_dir && currentSelectedFilePath === node.path)
+  let isFocused = $derived(focusedPath === node.path)
 
   function handleClick() {
     if (node.is_dir) {
@@ -35,6 +39,13 @@
       onfileselect?.({ path: node.path })
     }
   }
+
+  // Scroll into view when focused
+  $effect(() => {
+    if (isFocused && buttonElement) {
+      buttonElement.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    }
+  })
 
   function stateIcon(state: FileState | null): string {
     switch (state) {
@@ -68,8 +79,10 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="tree-node">
   <button
+    bind:this={buttonElement}
     class="tree-row"
     class:active={isSelected}
+    class:focused={isFocused}
     class:directory={node.is_dir}
     style="padding-left: {12 + depth * 16}px;"
     onclick={handleClick}
@@ -102,7 +115,7 @@
   {#if node.is_dir && isExpanded}
     <div class="tree-children" transition:slide={{ duration: 150 }}>
       {#each node.children as child (child.path)}
-        <svelte:self node={child} depth={depth + 1} {onfileselect} oncontextmenu={onctx} />
+        <svelte:self node={child} depth={depth + 1} {onfileselect} oncontextmenu={onctx} {focusedPath} />
       {/each}
     </div>
   {/if}
@@ -138,6 +151,11 @@
   .tree-row.active {
     background: var(--color-primary-alpha, rgba(0, 229, 255, 0.1));
     color: var(--color-primary, #00E5FF);
+  }
+
+  .tree-row.focused {
+    outline: 2px solid var(--color-primary, #00E5FF);
+    outline-offset: -2px;
   }
 
   .tree-row.directory {

@@ -8,11 +8,14 @@
     loadFileTree,
     expandAll,
     collapseAll,
+    expandedPaths,
+    toggleExpanded,
+    selectFile,
   } from '../stores/files'
   import { activeCollection } from '../stores/collections'
   import { runIngest, ingestRunning } from '../stores/ingest'
   import type { Collection } from '../../preload/api'
-  import type { FileTree as FileTreeType, FileState } from '../types/cli'
+  import type { FileTree as FileTreeType, FileState, FileTreeNode as FileTreeNodeType } from '../types/cli'
 
   interface FileTreeProps {
     onfileselect?: (detail: { path: string }) => void
@@ -28,6 +31,7 @@
   let currentActiveCollection: Collection | null = $state(null)
   let currentIngestRunning: boolean = $state(false)
   let ingestMenuOpen: boolean = $state(false)
+  let currentExpandedPaths: Set<string> = $state(new Set())
 
   fileTree.subscribe((v) => (currentFileTree = v))
   fileTreeLoading.subscribe((v) => (currentFileTreeLoading = v))
@@ -35,6 +39,7 @@
   fileStateCounts.subscribe((v) => (currentFileStateCounts = v))
   activeCollection.subscribe((v) => (currentActiveCollection = v))
   ingestRunning.subscribe((v) => (currentIngestRunning = v))
+  expandedPaths.subscribe((v) => (currentExpandedPaths = v))
 
   // Context menu state
   let contextMenuPath: string | null = $state(null)
@@ -42,7 +47,107 @@
   let contextMenuPosition = $state({ x: 0, y: 0 })
   let reindexingFile: string | null = $state(null)
 
+  // Keyboard navigation state
+  let focusedNodeIndex: number = $state(-1)
+  let treeContentElement: HTMLDivElement | null = $state(null)
+
   const isMac = navigator.platform.toUpperCase().includes('MAC')
+
+  // Build flat list of visible nodes for keyboard navigation
+  interface FlatNode {
+    path: string
+    isDir: boolean
+    depth: number
+  }
+
+  function buildFlatNodeList(nodes: FileTreeNodeType[], depth: number = 0): FlatNode[] {
+    const result: FlatNode[] = []
+    for (const node of nodes) {
+      result.push({ path: node.path, isDir: node.is_dir, depth })
+      if (node.is_dir && currentExpandedPaths.has(node.path)) {
+        result.push(...buildFlatNodeList(node.children, depth + 1))
+      }
+    }
+    return result
+  }
+
+  let flatNodes = $derived.by(() => {
+    if (!currentFileTree) return []
+    return buildFlatNodeList(currentFileTree.root.children)
+  })
+
+  // Keyboard event handler
+  function handleKeyDown(e: KeyboardEvent) {
+    if (!currentFileTree || flatNodes.length === 0) return
+
+    // Ignore if we're in a text input or menu
+    if (contextMenuPath || ingestMenuOpen) return
+
+    const currentNode = flatNodes[focusedNodeIndex]
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault()
+        focusedNodeIndex = Math.min(focusedNodeIndex + 1, flatNodes.length - 1)
+        scrollToFocusedNode()
+        break
+
+      case 'ArrowUp':
+        e.preventDefault()
+        focusedNodeIndex = Math.max(focusedNodeIndex - 1, 0)
+        scrollToFocusedNode()
+        break
+
+      case 'ArrowRight':
+        e.preventDefault()
+        if (currentNode && currentNode.isDir) {
+          if (!currentExpandedPaths.has(currentNode.path)) {
+            toggleExpanded(currentNode.path)
+          }
+        }
+        break
+
+      case 'ArrowLeft':
+        e.preventDefault()
+        if (currentNode && currentNode.isDir) {
+          if (currentExpandedPaths.has(currentNode.path)) {
+            toggleExpanded(currentNode.path)
+          }
+        }
+        break
+
+      case 'Enter':
+        e.preventDefault()
+        if (currentNode && !currentNode.isDir) {
+          selectFile(currentNode.path)
+          onfileselect?.({ path: currentNode.path })
+        }
+        break
+    }
+  }
+
+  function scrollToFocusedNode() {
+    if (!treeContentElement || focusedNodeIndex < 0) return
+
+    // Find the focused node element
+    const nodeElements = treeContentElement.querySelectorAll('.tree-row')
+    const focusedElement = nodeElements[focusedNodeIndex] as HTMLElement
+    if (focusedElement) {
+      focusedElement.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    }
+  }
+
+  // Reset focus when tree changes
+  $effect(() => {
+    if (currentFileTree) {
+      if (focusedNodeIndex >= flatNodes.length) {
+        focusedNodeIndex = Math.max(0, flatNodes.length - 1)
+      }
+      if (focusedNodeIndex < 0 && flatNodes.length > 0) {
+        focusedNodeIndex = 0
+      }
+    }
+  })
 
   function handleNodeContextMenu(detail: { path: string; isDir: boolean; x: number; y: number }) {
     contextMenuPath = detail.path
@@ -114,9 +219,7 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events -->
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="file-tree-container" onclick={handleClickOutside}>
+<div class="file-tree-container" onclick={handleClickOutside} onkeydown={handleKeyDown} tabindex="0">
   <!-- Header -->
   <div class="file-tree-header">
     <h3 class="file-tree-title">Files</h3>
@@ -176,7 +279,7 @@
   {/if}
 
   <!-- Content -->
-  <div class="file-tree-content">
+  <div class="file-tree-content" bind:this={treeContentElement}>
     {#if !currentActiveCollection}
       <div class="empty-state">
         <span class="material-symbols-outlined empty-icon">folder_off</span>
@@ -204,7 +307,7 @@
     {:else if currentFileTree}
       <div class="tree-nodes">
         {#each currentFileTree.root.children as child (child.path)}
-          <FileTreeNode node={child} {onfileselect} oncontextmenu={handleNodeContextMenu} />
+          <FileTreeNode node={child} {onfileselect} oncontextmenu={handleNodeContextMenu} focusedPath={flatNodes[focusedNodeIndex]?.path} />
         {/each}
       </div>
     {/if}
@@ -247,6 +350,7 @@
     flex-direction: column;
     height: 100%;
     overflow: hidden;
+    outline: none;
   }
 
   .file-tree-header {
