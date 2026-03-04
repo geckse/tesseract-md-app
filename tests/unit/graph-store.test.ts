@@ -1,0 +1,185 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { get } from 'svelte/store'
+
+// Mock window.api
+const mockApi = {
+  search: vi.fn(),
+  listCollections: vi.fn(),
+  getActiveCollection: vi.fn(),
+  addCollection: vi.fn(),
+  removeCollection: vi.fn(),
+  setActiveCollection: vi.fn(),
+  status: vi.fn(),
+  graphData: vi.fn(),
+}
+
+Object.defineProperty(globalThis, 'window', {
+  value: { api: mockApi },
+  writable: true,
+})
+
+import {
+  graphViewActive,
+  graphData,
+  graphLoading,
+  graphError,
+  graphSelectedNode,
+  graphClusterColoring,
+  loadGraphData,
+  toggleGraphView,
+  selectGraphNode,
+  resetGraphState,
+} from '../../src/renderer/stores/graph'
+
+import { collections, activeCollectionId } from '../../src/renderer/stores/collections'
+
+function resetStores() {
+  graphViewActive.set(false)
+  graphData.set(null)
+  graphLoading.set(false)
+  graphError.set(null)
+  graphSelectedNode.set(null)
+  graphClusterColoring.set(true)
+  collections.set([])
+  activeCollectionId.set(null)
+}
+
+function activateCollection(col: { id: string; name: string; path: string; addedAt: number; lastOpenedAt: number }) {
+  collections.set([col])
+  activeCollectionId.set(col.id)
+}
+
+const collection = { id: 'col1', name: 'Test', path: '/test', addedAt: 1, lastOpenedAt: 1 }
+
+const sampleGraphData = {
+  nodes: [
+    { path: 'a.md', cluster_id: 0 },
+    { path: 'b.md', cluster_id: 1 },
+  ],
+  edges: [{ source: 'a.md', target: 'b.md' }],
+  clusters: [{ id: 0, label: 'Cluster 0', keywords: ['test'] }],
+}
+
+beforeEach(() => {
+  resetStores()
+  vi.resetAllMocks()
+})
+
+describe('graph store', () => {
+  describe('loadGraphData', () => {
+    it('loads graph data for active collection', async () => {
+      activateCollection(collection)
+      mockApi.graphData.mockResolvedValue(sampleGraphData)
+
+      await loadGraphData()
+
+      expect(mockApi.graphData).toHaveBeenCalledWith('/test')
+      expect(get(graphData)).toEqual(sampleGraphData)
+      expect(get(graphLoading)).toBe(false)
+      expect(get(graphError)).toBeNull()
+    })
+
+    it('does nothing when no active collection', async () => {
+      await loadGraphData()
+
+      expect(mockApi.graphData).not.toHaveBeenCalled()
+      expect(get(graphLoading)).toBe(false)
+    })
+
+    it('sets error on failure', async () => {
+      activateCollection(collection)
+      mockApi.graphData.mockRejectedValue(new Error('CLI failed'))
+
+      await loadGraphData()
+
+      expect(get(graphError)).toBe('CLI failed')
+      expect(get(graphData)).toBeNull()
+      expect(get(graphLoading)).toBe(false)
+    })
+
+    it('discards stale results', async () => {
+      activateCollection(collection)
+
+      let resolveFirst: (v: unknown) => void
+      const firstPromise = new Promise((r) => { resolveFirst = r })
+
+      mockApi.graphData
+        .mockReturnValueOnce(firstPromise)
+        .mockResolvedValueOnce(sampleGraphData)
+
+      // Start first load
+      const firstLoad = loadGraphData()
+
+      // Start second load (supersedes first)
+      const secondLoad = loadGraphData()
+
+      // Resolve second
+      await secondLoad
+
+      expect(get(graphData)).toEqual(sampleGraphData)
+
+      // Resolve first — should be ignored
+      resolveFirst!({ nodes: [], edges: [], clusters: [] })
+      await firstLoad
+
+      // Results should still be from second load
+      expect(get(graphData)).toEqual(sampleGraphData)
+    })
+  })
+
+  describe('toggleGraphView', () => {
+    it('activates graph view and triggers load', () => {
+      activateCollection(collection)
+      mockApi.graphData.mockResolvedValue(sampleGraphData)
+
+      toggleGraphView()
+
+      expect(get(graphViewActive)).toBe(true)
+      expect(mockApi.graphData).toHaveBeenCalled()
+    })
+
+    it('deactivates graph view and clears selection', () => {
+      graphViewActive.set(true)
+      graphSelectedNode.set({ path: 'a.md', cluster_id: 0 })
+
+      toggleGraphView()
+
+      expect(get(graphViewActive)).toBe(false)
+      expect(get(graphSelectedNode)).toBeNull()
+    })
+  })
+
+  describe('selectGraphNode', () => {
+    it('sets selected node', () => {
+      const node = { path: 'a.md', cluster_id: 0 }
+      selectGraphNode(node)
+      expect(get(graphSelectedNode)).toEqual(node)
+    })
+
+    it('clears selected node with null', () => {
+      graphSelectedNode.set({ path: 'a.md', cluster_id: 0 })
+      selectGraphNode(null)
+      expect(get(graphSelectedNode)).toBeNull()
+    })
+  })
+
+  describe('resetGraphState', () => {
+    it('resets all graph state to defaults', () => {
+      graphViewActive.set(true)
+      graphData.set(sampleGraphData)
+      graphLoading.set(true)
+      graphError.set('some error')
+      graphSelectedNode.set({ path: 'a.md', cluster_id: 0 })
+      graphClusterColoring.set(false)
+
+      resetGraphState()
+
+      expect(get(graphViewActive)).toBe(false)
+      expect(get(graphData)).toBeNull()
+      expect(get(graphLoading)).toBe(false)
+      expect(get(graphError)).toBeNull()
+      expect(get(graphSelectedNode)).toBeNull()
+      expect(get(graphClusterColoring)).toBe(true)
+    })
+  })
+})
