@@ -113,8 +113,8 @@
       search({ top: true }),
       keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
       EditorView.updateListener.of(handleUpdate),
-      EditorView.domEventHandler('scroll', () => {
-        updateActiveHeading();
+      EditorView.domEventHandlers({
+        scroll() { updateActiveHeading(); },
       }),
     ];
   }

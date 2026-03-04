@@ -71,7 +71,21 @@ const api: MdvdbApi = {
   // Recents management
   listRecents: () => invoke('recents:list'),
   addRecent: (collectionId, filePath) => invoke('recents:add', collectionId, filePath),
-  clearRecents: () => invoke('recents:clear')
+  clearRecents: () => invoke('recents:clear'),
+
+  // Ingest cancellation
+  cancelIngest: () => invoke('cli:cancel-ingest'),
+
+  // Watcher management
+  startWatcher: (root) => invoke('watcher:start', root),
+  stopWatcher: () => invoke('watcher:stop'),
+  getWatcherStatus: () => invoke('watcher:status'),
+  onWatcherEvent: (callback) => {
+    ipcRenderer.on('watcher:event', (_event, data) => callback(data))
+  },
+  removeWatcherEventListener: () => {
+    ipcRenderer.removeAllListeners('watcher:event')
+  }
 }
 
 if (process.contextIsolated) {

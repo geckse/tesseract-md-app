@@ -1,7 +1,7 @@
 import { app, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import { registerIpcHandlers } from './ipc-handlers'
+import { registerIpcHandlers, destroyWatcherManager } from './ipc-handlers'
 
 function createWindow(): BrowserWindow {
   const mainWindow = new BrowserWindow({
@@ -45,9 +45,9 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  registerIpcHandlers()
+  const mainWindow = createWindow()
 
-  createWindow()
+  registerIpcHandlers(mainWindow)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -58,6 +58,9 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   // Kill any spawned CLI child processes on quit
+  destroyWatcherManager().catch(() => {
+    // Best-effort cleanup during shutdown
+  })
 })
 
 app.on('window-all-closed', () => {

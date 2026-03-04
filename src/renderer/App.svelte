@@ -11,6 +11,7 @@
   import { searchOpen, clearSearch } from './stores/search';
   import { scrollToLine } from './stores/editor';
   import { loadFavorites, loadRecents } from './stores/favorites';
+  import { setupWatcherListener, teardownWatcherListener, fetchWatcherStatus } from './stores/watcher';
   import type { SearchResult } from './types/cli';
 
 
@@ -21,6 +22,8 @@
     loadCollections();
     loadFavorites();
     loadRecents();
+    setupWatcherListener();
+    fetchWatcherStatus();
 
     // Global Cmd+K / Ctrl+K to open search
     function handleKeydown(e: KeyboardEvent) {
@@ -49,6 +52,7 @@
     return () => {
       document.removeEventListener('keydown', handleKeydown);
       document.removeEventListener('mousedown', handleClickAway);
+      teardownWatcherListener();
       unsub();
     };
   });
