@@ -215,6 +215,15 @@ export function registerIpcHandlers(): void {
       if (!confirmed) return
 
       removeCollection(id)
+
+      // Clean up stale favorites and recents for this collection
+      const s = await import('./store').then((m) => m.initStore())
+
+      const favorites = s.get('favorites', [])
+      s.set('favorites', favorites.filter((f) => f.collectionId !== id))
+
+      const recents = s.get('recentFiles', [])
+      s.set('recentFiles', recents.filter((r) => r.collectionId !== id))
     })
   )
 
