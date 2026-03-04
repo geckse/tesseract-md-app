@@ -184,6 +184,35 @@ export interface ClusterSummary {
   keywords: string[];
 }
 
+// ─── Graph ───────────────────────────────────────────────────────
+
+/** A node in the graph representing an indexed file. */
+export interface GraphNode {
+  path: string;
+  cluster_id: number | null;
+}
+
+/** An edge in the graph representing a link between two indexed files. */
+export interface GraphEdge {
+  source: string;
+  target: string;
+}
+
+/** A cluster summary for graph visualization. */
+export interface GraphCluster {
+  id: number;
+  label: string;
+  keywords: string[];
+  member_count: number;
+}
+
+/** Complete graph topology combining nodes, edges, and clusters. */
+export interface GraphData {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  clusters: GraphCluster[];
+}
+
 // ─── File Tree ───────────────────────────────────────────────────────
 
 /** Sync state of a file relative to the index. */
