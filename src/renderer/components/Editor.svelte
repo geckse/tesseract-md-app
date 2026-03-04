@@ -15,12 +15,17 @@
   import { propertiesFileContent, outline } from '../stores/properties';
   import { DocumentCache } from '../lib/doc-cache';
   import ConflictNotification from './ConflictNotification.svelte';
+  import { showConflict, dismissConflict } from '../stores/conflict';
 
   let editorEl: HTMLDivElement | undefined = $state(undefined);
   let view: EditorView | null = null;
   let lastSavedContent: string = '';
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let previousFilePath: string | null = null;
+
+  // File change detection
+  let fileWatchInterval: ReturnType<typeof setInterval> | null = null;
+  const FILE_CHECK_INTERVAL = 2000; // Check every 2 seconds
 
   // LRU cache for recently opened documents (last 5 files)
   const docCache = new DocumentCache(5);
@@ -111,10 +116,57 @@
       lastSavedContent = content;
       isDirty.set(false);
       loadFileTree();
+      // Dismiss any conflict notification after successful save
+      dismissConflict();
     }).catch((err) => {
       console.error('Save failed:', err);
     });
     return true;
+  }
+
+  /**
+   * Check if the currently open file has been modified externally.
+   * If changes are detected, trigger the conflict notification.
+   */
+  async function checkForExternalChanges() {
+    if (!currentSelectedFilePath || !currentActiveCollection || !view) return;
+
+    const fullPath = `${currentActiveCollection.path}/${currentSelectedFilePath}`;
+
+    try {
+      // Read the current file content from disk
+      const diskContent = await window.api.readFile(fullPath);
+      const editorContent = view.state.doc.toString();
+
+      // If content on disk differs from editor content, we have a conflict
+      if (diskContent !== editorContent) {
+        // Trigger conflict notification
+        showConflict(currentSelectedFilePath);
+        // Stop checking once conflict is detected to avoid repeated notifications
+        stopFileWatcher();
+      }
+    } catch (err) {
+      // File might have been deleted or is inaccessible - stop watching
+      stopFileWatcher();
+    }
+  }
+
+  /**
+   * Start watching the current file for external changes.
+   */
+  function startFileWatcher() {
+    stopFileWatcher();
+    fileWatchInterval = setInterval(checkForExternalChanges, FILE_CHECK_INTERVAL);
+  }
+
+  /**
+   * Stop watching for file changes.
+   */
+  function stopFileWatcher() {
+    if (fileWatchInterval) {
+      clearInterval(fileWatchInterval);
+      fileWatchInterval = null;
+    }
   }
 
   /**
@@ -323,6 +375,10 @@
       if (isSwitchingFiles) {
         // Save current file to cache before switching
         saveToCacheIfNeeded();
+        // Stop watching the previous file
+        stopFileWatcher();
+        // Dismiss any existing conflict notification
+        dismissConflict();
 
         // Try to restore from cache
         const restored = restoreFromCache(currentSelectedFilePath);
@@ -338,6 +394,8 @@
 
         // Update previous file path
         previousFilePath = currentSelectedFilePath;
+        // Start watching the new file for external changes
+        startFileWatcher();
       } else {
         // Same file, just update content (e.g., external changes)
         if (view) {
@@ -349,6 +407,8 @@
     } else {
       // No file selected, save to cache and destroy view
       saveToCacheIfNeeded();
+      stopFileWatcher();
+      dismissConflict();
       destroyView();
       isDirty.set(false);
       wordCount.set(0);
@@ -364,6 +424,8 @@
 
   onDestroy(() => {
     if (debounceTimer) clearTimeout(debounceTimer);
+    stopFileWatcher();
+    dismissConflict();
     saveToCacheIfNeeded();
     destroyView();
     isDirty.set(false);
