@@ -1,7 +1,7 @@
 <script lang="ts">
   import { slide } from 'svelte/transition'
   import type { FileTreeNode, FileState } from '../types/cli'
-  import { selectedFilePath, expandedPaths, toggleExpanded, selectFile } from '../stores/files'
+  import { toggleExpanded } from '../stores/files'
 
   interface FileTreeNodeProps {
     node: FileTreeNode
@@ -10,9 +10,20 @@
     oncontextmenu?: (detail: { path: string; isDir: boolean; x: number; y: number }) => void
     focusedPath?: string
     noRecursiveRender?: boolean // If true, don't render children recursively (for virtual lists)
+    currentSelectedFilePath?: string | null
+    currentExpandedPaths?: Set<string>
   }
 
-  let { node, depth = 0, onfileselect, oncontextmenu: onctx, focusedPath, noRecursiveRender = false }: FileTreeNodeProps = $props()
+  let {
+    node,
+    depth = 0,
+    onfileselect,
+    oncontextmenu: onctx,
+    focusedPath,
+    noRecursiveRender = false,
+    currentSelectedFilePath = null,
+    currentExpandedPaths = new Set<string>(),
+  }: FileTreeNodeProps = $props()
 
   let buttonElement: HTMLButtonElement | null = $state(null)
 
@@ -20,13 +31,6 @@
     event.preventDefault()
     onctx?.({ path: node.path, isDir: node.is_dir, x: event.clientX, y: event.clientY })
   }
-
-  // Reactive subscriptions
-  let currentSelectedFilePath: string | null = $state(null)
-  let currentExpandedPaths: Set<string> = $state(new Set())
-
-  selectedFilePath.subscribe((v) => (currentSelectedFilePath = v))
-  expandedPaths.subscribe((v) => (currentExpandedPaths = v))
 
   let isExpanded = $derived(currentExpandedPaths.has(node.path))
   let isSelected = $derived(!node.is_dir && currentSelectedFilePath === node.path)
@@ -36,7 +40,6 @@
     if (node.is_dir) {
       toggleExpanded(node.path)
     } else {
-      selectFile(node.path)
       onfileselect?.({ path: node.path })
     }
   }
@@ -120,7 +123,7 @@
   {#if !noRecursiveRender && node.is_dir && isExpanded}
     <div class="tree-children" transition:slide={{ duration: 150 }}>
       {#each node.children as child (child.path)}
-        <svelte:self node={child} depth={depth + 1} {onfileselect} oncontextmenu={onctx} {focusedPath} />
+        <svelte:self node={child} depth={depth + 1} {onfileselect} oncontextmenu={onctx} {focusedPath} {currentSelectedFilePath} {currentExpandedPaths} />
       {/each}
     </div>
   {/if}
@@ -156,11 +159,6 @@
   .tree-row.active {
     background: var(--color-primary-alpha, rgba(0, 229, 255, 0.1));
     color: var(--color-primary, #00E5FF);
-  }
-
-  .tree-row.focused {
-    outline: 2px solid var(--color-primary, #00E5FF);
-    outline-offset: -2px;
   }
 
   .tree-row.directory {

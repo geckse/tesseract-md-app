@@ -174,24 +174,28 @@ export function getItemStyle(
  *
  * @example
  * ```ts
- * const handleScroll = throttleScroll((e) => {
- *   const scrollTop = e.currentTarget.scrollTop
- *   // Update visible range...
+ * const handleScroll = throttleScroll((scrollTop) => {
+ *   // Update visible range with scrollTop value...
  * })
  * ```
  */
-export function throttleScroll<T extends Event>(
-  callback: (event: T) => void
-): (event: T) => void {
+export function throttleScroll(
+  callback: (scrollTop: number) => void
+): (event: Event) => void {
   let frameId: number | null = null
 
-  return (event: T) => {
+  return (event: Event) => {
     // If already scheduled, skip this event
     if (frameId !== null) return
 
+    // Capture scrollTop synchronously — currentTarget is null after the event completes
+    const target = event.currentTarget as HTMLElement | null
+    if (!target) return
+    const scrollTopValue = target.scrollTop
+
     // Schedule callback for next animation frame (~60fps)
     frameId = requestAnimationFrame(() => {
-      callback(event)
+      callback(scrollTopValue)
       frameId = null
     })
   }

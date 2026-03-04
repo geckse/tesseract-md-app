@@ -106,6 +106,8 @@ describe('ResizeHandle component', () => {
   })
 
   it('calls onresize callback during drag with left position', async () => {
+    // position='left': handle on LEFT edge of panel (e.g., right sidebar)
+    // drag LEFT (decreasing clientX) → increases width
     const { container } = render(ResizeHandle, {
       props: {
         position: 'left',
@@ -122,8 +124,8 @@ describe('ResizeHandle component', () => {
     await fireEvent.mouseDown(handle!, { clientX: 100 })
     expect(mockOnResize).not.toHaveBeenCalled()
 
-    // Move mouse to x=150 (delta = +50)
-    await fireEvent.mouseMove(document, { clientX: 150 })
+    // Move mouse to x=50 (drag left, delta = 100-50 = +50)
+    await fireEvent.mouseMove(document, { clientX: 50 })
     expect(mockOnResize).toHaveBeenCalledWith(306) // 256 + 50
 
     // End drag
@@ -131,6 +133,8 @@ describe('ResizeHandle component', () => {
   })
 
   it('calls onresize callback during drag with right position', async () => {
+    // position='right': handle on RIGHT edge of panel (e.g., left sidebar)
+    // drag RIGHT (increasing clientX) → increases width
     const { container } = render(ResizeHandle, {
       props: {
         position: 'right',
@@ -146,8 +150,8 @@ describe('ResizeHandle component', () => {
     // Start drag at x=100
     await fireEvent.mouseDown(handle!, { clientX: 100 })
 
-    // Move mouse to x=50 (delta for right = 100 - 50 = +50)
-    await fireEvent.mouseMove(document, { clientX: 50 })
+    // Move mouse to x=150 (drag right, delta = 150-100 = +50)
+    await fireEvent.mouseMove(document, { clientX: 150 })
     expect(mockOnResize).toHaveBeenCalledWith(338) // 288 + 50
 
     // End drag
@@ -170,8 +174,9 @@ describe('ResizeHandle component', () => {
     // Start drag at x=100
     await fireEvent.mouseDown(handle!, { clientX: 100 })
 
-    // Move mouse to x=0 (delta = -100, would result in 156 < minWidth)
-    await fireEvent.mouseMove(document, { clientX: 0 })
+    // Move mouse to x=200 (drag right shrinks left-position panel)
+    // delta = 100 - 200 = -100, result = 156 < minWidth
+    await fireEvent.mouseMove(document, { clientX: 200 })
     expect(mockOnResize).toHaveBeenCalledWith(180) // Clamped to minWidth
 
     // End drag
@@ -194,8 +199,9 @@ describe('ResizeHandle component', () => {
     // Start drag at x=100
     await fireEvent.mouseDown(handle!, { clientX: 100 })
 
-    // Move mouse to x=200 (delta = +100, would result in 450 > maxWidth)
-    await fireEvent.mouseMove(document, { clientX: 200 })
+    // Move mouse to x=0 (drag left grows left-position panel)
+    // delta = 100 - 0 = +100, result = 450 > maxWidth
+    await fireEvent.mouseMove(document, { clientX: 0 })
     expect(mockOnResize).toHaveBeenCalledWith(400) // Clamped to maxWidth
 
     // End drag
@@ -224,7 +230,7 @@ describe('ResizeHandle component', () => {
     })
 
     const handle = container.querySelector('.resize-handle')
-    const mouseDownEvent = new MouseEvent('mousedown', { clientX: 100 })
+    const mouseDownEvent = new MouseEvent('mousedown', { clientX: 100, bubbles: true, cancelable: true })
     const preventDefaultSpy = vi.spyOn(mouseDownEvent, 'preventDefault')
 
     handle?.dispatchEvent(mouseDownEvent)
@@ -260,9 +266,9 @@ describe('ResizeHandle component', () => {
     await fireEvent.mouseDown(handle!, { clientX: 100 })
     expect(handle?.classList.contains('dragging')).toBe(true)
 
-    // Move mouse
-    await fireEvent.mouseMove(document, { clientX: 150 })
-    expect(mockOnResize).toHaveBeenCalledWith(306)
+    // Move mouse left (drag left increases width for position='left')
+    await fireEvent.mouseMove(document, { clientX: 50 })
+    expect(mockOnResize).toHaveBeenCalledWith(306) // 256 + (100-50)
 
     // Stop drag
     await fireEvent.mouseUp(document)

@@ -9,9 +9,9 @@
   import { editorTheme } from '../lib/editor-theme';
   import { softRender } from '../lib/soft-render';
   import { frontmatterDecoration } from '../lib/frontmatter-decoration';
-  import { fileContent, selectedFilePath, loadFileTree } from '../stores/files';
+  import { fileContent, fileContentLoading, selectedFilePath } from '../stores/files';
   import { activeCollection } from '../stores/collections';
-  import { isDirty, wordCount, countWords, saveRequested, scrollToLine, activeHeadingIndex } from '../stores/editor';
+  import { isDirty, wordCount, tokenCount, countWords, countTokens, saveRequested, scrollToLine, activeHeadingIndex } from '../stores/editor';
   import { propertiesFileContent, outline } from '../stores/properties';
   import { DocumentCache } from '../lib/doc-cache';
   import ConflictNotification from './ConflictNotification.svelte';
@@ -41,10 +41,15 @@
   let currentFileContent: string | null = $state(null);
   let currentSelectedFilePath: string | null = $state(null);
   let currentActiveCollection: import('../../preload/api').Collection | null = $state(null);
+  let currentFileContentLoading: boolean = $state(false);
+  // Track the last fileContent value we applied to the editor, so the $effect
+  // "same file" branch only fires replaceContent when the store actually changed.
+  let lastAppliedFileContent: string | null = null;
 
   const unsubFileContent = fileContent.subscribe((v) => (currentFileContent = v));
   const unsubSelectedFile = selectedFilePath.subscribe((v) => (currentSelectedFilePath = v));
   const unsubCollection = activeCollection.subscribe((v) => (currentActiveCollection = v));
+  const unsubLoading = fileContentLoading.subscribe((v) => (currentFileContentLoading = v));
 
   let currentScrollToLine: number | null = $state(null);
   const unsubScrollToLine = scrollToLine.subscribe((v) => (currentScrollToLine = v));
@@ -73,6 +78,7 @@
       const content = update.state.doc.toString();
       isDirty.set(content !== lastSavedContent);
       wordCount.set(countWords(content));
+      tokenCount.set(countTokens(content));
       // Debounce metadata store update (200ms) to avoid parsing YAML on every keystroke
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
@@ -108,18 +114,24 @@
     largeFileWarning = false;
   }
 
+  let isSaving = false;
+
   function handleSave(): boolean {
     if (!view || !currentActiveCollection || !currentSelectedFilePath) return true;
     const content = view.state.doc.toString();
     const fullPath = `${currentActiveCollection.path}/${currentSelectedFilePath}`;
+    // Update lastSavedContent SYNCHRONOUSLY before the async write so the
+    // conflict checker never sees a mismatch during the write window.
+    lastSavedContent = content;
+    isDirty.set(false);
+    isSaving = true;
     window.api.writeFile(fullPath, content).then(() => {
-      lastSavedContent = content;
-      isDirty.set(false);
-      loadFileTree();
       // Dismiss any conflict notification after successful save
       dismissConflict();
     }).catch((err) => {
       console.error('Save failed:', err);
+    }).finally(() => {
+      isSaving = false;
     });
     return true;
   }
@@ -130,16 +142,18 @@
    */
   async function checkForExternalChanges() {
     if (!currentSelectedFilePath || !currentActiveCollection || !view) return;
+    // Skip check while a save is in progress to avoid false conflict detection
+    if (isSaving) return;
 
     const fullPath = `${currentActiveCollection.path}/${currentSelectedFilePath}`;
 
     try {
       // Read the current file content from disk
       const diskContent = await window.api.readFile(fullPath);
-      const editorContent = view.state.doc.toString();
 
-      // If content on disk differs from editor content, we have a conflict
-      if (diskContent !== editorContent) {
+      // Compare against what we last read/saved — NOT the editor content.
+      // User edits naturally differ from disk; that's not an external change.
+      if (diskContent !== lastSavedContent) {
         // Trigger conflict notification
         showConflict(currentSelectedFilePath);
         // Stop checking once conflict is detected to avoid repeated notifications
@@ -177,6 +191,8 @@
     if (!view || !previousFilePath) return;
 
     const content = view.state.doc.toString();
+    // Never cache empty content — prevents poisoning the cache with wiped data
+    if (content.trim().length === 0) return;
     const cursorPos = view.state.selection.main.head;
     const line = view.state.doc.lineAt(cursorPos);
     const scrollTop = view.scrollDOM.scrollTop;
@@ -221,6 +237,7 @@
         changes: { from: 0, to: doc.length, insert: cached.content },
       });
       wordCount.set(countWords(cached.content));
+      tokenCount.set(countTokens(cached.content));
 
       // Restore cursor position
       const newDoc = view.state.doc;
@@ -243,6 +260,7 @@
       lastSavedContent = cached.content;
       isDirty.set(false);
       wordCount.set(countWords(cached.content));
+      tokenCount.set(countTokens(cached.content));
 
       view = new EditorView({
         state: EditorState.create({
@@ -317,6 +335,7 @@
     lastSavedContent = content;
     isDirty.set(false);
     wordCount.set(countWords(content));
+    tokenCount.set(countTokens(content));
 
     view = new EditorView({
       state: EditorState.create({
@@ -364,55 +383,72 @@
       changes: { from: 0, to: doc.length, insert: content },
     });
     wordCount.set(countWords(content));
+    tokenCount.set(countTokens(content));
   }
 
   // React to file content changes with cache support
   $effect(() => {
-    if (currentFileContent !== null && currentSelectedFilePath !== null) {
-      // Check if we're switching files
-      const isSwitchingFiles = previousFilePath !== currentSelectedFilePath;
-
-      if (isSwitchingFiles) {
-        // Save current file to cache before switching
-        saveToCacheIfNeeded();
-        // Stop watching the previous file
-        stopFileWatcher();
-        // Dismiss any existing conflict notification
-        dismissConflict();
-
-        // Try to restore from cache
-        const restored = restoreFromCache(currentSelectedFilePath);
-
-        if (!restored) {
-          // Not in cache, load normally from disk
-          if (view) {
-            replaceContent(currentFileContent);
-          } else if (editorEl) {
-            createView(currentFileContent);
-          }
-        }
-
-        // Update previous file path
-        previousFilePath = currentSelectedFilePath;
-        // Start watching the new file for external changes
-        startFileWatcher();
-      } else {
-        // Same file, just update content (e.g., external changes)
-        if (view) {
-          replaceContent(currentFileContent);
-        } else if (editorEl) {
-          createView(currentFileContent);
-        }
-      }
-    } else {
-      // No file selected, save to cache and destroy view
+    if (currentSelectedFilePath === null) {
+      // No file selected — tear down editor
       saveToCacheIfNeeded();
       stopFileWatcher();
       dismissConflict();
       destroyView();
       isDirty.set(false);
       wordCount.set(0);
+      tokenCount.set(0);
       previousFilePath = null;
+      lastAppliedFileContent = null;
+      return;
+    }
+
+    // Content still loading for a new file — wait for it to arrive.
+    // Don't act on stale content from the previous file.
+    if (currentFileContentLoading && previousFilePath !== currentSelectedFilePath) {
+      return;
+    }
+
+    if (currentFileContent === null) return;
+
+    const isSwitchingFiles = previousFilePath !== currentSelectedFilePath;
+
+    if (isSwitchingFiles) {
+      // Save current file to cache before switching
+      saveToCacheIfNeeded();
+      // Stop watching the previous file
+      stopFileWatcher();
+      // Dismiss any existing conflict notification
+      dismissConflict();
+
+      // Try to restore from cache
+      const restored = restoreFromCache(currentSelectedFilePath);
+
+      if (!restored) {
+        // Not in cache, load normally from disk
+        if (view) {
+          replaceContent(currentFileContent);
+        } else if (editorEl) {
+          createView(currentFileContent);
+        }
+      }
+
+      lastAppliedFileContent = currentFileContent;
+      // Update previous file path
+      previousFilePath = currentSelectedFilePath;
+      // Start watching the new file for external changes
+      startFileWatcher();
+    } else {
+      // Same file — only update if the store content actually changed
+      // (e.g., external reload). This prevents overwriting user edits
+      // when the $effect re-runs for unrelated dependency changes.
+      if (currentFileContent !== lastAppliedFileContent) {
+        lastAppliedFileContent = currentFileContent;
+        if (view) {
+          replaceContent(currentFileContent);
+        } else if (editorEl) {
+          createView(currentFileContent);
+        }
+      }
     }
   });
 
@@ -430,9 +466,11 @@
     destroyView();
     isDirty.set(false);
     wordCount.set(0);
+    tokenCount.set(0);
     unsubFileContent();
     unsubSelectedFile();
     unsubCollection();
+    unsubLoading();
     unsubSave();
     unsubScrollToLine();
     unsubOutline();

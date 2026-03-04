@@ -33,10 +33,9 @@ export async function loadCollections(): Promise<void> {
     const active = await window.api.getActiveCollection()
     activeCollectionId.set(active?.id ?? null)
     if (active?.id) {
-      await Promise.all([
-        fetchCollectionStatus(active.id),
-        fetchCollectionDoctorStatus(active.id)
-      ])
+      // Fire status/doctor in the background — don't block app startup
+      fetchCollectionStatus(active.id).catch(() => {})
+      fetchCollectionDoctorStatus(active.id).catch(() => {})
     }
   } finally {
     collectionsLoading.set(false)
@@ -67,10 +66,9 @@ export async function setActiveCollection(id: string): Promise<void> {
   activeCollectionId.set(id)
   collectionStatus.set(null)
   collectionDoctorResult.set(null)
-  await Promise.all([
-    fetchCollectionStatus(id),
-    fetchCollectionDoctorStatus(id)
-  ])
+  // Fire status/doctor fetches in the background — don't block callers
+  fetchCollectionStatus(id).catch(() => {})
+  fetchCollectionDoctorStatus(id).catch(() => {})
 }
 
 /** Fetch index status for a collection by ID. */

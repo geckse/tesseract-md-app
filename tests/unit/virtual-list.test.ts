@@ -223,17 +223,25 @@ describe('throttleScroll', () => {
     vi.restoreAllMocks()
   })
 
-  it('calls callback on first event', () => {
+  function makeScrollEvent(scrollTop: number): Event {
+    const event = new Event('scroll')
+    Object.defineProperty(event, 'currentTarget', {
+      value: { scrollTop },
+      writable: false,
+    })
+    return event
+  }
+
+  it('calls callback on first event with scrollTop', () => {
     const callback = vi.fn()
     const throttled = throttleScroll(callback)
-    const event = new Event('scroll')
 
-    throttled(event)
+    throttled(makeScrollEvent(42))
 
     // Callback is scheduled, run animation frame
     vi.runAllTimers()
     expect(callback).toHaveBeenCalledTimes(1)
-    expect(callback).toHaveBeenCalledWith(event)
+    expect(callback).toHaveBeenCalledWith(42)
   })
 
   it('throttles multiple rapid events', () => {
@@ -241,13 +249,14 @@ describe('throttleScroll', () => {
     const throttled = throttleScroll(callback)
 
     // Fire multiple events rapidly
-    throttled(new Event('scroll'))
-    throttled(new Event('scroll'))
-    throttled(new Event('scroll'))
+    throttled(makeScrollEvent(10))
+    throttled(makeScrollEvent(20))
+    throttled(makeScrollEvent(30))
 
     // Only first event should trigger callback
     vi.runAllTimers()
     expect(callback).toHaveBeenCalledTimes(1)
+    expect(callback).toHaveBeenCalledWith(10)
   })
 
   it('allows events after animation frame completes', () => {
@@ -255,25 +264,25 @@ describe('throttleScroll', () => {
     const throttled = throttleScroll(callback)
 
     // First event
-    throttled(new Event('scroll'))
+    throttled(makeScrollEvent(100))
     vi.runAllTimers()
     expect(callback).toHaveBeenCalledTimes(1)
 
     // Second event after frame completes
-    throttled(new Event('scroll'))
+    throttled(makeScrollEvent(200))
     vi.runAllTimers()
     expect(callback).toHaveBeenCalledTimes(2)
   })
 
-  it('preserves event object', () => {
+  it('ignores events with null currentTarget', () => {
     const callback = vi.fn()
     const throttled = throttleScroll(callback)
-    const event = new Event('scroll')
 
-    throttled(event)
+    // Event with no currentTarget
+    throttled(new Event('scroll'))
     vi.runAllTimers()
 
-    expect(callback).toHaveBeenCalledWith(event)
+    expect(callback).not.toHaveBeenCalled()
   })
 })
 

@@ -86,6 +86,10 @@ export async function fetchWatcherStatus(): Promise<void> {
   }
 }
 
+/** Debounce timer for watch-event triggered refreshes. */
+let refreshTimer: ReturnType<typeof setTimeout> | null = null
+const REFRESH_DEBOUNCE_MS = 500
+
 /** Handle an incoming watcher event from the main process. */
 export function handleWatcherEvent(event: WatcherEvent): void {
   pushEvent(event)
@@ -104,10 +108,14 @@ export function handleWatcherEvent(event: WatcherEvent): void {
     watcherState.set('error')
   }
 
-  // Auto-refresh file tree and status on watch events
+  // Debounced auto-refresh on watch events to avoid reload storms
   if (event.type === 'watch-event') {
-    loadFileTree().catch(() => {})
-    refreshCollectionStatus()
+    if (refreshTimer) clearTimeout(refreshTimer)
+    refreshTimer = setTimeout(() => {
+      refreshTimer = null
+      loadFileTree().catch(() => {})
+      refreshCollectionStatus()
+    }, REFRESH_DEBOUNCE_MS)
   }
 }
 

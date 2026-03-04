@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { isDirty, wordCount as wordCountStore, readingTime as readingTimeStore } from '../stores/editor';
+  import { isDirty, wordCount as wordCountStore, tokenCount as tokenCountStore } from '../stores/editor';
   import WatcherToggle from './WatcherToggle.svelte';
 
   interface StatusBarProps {
@@ -21,8 +21,8 @@
   let currentWordCount = $state(0);
   wordCountStore.subscribe((v) => (currentWordCount = v));
 
-  let currentReadingTime = $state(0);
-  readingTimeStore.subscribe((v) => (currentReadingTime = v));
+  let currentTokenCount = $state(0);
+  tokenCountStore.subscribe((v) => (currentTokenCount = v));
 
   let cliVersion: string | null = $state(null);
   let cliFound = $state(false);
@@ -60,7 +60,7 @@
       {/if}
     </span>
     <span class="status-item interactive">{currentWordCount} words</span>
-    <span class="status-item interactive">{currentReadingTime} mins</span>
+    <span class="status-item interactive">{currentTokenCount.toLocaleString()} tokens</span>
   </div>
 
   <div class="status-group">

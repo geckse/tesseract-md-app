@@ -164,29 +164,16 @@ export async function loadProperties(filePath: string): Promise<void> {
   propertiesLoading.set(true)
   propertiesError.set(null)
 
-  // Run sequentially to avoid Tantivy lock contention between CLI invocations.
-  // Each call is independently caught so one failure doesn't block the other.
-  try {
-    const doc = await window.api.getFile(collection.path, filePath)
-    documentInfo.set(doc)
-  } catch {
-    // File may not be indexed yet — that's fine
-    documentInfo.set(null)
-  }
+  // Run all read operations in parallel — Tantivy supports concurrent reads.
+  const [docResult, backlinksResult, linksResult] = await Promise.allSettled([
+    window.api.getFile(collection.path, filePath),
+    window.api.backlinks(collection.path, filePath),
+    window.api.links(collection.path, filePath),
+  ])
 
-  try {
-    const backlinks = await window.api.backlinks(collection.path, filePath)
-    backlinksInfo.set(backlinks)
-  } catch {
-    backlinksInfo.set(null)
-  }
-
-  try {
-    const links = await window.api.links(collection.path, filePath)
-    linksInfo.set(links)
-  } catch {
-    linksInfo.set(null)
-  }
+  documentInfo.set(docResult.status === 'fulfilled' ? docResult.value : null)
+  backlinksInfo.set(backlinksResult.status === 'fulfilled' ? backlinksResult.value : null)
+  linksInfo.set(linksResult.status === 'fulfilled' ? linksResult.value : null)
 
   propertiesLoading.set(false)
 }

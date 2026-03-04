@@ -9,8 +9,8 @@
     expandAll,
     collapseAll,
     expandedPaths,
+    selectedFilePath,
     toggleExpanded,
-    selectFile,
   } from '../stores/files'
   import { activeCollection } from '../stores/collections'
   import { runIngest, ingestRunning } from '../stores/ingest'
@@ -38,6 +38,7 @@
   let currentIngestRunning: boolean = $state(false)
   let ingestMenuOpen: boolean = $state(false)
   let currentExpandedPaths: Set<string> = $state(new Set())
+  let currentSelectedFilePath: string | null = $state(null)
 
   fileTree.subscribe((v) => (currentFileTree = v))
   fileTreeLoading.subscribe((v) => (currentFileTreeLoading = v))
@@ -46,6 +47,7 @@
   activeCollection.subscribe((v) => (currentActiveCollection = v))
   ingestRunning.subscribe((v) => (currentIngestRunning = v))
   expandedPaths.subscribe((v) => (currentExpandedPaths = v))
+  selectedFilePath.subscribe((v) => (currentSelectedFilePath = v))
 
   // Context menu state
   let contextMenuPath: string | null = $state(null)
@@ -158,7 +160,6 @@
       case 'Enter':
         e.preventDefault()
         if (currentNode && !currentNode.isDir) {
-          selectFile(currentNode.path)
           onfileselect?.({ path: currentNode.path })
         }
         break
@@ -179,9 +180,8 @@
   }
 
   // Throttled scroll handler for performance
-  const handleScroll = throttleScroll((e: Event) => {
-    const target = e.currentTarget as HTMLDivElement
-    scrollTop = target.scrollTop
+  const handleScroll = throttleScroll((scrollTopValue: number) => {
+    scrollTop = scrollTopValue
   })
 
   // Measure container height on mount
@@ -375,6 +375,8 @@
               focusedPath={flatNodes[focusedNodeIndex]?.path}
               depth={depth}
               noRecursiveRender={true}
+              {currentSelectedFilePath}
+              {currentExpandedPaths}
             />
           </div>
         {/each}

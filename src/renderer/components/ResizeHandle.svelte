@@ -45,7 +45,9 @@
     if (!isDragging) return
 
     // Calculate new width based on drag direction
-    const delta = position === 'left' ? e.clientX - startX : startX - e.clientX
+    // position='right' (left sidebar): drag right → increase width
+    // position='left' (right panel): drag left → increase width
+    const delta = position === 'right' ? e.clientX - startX : startX - e.clientX
     const newWidth = Math.max(minWidth, Math.min(maxWidth, startWidth + delta))
 
     onresize?.(newWidth)

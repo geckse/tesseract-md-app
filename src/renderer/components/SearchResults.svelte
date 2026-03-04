@@ -73,9 +73,8 @@
     virtualState ? results.slice(virtualState.start, virtualState.end) : results
   );
 
-  const handleScroll = throttleScroll((event: Event) => {
-    const target = event.currentTarget as HTMLElement;
-    scrollTop = target.scrollTop;
+  const handleScroll = throttleScroll((scrollTopValue: number) => {
+    scrollTop = scrollTopValue;
   });
 
   function handleModeClick(mode: SearchMode) {
@@ -144,7 +143,7 @@
       {:else if useVirtualList && virtualState}
         <!-- Virtual list for >20 results -->
         <div class="virtual-container" style="height: {virtualState.totalHeight}px;">
-          {#each visibleResults as result, i (result.chunk.id)}
+          {#each visibleResults as result, i (result.chunk.id ?? `${result.file.path}:${virtualState.start + i}`)}
             {@const actualIndex = virtualState.start + i}
             <!-- svelte-ignore a11y_click_events_have_key_events -->
             <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -167,7 +166,7 @@
         </div>
       {:else}
         <!-- Normal list for <=20 results -->
-        {#each results as result, i (result.chunk.id)}
+        {#each results as result, i (result.chunk.id ?? `${result.file.path}:${i}`)}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div

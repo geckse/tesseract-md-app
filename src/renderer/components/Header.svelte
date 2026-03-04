@@ -2,8 +2,8 @@
   import { activeCollection } from '../stores/collections';
   import { selectedFilePath } from '../stores/files';
   import { isDirty, requestSave } from '../stores/editor';
-  import { searchResults, searchOpen, clearSearch } from '../stores/search';
-  import type { SearchOutput, SearchResult } from '../types/cli';
+  import { searchOpen, clearSearch } from '../stores/search';
+  import type { SearchResult } from '../types/cli';
   import Search from './Search.svelte';
   import SearchResults from './SearchResults.svelte';
 
@@ -28,15 +28,10 @@
   let currentIsDirty = $state(false);
   isDirty.subscribe((v) => (currentIsDirty = v));
 
-  let currentSearchResults: SearchOutput | null = $state(null);
-  searchResults.subscribe((v) => (currentSearchResults = v));
-
   let currentSearchOpen = $state(false);
   searchOpen.subscribe((v) => (currentSearchOpen = v));
 
   let collectionName = $derived(currentActiveCollection?.name ?? null);
-
-  let resultsCount = $derived(currentSearchResults?.total_results ?? 0);
 
   /** Parse selected file path into breadcrumb segments: [dir1, dir2, ..., filename] */
   let pathSegments = $derived.by(() => {
@@ -90,9 +85,6 @@
   <div class="actions">
     <div class="search-area">
       <Search onsearchresultclick={handleResultClick} />
-      {#if resultsCount > 0}
-        <span class="results-badge">{resultsCount} result{resultsCount !== 1 ? 's' : ''}</span>
-      {/if}
     </div>
 
     <div class="divider"></div>
@@ -182,13 +174,6 @@
     display: flex;
     align-items: center;
     gap: 8px;
-  }
-
-  .results-badge {
-    font-size: 11px;
-    font-family: var(--font-mono, 'JetBrains Mono', monospace);
-    color: var(--color-primary, #00E5FF);
-    white-space: nowrap;
   }
 
   .search-results-overlay {

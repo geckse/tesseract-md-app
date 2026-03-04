@@ -8,10 +8,9 @@
   import IngestModal from './components/IngestModal.svelte';
   import QuickOpen from './components/QuickOpen.svelte';
   import { loadCollections, setActiveCollection, activeCollectionId } from './stores/collections';
-  import { selectFile, fileContent } from './stores/files';
+  import { selectFile, fileContentLoading } from './stores/files';
   import { searchOpen, clearSearch } from './stores/search';
   import { scrollToLine } from './stores/editor';
-  import { toggleSidebar } from './stores/ui';
   import { openQuickOpen } from './stores/quickopen';
   import { shortcutManager } from './lib/shortcuts';
   import { setupWatcherListener, teardownWatcherListener, fetchWatcherStatus } from './stores/watcher';
@@ -48,15 +47,6 @@
         meta: true,
         handler: () => {
           searchOpen.set(true);
-        },
-      }),
-
-      // Cmd+B / Ctrl+B: Toggle sidebar
-      shortcutManager.register({
-        key: 'b',
-        meta: true,
-        handler: () => {
-          toggleSidebar();
         },
       }),
 
@@ -150,11 +140,11 @@
 
   function navigateToResult(result: SearchResult) {
     selectFile(result.file.path);
-    // Track null→non-null transition to avoid race with stale content
-    let sawNull = false;
-    const unsub = fileContent.subscribe((content) => {
-      if (content === null) { sawNull = true; return; }
-      if (sawNull) {
+    // Wait for loading to finish, then scroll to the result line
+    let wasLoading = false;
+    const unsub = fileContentLoading.subscribe((loading) => {
+      if (loading) { wasLoading = true; return; }
+      if (wasLoading) {
         // Defer scroll so the editor's content $effect creates the view first
         requestAnimationFrame(() => {
           scrollToLine.set(result.chunk.start_line);
@@ -292,12 +282,6 @@
     display: flex;
     flex-direction: column;
     height: 100%;
-    outline: none;
-  }
-
-  .sidebar-region:focus-within {
-    outline: 2px solid var(--color-primary, #00E5FF);
-    outline-offset: -2px;
   }
 
   .main-area {
@@ -324,23 +308,11 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
-    outline: none;
-  }
-
-  .editor-region:focus-within {
-    outline: 2px solid var(--color-primary, #00E5FF);
-    outline-offset: -2px;
   }
 
   .properties-region {
     display: flex;
     flex-direction: column;
     height: 100%;
-    outline: none;
-  }
-
-  .properties-region:focus-within {
-    outline: 2px solid var(--color-primary, #00E5FF);
-    outline-offset: -2px;
   }
 </style>

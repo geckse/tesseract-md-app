@@ -146,10 +146,18 @@ export async function execCommand<T>(
         return undefined as unknown as T
       }
 
-      // Parse JSON output
+      // Parse JSON output — strip any non-JSON lines (e.g., tracing logs
+      // that may leak into stdout on some platforms).
       try {
         return JSON.parse(stdout) as T
       } catch {
+        // Try extracting the JSON object/array from the output
+        const jsonMatch = stdout.match(/(\{[\s\S]*\}|\[[\s\S]*\])/)
+        if (jsonMatch) {
+          try {
+            return JSON.parse(jsonMatch[0]) as T
+          } catch { /* fall through to error */ }
+        }
         throw new CliParseError(
           `Failed to parse JSON output from '${command}': ${stdout.slice(0, 200)}`
         )
