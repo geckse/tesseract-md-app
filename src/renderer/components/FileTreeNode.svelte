@@ -88,6 +88,10 @@
     onclick={handleClick}
     oncontextmenu={handleContextMenu}
     title={node.path}
+    role="treeitem"
+    aria-level={depth + 1}
+    aria-expanded={node.is_dir ? isExpanded : undefined}
+    aria-selected={isSelected}
   >
     {#if node.is_dir}
       <span class="material-symbols-outlined expand-icon" class:expanded={isExpanded}>

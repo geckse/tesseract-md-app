@@ -305,7 +305,7 @@
         <span class="empty-text">No markdown files found</span>
       </div>
     {:else if currentFileTree}
-      <div class="tree-nodes">
+      <div class="tree-nodes" role="tree" aria-label="File tree">
         {#each currentFileTree.root.children as child (child.path)}
           <FileTreeNode node={child} {onfileselect} oncontextmenu={handleNodeContextMenu} focusedPath={flatNodes[focusedNodeIndex]?.path} />
         {/each}
