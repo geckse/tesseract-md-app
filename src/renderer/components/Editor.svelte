@@ -14,6 +14,7 @@
   import { isDirty, wordCount, countWords, saveRequested, scrollToLine, activeHeadingIndex } from '../stores/editor';
   import { propertiesFileContent, outline } from '../stores/properties';
   import { DocumentCache } from '../lib/doc-cache';
+  import ConflictNotification from './ConflictNotification.svelte';
 
   let editorEl: HTMLDivElement | undefined = $state(undefined);
   let view: EditorView | null = null;
@@ -378,6 +379,7 @@
 
 {#if currentSelectedFilePath}
   <div class="editor-container">
+    <ConflictNotification />
     {#if largeFileWarning}
       <div class="large-file-warning">
         <span class="material-symbols-outlined warning-icon">warning</span>
