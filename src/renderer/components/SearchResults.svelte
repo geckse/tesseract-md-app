@@ -71,6 +71,19 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="search-results-overlay" onclick={handleOverlayClick}>
   <div class="search-results" transition:fade={{ duration: 150 }}>
+    <!-- Screen reader announcements for search results -->
+    <div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
+      {#if currentLoading}
+        Searching...
+      {:else if currentError}
+        Search error: {currentError}
+      {:else if hasQuery && hasResults}
+        Found {totalResults} result{totalResults !== 1 ? 's' : ''} for {currentQuery}
+      {:else if hasQuery && !hasResults}
+        No results found for {currentQuery}
+      {/if}
+    </div>
+
     <!-- Mode toggle pills -->
     <div class="mode-bar">
       <div class="mode-pills">
@@ -277,5 +290,18 @@
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
+  }
+
+  /* Screen reader only - visually hidden but available to assistive tech */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
   }
 </style>

@@ -41,6 +41,15 @@
 </script>
 
 <div class="status-bar">
+  <!-- Screen reader announcements for status changes -->
+  <div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
+    {#if cliFound}
+      mdvdb CLI found, version {cliVersion || 'unknown'}
+    {:else}
+      mdvdb CLI not found
+    {/if}
+  </div>
+
   <div class="status-group">
     <span class="status-item interactive">
       <span class="material-symbols-outlined status-icon">markdown</span>
@@ -143,5 +152,18 @@
 
   .cli-dot-missing {
     background: #ef4444;
+  }
+
+  /* Screen reader only - visually hidden but available to assistive tech */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
   }
 </style>
