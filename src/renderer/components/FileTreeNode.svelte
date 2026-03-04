@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { slide } from 'svelte/transition'
   import type { FileTreeNode, FileState } from '../types/cli'
   import { selectedFilePath, expandedPaths, toggleExpanded, selectFile } from '../stores/files'
 
@@ -99,7 +100,7 @@
   </button>
 
   {#if node.is_dir && isExpanded}
-    <div class="tree-children">
+    <div class="tree-children" transition:slide={{ duration: 150 }}>
       {#each node.children as child (child.path)}
         <svelte:self node={child} depth={depth + 1} {onfileselect} oncontextmenu={onctx} />
       {/each}
