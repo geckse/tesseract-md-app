@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { activeCollection } from '../stores/collections';
+  import { activeCollection, activeCollectionId } from '../stores/collections';
   import { selectedFilePath } from '../stores/files';
   import { isDirty, requestSave } from '../stores/editor';
   import { searchResults, searchOpen, clearSearch } from '../stores/search';
+  import { isFavorited, toggleFavorite } from '../stores/favorites';
   import type { SearchOutput, SearchResult } from '../types/cli';
   import Search from './Search.svelte';
   import SearchResults from './SearchResults.svelte';
@@ -22,6 +23,9 @@
   let currentActiveCollection: import('../../preload/api').Collection | null = $state(null);
   activeCollection.subscribe((v) => (currentActiveCollection = v));
 
+  let currentActiveCollectionId: string | null = $state(null);
+  activeCollectionId.subscribe((v) => (currentActiveCollectionId = v));
+
   let currentSelectedFilePath: string | null = $state(null);
   selectedFilePath.subscribe((v) => (currentSelectedFilePath = v));
 
@@ -33,6 +37,9 @@
 
   let currentSearchOpen = $state(false);
   searchOpen.subscribe((v) => (currentSearchOpen = v));
+
+  let currentIsFavorited = $state(false);
+  isFavorited.subscribe((v) => (currentIsFavorited = v));
 
   let collectionName = $derived(currentActiveCollection?.name ?? null);
 
@@ -64,6 +71,11 @@
     propertiesOpen = !propertiesOpen;
     ontoggleproperties?.({ open: propertiesOpen });
   }
+
+  async function handleToggleFavorite() {
+    if (!currentActiveCollectionId || !currentSelectedFilePath) return;
+    await toggleFavorite(currentActiveCollectionId, currentSelectedFilePath);
+  }
 </script>
 
 <header class="header">
@@ -80,6 +92,13 @@
       {/each}
       {#if fileName}
         <span class="breadcrumb-file">{fileName}{#if currentIsDirty}<span class="dirty-indicator"> ●</span>{/if}</span>
+        <button
+          class="star-button"
+          title={currentIsFavorited ? 'Remove from favorites' : 'Add to favorites'}
+          onclick={handleToggleFavorite}
+        >
+          <span class="material-symbols-outlined" class:filled={currentIsFavorited}>star</span>
+        </button>
       {/if}
     </div>
   {:else}
@@ -169,6 +188,34 @@
 
   .dirty-indicator {
     color: var(--color-warning, #f59e0b);
+  }
+
+  .star-button {
+    padding: 4px;
+    margin-left: 8px;
+    color: var(--color-text-dim, #71717a);
+    background: none;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .star-button:hover {
+    color: var(--color-primary, #00E5FF);
+    background: var(--color-surface-darker, #0a0a0a);
+  }
+
+  .star-button .material-symbols-outlined {
+    font-size: 18px;
+  }
+
+  .star-button .material-symbols-outlined.filled {
+    font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+    color: var(--color-primary, #00E5FF);
   }
 
   .actions {
