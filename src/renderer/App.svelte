@@ -206,8 +206,11 @@
 
 </script>
 
+<!-- Skip navigation link for accessibility -->
+<a href="#main-content" class="skip-link">Skip to main content</a>
+
 <div class="app-shell bg-grain">
-  <div class="sidebar-region" bind:this={sidebarEl} tabindex="-1">
+  <div class="sidebar-region" bind:this={sidebarEl} tabindex="-1" role="navigation" aria-label="File navigation">
     <Sidebar
       onnavigate={handleNavigate}
       onfileselect={handleFileSelect}
@@ -222,11 +225,11 @@
     />
 
     <div class="content-area">
-      <div class="editor-region" bind:this={editorEl} tabindex="-1">
+      <div id="main-content" class="editor-region" bind:this={editorEl} tabindex="-1" role="main" aria-label="Editor">
         <Editor />
       </div>
       {#if propertiesOpen}
-        <div class="properties-region" bind:this={propertiesEl} tabindex="-1">
+        <div class="properties-region" bind:this={propertiesEl} tabindex="-1" role="complementary" aria-label="File metadata">
           <PropertiesPanel onfileselect={(detail) => handleFileSelect({ folderId: '', fileId: detail.path })} />
         </div>
       {/if}
@@ -240,6 +243,28 @@
 </div>
 
 <style>
+  /* Skip link for accessibility - only visible on keyboard focus */
+  .skip-link {
+    position: absolute;
+    top: -40px;
+    left: 0;
+    background: var(--color-primary, #00E5FF);
+    color: var(--color-surface-darker, #0a0a0a);
+    padding: 8px 16px;
+    text-decoration: none;
+    border-radius: 4px;
+    font-weight: 600;
+    z-index: 1000;
+    transition: top 0.2s ease-out;
+  }
+
+  .skip-link:focus {
+    top: 8px;
+    left: 8px;
+    outline: 2px solid var(--color-text-main, #e4e4e7);
+    outline-offset: 2px;
+  }
+
   .app-shell {
     display: flex;
     height: 100vh;
