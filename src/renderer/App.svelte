@@ -10,6 +10,8 @@
   import { selectFile, fileContent } from './stores/files';
   import { searchOpen, clearSearch } from './stores/search';
   import { scrollToLine } from './stores/editor';
+  import { toggleSidebar } from './stores/ui';
+  import { shortcutManager } from './lib/shortcuts';
   import type { SearchResult } from './types/cli';
 
 
@@ -19,13 +21,49 @@
   onMount(() => {
     loadCollections();
 
-    // Global Cmd+K / Ctrl+K to open search
-    function handleKeydown(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        searchOpen.set(true);
-      }
-    }
+    // Register keyboard shortcuts
+    const unregisterShortcuts = [
+      // Cmd+K / Ctrl+K: Open search
+      shortcutManager.register({
+        key: 'k',
+        meta: true,
+        handler: () => {
+          searchOpen.set(true);
+        },
+      }),
+
+      // Cmd+B / Ctrl+B: Toggle sidebar
+      shortcutManager.register({
+        key: 'b',
+        meta: true,
+        handler: () => {
+          toggleSidebar();
+        },
+      }),
+
+      // Cmd+Shift+B / Ctrl+Shift+B: Toggle properties panel
+      shortcutManager.register({
+        key: 'b',
+        meta: true,
+        shift: true,
+        handler: () => {
+          propertiesOpen = !propertiesOpen;
+          localStorage.setItem('mdvdb-properties-open', String(propertiesOpen));
+        },
+      }),
+
+      // Cmd+W / Ctrl+W: Deselect file
+      shortcutManager.register({
+        key: 'w',
+        meta: true,
+        handler: () => {
+          selectFile(null);
+        },
+      }),
+    ];
+
+    // Attach shortcut manager to document
+    shortcutManager.attach();
 
     // Click-away to close search
     function handleClickAway(e: MouseEvent) {
@@ -35,7 +73,6 @@
       }
     }
 
-    document.addEventListener('keydown', handleKeydown);
     document.addEventListener('mousedown', handleClickAway);
 
     // Clear search when active collection changes
@@ -44,7 +81,9 @@
     });
 
     return () => {
-      document.removeEventListener('keydown', handleKeydown);
+      // Unregister all shortcuts
+      unregisterShortcuts.forEach((unregister) => unregister());
+      shortcutManager.detach();
       document.removeEventListener('mousedown', handleClickAway);
       unsub();
     };

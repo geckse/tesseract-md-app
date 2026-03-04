@@ -10,6 +10,7 @@
     setActiveCollection,
   } from '../stores/collections'
   import { loadFileTree } from '../stores/files'
+  import { sidebarCollapsed, toggleSidebar } from '../stores/ui'
   import FileTree from './FileTree.svelte'
   import type { Collection } from '../../preload/api'
 
@@ -25,14 +26,9 @@
 
   let contextMenuCollection: Collection | null = $state(null)
   let contextMenuPosition = $state({ x: 0, y: 0 })
-  let collapsed = $state(false)
 
   function handleNavClick(id: string) {
     onnavigate?.({ id })
-  }
-
-  function toggleSidebar() {
-    collapsed = !collapsed
   }
 
   async function handleAddCollection() {
@@ -71,11 +67,13 @@
   let currentActiveCollectionId: string | null = $state(null)
   let currentCollectionStatus: import('../types/cli').IndexStatus | null = $state(null)
   let currentCollectionsLoading: boolean = $state(false)
+  let collapsed: boolean = $state(false)
 
   collections.subscribe((v) => (currentCollections = v))
   activeCollectionId.subscribe((v) => (currentActiveCollectionId = v))
   collectionStatus.subscribe((v) => (currentCollectionStatus = v))
   collectionsLoading.subscribe((v) => (currentCollectionsLoading = v))
+  sidebarCollapsed.subscribe((v) => (collapsed = v))
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_keys -->
