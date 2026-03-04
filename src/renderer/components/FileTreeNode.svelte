@@ -1,39 +1,55 @@
 <script lang="ts">
+  import { slide } from 'svelte/transition'
   import type { FileTreeNode, FileState } from '../types/cli'
-  import { selectedFilePath, expandedPaths, toggleExpanded, selectFile } from '../stores/files'
+  import { toggleExpanded } from '../stores/files'
 
   interface FileTreeNodeProps {
     node: FileTreeNode
     depth?: number
     onfileselect?: (detail: { path: string }) => void
     oncontextmenu?: (detail: { path: string; isDir: boolean; x: number; y: number }) => void
+    focusedPath?: string
+    noRecursiveRender?: boolean // If true, don't render children recursively (for virtual lists)
+    currentSelectedFilePath?: string | null
+    currentExpandedPaths?: Set<string>
   }
 
-  let { node, depth = 0, onfileselect, oncontextmenu: onctx }: FileTreeNodeProps = $props()
+  let {
+    node,
+    depth = 0,
+    onfileselect,
+    oncontextmenu: onctx,
+    focusedPath,
+    noRecursiveRender = false,
+    currentSelectedFilePath = null,
+    currentExpandedPaths = new Set<string>(),
+  }: FileTreeNodeProps = $props()
+
+  let buttonElement: HTMLButtonElement | null = $state(null)
 
   function handleContextMenu(event: MouseEvent) {
     event.preventDefault()
     onctx?.({ path: node.path, isDir: node.is_dir, x: event.clientX, y: event.clientY })
   }
 
-  // Reactive subscriptions
-  let currentSelectedFilePath: string | null = $state(null)
-  let currentExpandedPaths: Set<string> = $state(new Set())
-
-  selectedFilePath.subscribe((v) => (currentSelectedFilePath = v))
-  expandedPaths.subscribe((v) => (currentExpandedPaths = v))
-
   let isExpanded = $derived(currentExpandedPaths.has(node.path))
   let isSelected = $derived(!node.is_dir && currentSelectedFilePath === node.path)
+  let isFocused = $derived(focusedPath === node.path)
 
   function handleClick() {
     if (node.is_dir) {
       toggleExpanded(node.path)
     } else {
-      selectFile(node.path)
       onfileselect?.({ path: node.path })
     }
   }
+
+  // Scroll into view when focused
+  $effect(() => {
+    if (isFocused && buttonElement) {
+      buttonElement.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    }
+  })
 
   function stateIcon(state: FileState | null): string {
     switch (state) {
@@ -67,13 +83,19 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="tree-node">
   <button
+    bind:this={buttonElement}
     class="tree-row"
     class:active={isSelected}
+    class:focused={isFocused}
     class:directory={node.is_dir}
     style="padding-left: {12 + depth * 16}px;"
     onclick={handleClick}
     oncontextmenu={handleContextMenu}
     title={node.path}
+    role="treeitem"
+    aria-level={depth + 1}
+    aria-expanded={node.is_dir ? isExpanded : undefined}
+    aria-selected={isSelected}
   >
     {#if node.is_dir}
       <span class="material-symbols-outlined expand-icon" class:expanded={isExpanded}>
@@ -98,10 +120,10 @@
     {/if}
   </button>
 
-  {#if node.is_dir && isExpanded}
-    <div class="tree-children">
+  {#if !noRecursiveRender && node.is_dir && isExpanded}
+    <div class="tree-children" transition:slide={{ duration: 150 }}>
       {#each node.children as child (child.path)}
-        <svelte:self node={child} depth={depth + 1} {onfileselect} oncontextmenu={onctx} />
+        <svelte:self node={child} depth={depth + 1} {onfileselect} oncontextmenu={onctx} {focusedPath} {currentSelectedFilePath} {currentExpandedPaths} />
       {/each}
     </div>
   {/if}

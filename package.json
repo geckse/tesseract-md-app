@@ -26,7 +26,8 @@
     "@codemirror/view": "^6.36.2",
     "@lezer/highlight": "^1.2.1",
     "electron-store": "^10.0.0",
-    "electron-updater": "^6.3.9"
+    "electron-updater": "^6.3.9",
+    "js-tiktoken": "^1.0.21"
   },
   "devDependencies": {
     "@electron-toolkit/preload": "^3.0.1",

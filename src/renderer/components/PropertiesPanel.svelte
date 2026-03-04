@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
   import Badge from './ui/Badge.svelte'
+  import ResizeHandle from './ResizeHandle.svelte'
   import {
     documentInfo,
     backlinksInfo,
@@ -20,6 +21,30 @@
   }
 
   let { onfileselect }: PropertiesPanelProps = $props()
+
+  // Panel width management with persistence
+  const STORAGE_KEY = 'propertiesPanelWidth'
+  const DEFAULT_WIDTH = 288
+  const MIN_WIDTH = 180
+  const MAX_WIDTH = 500
+
+  let panelWidth = $state(DEFAULT_WIDTH)
+
+  // Load saved width from localStorage
+  $effect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY)
+    if (saved) {
+      const parsed = parseInt(saved, 10)
+      if (!isNaN(parsed)) {
+        panelWidth = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, parsed))
+      }
+    }
+  })
+
+  function handleResize(newWidth: number) {
+    panelWidth = newWidth
+    localStorage.setItem(STORAGE_KEY, String(newWidth))
+  }
 
   // Store subscriptions
   let currentDocInfo: DocumentInfo | null = $state(null)
@@ -105,7 +130,15 @@
   }
 </script>
 
-<aside class="properties-panel">
+<aside class="properties-panel" style="width: {panelWidth}px; min-width: {panelWidth}px">
+  <ResizeHandle
+    position="left"
+    minWidth={MIN_WIDTH}
+    maxWidth={MAX_WIDTH}
+    width={panelWidth}
+    onresize={handleResize}
+  />
+
   {#if !currentFilePath}
     <div class="empty-state">
       <span class="material-symbols-outlined empty-icon">description</span>
@@ -315,14 +348,14 @@
 
 <style>
   .properties-panel {
-    width: var(--panel-width, 288px);
-    min-width: var(--panel-width, 288px);
+    position: relative;
     background: var(--color-surface-dark, #0a0a0a);
     border-left: 1px solid var(--color-border, #27272a);
     overflow-y: auto;
     overflow-x: hidden;
     display: flex;
     flex-direction: column;
+    height: 100%;
     scrollbar-width: thin;
     scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
   }

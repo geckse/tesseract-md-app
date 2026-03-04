@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { isDirty, wordCount as wordCountStore, readingTime as readingTimeStore } from '../stores/editor';
+  import { isDirty, wordCount as wordCountStore, tokenCount as tokenCountStore } from '../stores/editor';
   import WatcherToggle from './WatcherToggle.svelte';
 
   interface StatusBarProps {
@@ -21,8 +21,8 @@
   let currentWordCount = $state(0);
   wordCountStore.subscribe((v) => (currentWordCount = v));
 
-  let currentReadingTime = $state(0);
-  readingTimeStore.subscribe((v) => (currentReadingTime = v));
+  let currentTokenCount = $state(0);
+  tokenCountStore.subscribe((v) => (currentTokenCount = v));
 
   let cliVersion: string | null = $state(null);
   let cliFound = $state(false);
@@ -42,6 +42,15 @@
 </script>
 
 <div class="status-bar">
+  <!-- Screen reader announcements for status changes -->
+  <div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
+    {#if cliFound}
+      mdvdb CLI found, version {cliVersion || 'unknown'}
+    {:else}
+      mdvdb CLI not found
+    {/if}
+  </div>
+
   <div class="status-group">
     <span class="status-item interactive">
       <span class="material-symbols-outlined status-icon">markdown</span>
@@ -51,7 +60,7 @@
       {/if}
     </span>
     <span class="status-item interactive">{currentWordCount} words</span>
-    <span class="status-item interactive">{currentReadingTime} mins</span>
+    <span class="status-item interactive">{currentTokenCount.toLocaleString()} tokens</span>
   </div>
 
   <div class="status-group">
@@ -145,5 +154,18 @@
 
   .cli-dot-missing {
     background: #ef4444;
+  }
+
+  /* Screen reader only - visually hidden but available to assistive tech */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
   }
 </style>

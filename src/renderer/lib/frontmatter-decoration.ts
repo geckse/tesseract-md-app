@@ -74,6 +74,9 @@ function buildDecorations(state: EditorState): DecorationSet {
   const doc = state.doc
   const decorations: Range<Decoration>[] = []
 
+  // Empty document — nothing to decorate
+  if (doc.length === 0) return Decoration.set([])
+
   // Must start with ---
   const firstLine = doc.lineAt(1)
   if (firstLine.text.trim() !== '---') {

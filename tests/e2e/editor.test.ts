@@ -96,7 +96,7 @@ test.describe('Editor Workflow', () => {
     await electronApp.close()
   })
 
-  test('should show reading time in status bar', async () => {
+  test('should show token count in status bar', async () => {
     const electronApp = await electron.launch({
       args: [appPath]
     })
@@ -118,11 +118,11 @@ test.describe('Editor Workflow', () => {
         await fileRows.first().click()
         await window.waitForTimeout(1000)
 
-        const readingTimeItem = window.locator('.status-item', { hasText: 'mins' })
-        await expect(readingTimeItem).toBeVisible()
+        const tokenCountItem = window.locator('.status-item', { hasText: 'tokens' })
+        await expect(tokenCountItem).toBeVisible()
 
-        const text = await readingTimeItem.textContent()
-        expect(text).toMatch(/\d+ mins/)
+        const text = await tokenCountItem.textContent()
+        expect(text).toMatch(/[\d,]+ tokens/)
       }
     }
 

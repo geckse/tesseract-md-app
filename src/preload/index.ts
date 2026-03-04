@@ -73,6 +73,12 @@ const api: MdvdbApi = {
   addRecent: (collectionId, filePath) => invoke('recents:add', collectionId, filePath),
   clearRecents: () => invoke('recents:clear'),
 
+  // Window state persistence
+  setSidebarWidth: (width) => invoke('store:set-sidebar-width', width),
+  setMetadataPanelWidth: (width) => invoke('store:set-metadata-panel-width', width),
+  getSidebarWidth: () => invoke('store:get-sidebar-width'),
+  getMetadataPanelWidth: () => invoke('store:get-metadata-panel-width'),
+
   // Ingest cancellation
   cancelIngest: () => invoke('cli:cancel-ingest'),
 

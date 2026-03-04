@@ -39,6 +39,8 @@ export interface AppStore {
   windowBounds: { x: number; y: number; width: number; height: number }
   favorites: FavoriteEntry[]
   recentFiles: RecentEntry[]
+  sidebarWidth: number
+  metadataPanelWidth: number
 }
 
 /** electron-store schema definition for validation */
@@ -97,6 +99,14 @@ const schema = {
       },
       required: ['collectionId', 'filePath', 'openedAt'] as const
     }
+  },
+  sidebarWidth: {
+    type: 'number' as const,
+    default: 280
+  },
+  metadataPanelWidth: {
+    type: 'number' as const,
+    default: 320
   }
 }
 

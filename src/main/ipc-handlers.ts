@@ -421,6 +421,39 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
     })
   )
 
+  // Window state persistence
+  ipcMain.handle('store:set-sidebar-width', (_event, width: number) =>
+    wrapHandler(async () => {
+      const { initStore } = await import('./store')
+      const store = initStore()
+      store.set('sidebarWidth', width)
+    })
+  )
+
+  ipcMain.handle('store:set-metadata-panel-width', (_event, width: number) =>
+    wrapHandler(async () => {
+      const { initStore } = await import('./store')
+      const store = initStore()
+      store.set('metadataPanelWidth', width)
+    })
+  )
+
+  ipcMain.handle('store:get-sidebar-width', () =>
+    wrapHandler(async () => {
+      const { initStore } = await import('./store')
+      const store = initStore()
+      return store.get('sidebarWidth', 280)
+    })
+  )
+
+  ipcMain.handle('store:get-metadata-panel-width', () =>
+    wrapHandler(async () => {
+      const { initStore } = await import('./store')
+      const store = initStore()
+      return store.get('metadataPanelWidth', 320)
+    })
+  )
+
   // Watcher management
   ipcMain.handle('watcher:start', (_event, root: string) =>
     wrapHandler(async () => {

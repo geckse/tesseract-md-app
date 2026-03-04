@@ -1,4 +1,7 @@
-import { writable, derived } from 'svelte/store'
+import { writable } from 'svelte/store'
+import { encodingForModel } from 'js-tiktoken'
+
+const encoder = encodingForModel('gpt-4o')
 
 /** Whether the editor content has unsaved changes. */
 export const isDirty = writable<boolean>(false)
@@ -6,10 +9,14 @@ export const isDirty = writable<boolean>(false)
 /** Current word count of the editor content. */
 export const wordCount = writable<number>(0)
 
-/** Estimated reading time in minutes (assumes 250 words per minute). */
-export const readingTime = derived(wordCount, ($wordCount) =>
-  Math.ceil($wordCount / 250)
-)
+/** Token count of the editor content (tiktoken cl100k_base). */
+export const tokenCount = writable<number>(0)
+
+/** Count tokens in a text string using tiktoken. */
+export function countTokens(text: string): number {
+  if (text.trim().length === 0) return 0
+  return encoder.encode(text).length
+}
 
 /** Target line number to scroll to in the editor, or null when idle. */
 export const scrollToLine = writable<number | null>(null)

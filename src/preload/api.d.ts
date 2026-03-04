@@ -97,6 +97,12 @@ export interface MdvdbApi {
   addRecent(collectionId: string, filePath: string): Promise<void>
   clearRecents(): Promise<void>
 
+  // Window state persistence
+  setSidebarWidth(width: number): Promise<void>
+  setMetadataPanelWidth(width: number): Promise<void>
+  getSidebarWidth(): Promise<number>
+  getMetadataPanelWidth(): Promise<number>
+
   // Ingest cancellation
   cancelIngest(): Promise<void>
 

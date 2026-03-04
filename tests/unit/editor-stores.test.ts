@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { get } from 'svelte/store'
-import { isDirty, wordCount, readingTime, countWords } from '../../src/renderer/stores/editor'
+import { isDirty, wordCount, tokenCount, countWords, countTokens } from '../../src/renderer/stores/editor'
 
 describe('editor stores', () => {
   beforeEach(() => {
     isDirty.set(false)
     wordCount.set(0)
+    tokenCount.set(0)
   })
 
   describe('countWords', () => {
@@ -19,6 +20,22 @@ describe('editor stores', () => {
 
     it('returns 0 for whitespace-only string', () => {
       expect(countWords('   \t\n  ')).toBe(0)
+    })
+  })
+
+  describe('countTokens', () => {
+    it('returns 0 for empty string', () => {
+      expect(countTokens('')).toBe(0)
+    })
+
+    it('returns a positive number for non-empty text', () => {
+      expect(countTokens('hello world')).toBeGreaterThan(0)
+    })
+
+    it('returns more tokens for longer text', () => {
+      const short = countTokens('hello')
+      const long = countTokens('hello world this is a longer sentence')
+      expect(long).toBeGreaterThan(short)
     })
   })
 
@@ -44,25 +61,14 @@ describe('editor stores', () => {
     })
   })
 
-  describe('readingTime', () => {
-    it('returns 0 when wordCount is 0', () => {
-      wordCount.set(0)
-      expect(get(readingTime)).toBe(0)
+  describe('tokenCount', () => {
+    it('defaults to 0', () => {
+      expect(get(tokenCount)).toBe(0)
     })
 
-    it('returns 1 for 250 words', () => {
-      wordCount.set(250)
-      expect(get(readingTime)).toBe(1)
-    })
-
-    it('returns 2 for 500 words', () => {
-      wordCount.set(500)
-      expect(get(readingTime)).toBe(2)
-    })
-
-    it('rounds up partial minutes', () => {
-      wordCount.set(251)
-      expect(get(readingTime)).toBe(2)
+    it('can be updated', () => {
+      tokenCount.set(100)
+      expect(get(tokenCount)).toBe(100)
     })
   })
 })

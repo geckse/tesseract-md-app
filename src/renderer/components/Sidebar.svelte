@@ -13,6 +13,7 @@
   import FileTree from './FileTree.svelte'
   import Favorites from './Favorites.svelte'
   import Recents from './Recents.svelte'
+  import ResizeHandle from './ResizeHandle.svelte'
   import type { Collection } from '../../preload/api'
 
   interface SidebarProps {
@@ -73,11 +74,30 @@
   activeCollectionId.subscribe((v) => (currentActiveCollectionId = v))
   collectionStatus.subscribe((v) => (currentCollectionStatus = v))
   collectionsLoading.subscribe((v) => (currentCollectionsLoading = v))
+
+  // Sidebar width state with localStorage persistence
+  let sidebarWidth = $state(
+    typeof localStorage !== 'undefined'
+      ? parseInt(localStorage.getItem('sidebarWidth') ?? '256')
+      : 256
+  )
+
+  function handleResize(newWidth: number) {
+    sidebarWidth = newWidth
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('sidebarWidth', String(newWidth))
+    }
+  }
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_click_events_have_key_keys -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<aside class="sidebar" onclick={closeContextMenu}>
+<aside
+  class="sidebar"
+  style:width="{sidebarWidth}px"
+  style:min-width="{sidebarWidth}px"
+  onclick={closeContextMenu}
+>
   <!-- Traffic light spacer (macOS window controls) -->
   <div class="traffic-light-spacer"></div>
 
@@ -152,6 +172,13 @@
     {/if}
   </div>
 
+  <ResizeHandle
+    position="right"
+    minWidth={180}
+    maxWidth={500}
+    width={sidebarWidth}
+    onresize={handleResize}
+  />
 </aside>
 
 <!-- Context menu -->
@@ -201,6 +228,7 @@
     padding: 0 10px;
     border-bottom: 1px solid var(--color-border, #27272a);
     gap: 12px;
+    position: relative;
   }
 
   .logo-icon {
@@ -225,6 +253,8 @@
     font-size: 18px;
     letter-spacing: -0.025em;
     color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
   }
 
   .nav-content {
@@ -291,8 +321,14 @@
     border: none;
     color: var(--color-text-dim, #71717a);
     cursor: pointer;
-    transition: all 0.15s;
+    transition: all 0.15s ease;
     padding: 0;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .add-collection-btn {
+      transition: none;
+    }
   }
 
   .add-collection-btn:hover {
@@ -322,8 +358,14 @@
     cursor: pointer;
     width: 100%;
     text-align: left;
-    transition: all 0.15s;
+    transition: all 0.15s ease;
     font-family: inherit;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .nav-item {
+      transition: none;
+    }
   }
 
   .nav-item:hover {

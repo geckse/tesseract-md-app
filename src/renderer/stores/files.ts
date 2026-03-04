@@ -67,13 +67,17 @@ export async function loadFileTree(subPath?: string): Promise<void> {
   }
 }
 
+/** Generation counter to discard stale async results. */
+let selectGeneration = 0
+
 /** Select a file path in the tree and load its content. */
 export async function selectFile(path: string | null): Promise<void> {
+  const gen = ++selectGeneration
   selectedFilePath.set(path)
-  fileContent.set(null)
   fileContentError.set(null)
 
   if (!path) {
+    fileContent.set(null)
     clearProperties()
     return
   }
@@ -88,16 +92,23 @@ export async function selectFile(path: string | null): Promise<void> {
   fileContentLoading.set(true)
   try {
     const content = await window.api.readFile(fullPath)
+    // Discard if user already clicked a different file
+    if (gen !== selectGeneration) return
     fileContent.set(content)
     propertiesFileContent.set(content)
   } catch (err) {
+    if (gen !== selectGeneration) return
     fileContentError.set(err instanceof Error ? err.message : String(err))
   } finally {
-    fileContentLoading.set(false)
+    if (gen === selectGeneration) {
+      fileContentLoading.set(false)
+    }
   }
 
   // Load properties panel data (document info + backlinks) in parallel
-  loadProperties(path)
+  if (gen === selectGeneration) {
+    loadProperties(path)
+  }
 }
 
 /** Toggle a directory's expanded state. */
