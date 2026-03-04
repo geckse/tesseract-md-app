@@ -62,6 +62,12 @@ const api: MdvdbApi = {
   // Single-file ingest
   ingestFile: (root, filePath, options?) => invoke('cli:ingest-file', root, filePath, options),
 
+  // Window state persistence
+  setSidebarWidth: (width) => invoke('store:set-sidebar-width', width),
+  setMetadataPanelWidth: (width) => invoke('store:set-metadata-panel-width', width),
+  getSidebarWidth: () => invoke('store:get-sidebar-width'),
+  getMetadataPanelWidth: () => invoke('store:get-metadata-panel-width'),
+
   // Ingest cancellation
   cancelIngest: () => invoke('cli:cancel-ingest'),
 

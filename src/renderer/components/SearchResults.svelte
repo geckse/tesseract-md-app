@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
+  import { fade } from 'svelte/transition';
   import {
     searchQuery,
     searchResults,
@@ -11,6 +12,7 @@
   } from '../stores/search';
   import { activeCollection } from '../stores/collections';
   import type { SearchResult, SearchMode } from '../types/cli';
+  import { calculateVirtualListState, throttleScroll } from '../lib/virtual-list';
 
   interface SearchResultsProps {
     onresultclick?: (result: SearchResult) => void;
@@ -51,6 +53,31 @@
 
   const modes: SearchMode[] = ['hybrid', 'semantic', 'lexical'];
 
+  // Virtual list configuration
+  const VIRTUAL_LIST_THRESHOLD = 20;
+  const ITEM_HEIGHT = 100; // Approximate height of each result card in pixels
+  const CONTAINER_HEIGHT = 600; // Approximate max-height of results list (60vh)
+
+  let scrollTop = $state(0);
+  let useVirtualList = $derived(results.length > VIRTUAL_LIST_THRESHOLD);
+  let virtualState = $derived(
+    useVirtualList
+      ? calculateVirtualListState(scrollTop, CONTAINER_HEIGHT, {
+          itemHeight: ITEM_HEIGHT,
+          totalItems: results.length,
+          buffer: 5,
+        })
+      : null
+  );
+  let visibleResults = $derived(
+    virtualState ? results.slice(virtualState.start, virtualState.end) : results
+  );
+
+  const handleScroll = throttleScroll((event: Event) => {
+    const target = event.currentTarget as HTMLElement;
+    scrollTop = target.scrollTop;
+  });
+
   function handleModeClick(mode: SearchMode) {
     setSearchMode(mode);
   }
@@ -69,7 +96,20 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="search-results-overlay" onclick={handleOverlayClick}>
-  <div class="search-results">
+  <div class="search-results" transition:fade={{ duration: 150 }}>
+    <!-- Screen reader announcements for search results -->
+    <div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
+      {#if currentLoading}
+        Searching...
+      {:else if currentError}
+        Search error: {currentError}
+      {:else if hasQuery && hasResults}
+        Found {totalResults} result{totalResults !== 1 ? 's' : ''} for {currentQuery}
+      {:else if hasQuery && !hasResults}
+        No results found for {currentQuery}
+      {/if}
+    </div>
+
     <!-- Mode toggle pills -->
     <div class="mode-bar">
       <div class="mode-pills">
@@ -89,7 +129,7 @@
     </div>
 
     <!-- Content area -->
-    <div class="results-list">
+    <div class="results-list" onscroll={handleScroll}>
       {#if currentLoading}
         <div class="state-message">
           <div class="spinner"></div>
@@ -101,14 +141,40 @@
         <div class="state-message">No results for "{currentQuery}"</div>
       {:else if !hasQuery}
         <div class="state-message">Type to search across {currentCollection?.name ?? 'collection'}</div>
+      {:else if useVirtualList && virtualState}
+        <!-- Virtual list for >20 results -->
+        <div class="virtual-container" style="height: {virtualState.totalHeight}px;">
+          {#each visibleResults as result, i (result.chunk.id)}
+            {@const actualIndex = virtualState.start + i}
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div
+              class="result-card virtual-item"
+              class:highlighted={currentHighlighted === actualIndex}
+              onclick={() => handleResultClick(result)}
+              style="transform: translateY({actualIndex * ITEM_HEIGHT}px); height: {ITEM_HEIGHT}px;"
+            >
+              <div class="result-path">{result.file.path}</div>
+              {#if result.chunk.heading_hierarchy.length > 0}
+                <div class="result-heading">{result.chunk.heading_hierarchy.join(' > ')}</div>
+              {/if}
+              <div class="score-bar-track">
+                <div class="score-bar-fill" style="width: {result.score * 100}%"></div>
+              </div>
+              <div class="result-snippet">{result.chunk.content}</div>
+            </div>
+          {/each}
+        </div>
       {:else}
-        {#each results as result, i}
+        <!-- Normal list for <=20 results -->
+        {#each results as result, i (result.chunk.id)}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             class="result-card"
             class:highlighted={currentHighlighted === i}
             onclick={() => handleResultClick(result)}
+            transition:fade={{ duration: 150 }}
           >
             <div class="result-path">{result.file.path}</div>
             {#if result.chunk.heading_hierarchy.length > 0}
@@ -275,5 +341,32 @@
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
+  }
+
+  /* Virtual list styles */
+  .virtual-container {
+    position: relative;
+    width: 100%;
+  }
+
+  .virtual-item {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    will-change: transform;
+  }
+
+  /* Screen reader only - visually hidden but available to assistive tech */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
   }
 </style>

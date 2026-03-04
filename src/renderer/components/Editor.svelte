@@ -13,11 +13,27 @@
   import { activeCollection } from '../stores/collections';
   import { isDirty, wordCount, countWords, saveRequested, scrollToLine, activeHeadingIndex } from '../stores/editor';
   import { propertiesFileContent, outline } from '../stores/properties';
+  import { DocumentCache } from '../lib/doc-cache';
+  import ConflictNotification from './ConflictNotification.svelte';
+  import { showConflict, dismissConflict } from '../stores/conflict';
 
   let editorEl: HTMLDivElement | undefined = $state(undefined);
   let view: EditorView | null = null;
   let lastSavedContent: string = '';
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let previousFilePath: string | null = null;
+
+  // File change detection
+  let fileWatchInterval: ReturnType<typeof setInterval> | null = null;
+  const FILE_CHECK_INTERVAL = 2000; // Check every 2 seconds
+
+  // LRU cache for recently opened documents (last 5 files)
+  const docCache = new DocumentCache(5);
+
+  // Large file handling (>1MB)
+  const LARGE_FILE_THRESHOLD = 1024 * 1024; // 1MB in bytes
+  let largeFileWarning = $state(false);
+  let useBasicMode = $state(false);
 
   let currentOutline: import('../stores/properties').OutlineHeading[] = [];
   const unsubOutline = outline.subscribe((v) => (currentOutline = v));
@@ -88,6 +104,10 @@
     activeHeadingIndex.set(idx);
   }
 
+  function dismissLargeFileWarning() {
+    largeFileWarning = false;
+  }
+
   function handleSave(): boolean {
     if (!view || !currentActiveCollection || !currentSelectedFilePath) return true;
     const content = view.state.doc.toString();
@@ -96,19 +116,168 @@
       lastSavedContent = content;
       isDirty.set(false);
       loadFileTree();
+      // Dismiss any conflict notification after successful save
+      dismissConflict();
     }).catch((err) => {
       console.error('Save failed:', err);
     });
     return true;
   }
 
+  /**
+   * Check if the currently open file has been modified externally.
+   * If changes are detected, trigger the conflict notification.
+   */
+  async function checkForExternalChanges() {
+    if (!currentSelectedFilePath || !currentActiveCollection || !view) return;
+
+    const fullPath = `${currentActiveCollection.path}/${currentSelectedFilePath}`;
+
+    try {
+      // Read the current file content from disk
+      const diskContent = await window.api.readFile(fullPath);
+      const editorContent = view.state.doc.toString();
+
+      // If content on disk differs from editor content, we have a conflict
+      if (diskContent !== editorContent) {
+        // Trigger conflict notification
+        showConflict(currentSelectedFilePath);
+        // Stop checking once conflict is detected to avoid repeated notifications
+        stopFileWatcher();
+      }
+    } catch (err) {
+      // File might have been deleted or is inaccessible - stop watching
+      stopFileWatcher();
+    }
+  }
+
+  /**
+   * Start watching the current file for external changes.
+   */
+  function startFileWatcher() {
+    stopFileWatcher();
+    fileWatchInterval = setInterval(checkForExternalChanges, FILE_CHECK_INTERVAL);
+  }
+
+  /**
+   * Stop watching for file changes.
+   */
+  function stopFileWatcher() {
+    if (fileWatchInterval) {
+      clearInterval(fileWatchInterval);
+      fileWatchInterval = null;
+    }
+  }
+
+  /**
+   * Save the current editor state to the document cache.
+   * Caches content, cursor position, and scroll position for instant restoration.
+   */
+  function saveToCacheIfNeeded() {
+    if (!view || !previousFilePath) return;
+
+    const content = view.state.doc.toString();
+    const cursorPos = view.state.selection.main.head;
+    const line = view.state.doc.lineAt(cursorPos);
+    const scrollTop = view.scrollDOM.scrollTop;
+
+    docCache.set(previousFilePath, {
+      content,
+      cursor: {
+        line: line.number,
+        column: cursorPos - line.from,
+      },
+      scrollTop,
+      cachedAt: Date.now(),
+    });
+  }
+
+  /**
+   * Restore editor state from the document cache if available.
+   * Returns true if restored from cache, false if not cached.
+   */
+  function restoreFromCache(filePath: string): boolean {
+    const cached = docCache.get(filePath);
+    if (!cached) return false;
+
+    // Check if file is large (>1MB)
+    const contentSize = new Blob([cached.content]).size;
+    const isLargeFile = contentSize > LARGE_FILE_THRESHOLD;
+
+    if (isLargeFile && !largeFileWarning) {
+      largeFileWarning = true;
+      useBasicMode = true;
+    } else if (!isLargeFile) {
+      largeFileWarning = false;
+      useBasicMode = false;
+    }
+
+    if (view) {
+      // Replace content
+      lastSavedContent = cached.content;
+      isDirty.set(false);
+      const doc = view.state.doc;
+      view.dispatch({
+        changes: { from: 0, to: doc.length, insert: cached.content },
+      });
+      wordCount.set(countWords(cached.content));
+
+      // Restore cursor position
+      const newDoc = view.state.doc;
+      if (cached.cursor.line <= newDoc.lines) {
+        const line = newDoc.line(cached.cursor.line);
+        const targetPos = Math.min(line.from + cached.cursor.column, line.to);
+        view.dispatch({
+          selection: { anchor: targetPos, head: targetPos },
+        });
+      }
+
+      // Restore scroll position (on next frame to ensure DOM is updated)
+      requestAnimationFrame(() => {
+        if (view) {
+          view.scrollDOM.scrollTop = cached.scrollTop;
+        }
+      });
+    } else if (editorEl) {
+      // Create new view with cached content
+      lastSavedContent = cached.content;
+      isDirty.set(false);
+      wordCount.set(countWords(cached.content));
+
+      view = new EditorView({
+        state: EditorState.create({
+          doc: cached.content,
+          extensions: createExtensions(),
+        }),
+        parent: editorEl,
+      });
+
+      // Restore cursor position
+      const doc = view.state.doc;
+      if (cached.cursor.line <= doc.lines) {
+        const line = doc.line(cached.cursor.line);
+        const targetPos = Math.min(line.from + cached.cursor.column, line.to);
+        view.dispatch({
+          selection: { anchor: targetPos, head: targetPos },
+        });
+      }
+
+      // Restore scroll position (on next frame to ensure DOM is updated)
+      requestAnimationFrame(() => {
+        if (view) {
+          view.scrollDOM.scrollTop = cached.scrollTop;
+        }
+      });
+    }
+
+    return true;
+  }
+
   function createExtensions() {
-    return [
+    const baseExtensions = [
       markdown({ base: markdownLanguage }),
       history(),
       editorTheme(),
-      softRender(),
-      frontmatterDecoration(),
       keymap.of([{ key: 'Mod-s', run: () => handleSave() }]),
       search({ top: true }),
       keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
@@ -117,11 +286,34 @@
         scroll() { updateActiveHeading(); },
       }),
     ];
+
+    // Add heavy decorations only for normal-sized files
+    if (!useBasicMode) {
+      baseExtensions.push(
+        softRender(),
+        frontmatterDecoration()
+      );
+    }
+
+    return baseExtensions;
   }
 
   function createView(content: string) {
     if (!editorEl) return;
     destroyView();
+
+    // Check if file is large (>1MB)
+    const contentSize = new Blob([content]).size;
+    const isLargeFile = contentSize > LARGE_FILE_THRESHOLD;
+
+    if (isLargeFile && !largeFileWarning) {
+      largeFileWarning = true;
+      useBasicMode = true;
+    } else if (!isLargeFile) {
+      largeFileWarning = false;
+      useBasicMode = false;
+    }
+
     lastSavedContent = content;
     isDirty.set(false);
     wordCount.set(countWords(content));
@@ -144,6 +336,27 @@
 
   function replaceContent(content: string) {
     if (!view) return;
+
+    // Check if file is large (>1MB)
+    const contentSize = new Blob([content]).size;
+    const isLargeFile = contentSize > LARGE_FILE_THRESHOLD;
+
+    if (isLargeFile && !largeFileWarning) {
+      largeFileWarning = true;
+      useBasicMode = true;
+      // Recreate view with basic mode extensions
+      destroyView();
+      createView(content);
+      return;
+    } else if (!isLargeFile && useBasicMode) {
+      largeFileWarning = false;
+      useBasicMode = false;
+      // Recreate view with full extensions
+      destroyView();
+      createView(content);
+      return;
+    }
+
     lastSavedContent = content;
     isDirty.set(false);
     const doc = view.state.doc;
@@ -153,18 +366,53 @@
     wordCount.set(countWords(content));
   }
 
-  // React to file content changes
+  // React to file content changes with cache support
   $effect(() => {
     if (currentFileContent !== null && currentSelectedFilePath !== null) {
-      if (view) {
-        replaceContent(currentFileContent);
-      } else if (editorEl) {
-        createView(currentFileContent);
+      // Check if we're switching files
+      const isSwitchingFiles = previousFilePath !== currentSelectedFilePath;
+
+      if (isSwitchingFiles) {
+        // Save current file to cache before switching
+        saveToCacheIfNeeded();
+        // Stop watching the previous file
+        stopFileWatcher();
+        // Dismiss any existing conflict notification
+        dismissConflict();
+
+        // Try to restore from cache
+        const restored = restoreFromCache(currentSelectedFilePath);
+
+        if (!restored) {
+          // Not in cache, load normally from disk
+          if (view) {
+            replaceContent(currentFileContent);
+          } else if (editorEl) {
+            createView(currentFileContent);
+          }
+        }
+
+        // Update previous file path
+        previousFilePath = currentSelectedFilePath;
+        // Start watching the new file for external changes
+        startFileWatcher();
+      } else {
+        // Same file, just update content (e.g., external changes)
+        if (view) {
+          replaceContent(currentFileContent);
+        } else if (editorEl) {
+          createView(currentFileContent);
+        }
       }
     } else {
+      // No file selected, save to cache and destroy view
+      saveToCacheIfNeeded();
+      stopFileWatcher();
+      dismissConflict();
       destroyView();
       isDirty.set(false);
       wordCount.set(0);
+      previousFilePath = null;
     }
   });
 
@@ -176,6 +424,9 @@
 
   onDestroy(() => {
     if (debounceTimer) clearTimeout(debounceTimer);
+    stopFileWatcher();
+    dismissConflict();
+    saveToCacheIfNeeded();
     destroyView();
     isDirty.set(false);
     wordCount.set(0);
@@ -190,6 +441,19 @@
 
 {#if currentSelectedFilePath}
   <div class="editor-container">
+    <ConflictNotification />
+    {#if largeFileWarning}
+      <div class="large-file-warning">
+        <span class="material-symbols-outlined warning-icon">warning</span>
+        <div class="warning-content">
+          <p class="warning-title">Large file detected</p>
+          <p class="warning-message">This file is larger than 1MB. Some advanced features like frontmatter highlighting and outline parsing have been disabled for better performance.</p>
+        </div>
+        <button class="warning-dismiss" onclick={dismissLargeFileWarning} aria-label="Dismiss warning">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+    {/if}
     <div class="editor-content" bind:this={editorEl}></div>
   </div>
 {:else}
@@ -276,5 +540,69 @@
     font-size: 14px;
     color: var(--color-text-dim, #71717a);
     margin: 0;
+  }
+
+  .large-file-warning {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 16px;
+    background: rgba(234, 179, 8, 0.1);
+    border-bottom: 1px solid rgba(234, 179, 8, 0.2);
+    color: #fbbf24;
+  }
+
+  .warning-icon {
+    font-size: 20px;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  .warning-content {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .warning-title {
+    font-size: 13px;
+    font-weight: 600;
+    margin: 0 0 4px 0;
+    color: #fbbf24;
+  }
+
+  .warning-message {
+    font-size: 12px;
+    margin: 0;
+    color: #fde047;
+    line-height: 1.5;
+  }
+
+  .warning-dismiss {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    color: #fbbf24;
+    cursor: pointer;
+    padding: 0;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: background-color 150ms ease;
+  }
+
+  .warning-dismiss:hover {
+    background: rgba(234, 179, 8, 0.1);
+  }
+
+  .warning-dismiss:focus {
+    outline: 2px solid #fbbf24;
+    outline-offset: 2px;
+  }
+
+  .warning-dismiss .material-symbols-outlined {
+    font-size: 16px;
   }
 </style>

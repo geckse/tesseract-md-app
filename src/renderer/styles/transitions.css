@@ -1,0 +1,282 @@
+/* ==========================================================================
+   Transitions & Animations — mdvdb Editor
+   Reusable transition utilities and animation keyframes.
+   All transitions respect prefers-reduced-motion user preference.
+   ========================================================================== */
+
+/* --- Transition Utilities --- */
+
+/* Fade transitions */
+.transition-fade {
+  transition: opacity var(--transition-fast);
+}
+
+.transition-fade-slow {
+  transition: opacity var(--transition-normal);
+}
+
+/* Slide transitions */
+.transition-slide {
+  transition: transform var(--transition-normal), opacity var(--transition-fast);
+}
+
+.transition-slide-fast {
+  transition: transform var(--transition-fast), opacity var(--transition-fast);
+}
+
+/* Height transitions (for collapse/expand) */
+.transition-height {
+  transition: height var(--transition-normal), opacity var(--transition-fast);
+}
+
+/* All-property transitions */
+.transition-all {
+  transition: all var(--transition-fast);
+}
+
+.transition-all-slow {
+  transition: all var(--transition-normal);
+}
+
+/* Color transitions (for hover states) */
+.transition-colors {
+  transition: background-color var(--transition-fast),
+              border-color var(--transition-fast),
+              color var(--transition-fast);
+}
+
+/* Transform transitions */
+.transition-transform {
+  transition: transform var(--transition-fast);
+}
+
+/* Opacity transitions */
+.transition-opacity {
+  transition: opacity var(--transition-fast);
+}
+
+/* Width transitions (for resizable panels) */
+.transition-width {
+  transition: width var(--transition-normal);
+}
+
+/* --- Animation Keyframes --- */
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOutRight {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+@keyframes slideInLeft {
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOutLeft {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+}
+
+@keyframes slideDown {
+  from {
+    transform: translateY(-10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes scaleOut {
+  from {
+    transform: scale(1);
+    opacity: 1;
+  }
+  to {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* --- Animation Utility Classes --- */
+
+.animate-fadeIn {
+  animation: fadeIn var(--transition-fast) ease-out;
+}
+
+.animate-fadeOut {
+  animation: fadeOut var(--transition-fast) ease-in;
+}
+
+.animate-slideInRight {
+  animation: slideInRight var(--transition-normal) ease-out;
+}
+
+.animate-slideOutRight {
+  animation: slideOutRight var(--transition-normal) ease-in;
+}
+
+.animate-slideInLeft {
+  animation: slideInLeft var(--transition-normal) ease-out;
+}
+
+.animate-slideOutLeft {
+  animation: slideOutLeft var(--transition-normal) ease-in;
+}
+
+.animate-slideDown {
+  animation: slideDown var(--transition-fast) ease-out;
+}
+
+.animate-slideUp {
+  animation: slideUp var(--transition-fast) ease-out;
+}
+
+.animate-scaleIn {
+  animation: scaleIn var(--transition-fast) ease-out;
+}
+
+.animate-scaleOut {
+  animation: scaleOut var(--transition-fast) ease-in;
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+.animate-pulse {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+/* --- Reduced Motion Support --- */
+
+/* Disable all transitions and animations when user prefers reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* Disable all transition utility classes */
+  .transition-fade,
+  .transition-fade-slow,
+  .transition-slide,
+  .transition-slide-fast,
+  .transition-height,
+  .transition-all,
+  .transition-all-slow,
+  .transition-colors,
+  .transition-transform,
+  .transition-opacity,
+  .transition-width {
+    transition: none !important;
+  }
+
+  /* Disable all animation utility classes */
+  .animate-fadeIn,
+  .animate-fadeOut,
+  .animate-slideInRight,
+  .animate-slideOutRight,
+  .animate-slideInLeft,
+  .animate-slideOutLeft,
+  .animate-slideDown,
+  .animate-slideUp,
+  .animate-scaleIn,
+  .animate-scaleOut,
+  .animate-spin,
+  .animate-pulse {
+    animation: none !important;
+  }
+}

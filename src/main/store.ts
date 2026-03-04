@@ -23,6 +23,8 @@ export interface AppStore {
   collections: Collection[]
   activeCollectionId: string | null
   windowBounds: { x: number; y: number; width: number; height: number }
+  sidebarWidth: number
+  metadataPanelWidth: number
 }
 
 /** electron-store schema definition for validation */
@@ -55,6 +57,14 @@ const schema = {
       width: { type: 'number' as const },
       height: { type: 'number' as const }
     }
+  },
+  sidebarWidth: {
+    type: 'number' as const,
+    default: 280
+  },
+  metadataPanelWidth: {
+    type: 'number' as const,
+    default: 320
   }
 }
 

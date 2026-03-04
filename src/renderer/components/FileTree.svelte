@@ -8,11 +8,20 @@
     loadFileTree,
     expandAll,
     collapseAll,
+    expandedPaths,
+    toggleExpanded,
+    selectFile,
   } from '../stores/files'
   import { activeCollection } from '../stores/collections'
   import { runIngest, ingestRunning } from '../stores/ingest'
   import type { Collection } from '../../preload/api'
-  import type { FileTree as FileTreeType, FileState } from '../types/cli'
+  import type { FileTree as FileTreeType, FileState, FileTreeNode as FileTreeNodeType } from '../types/cli'
+  import {
+    calculateVirtualListState,
+    scrollToIndex,
+    throttleScroll,
+    type VirtualListState,
+  } from '../lib/virtual-list'
 
   interface FileTreeProps {
     onfileselect?: (detail: { path: string }) => void
@@ -28,6 +37,7 @@
   let currentActiveCollection: Collection | null = $state(null)
   let currentIngestRunning: boolean = $state(false)
   let ingestMenuOpen: boolean = $state(false)
+  let currentExpandedPaths: Set<string> = $state(new Set())
 
   fileTree.subscribe((v) => (currentFileTree = v))
   fileTreeLoading.subscribe((v) => (currentFileTreeLoading = v))
@@ -35,6 +45,7 @@
   fileStateCounts.subscribe((v) => (currentFileStateCounts = v))
   activeCollection.subscribe((v) => (currentActiveCollection = v))
   ingestRunning.subscribe((v) => (currentIngestRunning = v))
+  expandedPaths.subscribe((v) => (currentExpandedPaths = v))
 
   // Context menu state
   let contextMenuPath: string | null = $state(null)
@@ -42,7 +53,161 @@
   let contextMenuPosition = $state({ x: 0, y: 0 })
   let reindexingFile: string | null = $state(null)
 
+  // Keyboard navigation state
+  let focusedNodeIndex: number = $state(-1)
+  let treeContentElement: HTMLDivElement | null = $state(null)
+
+  // Virtual list state
+  const ITEM_HEIGHT = 28 // Fixed height for each tree row in pixels (matches FileTreeNode height)
+  const BUFFER = 20 // Number of items to render above/below viewport
+  let scrollTop: number = $state(0)
+  let containerHeight: number = $state(600) // Will be updated on mount
+
   const isMac = navigator.platform.toUpperCase().includes('MAC')
+
+  // Build flat list of visible nodes for keyboard navigation
+  interface FlatNode {
+    path: string
+    isDir: boolean
+    depth: number
+    node: FileTreeNodeType
+  }
+
+  function buildFlatNodeList(nodes: FileTreeNodeType[], depth: number = 0): FlatNode[] {
+    const result: FlatNode[] = []
+    for (const node of nodes) {
+      result.push({ path: node.path, isDir: node.is_dir, depth, node })
+      if (node.is_dir && currentExpandedPaths.has(node.path)) {
+        result.push(...buildFlatNodeList(node.children, depth + 1))
+      }
+    }
+    return result
+  }
+
+  let flatNodes = $derived.by(() => {
+    if (!currentFileTree) return []
+    return buildFlatNodeList(currentFileTree.root.children)
+  })
+
+  // Calculate virtual list state for efficient rendering
+  let virtualState = $derived.by((): VirtualListState => {
+    return calculateVirtualListState(scrollTop, containerHeight, {
+      itemHeight: ITEM_HEIGHT,
+      totalItems: flatNodes.length,
+      buffer: BUFFER,
+    })
+  })
+
+  // Get visible nodes to render with their absolute positions
+  interface VisibleNode {
+    node: FileTreeNodeType
+    depth: number
+    flatIndex: number
+  }
+
+  let visibleNodes = $derived.by((): VisibleNode[] => {
+    return flatNodes
+      .slice(virtualState.start, virtualState.end)
+      .map((flatNode, idx) => ({
+        node: flatNode.node,
+        depth: flatNode.depth,
+        flatIndex: virtualState.start + idx,
+      }))
+  })
+
+  // Keyboard event handler
+  function handleKeyDown(e: KeyboardEvent) {
+    if (!currentFileTree || flatNodes.length === 0) return
+
+    // Ignore if we're in a text input or menu
+    if (contextMenuPath || ingestMenuOpen) return
+
+    const currentNode = flatNodes[focusedNodeIndex]
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault()
+        focusedNodeIndex = Math.min(focusedNodeIndex + 1, flatNodes.length - 1)
+        scrollToFocusedNode()
+        break
+
+      case 'ArrowUp':
+        e.preventDefault()
+        focusedNodeIndex = Math.max(focusedNodeIndex - 1, 0)
+        scrollToFocusedNode()
+        break
+
+      case 'ArrowRight':
+        e.preventDefault()
+        if (currentNode && currentNode.isDir) {
+          if (!currentExpandedPaths.has(currentNode.path)) {
+            toggleExpanded(currentNode.path)
+          }
+        }
+        break
+
+      case 'ArrowLeft':
+        e.preventDefault()
+        if (currentNode && currentNode.isDir) {
+          if (currentExpandedPaths.has(currentNode.path)) {
+            toggleExpanded(currentNode.path)
+          }
+        }
+        break
+
+      case 'Enter':
+        e.preventDefault()
+        if (currentNode && !currentNode.isDir) {
+          selectFile(currentNode.path)
+          onfileselect?.({ path: currentNode.path })
+        }
+        break
+    }
+  }
+
+  function scrollToFocusedNode() {
+    if (!treeContentElement || focusedNodeIndex < 0) return
+
+    // Calculate the scroll position for the focused node
+    const targetScrollTop = scrollToIndex(focusedNodeIndex, ITEM_HEIGHT, containerHeight, 'center')
+
+    // Smooth scroll to the focused node
+    treeContentElement.scrollTo({
+      top: targetScrollTop,
+      behavior: 'smooth',
+    })
+  }
+
+  // Throttled scroll handler for performance
+  const handleScroll = throttleScroll((e: Event) => {
+    const target = e.currentTarget as HTMLDivElement
+    scrollTop = target.scrollTop
+  })
+
+  // Measure container height on mount
+  $effect(() => {
+    if (treeContentElement) {
+      const resizeObserver = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          containerHeight = entry.contentRect.height
+        }
+      })
+      resizeObserver.observe(treeContentElement)
+      return () => resizeObserver.disconnect()
+    }
+  })
+
+  // Reset focus when tree changes
+  $effect(() => {
+    if (currentFileTree) {
+      if (focusedNodeIndex >= flatNodes.length) {
+        focusedNodeIndex = Math.max(0, flatNodes.length - 1)
+      }
+      if (focusedNodeIndex < 0 && flatNodes.length > 0) {
+        focusedNodeIndex = 0
+      }
+    }
+  })
 
   function handleNodeContextMenu(detail: { path: string; isDir: boolean; x: number; y: number }) {
     contextMenuPath = detail.path
@@ -114,9 +279,7 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events -->
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="file-tree-container" onclick={handleClickOutside}>
+<div class="file-tree-container" onclick={handleClickOutside} onkeydown={handleKeyDown} tabindex="0">
   <!-- Header -->
   <div class="file-tree-header">
     <h3 class="file-tree-title">Files</h3>
@@ -176,7 +339,7 @@
   {/if}
 
   <!-- Content -->
-  <div class="file-tree-content">
+  <div class="file-tree-content" bind:this={treeContentElement} onscroll={handleScroll}>
     {#if !currentActiveCollection}
       <div class="empty-state">
         <span class="material-symbols-outlined empty-icon">folder_off</span>
@@ -202,9 +365,18 @@
         <span class="empty-text">No markdown files found</span>
       </div>
     {:else if currentFileTree}
-      <div class="tree-nodes">
-        {#each currentFileTree.root.children as child (child.path)}
-          <FileTreeNode node={child} {onfileselect} oncontextmenu={handleNodeContextMenu} />
+      <div class="tree-nodes-virtual" role="tree" aria-label="File tree" style="height: {virtualState.totalHeight}px;">
+        {#each visibleNodes as { node, depth, flatIndex } (node.path)}
+          <div class="virtual-node-wrapper" style="transform: translateY({flatIndex * ITEM_HEIGHT}px); height: {ITEM_HEIGHT}px;">
+            <FileTreeNode
+              {node}
+              {onfileselect}
+              oncontextmenu={handleNodeContextMenu}
+              focusedPath={flatNodes[focusedNodeIndex]?.path}
+              depth={depth}
+              noRecursiveRender={true}
+            />
+          </div>
         {/each}
       </div>
     {/if}
@@ -247,6 +419,7 @@
     flex-direction: column;
     height: 100%;
     overflow: hidden;
+    outline: none;
   }
 
   .file-tree-header {
@@ -452,6 +625,19 @@
 
   .tree-nodes {
     padding: 4px 0;
+  }
+
+  .tree-nodes-virtual {
+    position: relative;
+    width: 100%;
+  }
+
+  .virtual-node-wrapper {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    will-change: transform;
   }
 
   .empty-state {

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
   import Badge from './ui/Badge.svelte'
+  import ResizeHandle from './ResizeHandle.svelte'
   import {
     documentInfo,
     backlinksInfo,
@@ -20,6 +21,36 @@
   }
 
   let { onfileselect }: PropertiesPanelProps = $props()
+
+  let collapsed = $state(false)
+
+  // Panel width management with persistence
+  const STORAGE_KEY = 'propertiesPanelWidth'
+  const DEFAULT_WIDTH = 288
+  const MIN_WIDTH = 180
+  const MAX_WIDTH = 500
+
+  let panelWidth = $state(DEFAULT_WIDTH)
+
+  // Load saved width from localStorage
+  $effect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY)
+    if (saved) {
+      const parsed = parseInt(saved, 10)
+      if (!isNaN(parsed)) {
+        panelWidth = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, parsed))
+      }
+    }
+  })
+
+  function handleResize(newWidth: number) {
+    panelWidth = newWidth
+    localStorage.setItem(STORAGE_KEY, String(newWidth))
+  }
+
+  function togglePanel() {
+    collapsed = !collapsed
+  }
 
   // Store subscriptions
   let currentDocInfo: DocumentInfo | null = $state(null)
@@ -105,23 +136,52 @@
   }
 </script>
 
-<aside class="properties-panel">
+<aside class="properties-panel" class:collapsed={collapsed} style="width: {collapsed ? '48px' : `${panelWidth}px`}; min-width: {collapsed ? '48px' : `${panelWidth}px`}">
+  <!-- Resize handle (left edge) -->
+  {#if !collapsed}
+    <ResizeHandle
+      position="left"
+      minWidth={MIN_WIDTH}
+      maxWidth={MAX_WIDTH}
+      width={panelWidth}
+      onresize={handleResize}
+    />
+  {/if}
+
+  <!-- Panel toggle button -->
+  <div class="panel-header">
+    <button class="panel-toggle" onclick={togglePanel} title={collapsed ? 'Expand panel' : 'Collapse panel'}>
+      <span class="material-symbols-outlined">
+        {collapsed ? 'chevron_left' : 'chevron_right'}
+      </span>
+    </button>
+    {#if !collapsed}
+      <h2 class="panel-title">Properties</h2>
+    {/if}
+  </div>
+
   {#if !currentFilePath}
     <div class="empty-state">
       <span class="material-symbols-outlined empty-icon">description</span>
-      <span class="empty-text">Select a file to view properties</span>
+      {#if !collapsed}
+        <span class="empty-text">Select a file to view properties</span>
+      {/if}
     </div>
   {:else if currentLoading}
     <div class="empty-state">
       <span class="material-symbols-outlined empty-icon spinning">hourglass_empty</span>
-      <span class="empty-text">Loading...</span>
+      {#if !collapsed}
+        <span class="empty-text">Loading...</span>
+      {/if}
     </div>
   {:else if currentError}
     <div class="empty-state">
       <span class="material-symbols-outlined empty-icon error-icon">error</span>
-      <span class="empty-text error-text">{currentError}</span>
+      {#if !collapsed}
+        <span class="empty-text error-text">{currentError}</span>
+      {/if}
     </div>
-  {:else}
+  {:else if !collapsed}
     <!-- METADATA section -->
     <section class="panel-section">
       <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -315,8 +375,7 @@
 
 <style>
   .properties-panel {
-    width: var(--panel-width, 288px);
-    min-width: var(--panel-width, 288px);
+    position: relative;
     background: var(--color-surface-dark, #0a0a0a);
     border-left: 1px solid var(--color-border, #27272a);
     overflow-y: auto;
@@ -325,6 +384,61 @@
     flex-direction: column;
     scrollbar-width: thin;
     scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+  }
+
+  .panel-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 8px);
+    padding: var(--space-3, 12px) var(--space-4, 16px);
+    border-bottom: 1px solid var(--color-border, #27272a);
+    min-height: 44px;
+  }
+
+  .properties-panel.collapsed .panel-header {
+    justify-content: center;
+    padding: var(--space-3, 12px);
+  }
+
+  .panel-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    background: none;
+    border: none;
+    color: var(--color-text-dim, #71717a);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    padding: 0;
+  }
+
+  .panel-toggle:hover {
+    background: var(--color-surface, #161617);
+    color: var(--color-primary, #00E5FF);
+  }
+
+  .panel-toggle .material-symbols-outlined {
+    font-size: 18px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .panel-toggle {
+      transition: none;
+    }
+  }
+
+  .panel-title {
+    font-size: var(--text-xs, 10px);
+    font-weight: var(--weight-bold, 700);
+    color: var(--color-text-dim, #71717a);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
   }
 
   .properties-panel::-webkit-scrollbar {
