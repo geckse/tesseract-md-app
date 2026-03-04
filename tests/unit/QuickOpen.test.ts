@@ -289,4 +289,38 @@ describe('QuickOpen component', () => {
     const hintElements = hints?.querySelectorAll('.hint')
     expect(hintElements?.length).toBeGreaterThan(0)
   })
+
+  it('escapes HTML characters in file paths to prevent XSS', () => {
+    // Create files with HTML characters in their paths
+    const filesWithHtml: FileTreeNode[] = [
+      { path: '<script>alert("xss")</script>.md', is_dir: false, children: [] },
+      { path: 'test&file.md', is_dir: false, children: [] },
+      { path: '<test>.md', is_dir: false, children: [] }
+    ]
+
+    vi.mocked(flatFileList).set(filesWithHtml)
+    vi.mocked(quickOpenModalOpen).set(true)
+
+    render(QuickOpen)
+
+    // Get the rendered HTML content
+    const filePaths = document.querySelectorAll('.file-path')
+
+    // Verify HTML characters are escaped, not rendered
+    // The innerHTML should contain &lt; and &gt;, not raw < and >
+    const firstPath = filePaths[0]?.innerHTML
+    expect(firstPath).toContain('&lt;script&gt;')
+    expect(firstPath).not.toContain('<script>')
+
+    const thirdPath = filePaths[2]?.innerHTML
+    expect(thirdPath).toContain('&lt;test&gt;')
+    expect(thirdPath).not.toContain('<test>')
+
+    // Verify no script tags are actually present in the DOM
+    const scriptTags = document.querySelectorAll('script')
+    const injectedScripts = Array.from(scriptTags).filter(script =>
+      script.textContent?.includes('alert("xss")')
+    )
+    expect(injectedScripts.length).toBe(0)
+  })
 })

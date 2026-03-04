@@ -72,15 +72,22 @@
     selectedIndex = 0
   })
 
+  function escapeHtml(text: string): string {
+    const div = document.createElement('div')
+    div.textContent = text
+    return div.innerHTML
+  }
+
   function highlightMatches(text: string, indices: number[]): string {
-    if (indices.length === 0) return text
+    if (indices.length === 0) return escapeHtml(text)
 
     let result = ''
     for (let i = 0; i < text.length; i++) {
+      const char = escapeHtml(text[i])
       if (indices.includes(i)) {
-        result += `<mark>${text[i]}</mark>`
+        result += `<mark>${char}</mark>`
       } else {
-        result += text[i]
+        result += char
       }
     }
     return result
