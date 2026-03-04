@@ -20,8 +20,10 @@
   let contextMenuPosition = $state({ x: 0, y: 0 })
 
   // Filter out recents from collections that no longer exist
-  $: validRecents = currentRecents.filter((recent) =>
-    currentCollections.some((col) => col.id === recent.collectionId)
+  const validRecents = $derived(
+    currentRecents.filter((recent) =>
+      currentCollections.some((col) => col.id === recent.collectionId)
+    )
   )
 
   // Helper to get file basename from path
