@@ -112,9 +112,45 @@ body {
    Focus Styles
    ============================================================ */
 
+/* Default focus ring for all interactive elements */
 :focus-visible {
-  outline: 1px solid #00E5FF;
+  outline: 2px solid #00E5FF;
   outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Enhanced focus for buttons */
+button:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid #00E5FF;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(0, 229, 255, 0.1);
+}
+
+/* Focus for links */
+a:focus-visible {
+  outline: 2px solid #00E5FF;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Focus for form elements */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid #00E5FF;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(0, 229, 255, 0.1);
+}
+
+/* Focus for custom interactive elements */
+[tabindex]:focus-visible,
+[role="tab"]:focus-visible,
+[role="menuitem"]:focus-visible,
+[role="option"]:focus-visible {
+  outline: 2px solid #00E5FF;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(0, 229, 255, 0.1);
 }
 
 /* ============================================================
