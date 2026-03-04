@@ -10,6 +10,7 @@
   import { selectFile, fileContent } from './stores/files';
   import { searchOpen, clearSearch } from './stores/search';
   import { scrollToLine } from './stores/editor';
+  import { loadFavorites, loadRecents } from './stores/favorites';
   import type { SearchResult } from './types/cli';
 
 
@@ -18,6 +19,8 @@
 
   onMount(() => {
     loadCollections();
+    loadFavorites();
+    loadRecents();
 
     // Global Cmd+K / Ctrl+K to open search
     function handleKeydown(e: KeyboardEvent) {
