@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Sidebar from './components/Sidebar.svelte';
-  import Header from './components/Header.svelte';
+  import Titlebar from './components/Titlebar.svelte';
   import StatusBar from './components/StatusBar.svelte';
   import Editor from './components/Editor.svelte';
   import PropertiesPanel from './components/PropertiesPanel.svelte';
@@ -11,7 +11,7 @@
   import { selectFile, fileContentLoading } from './stores/files';
   import { searchOpen, clearSearch } from './stores/search';
   import { scrollToLine } from './stores/editor';
-  import { loadFavorites, loadRecents } from './stores/favorites';
+  import { loadFavorites } from './stores/favorites';
   import { openQuickOpen } from './stores/quickopen';
   import { shortcutManager } from './lib/shortcuts';
   import { setupWatcherListener, teardownWatcherListener, fetchWatcherStatus } from './stores/watcher';
@@ -29,9 +29,15 @@
   onMount(() => {
     loadCollections();
     loadFavorites();
-    loadRecents();
     setupWatcherListener();
     fetchWatcherStatus();
+
+    // Listen for native menu "Open Recent" clicks
+    window.api.onMenuOpenRecent(({ collectionId, filePath }) => {
+      setActiveCollection(collectionId);
+      // Small delay to let collection switch propagate before selecting file
+      setTimeout(() => selectFile(filePath), 50);
+    });
 
     // Register keyboard shortcuts
     const unregisterShortcuts = [
@@ -129,6 +135,7 @@
       shortcutManager.detach();
       document.removeEventListener('mousedown', handleClickAway);
       teardownWatcherListener();
+      window.api.removeMenuOpenRecentListener();
       unsub();
     };
   });
@@ -207,33 +214,37 @@
 <a href="#main-content" class="skip-link">Skip to main content</a>
 
 <div class="app-shell bg-grain">
-  <div class="sidebar-region" bind:this={sidebarEl} tabindex="-1" role="navigation" aria-label="File navigation">
-    <Sidebar
-      onnavigate={handleNavigate}
-      onfileselect={handleFileSelect}
-    />
-  </div>
-
-  <main class="main-area" bind:this={searchAreaEl}>
-    <Header
+  <div class="titlebar-region" bind:this={searchAreaEl}>
+    <Titlebar
       bind:propertiesOpen
       onsearchresultclick={navigateToResult}
       ontoggleproperties={handleToggleProperties}
     />
+  </div>
 
-    <div class="content-area">
-      <div id="main-content" class="editor-region" bind:this={editorEl} tabindex="-1" role="main" aria-label="Editor">
-        <Editor />
-      </div>
-      {#if propertiesOpen}
-        <div class="properties-region" bind:this={propertiesEl} tabindex="-1" role="complementary" aria-label="File metadata">
-          <PropertiesPanel onfileselect={(detail) => handleFileSelect({ folderId: '', fileId: detail.path })} />
-        </div>
-      {/if}
+  <div class="body-region">
+    <div class="sidebar-region" bind:this={sidebarEl} tabindex="-1" role="navigation" aria-label="File navigation">
+      <Sidebar
+        onnavigate={handleNavigate}
+        onfileselect={handleFileSelect}
+      />
     </div>
 
-    <StatusBar />
-  </main>
+    <main class="main-area">
+      <div class="content-area">
+        <div id="main-content" class="editor-region" bind:this={editorEl} tabindex="-1" role="main" aria-label="Editor">
+          <Editor />
+        </div>
+        {#if propertiesOpen}
+          <div class="properties-region" bind:this={propertiesEl} tabindex="-1" role="complementary" aria-label="File metadata">
+            <PropertiesPanel onfileselect={(detail) => handleFileSelect({ folderId: '', fileId: detail.path })} />
+          </div>
+        {/if}
+      </div>
+
+      <StatusBar />
+    </main>
+  </div>
 
   <IngestModal />
   <QuickOpen />
@@ -264,6 +275,7 @@
 
   .app-shell {
     display: flex;
+    flex-direction: column;
     height: 100vh;
     width: 100vw;
     overflow: hidden;
@@ -279,6 +291,20 @@
   .app-shell :global(::selection) {
     background: var(--color-primary, #00E5FF);
     color: var(--color-surface-darker, #0a0a0a);
+  }
+
+  .titlebar-region {
+    flex-shrink: 0;
+    z-index: 35;
+    position: relative;
+  }
+
+  .body-region {
+    flex: 1;
+    display: flex;
+    flex-direction: row;
+    min-height: 0;
+    overflow: hidden;
   }
 
   .sidebar-region {

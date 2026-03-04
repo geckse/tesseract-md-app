@@ -83,13 +83,25 @@ vi.mock('../../src/main/watcher', () => ({
   }))
 }))
 
-// Mock electron shell
+// Mock menu module
+const mockRefreshRecentMenu = vi.fn()
+vi.mock('../../src/main/menu', () => ({
+  refreshRecentMenu: (...args: unknown[]) => mockRefreshRecentMenu(...args)
+}))
+
+// Mock electron shell and clipboard
+const mockShellOpenPath = vi.fn()
+const mockClipboardWriteText = vi.fn()
 vi.mock('electron', () => ({
   ipcMain: {
     handle: (...args: unknown[]) => mockHandle(...args)
   },
   shell: {
-    showItemInFolder: vi.fn()
+    showItemInFolder: vi.fn(),
+    openPath: (...args: unknown[]) => mockShellOpenPath(...args)
+  },
+  clipboard: {
+    writeText: (...args: unknown[]) => mockClipboardWriteText(...args)
   }
 }))
 
@@ -122,6 +134,9 @@ beforeEach(() => {
   mockWatcherOnError.mockReset()
   mockWatcherOnStateChange.mockReset()
   mockWatcherRemoveAllListeners.mockReset()
+  mockRefreshRecentMenu.mockReset()
+  mockShellOpenPath.mockReset()
+  mockClipboardWriteText.mockReset()
 })
 
 describe('registerIpcHandlers', () => {
@@ -157,7 +172,9 @@ describe('registerIpcHandlers', () => {
     expect(channels).toContain('watcher:start')
     expect(channels).toContain('watcher:stop')
     expect(channels).toContain('watcher:status')
-    expect(channels).toHaveLength(28)
+    expect(channels).toContain('shell:open-path')
+    expect(channels).toContain('clipboard:write-text')
+    expect(channels).toHaveLength(41)
   })
 })
 
@@ -572,6 +589,50 @@ describe('Collection IPC handlers', () => {
       const result = await handler(fakeEvent, '/proj/readme.md', 'content')
       expect(result).toEqual(expect.objectContaining({ error: true, message: 'EACCES: permission denied' }))
     })
+  })
+})
+
+describe('shell:open-path IPC handler', () => {
+  function getHandler(channel: string): (...args: unknown[]) => Promise<unknown> {
+    registerIpcHandlers()
+    const call = mockHandle.mock.calls.find((c: unknown[]) => c[0] === channel)
+    if (!call) throw new Error(`No handler for channel: ${channel}`)
+    return call[1] as (...args: unknown[]) => Promise<unknown>
+  }
+
+  const fakeEvent = {}
+
+  it('opens path within a known collection', async () => {
+    mockGetCollections.mockReturnValue([{ id: '1', name: 'proj', path: '/proj' }])
+    mockShellOpenPath.mockResolvedValue('')
+    const handler = getHandler('shell:open-path')
+    await handler(fakeEvent, '/proj/readme.md')
+    expect(mockShellOpenPath).toHaveBeenCalledWith('/proj/readme.md')
+  })
+
+  it('denies access to paths outside collections', async () => {
+    mockGetCollections.mockReturnValue([{ id: '1', name: 'proj', path: '/proj' }])
+    const handler = getHandler('shell:open-path')
+    const result = await handler(fakeEvent, '/etc/passwd')
+    expect(result).toEqual(expect.objectContaining({ error: true, message: 'Access denied: path is not within a known collection' }))
+    expect(mockShellOpenPath).not.toHaveBeenCalled()
+  })
+})
+
+describe('clipboard:write-text IPC handler', () => {
+  function getHandler(channel: string): (...args: unknown[]) => Promise<unknown> {
+    registerIpcHandlers()
+    const call = mockHandle.mock.calls.find((c: unknown[]) => c[0] === channel)
+    if (!call) throw new Error(`No handler for channel: ${channel}`)
+    return call[1] as (...args: unknown[]) => Promise<unknown>
+  }
+
+  const fakeEvent = {}
+
+  it('writes text to clipboard', async () => {
+    const handler = getHandler('clipboard:write-text')
+    await handler(fakeEvent, '/proj/readme.md')
+    expect(mockClipboardWriteText).toHaveBeenCalledWith('/proj/readme.md')
   })
 })
 

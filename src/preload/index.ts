@@ -58,6 +58,10 @@ const api: MdvdbApi = {
 
   // Shell operations
   showItemInFolder: (absolutePath) => invoke('shell:show-item-in-folder', absolutePath),
+  openPath: (absolutePath) => invoke('shell:open-path', absolutePath),
+
+  // Clipboard operations
+  writeToClipboard: (text) => invoke('clipboard:write-text', text),
 
   // Single-file ingest
   ingestFile: (root, filePath, options?) => invoke('cli:ingest-file', root, filePath, options),
@@ -91,6 +95,14 @@ const api: MdvdbApi = {
   },
   removeWatcherEventListener: () => {
     ipcRenderer.removeAllListeners('watcher:event')
+  },
+
+  // Native menu events
+  onMenuOpenRecent: (callback) => {
+    ipcRenderer.on('menu:open-recent', (_event, data) => callback(data))
+  },
+  removeMenuOpenRecentListener: () => {
+    ipcRenderer.removeAllListeners('menu:open-recent')
   }
 }
 

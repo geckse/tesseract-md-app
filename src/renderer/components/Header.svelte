@@ -2,21 +2,15 @@
   import { activeCollection, activeCollectionId } from '../stores/collections';
   import { selectedFilePath } from '../stores/files';
   import { isDirty, requestSave } from '../stores/editor';
-  import { searchOpen, clearSearch } from '../stores/search';
   import { isFavorited, toggleFavorite } from '../stores/favorites';
-  import type { SearchResult } from '../types/cli';
-  import Search from './Search.svelte';
-  import SearchResults from './SearchResults.svelte';
 
   interface HeaderProps {
     propertiesOpen?: boolean;
-    onsearchresultclick?: (result: SearchResult) => void;
     ontoggleproperties?: (detail: { open: boolean }) => void;
   }
 
   let {
     propertiesOpen = $bindable(false),
-    onsearchresultclick,
     ontoggleproperties,
   }: HeaderProps = $props();
 
@@ -31,9 +25,6 @@
 
   let currentIsDirty = $state(false);
   isDirty.subscribe((v) => (currentIsDirty = v));
-
-  let currentSearchOpen = $state(false);
-  searchOpen.subscribe((v) => (currentSearchOpen = v));
 
   let currentIsFavorited = $state(false);
   isFavorited.subscribe((v) => (currentIsFavorited = v));
@@ -53,14 +44,6 @@
 
   /** The filename (last segment) */
   let fileName = $derived(pathSegments.length > 0 ? pathSegments[pathSegments.length - 1] : null);
-
-  function handleResultClick(result: SearchResult) {
-    onsearchresultclick?.(result);
-  }
-
-  function handleCloseRequest() {
-    clearSearch();
-  }
 
   function toggleProperties() {
     propertiesOpen = !propertiesOpen;
@@ -102,12 +85,6 @@
 
   <!-- Actions -->
   <div class="actions">
-    <div class="search-area">
-      <Search onsearchresultclick={handleResultClick} />
-    </div>
-
-    <div class="divider"></div>
-
     <button
       class="icon-button"
       class:active={propertiesOpen}
@@ -126,26 +103,19 @@
   </div>
 </header>
 
-{#if currentSearchOpen}
-  <div class="search-results-overlay">
-    <SearchResults onresultclick={handleResultClick} oncloserequest={handleCloseRequest} />
-  </div>
-{/if}
-
 <style>
   .header {
-    height: 56px;
-    min-height: 56px;
+    height: 40px;
+    min-height: 40px;
     border-bottom: 1px solid var(--color-border, #27272a);
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 24px;
+    padding: 0 16px;
     background: rgba(15, 15, 16, 0.95);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     z-index: 30;
-    -webkit-app-region: drag;
   }
 
   .breadcrumb {
@@ -155,7 +125,6 @@
     font-family: var(--font-mono, 'JetBrains Mono', monospace);
     font-size: 12px;
     letter-spacing: -0.025em;
-    -webkit-app-region: no-drag;
   }
 
   .breadcrumb-folder {
@@ -214,28 +183,6 @@
     display: flex;
     align-items: center;
     gap: 12px;
-    -webkit-app-region: no-drag;
-  }
-
-  .search-area {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .search-results-overlay {
-    position: absolute;
-    top: 56px;
-    left: 0;
-    right: 0;
-    z-index: 40;
-  }
-
-  .divider {
-    height: 16px;
-    width: 1px;
-    background: var(--color-border, #27272a);
-    margin: 0 8px;
   }
 
   .icon-button {

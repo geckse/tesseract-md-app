@@ -82,6 +82,10 @@ export interface MdvdbApi {
 
   // Shell operations
   showItemInFolder(absolutePath: string): Promise<void>
+  openPath(absolutePath: string): Promise<void>
+
+  // Clipboard operations
+  writeToClipboard(text: string): Promise<void>
 
   // Single-file ingest
   ingestFile(root: string, filePath: string, options?: IngestOptions): Promise<IngestResult>
@@ -112,6 +116,10 @@ export interface MdvdbApi {
   getWatcherStatus(): Promise<WatcherStatus>
   onWatcherEvent(callback: (event: WatcherEvent) => void): void
   removeWatcherEventListener(): void
+
+  // Native menu events
+  onMenuOpenRecent(callback: (data: { collectionId: string; filePath: string }) => void): void
+  removeMenuOpenRecentListener(): void
 }
 
 /** Watcher status returned by getWatcherStatus. */

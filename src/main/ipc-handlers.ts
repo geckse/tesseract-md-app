@@ -5,7 +5,7 @@
  * Called once from the main process on app ready.
  */
 
-import { ipcMain, shell, type BrowserWindow } from 'electron'
+import { ipcMain, shell, clipboard, type BrowserWindow } from 'electron'
 import { promises as fs } from 'node:fs'
 import { findCli, getCliVersion, execCommand, execRaw } from './cli'
 import { WatcherManager, type WatcherState } from './watcher'
@@ -24,6 +24,7 @@ import {
   confirmRemoveCollection,
   promptInitCollection
 } from './collections'
+import { refreshRecentMenu } from './menu'
 import type {
   SearchOutput,
   IndexStatus,
@@ -274,6 +275,7 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
 
       const recents = s.get('recentFiles', [])
       s.set('recentFiles', recents.filter((r) => r.collectionId !== id))
+      refreshRecentMenu()
     })
   )
 
@@ -349,6 +351,7 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
       // Cap at 50 entries
       recents = recents.slice(0, 50)
       s.set('recentFiles', recents)
+      refreshRecentMenu()
     })
   )
 
@@ -356,6 +359,7 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
     wrapHandler(async () => {
       const s = await import('./store').then((m) => m.initStore())
       s.set('recentFiles', [])
+      refreshRecentMenu()
     })
   )
 
@@ -451,6 +455,29 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
       const { initStore } = await import('./store')
       const store = initStore()
       return store.get('metadataPanelWidth', 320)
+    })
+  )
+
+  // Open file/folder in default app (e.g., open markdown in default editor)
+  ipcMain.handle('shell:open-path', (_event, absolutePath: string) =>
+    wrapHandler(async () => {
+      const { resolve, sep } = await import('node:path')
+      const normalizedPath = resolve(absolutePath)
+      const collections = getCollections()
+      const isWithinCollection = collections.some(
+        (c) => normalizedPath === c.path || normalizedPath.startsWith(c.path + sep)
+      )
+      if (!isWithinCollection) {
+        throw new Error('Access denied: path is not within a known collection')
+      }
+      await shell.openPath(normalizedPath)
+    })
+  )
+
+  // Copy text to clipboard
+  ipcMain.handle('clipboard:write-text', (_event, text: string) =>
+    wrapHandler(async () => {
+      clipboard.writeText(text)
     })
   )
 

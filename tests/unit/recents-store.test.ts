@@ -94,54 +94,21 @@ describe('recents store', () => {
   })
 
   describe('trackRecent', () => {
-    it('adds recent and reloads', async () => {
+    it('calls addRecent on the API', async () => {
       mockApi.addRecent.mockResolvedValue(undefined)
-      mockApi.listRecents.mockResolvedValue([rec1])
 
       await trackRecent('a', 'doc1.md')
 
       expect(mockApi.addRecent).toHaveBeenCalledWith('a', 'doc1.md')
-      expect(mockApi.listRecents).toHaveBeenCalled()
-      expect(get(recentFiles)).toEqual([rec1])
     })
 
-    it('handles deduplication (backend moves existing entry to front)', async () => {
-      // Initial state: doc2 is most recent
-      recentFiles.set([rec2, rec1])
-
-      // Backend dedup logic: removes existing entry and adds to front
-      const reorderedRecents = [rec1, rec2] // doc1 now most recent
-
+    it('does not reload recents (native menu handles display)', async () => {
       mockApi.addRecent.mockResolvedValue(undefined)
-      mockApi.listRecents.mockResolvedValue(reorderedRecents)
 
       await trackRecent('a', 'doc1.md')
 
       expect(mockApi.addRecent).toHaveBeenCalledWith('a', 'doc1.md')
-      expect(get(recentFiles)).toEqual(reorderedRecents)
-    })
-
-    it('handles cap at 50 entries (backend enforces limit)', async () => {
-      // Create 50 recent entries
-      const fiftyRecents = Array.from({ length: 50 }, (_, i) => ({
-        collectionId: 'a',
-        filePath: `doc${i}.md`,
-        openedAt: i
-      }))
-
-      recentFiles.set(fiftyRecents)
-
-      // Backend adds new entry and caps at 50 (oldest entry dropped)
-      const newRecent = { collectionId: 'a', filePath: 'doc-new.md', openedAt: 5000 }
-      const cappedRecents = [newRecent, ...fiftyRecents.slice(0, 49)]
-
-      mockApi.addRecent.mockResolvedValue(undefined)
-      mockApi.listRecents.mockResolvedValue(cappedRecents)
-
-      await trackRecent('a', 'doc-new.md')
-
-      expect(get(recentFiles)).toHaveLength(50)
-      expect(get(recentFiles)[0]).toEqual(newRecent)
+      expect(mockApi.listRecents).not.toHaveBeenCalled()
     })
   })
 
@@ -263,24 +230,15 @@ describe('recents store', () => {
     it('tracks multiple files in sequence', async () => {
       mockApi.addRecent.mockResolvedValue(undefined)
 
-      // Track doc1
-      mockApi.listRecents.mockResolvedValue([rec1])
       await trackRecent('a', 'doc1.md')
-      expect(get(recentFiles)).toEqual([rec1])
+      expect(mockApi.addRecent).toHaveBeenCalledWith('a', 'doc1.md')
 
-      // Track doc2 (should be prepended)
-      mockApi.listRecents.mockResolvedValue([rec2, rec1])
       await trackRecent('a', 'doc2.md')
-      expect(get(recentFiles)).toEqual([rec2, rec1])
+      expect(mockApi.addRecent).toHaveBeenCalledWith('a', 'doc2.md')
 
-      // Track doc1 again (backend dedup moves to front)
-      const reorderedAfterDedup = [
-        { ...rec1, openedAt: 2500 }, // newer timestamp
-        rec2
-      ]
-      mockApi.listRecents.mockResolvedValue(reorderedAfterDedup)
+      // Track doc1 again
       await trackRecent('a', 'doc1.md')
-      expect(get(recentFiles)).toEqual(reorderedAfterDedup)
+      expect(mockApi.addRecent).toHaveBeenCalledTimes(3)
     })
 
     it('loads after clearing shows empty list', async () => {

@@ -139,7 +139,7 @@
     padding: 6px 48px 6px 36px;
     font-size: 12px;
     color: #fff;
-    width: 224px;
+    width: 320px;
     transition: all 0.2s;
     font-family: var(--font-mono, 'JetBrains Mono', monospace);
     outline: none;
@@ -152,7 +152,7 @@
   .search-input:focus {
     border-color: var(--color-primary, #00E5FF);
     box-shadow: 0 0 0 1px var(--color-primary, #00E5FF);
-    width: 288px;
+    width: 400px;
   }
 
   .search-shortcut {

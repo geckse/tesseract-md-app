@@ -10,12 +10,11 @@
     setActiveCollection,
   } from '../stores/collections'
   import { loadFileTree } from '../stores/files'
+  import { runIngest } from '../stores/ingest'
   import FileTree from './FileTree.svelte'
   import Favorites from './Favorites.svelte'
-  import Recents from './Recents.svelte'
   import ResizeHandle from './ResizeHandle.svelte'
   import type { Collection } from '../../preload/api'
-  import logoIcon from '../../../resources/icon.png'
 
   interface SidebarProps {
     onnavigate?: (detail: { id: string }) => void
@@ -59,6 +58,35 @@
     contextMenuCollection = null
   }
 
+  const isMac = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().includes('MAC')
+
+  async function handleRevealCollection() {
+    if (!contextMenuCollection) return
+    const path = contextMenuCollection.path
+    closeContextMenu()
+    try {
+      await window.api.showItemInFolder(path)
+    } catch (err) {
+      console.error('Reveal collection failed:', err)
+    }
+  }
+
+  async function handleCopyCollectionPath() {
+    if (!contextMenuCollection) return
+    const path = contextMenuCollection.path
+    closeContextMenu()
+    await window.api.writeToClipboard(path)
+  }
+
+  async function handleReindexCollection() {
+    if (!contextMenuCollection) return
+    const id = contextMenuCollection.id
+    closeContextMenu()
+    // Switch to this collection and reindex
+    await setActiveCollection(id)
+    runIngest(true)
+  }
+
   function formatStats(status: typeof currentCollectionStatus): string {
     if (!status) return ''
     const docs = status.document_count ?? 0
@@ -99,19 +127,10 @@
   style:min-width="{sidebarWidth}px"
   onclick={closeContextMenu}
 >
-  <!-- Logo -->
-  <div class="logo-area">
-    <img class="logo-icon" src={logoIcon} alt="mdvdb" />
-    <span class="logo-text">mdvdb</span>
-  </div>
-
   <!-- Scrollable content -->
   <div class="nav-content">
     <!-- Favorites -->
     <Favorites />
-
-    <!-- Recents -->
-    <Recents />
 
     <!-- Collections -->
     <div class="nav-section collections-section">
@@ -190,6 +209,21 @@
       style="left: {contextMenuPosition.x}px; top: {contextMenuPosition.y}px;"
       onclick={(e) => e.stopPropagation()}
     >
+      <button class="context-menu-item" onclick={handleRevealCollection}>
+        <span class="material-symbols-outlined">folder_open</span>
+        {isMac ? 'Reveal in Finder' : 'Reveal in File Explorer'}
+      </button>
+      <div class="context-menu-separator"></div>
+      <button class="context-menu-item" onclick={handleCopyCollectionPath}>
+        <span class="material-symbols-outlined">content_copy</span>
+        Copy Path
+      </button>
+      <div class="context-menu-separator"></div>
+      <button class="context-menu-item" onclick={handleReindexCollection}>
+        <span class="material-symbols-outlined">restart_alt</span>
+        Reindex Collection
+      </button>
+      <div class="context-menu-separator"></div>
       <button class="context-menu-item danger" onclick={handleRemoveCollection}>
         <span class="material-symbols-outlined">delete</span>
         Remove Collection
@@ -209,35 +243,6 @@
     height: 100%;
     position: relative;
     z-index: 20;
-  }
-
-  .logo-area {
-    height: 56px;
-    -webkit-app-region: drag;
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    padding: 10px 12px;
-    border-bottom: 1px solid var(--color-border, #27272a);
-    gap: 10px;
-    position: relative;
-    box-sizing: border-box;
-  }
-
-  .logo-icon {
-    height: 100%;
-    width: auto;
-    object-fit: contain;
-    filter: drop-shadow(0 0 6px rgba(0, 229, 255, 0.4));
-  }
-
-  .logo-text {
-    font-weight: 700;
-    font-size: 18px;
-    letter-spacing: -0.025em;
-    color: #fff;
-    white-space: nowrap;
-    overflow: hidden;
   }
 
   .nav-content {
@@ -491,5 +496,11 @@
 
   .context-menu-item .material-symbols-outlined {
     font-size: 16px;
+  }
+
+  .context-menu-separator {
+    height: 1px;
+    background: var(--color-border, #27272a);
+    margin: 4px 0;
   }
 </style>

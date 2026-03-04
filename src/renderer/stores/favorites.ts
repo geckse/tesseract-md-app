@@ -64,10 +64,9 @@ export async function toggleFavorite(collectionId: string, filePath: string): Pr
   await loadFavorites()
 }
 
-/** Track a file as recently opened. */
+/** Track a file as recently opened (main process updates native menu automatically). */
 export async function trackRecent(collectionId: string, filePath: string): Promise<void> {
   await window.api.addRecent(collectionId, filePath)
-  await loadRecents()
 }
 
 /** Clear all recent files. */

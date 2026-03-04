@@ -171,16 +171,14 @@ describe('favorites store', () => {
   })
 
   describe('trackRecent', () => {
-    it('adds recent and reloads', async () => {
+    it('calls addRecent without reloading (native menu handles display)', async () => {
       recentFiles.set([])
       mockApi.addRecent.mockResolvedValue(undefined)
-      mockApi.listRecents.mockResolvedValue([rec1])
 
       await trackRecent('a', 'doc1.md')
 
       expect(mockApi.addRecent).toHaveBeenCalledWith('a', 'doc1.md')
-      expect(mockApi.listRecents).toHaveBeenCalled()
-      expect(get(recentFiles)).toEqual([rec1])
+      expect(mockApi.listRecents).not.toHaveBeenCalled()
     })
   })
 

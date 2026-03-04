@@ -3,6 +3,7 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { registerIpcHandlers, destroyWatcherManager } from './ipc-handlers'
 import { initStore } from './store'
+import { buildAppMenu } from './menu'
 
 function createWindow(): BrowserWindow {
   const store = initStore()
@@ -69,6 +70,7 @@ app.whenReady().then(() => {
   const mainWindow = createWindow()
 
   registerIpcHandlers(mainWindow)
+  buildAppMenu(mainWindow)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

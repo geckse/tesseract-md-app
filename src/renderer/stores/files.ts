@@ -2,7 +2,9 @@ import { writable, derived, get } from 'svelte/store'
 import type { FileTree, FileTreeNode, FileState } from '../types/cli'
 import { activeCollection } from './collections'
 import { loadProperties, clearProperties, propertiesFileContent } from './properties'
-import { trackRecent } from './favorites'
+// Lazy import to avoid circular dependency (favorites.ts imports selectedFilePath from here)
+const lazyTrackRecent = (...args: Parameters<typeof import('./favorites').trackRecent>) =>
+  import('./favorites').then((m) => m.trackRecent(...args))
 
 /** The current file tree for the active collection. */
 export const fileTree = writable<FileTree | null>(null)
@@ -86,7 +88,7 @@ export async function selectFile(path: string | null): Promise<void> {
   if (!collection) return
 
   // Track this file as recently opened
-  trackRecent(collection.id, path)
+  lazyTrackRecent(collection.id, path)
 
   const fullPath = `${collection.path}/${path}`
   fileContentLoading.set(true)

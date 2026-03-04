@@ -12,8 +12,9 @@
     selectedFilePath,
     toggleExpanded,
   } from '../stores/files'
-  import { activeCollection } from '../stores/collections'
+  import { activeCollection, activeCollectionId } from '../stores/collections'
   import { runIngest, ingestRunning } from '../stores/ingest'
+  import { favorites, toggleFavorite } from '../stores/favorites'
   import type { Collection } from '../../preload/api'
   import type { FileTree as FileTreeType, FileState, FileTreeNode as FileTreeNodeType } from '../types/cli'
   import {
@@ -39,6 +40,12 @@
   let ingestMenuOpen: boolean = $state(false)
   let currentExpandedPaths: Set<string> = $state(new Set())
   let currentSelectedFilePath: string | null = $state(null)
+
+  import type { FavoriteEntry } from '../../preload/api'
+  let currentFavorites: FavoriteEntry[] = $state([])
+  let currentActiveCollectionId: string | null = $state(null)
+  favorites.subscribe((v) => (currentFavorites = v))
+  activeCollectionId.subscribe((v) => (currentActiveCollectionId = v))
 
   fileTree.subscribe((v) => (currentFileTree = v))
   fileTreeLoading.subscribe((v) => (currentFileTreeLoading = v))
@@ -245,6 +252,45 @@
     }
   }
 
+  async function handleOpenInEditor() {
+    if (!contextMenuPath || !currentActiveCollection) return
+    const absolutePath = `${currentActiveCollection.path}/${contextMenuPath}`
+    closeContextMenu()
+    try {
+      await window.api.openPath(absolutePath)
+    } catch (err) {
+      console.error('Open in editor failed:', err)
+    }
+  }
+
+  async function handleCopyPath() {
+    if (!contextMenuPath || !currentActiveCollection) return
+    const absolutePath = `${currentActiveCollection.path}/${contextMenuPath}`
+    closeContextMenu()
+    await window.api.writeToClipboard(absolutePath)
+  }
+
+  async function handleCopyRelativePath() {
+    if (!contextMenuPath) return
+    closeContextMenu()
+    await window.api.writeToClipboard(contextMenuPath)
+  }
+
+  function isContextMenuFileFavorited(): boolean {
+    if (!contextMenuPath || !currentActiveCollectionId) return false
+    return currentFavorites.some(
+      (f) => f.collectionId === currentActiveCollectionId && f.filePath === contextMenuPath
+    )
+  }
+
+  async function handleToggleFavorite() {
+    if (!contextMenuPath || !currentActiveCollectionId) return
+    const filePath = contextMenuPath
+    const collectionId = currentActiveCollectionId
+    closeContextMenu()
+    await toggleFavorite(collectionId, filePath)
+  }
+
   async function handleRefresh() {
     await loadFileTree()
   }
@@ -400,6 +446,29 @@
         {isMac ? 'Reveal in Finder' : 'Reveal in File Explorer'}
       </button>
       {#if !contextMenuIsDir}
+        <button class="context-menu-item" onclick={handleOpenInEditor}>
+          <span class="material-symbols-outlined">open_in_new</span>
+          Open in Default Editor
+        </button>
+      {/if}
+      <div class="context-menu-separator"></div>
+      <button class="context-menu-item" onclick={handleCopyPath}>
+        <span class="material-symbols-outlined">content_copy</span>
+        Copy Path
+      </button>
+      <button class="context-menu-item" onclick={handleCopyRelativePath}>
+        <span class="material-symbols-outlined">content_copy</span>
+        Copy Relative Path
+      </button>
+      {#if !contextMenuIsDir}
+        <div class="context-menu-separator"></div>
+        <button class="context-menu-item" onclick={handleToggleFavorite}>
+          <span class="material-symbols-outlined">
+            {isContextMenuFileFavorited() ? 'heart_minus' : 'heart_plus'}
+          </span>
+          {isContextMenuFileFavorited() ? 'Remove from Favorites' : 'Add to Favorites'}
+        </button>
+        <div class="context-menu-separator"></div>
         <button
           class="context-menu-item"
           onclick={handleReindexFile}
@@ -738,5 +807,11 @@
 
   .context-menu-item .material-symbols-outlined {
     font-size: 16px;
+  }
+
+  .context-menu-separator {
+    height: 1px;
+    background: var(--color-border, #27272a);
+    margin: 4px 0;
   }
 </style>

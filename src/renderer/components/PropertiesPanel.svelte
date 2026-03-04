@@ -11,8 +11,10 @@
     propertiesLoading,
     propertiesError,
   } from '../stores/properties'
+  import { activeCollectionId } from '../stores/collections'
   import { selectedFilePath } from '../stores/files'
-  import { scrollToLine, activeHeadingIndex } from '../stores/editor'
+  import { scrollToLine, activeHeadingIndex, isDirty } from '../stores/editor'
+  import { isFavorited, toggleFavorite } from '../stores/favorites'
   import type { DocumentInfo, BacklinksOutput, LinksOutput, JsonValue } from '../types/cli'
   import type { OutlineHeading } from '../stores/properties'
 
@@ -57,6 +59,10 @@
   let currentFilePath: string | null = $state(null)
   let currentActiveHeadingIndex = $state(-1)
 
+  let currentActiveCollectionId: string | null = $state(null)
+  let currentIsDirty = $state(false)
+  let currentIsFavorited = $state(false)
+
   const unsubs = [
     documentInfo.subscribe((v) => (currentDocInfo = v)),
     backlinksInfo.subscribe((v) => (currentBacklinks = v)),
@@ -67,9 +73,26 @@
     propertiesError.subscribe((v) => (currentError = v)),
     selectedFilePath.subscribe((v) => (currentFilePath = v)),
     activeHeadingIndex.subscribe((v) => (currentActiveHeadingIndex = v)),
+    activeCollectionId.subscribe((v) => (currentActiveCollectionId = v)),
+    isDirty.subscribe((v) => (currentIsDirty = v)),
+    isFavorited.subscribe((v) => (currentIsFavorited = v)),
   ]
 
   onDestroy(() => unsubs.forEach((u) => u()))
+
+  // Filename derivation
+  let fileName = $derived.by(() => {
+    if (currentFilePath) {
+      const parts = currentFilePath.split('/').filter((s: string) => s.length > 0)
+      return parts.length > 0 ? parts[parts.length - 1] : null
+    }
+    return null
+  })
+
+  async function handleToggleFavorite() {
+    if (!currentActiveCollectionId || !currentFilePath) return
+    await toggleFavorite(currentActiveCollectionId, currentFilePath)
+  }
 
   // Section collapse state
   let metadataOpen = $state(true)
@@ -138,6 +161,20 @@
     width={panelWidth}
     onresize={handleResize}
   />
+
+  <!-- File name + favorite -->
+  {#if fileName}
+    <div class="file-header">
+      <span class="file-name">{fileName}{#if currentIsDirty}<span class="dirty-indicator"> ●</span>{/if}</span>
+      <button
+        class="star-button"
+        title={currentIsFavorited ? 'Remove from favorites' : 'Add to favorites'}
+        onclick={handleToggleFavorite}
+      >
+        <span class="material-symbols-outlined" class:filled={currentIsFavorited}>star</span>
+      </button>
+    </div>
+  {/if}
 
   {#if !currentFilePath}
     <div class="empty-state">
@@ -372,6 +409,60 @@
   }
   .properties-panel::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.2);
+  }
+
+  /* File header */
+  .file-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--color-border, #27272a);
+    flex-shrink: 0;
+  }
+
+  .file-name {
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-text, #e4e4e7);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .dirty-indicator {
+    color: var(--color-warning, #f59e0b);
+  }
+
+  .star-button {
+    padding: 2px;
+    margin-left: 4px;
+    color: var(--color-text-dim, #71717a);
+    background: none;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .star-button:hover {
+    color: var(--color-primary, #00E5FF);
+    background: var(--color-surface, #161617);
+  }
+
+  .star-button .material-symbols-outlined {
+    font-size: 16px;
+  }
+
+  .star-button .material-symbols-outlined.filled {
+    font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+    color: var(--color-primary, #00E5FF);
   }
 
   /* Empty / loading / error states */
