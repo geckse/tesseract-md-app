@@ -60,7 +60,13 @@ const api: MdvdbApi = {
   showItemInFolder: (absolutePath) => invoke('shell:show-item-in-folder', absolutePath),
 
   // Single-file ingest
-  ingestFile: (root, filePath, options?) => invoke('cli:ingest-file', root, filePath, options)
+  ingestFile: (root, filePath, options?) => invoke('cli:ingest-file', root, filePath, options),
+
+  // Window state persistence
+  setSidebarWidth: (width) => invoke('store:set-sidebar-width', width),
+  setMetadataPanelWidth: (width) => invoke('store:set-metadata-panel-width', width),
+  getSidebarWidth: () => invoke('store:get-sidebar-width'),
+  getMetadataPanelWidth: () => invoke('store:get-metadata-panel-width')
 }
 
 if (process.contextIsolated) {

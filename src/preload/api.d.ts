@@ -71,6 +71,12 @@ export interface MdvdbApi {
 
   // Single-file ingest
   ingestFile(root: string, filePath: string, options?: IngestOptions): Promise<IngestResult>
+
+  // Window state persistence
+  setSidebarWidth(width: number): Promise<void>
+  setMetadataPanelWidth(width: number): Promise<void>
+  getSidebarWidth(): Promise<number>
+  getMetadataPanelWidth(): Promise<number>
 }
 
 declare global {

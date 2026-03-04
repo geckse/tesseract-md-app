@@ -2,11 +2,17 @@ import { app, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { registerIpcHandlers } from './ipc-handlers'
+import { initStore } from './store'
 
 function createWindow(): BrowserWindow {
+  const store = initStore()
+  const savedBounds = store.get('windowBounds', { x: 0, y: 0, width: 1200, height: 800 })
+
   const mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    x: savedBounds.x,
+    y: savedBounds.y,
+    width: savedBounds.width,
+    height: savedBounds.height,
     minWidth: 800,
     minHeight: 600,
     show: false,
@@ -28,6 +34,21 @@ function createWindow(): BrowserWindow {
     shell.openExternal(details.url)
     return { action: 'deny' }
   })
+
+  // Save window bounds on resize or move (debounced)
+  let saveBoundsTimer: NodeJS.Timeout | null = null
+  const saveWindowBounds = () => {
+    if (saveBoundsTimer) clearTimeout(saveBoundsTimer)
+    saveBoundsTimer = setTimeout(() => {
+      if (!mainWindow.isDestroyed()) {
+        const bounds = mainWindow.getBounds()
+        store.set('windowBounds', bounds)
+      }
+    }, 500)
+  }
+
+  mainWindow.on('resize', saveWindowBounds)
+  mainWindow.on('move', saveWindowBounds)
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
