@@ -136,7 +136,7 @@
     background: var(--color-surface-darker, #0a0a0a);
     border: 1px solid var(--color-border, #27272a);
     border-radius: 6px;
-    padding: 6px 48px 6px 36px;
+    padding: 3px 48px 3px 36px;
     font-size: 12px;
     color: #fff;
     width: 320px;
@@ -163,7 +163,7 @@
 
   .kbd {
     display: inline-flex;
-    height: 20px;
+    height: 16px;
     align-items: center;
     gap: 2px;
     border-radius: 4px;
