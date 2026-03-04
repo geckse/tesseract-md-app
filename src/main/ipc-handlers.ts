@@ -15,7 +15,7 @@ import {
   setActiveCollection,
   getActiveCollection
 } from './store'
-import type { Collection } from './store'
+import type { Collection, FavoriteEntry } from './store'
 import {
   pickCollectionFolder,
   validateCollectionPath,
@@ -226,6 +226,47 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle('collections:get-active', () =>
     wrapHandler(async () => getActiveCollection())
+  )
+
+  // Favorites management
+  ipcMain.handle('favorites:list', () =>
+    wrapHandler(async (): Promise<FavoriteEntry[]> => {
+      const s = await import('./store').then((m) => m.initStore())
+      return s.get('favorites', [])
+    })
+  )
+
+  ipcMain.handle('favorites:add', (_event, collectionId: string, filePath: string) =>
+    wrapHandler(async () => {
+      const s = await import('./store').then((m) => m.initStore())
+      const favorites = s.get('favorites', [])
+      const exists = favorites.some(
+        (f) => f.collectionId === collectionId && f.filePath === filePath
+      )
+      if (!exists) {
+        favorites.push({ collectionId, filePath, addedAt: Date.now() })
+        s.set('favorites', favorites)
+      }
+    })
+  )
+
+  ipcMain.handle('favorites:remove', (_event, collectionId: string, filePath: string) =>
+    wrapHandler(async () => {
+      const s = await import('./store').then((m) => m.initStore())
+      const favorites = s.get('favorites', [])
+      s.set(
+        'favorites',
+        favorites.filter((f) => !(f.collectionId === collectionId && f.filePath === filePath))
+      )
+    })
+  )
+
+  ipcMain.handle('favorites:is-favorite', (_event, collectionId: string, filePath: string) =>
+    wrapHandler(async (): Promise<boolean> => {
+      const s = await import('./store').then((m) => m.initStore())
+      const favorites = s.get('favorites', [])
+      return favorites.some((f) => f.collectionId === collectionId && f.filePath === filePath)
+    })
   )
 
   // Reveal file in OS file manager (Finder on macOS, Explorer on Windows)
