@@ -1,6 +1,7 @@
 <script lang="ts">
   import { searchOpen, clearSearch } from '../stores/search';
   import { isDirty, requestSave } from '../stores/editor';
+  import { graphViewActive, toggleGraphView } from '../stores/graph';
   import type { SearchResult } from '../types/cli';
   import Search from './Search.svelte';
   import SearchResults from './SearchResults.svelte';
@@ -17,6 +18,9 @@
     onsearchresultclick,
     ontoggleproperties,
   }: TitlebarProps = $props();
+
+  let currentGraphActive = $state(false);
+  graphViewActive.subscribe((v) => (currentGraphActive = v));
 
   let currentSearchOpen = $state(false);
   searchOpen.subscribe((v) => (currentSearchOpen = v));
@@ -49,6 +53,15 @@
   </div>
 
   <div class="titlebar-right">
+    <button
+      class="icon-button"
+      class:active={currentGraphActive}
+      title="Toggle Graph View"
+      onclick={toggleGraphView}
+    >
+      <span class="material-symbols-outlined">hub</span>
+    </button>
+
     <button
       class="icon-button"
       class:active={propertiesOpen}
