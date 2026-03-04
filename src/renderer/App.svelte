@@ -1,10 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { get } from 'svelte/store';
   import Sidebar from './components/Sidebar.svelte';
   import Titlebar from './components/Titlebar.svelte';
   import StatusBar from './components/StatusBar.svelte';
   import Editor from './components/Editor.svelte';
   import PropertiesPanel from './components/PropertiesPanel.svelte';
+  import GraphView from './components/GraphView.svelte';
+  import GraphPreview from './components/GraphPreview.svelte';
   import IngestModal from './components/IngestModal.svelte';
   import QuickOpen from './components/QuickOpen.svelte';
   import { loadCollections, setActiveCollection, activeCollectionId } from './stores/collections';
@@ -15,6 +18,7 @@
   import { openQuickOpen } from './stores/quickopen';
   import { shortcutManager } from './lib/shortcuts';
   import { setupWatcherListener, teardownWatcherListener, fetchWatcherStatus } from './stores/watcher';
+  import { graphViewActive, graphSelectedNode, toggleGraphView, selectGraphNode, loadGraphData } from './stores/graph';
   import type { SearchResult } from './types/cli';
 
 
@@ -79,6 +83,29 @@
         },
       }),
 
+      // Cmd+G / Ctrl+G: Toggle graph view
+      shortcutManager.register({
+        key: 'g',
+        meta: true,
+        handler: () => {
+          toggleGraphView();
+        },
+      }),
+
+      // Escape: Deselect graph node or exit graph view
+      shortcutManager.register({
+        key: 'Escape',
+        handler: () => {
+          if ($graphViewActive) {
+            if ($graphSelectedNode) {
+              selectGraphNode(null);
+            } else {
+              toggleGraphView();
+            }
+          }
+        },
+      }),
+
       // Tab: Cycle focus forward through regions (sidebar → editor → metadata)
       shortcutManager.register({
         key: 'Tab',
@@ -124,9 +151,12 @@
 
     document.addEventListener('mousedown', handleClickAway);
 
-    // Clear search when active collection changes
+    // Clear search and reload graph when active collection changes
     const unsub = activeCollectionId.subscribe(() => {
       clearSearch();
+      if (get(graphViewActive)) {
+        loadGraphData();
+      }
     });
 
     return () => {
@@ -232,13 +262,24 @@
 
     <main class="main-area">
       <div class="content-area">
-        <div id="main-content" class="editor-region" bind:this={editorEl} tabindex="-1" role="main" aria-label="Editor">
-          <Editor />
-        </div>
-        {#if propertiesOpen}
-          <div class="properties-region" bind:this={propertiesEl} tabindex="-1" role="complementary" aria-label="File metadata">
-            <PropertiesPanel onfileselect={(detail) => handleFileSelect({ folderId: '', fileId: detail.path })} />
+        {#if $graphViewActive}
+          <div id="main-content" class="graph-region" tabindex="-1" role="main" aria-label="Graph view">
+            <GraphView />
           </div>
+          {#if $graphSelectedNode}
+            <div class="preview-region" role="complementary" aria-label="File preview">
+              <GraphPreview />
+            </div>
+          {/if}
+        {:else}
+          <div id="main-content" class="editor-region" bind:this={editorEl} tabindex="-1" role="main" aria-label="Editor">
+            <Editor />
+          </div>
+          {#if propertiesOpen}
+            <div class="properties-region" bind:this={propertiesEl} tabindex="-1" role="complementary" aria-label="File metadata">
+              <PropertiesPanel onfileselect={(detail) => handleFileSelect({ folderId: '', fileId: detail.path })} />
+            </div>
+          {/if}
         {/if}
       </div>
 
@@ -340,6 +381,19 @@
   }
 
   .properties-region {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+
+  .graph-region {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .preview-region {
     display: flex;
     flex-direction: column;
     height: 100%;
