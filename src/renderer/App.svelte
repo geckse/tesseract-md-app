@@ -14,6 +14,7 @@
   import { toggleSidebar } from './stores/ui';
   import { openQuickOpen } from './stores/quickopen';
   import { shortcutManager } from './lib/shortcuts';
+  import { setupWatcherListener, teardownWatcherListener, fetchWatcherStatus } from './stores/watcher';
   import type { SearchResult } from './types/cli';
 
 
@@ -27,6 +28,8 @@
 
   onMount(() => {
     loadCollections();
+    setupWatcherListener();
+    fetchWatcherStatus();
 
     // Register keyboard shortcuts
     const unregisterShortcuts = [
@@ -132,6 +135,7 @@
       unregisterShortcuts.forEach((unregister) => unregister());
       shortcutManager.detach();
       document.removeEventListener('mousedown', handleClickAway);
+      teardownWatcherListener();
       unsub();
     };
   });

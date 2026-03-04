@@ -66,7 +66,21 @@ const api: MdvdbApi = {
   setSidebarWidth: (width) => invoke('store:set-sidebar-width', width),
   setMetadataPanelWidth: (width) => invoke('store:set-metadata-panel-width', width),
   getSidebarWidth: () => invoke('store:get-sidebar-width'),
-  getMetadataPanelWidth: () => invoke('store:get-metadata-panel-width')
+  getMetadataPanelWidth: () => invoke('store:get-metadata-panel-width'),
+
+  // Ingest cancellation
+  cancelIngest: () => invoke('cli:cancel-ingest'),
+
+  // Watcher management
+  startWatcher: (root) => invoke('watcher:start', root),
+  stopWatcher: () => invoke('watcher:stop'),
+  getWatcherStatus: () => invoke('watcher:status'),
+  onWatcherEvent: (callback) => {
+    ipcRenderer.on('watcher:event', (_event, data) => callback(data))
+  },
+  removeWatcherEventListener: () => {
+    ipcRenderer.removeAllListeners('watcher:event')
+  }
 }
 
 if (process.contextIsolated) {

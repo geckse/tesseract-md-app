@@ -6,9 +6,14 @@
     ingestResult,
     ingestError,
     ingestModalOpen,
+    ingestPreviewResult,
+    ingestPreviewLoading,
+    ingestState,
     closeIngestModal,
+    cancelIngest,
   } from '../stores/ingest'
-  import type { IngestResult } from '../types/cli'
+  import type { IngestResult, IngestPreview } from '../types/cli'
+  import type { IngestState } from '../stores/ingest'
 
   let currentRunning = $state(false)
   let currentIsReindex = $state(false)
@@ -16,6 +21,9 @@
   let currentResult: IngestResult | null = $state(null)
   let currentError: string | null = $state(null)
   let currentOpen = $state(false)
+  let currentPreview: IngestPreview | null = $state(null)
+  let currentPreviewLoading = $state(false)
+  let currentState: IngestState = $state('idle')
 
   ingestRunning.subscribe((v) => (currentRunning = v))
   ingestIsReindex.subscribe((v) => (currentIsReindex = v))
@@ -23,6 +31,9 @@
   ingestResult.subscribe((v) => (currentResult = v))
   ingestError.subscribe((v) => (currentError = v))
   ingestModalOpen.subscribe((v) => (currentOpen = v))
+  ingestPreviewResult.subscribe((v) => (currentPreview = v))
+  ingestPreviewLoading.subscribe((v) => (currentPreviewLoading = v))
+  ingestState.subscribe((v) => (currentState = v))
 
   let hasErrors = $derived(
     currentResult !== null && currentResult.errors.length > 0
@@ -36,14 +47,27 @@
   }
 
   function handleBackdropClick(e: MouseEvent) {
-    if (e.target === e.currentTarget && !currentRunning) {
+    if (e.target === e.currentTarget && !currentRunning && !currentPreviewLoading) {
       closeIngestModal()
     }
   }
 
   function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape' && !currentRunning && currentOpen) {
+    if (e.key === 'Escape' && !currentRunning && !currentPreviewLoading && currentOpen) {
       closeIngestModal()
+    }
+  }
+
+  function handleCancel() {
+    cancelIngest()
+  }
+
+  function statusBadgeClass(status: string): string {
+    switch (status) {
+      case 'New': return 'badge-new'
+      case 'Changed': return 'badge-changed'
+      case 'Unchanged': return 'badge-unchanged'
+      default: return ''
     }
   }
 </script>
@@ -56,7 +80,81 @@
   <div class="modal-backdrop" onclick={handleBackdropClick}>
     <div class="modal-content" role="dialog" aria-modal="true" aria-label="Ingest Results">
 
-      {#if currentRunning}
+      {#if currentPreviewLoading}
+        <div class="modal-header">
+          <span class="material-symbols-outlined modal-icon spinning">sync</span>
+          <h2 class="modal-title">Running Preview</h2>
+        </div>
+        <div class="modal-body">
+          <p class="modal-subtitle">Analyzing files...</p>
+          <div class="progress-bar-track">
+            <div class="progress-bar-indeterminate"></div>
+          </div>
+        </div>
+
+      {:else if currentPreview && !currentRunning && !currentResult && !currentError}
+        <div class="modal-header">
+          <span class="material-symbols-outlined modal-icon preview-icon">preview</span>
+          <h2 class="modal-title">Ingest Preview</h2>
+        </div>
+        <div class="modal-body">
+          <div class="preview-summary">
+            <div class="stat-row">
+              <span class="stat-label">Total files</span>
+              <span class="stat-value">{currentPreview.total_files}</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Files to process</span>
+              <span class="stat-value">{currentPreview.files_to_process}</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Unchanged</span>
+              <span class="stat-value">{currentPreview.files_unchanged}</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Total chunks</span>
+              <span class="stat-value">{currentPreview.total_chunks}</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Estimated tokens</span>
+              <span class="stat-value">{currentPreview.estimated_tokens.toLocaleString()}</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Estimated API calls</span>
+              <span class="stat-value">{currentPreview.estimated_api_calls}</span>
+            </div>
+          </div>
+
+          {#if currentPreview.files.length > 0}
+            <div class="preview-table-wrapper">
+              <table class="preview-table">
+                <thead>
+                  <tr>
+                    <th>File</th>
+                    <th>Status</th>
+                    <th>Chunks</th>
+                    <th>Tokens</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {#each currentPreview.files as file}
+                    <tr>
+                      <td class="file-path-cell" title={file.path}>{file.path}</td>
+                      <td><span class="status-badge {statusBadgeClass(file.status)}">{file.status}</span></td>
+                      <td class="num-cell">{file.chunks}</td>
+                      <td class="num-cell">{file.estimated_tokens.toLocaleString()}</td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            </div>
+          {/if}
+        </div>
+        <div class="modal-footer">
+          <button class="modal-btn modal-btn-primary" onclick={closeIngestModal}>Close</button>
+        </div>
+
+      {:else if currentRunning}
         <div class="modal-header">
           <span class="material-symbols-outlined modal-icon spinning">sync</span>
           <h2 class="modal-title">Indexing Collection</h2>
@@ -70,6 +168,9 @@
             <div class="progress-bar-indeterminate"></div>
           </div>
           <p class="modal-hint">This may take a few minutes for large collections.</p>
+        </div>
+        <div class="modal-footer">
+          <button class="modal-btn modal-btn-cancel" onclick={handleCancel}>Cancel</button>
         </div>
 
       {:else if currentError}
@@ -179,7 +280,7 @@
     background: var(--color-surface, #161617);
     border: 1px solid var(--color-border, #27272a);
     border-radius: 8px;
-    width: 420px;
+    width: 520px;
     max-width: 90vw;
     max-height: 80vh;
     overflow-y: auto;
@@ -200,6 +301,7 @@
   .success-icon { color: #22c55e; }
   .warning-icon { color: #eab308; }
   .error-icon { color: #ef4444; }
+  .preview-icon { color: var(--color-primary, #00E5FF); }
 
   .modal-title {
     font-size: 16px;
@@ -376,5 +478,103 @@
 
   .modal-btn-primary:hover {
     background: #00B8CC;
+  }
+
+  .modal-btn-cancel {
+    background: rgba(239, 68, 68, 0.15);
+    color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+  }
+
+  .modal-btn-cancel:hover {
+    background: rgba(239, 68, 68, 0.25);
+  }
+
+  /* Preview table styles */
+  .preview-summary {
+    margin-bottom: 16px;
+  }
+
+  .preview-table-wrapper {
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid var(--color-border, #27272a);
+    border-radius: 4px;
+  }
+
+  .preview-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+  }
+
+  .preview-table thead {
+    position: sticky;
+    top: 0;
+    background: var(--color-surface, #161617);
+    z-index: 1;
+  }
+
+  .preview-table th {
+    text-align: left;
+    padding: 8px 10px;
+    font-weight: 600;
+    color: var(--color-text-dim, #71717a);
+    border-bottom: 1px solid var(--color-border, #27272a);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .preview-table td {
+    padding: 6px 10px;
+    border-bottom: 1px solid rgba(39, 39, 42, 0.3);
+    color: var(--color-text, #e4e4e7);
+  }
+
+  .preview-table tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  .file-path-cell {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    max-width: 240px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .num-cell {
+    font-family: 'JetBrains Mono', monospace;
+    text-align: right;
+  }
+
+  .status-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+
+  .badge-new {
+    background: rgba(34, 197, 94, 0.15);
+    color: #22c55e;
+    border: 1px solid rgba(34, 197, 94, 0.3);
+  }
+
+  .badge-changed {
+    background: rgba(234, 179, 8, 0.15);
+    color: #eab308;
+    border: 1px solid rgba(234, 179, 8, 0.3);
+  }
+
+  .badge-unchanged {
+    background: rgba(113, 113, 122, 0.15);
+    color: #71717a;
+    border: 1px solid rgba(113, 113, 122, 0.3);
   }
 </style>

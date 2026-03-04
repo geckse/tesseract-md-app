@@ -35,6 +35,7 @@ vi.mock('@codemirror/view', () => {
   return {
     EditorView: Object.assign(EditorView, {
       updateListener: { of: vi.fn(() => []) },
+      domEventHandler: vi.fn(() => []),
     }),
     keymap: { of: vi.fn(() => []) },
   }
@@ -75,15 +76,27 @@ vi.mock('../../src/renderer/lib/frontmatter-decoration', () => ({
 }))
 
 import { fileContent, selectedFilePath } from '../../src/renderer/stores/files'
-import { activeCollection } from '../../src/renderer/stores/collections'
+import { collections, activeCollectionId } from '../../src/renderer/stores/collections'
 import { isDirty, wordCount, countWords } from '../../src/renderer/stores/editor'
 import { get } from 'svelte/store'
 import Editor from '@renderer/components/Editor.svelte'
 
+/** Helper to set the active collection via the underlying writable stores. */
+function setActiveCollectionForTest(collection: { id: string; name: string; path: string } | null) {
+  if (collection) {
+    collections.set([collection as any])
+    activeCollectionId.set(collection.id)
+  } else {
+    collections.set([])
+    activeCollectionId.set(null)
+  }
+}
+
 function resetStores() {
   fileContent.set(null)
   selectedFilePath.set(null)
-  activeCollection.set(null)
+  collections.set([])
+  activeCollectionId.set(null)
   isDirty.set(false)
   wordCount.set(0)
 }
@@ -109,7 +122,7 @@ describe('Editor component', () => {
   it('renders editor container when file is selected', () => {
     selectedFilePath.set('test.md')
     fileContent.set('# Hello World')
-    activeCollection.set({ id: '1', name: 'Test', path: '/test' })
+    setActiveCollectionForTest({ id: '1', name: 'Test', path: '/test' })
 
     const { container } = render(Editor)
 
@@ -128,7 +141,7 @@ describe('Editor component', () => {
   it('resets isDirty and wordCount on destroy', () => {
     selectedFilePath.set('test.md')
     fileContent.set('hello world')
-    activeCollection.set({ id: '1', name: 'Test', path: '/test' })
+    setActiveCollectionForTest({ id: '1', name: 'Test', path: '/test' })
 
     const { unmount } = render(Editor)
 
@@ -144,7 +157,7 @@ describe('Editor component', () => {
   it('sets wordCount when file content loads', async () => {
     selectedFilePath.set('test.md')
     fileContent.set('hello world foo bar')
-    activeCollection.set({ id: '1', name: 'Test', path: '/test' })
+    setActiveCollectionForTest({ id: '1', name: 'Test', path: '/test' })
 
     render(Editor)
 

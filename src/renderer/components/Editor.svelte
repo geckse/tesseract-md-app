@@ -282,16 +282,16 @@
       search({ top: true }),
       keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
       EditorView.updateListener.of(handleUpdate),
+      EditorView.domEventHandlers({
+        scroll() { updateActiveHeading(); },
+      }),
     ];
 
     // Add heavy decorations only for normal-sized files
     if (!useBasicMode) {
       baseExtensions.push(
         softRender(),
-        frontmatterDecoration(),
-        EditorView.domEventHandler('scroll', () => {
-          updateActiveHeading();
-        })
+        frontmatterDecoration()
       );
     }
 

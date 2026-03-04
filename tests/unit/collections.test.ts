@@ -1,12 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-// Mock node:fs
-const mockExistsSync = vi.fn()
-const mockStatSync = vi.fn()
-vi.mock('node:fs', () => ({
-  existsSync: (...args: unknown[]) => mockExistsSync(...args),
-  statSync: (...args: unknown[]) => mockStatSync(...args)
+// Mock node:fs — provide default export to satisfy CJS interop
+const { mockExistsSync, mockStatSync } = vi.hoisted(() => ({
+  mockExistsSync: vi.fn(),
+  mockStatSync: vi.fn()
 }))
+vi.mock('node:fs', () => {
+  const mod = {
+    existsSync: mockExistsSync,
+    statSync: mockStatSync
+  }
+  return { ...mod, default: mod }
+})
 
 // Mock electron dialog
 const mockShowOpenDialog = vi.fn()

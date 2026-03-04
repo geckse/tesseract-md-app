@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { isDirty, wordCount as wordCountStore, readingTime as readingTimeStore } from '../stores/editor';
+  import WatcherToggle from './WatcherToggle.svelte';
 
   interface StatusBarProps {
     language?: string;
@@ -63,6 +64,7 @@
   </div>
 
   <div class="status-group">
+    <WatcherToggle />
     <span class="status-item cli-indicator" class:cli-found={cliFound} class:cli-missing={!cliFound}>
       <span class="cli-dot" class:cli-dot-found={cliFound} class:cli-dot-missing={!cliFound}></span>
       {#if cliFound}

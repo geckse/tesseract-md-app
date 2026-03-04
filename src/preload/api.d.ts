@@ -77,6 +77,28 @@ export interface MdvdbApi {
   setMetadataPanelWidth(width: number): Promise<void>
   getSidebarWidth(): Promise<number>
   getMetadataPanelWidth(): Promise<number>
+
+  // Ingest cancellation
+  cancelIngest(): Promise<void>
+
+  // Watcher management
+  startWatcher(root: string): Promise<void>
+  stopWatcher(): Promise<void>
+  getWatcherStatus(): Promise<WatcherStatus>
+  onWatcherEvent(callback: (event: WatcherEvent) => void): void
+  removeWatcherEventListener(): void
+}
+
+/** Watcher status returned by getWatcherStatus. */
+export interface WatcherStatus {
+  state: 'stopped' | 'starting' | 'running' | 'stopping' | 'error'
+  root: string | null
+}
+
+/** Watcher event forwarded from the main process. */
+export interface WatcherEvent {
+  type: 'state-change' | 'watch-event' | 'error'
+  data: unknown
 }
 
 declare global {

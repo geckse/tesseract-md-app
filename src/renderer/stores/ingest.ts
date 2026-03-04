@@ -1,7 +1,13 @@
 import { writable, get } from 'svelte/store'
-import type { IngestResult } from '../types/cli'
+import type { IngestResult, IngestPreview } from '../types/cli'
 import { activeCollection, collectionStatus } from './collections'
 import { loadFileTree } from './files'
+
+/** Ingest state machine states. */
+export type IngestState = 'idle' | 'previewing' | 'ingesting' | 'done' | 'error'
+
+/** Current state of the ingest state machine. */
+export const ingestState = writable<IngestState>('idle')
 
 /** Whether an ingest operation is currently running. */
 export const ingestRunning = writable<boolean>(false)
@@ -21,6 +27,12 @@ export const ingestError = writable<string | null>(null)
 /** Whether the ingest modal is open. */
 export const ingestModalOpen = writable<boolean>(false)
 
+/** Result of a preview (dry-run) operation. */
+export const ingestPreviewResult = writable<IngestPreview | null>(null)
+
+/** Whether a preview operation is currently loading. */
+export const ingestPreviewLoading = writable<boolean>(false)
+
 let elapsedInterval: ReturnType<typeof setInterval> | null = null
 
 function startTimer(): void {
@@ -37,6 +49,32 @@ function stopTimer(): void {
   }
 }
 
+/** Run a preview (dry-run) on the active collection to see what would be ingested. */
+export async function runPreview(): Promise<void> {
+  const collection = get(activeCollection)
+  if (!collection) return
+  if (get(ingestState) !== 'idle' && get(ingestState) !== 'done' && get(ingestState) !== 'error') return
+
+  ingestState.set('previewing')
+  ingestPreviewLoading.set(true)
+  ingestPreviewResult.set(null)
+  ingestError.set(null)
+  ingestModalOpen.set(true)
+
+  try {
+    const result = await window.api.ingestPreview(collection.path)
+    ingestPreviewResult.set(result)
+  } catch (err) {
+    ingestError.set(err instanceof Error ? err.message : String(err))
+    ingestState.set('error')
+    return
+  } finally {
+    ingestPreviewLoading.set(false)
+  }
+
+  ingestState.set('idle')
+}
+
 /** Run ingest on the active collection.
  *  @param reindex — if true, forces a full reindex; otherwise incremental (default).
  */
@@ -46,6 +84,7 @@ export async function runIngest(reindex = false): Promise<void> {
   if (get(ingestRunning)) return
 
   ingestRunning.set(true)
+  ingestState.set('ingesting')
   ingestIsReindex.set(reindex)
   ingestResult.set(null)
   ingestError.set(null)
@@ -55,8 +94,10 @@ export async function runIngest(reindex = false): Promise<void> {
   try {
     const result = await window.api.ingest(collection.path, { reindex })
     ingestResult.set(result)
+    ingestState.set('done')
   } catch (err) {
     ingestError.set(err instanceof Error ? err.message : String(err))
+    ingestState.set('error')
   } finally {
     stopTimer()
     ingestRunning.set(false)
@@ -71,8 +112,21 @@ export async function runIngest(reindex = false): Promise<void> {
   }
 }
 
+/** Cancel an in-progress ingest operation. */
+export async function cancelIngest(): Promise<void> {
+  if (!get(ingestRunning)) return
+
+  try {
+    await window.api.cancelIngest()
+  } catch (err) {
+    ingestError.set(err instanceof Error ? err.message : String(err))
+  }
+}
+
 /** Close the modal (only when not running). */
 export function closeIngestModal(): void {
   if (get(ingestRunning)) return
   ingestModalOpen.set(false)
+  ingestState.set('idle')
+  ingestPreviewResult.set(null)
 }
