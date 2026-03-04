@@ -1,13 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-// Mock child_process before importing cli module
-const mockExecFile = vi.fn()
-vi.mock('node:child_process', () => ({
-  execFile: mockExecFile
+// Use vi.hoisted so the mock variable is available before vi.mock runs
+const { mockExecFile } = vi.hoisted(() => ({
+  mockExecFile: vi.fn()
 }))
-vi.mock('node:util', () => ({
-  promisify: (fn: unknown) => {
-    // Return a wrapper that calls our mock and returns a promise
+
+vi.mock('node:child_process', () => {
+  const mod = { execFile: mockExecFile }
+  return { ...mod, default: mod }
+})
+vi.mock('node:util', () => {
+  const promisify = (fn: unknown) => {
     return (...args: unknown[]) => {
       return new Promise((resolve, reject) => {
         mockExecFile(...args, (err: Error | null, stdout: string, stderr: string) => {
@@ -17,7 +20,9 @@ vi.mock('node:util', () => ({
       })
     }
   }
-}))
+  const mod = { promisify }
+  return { ...mod, default: mod }
+})
 
 import { findCli, getCliVersion, execCommand, execRaw } from '../../src/main/cli'
 import {

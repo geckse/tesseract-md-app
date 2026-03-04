@@ -5,9 +5,10 @@
  * Called once from the main process on app ready.
  */
 
-import { ipcMain, shell } from 'electron'
+import { ipcMain, shell, type BrowserWindow } from 'electron'
 import { promises as fs } from 'node:fs'
 import { findCli, getCliVersion, execCommand, execRaw } from './cli'
+import { WatcherManager, type WatcherState } from './watcher'
 import {
   getCollections,
   addCollection,
@@ -79,11 +80,36 @@ function wrapHandler<T>(fn: () => Promise<T>): Promise<T | SerializedError> {
   })
 }
 
+/** Singleton watcher manager instance */
+let watcherManager: WatcherManager | null = null
+
+/**
+ * Get or create the WatcherManager singleton.
+ */
+function getWatcherManager(): WatcherManager {
+  if (!watcherManager) {
+    watcherManager = new WatcherManager()
+  }
+  return watcherManager
+}
+
+/**
+ * Destroy the watcher manager (call on app quit).
+ */
+export async function destroyWatcherManager(): Promise<void> {
+  if (watcherManager) {
+    await watcherManager.destroy()
+    watcherManager = null
+  }
+}
+
 /**
  * Register all IPC handlers for CLI bridge channels.
  * Must be called once after app is ready.
+ *
+ * @param mainWindow - The main BrowserWindow for forwarding watcher events
  */
-export function registerIpcHandlers(): void {
+export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   // CLI detection
   ipcMain.handle('cli:find', () => wrapHandler(() => findCli()))
 
@@ -285,6 +311,55 @@ export function registerIpcHandlers(): void {
         throw new Error('Access denied: path is not within a known collection')
       }
       await fs.writeFile(normalizedPath, content, 'utf-8')
+    })
+  )
+
+  // Watcher management
+  ipcMain.handle('watcher:start', (_event, root: string) =>
+    wrapHandler(async () => {
+      const watcher = getWatcherManager()
+
+      // Forward watcher events to the renderer via webContents
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        watcher.removeAllListeners()
+
+        watcher.onEvent((event) => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('watcher:event', event)
+          }
+        })
+
+        watcher.onError((error) => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('watcher:error', { message: error.message })
+          }
+        })
+
+        watcher.onStateChange((state: WatcherState) => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('watcher:state', state)
+          }
+        })
+      }
+
+      await watcher.start(root)
+    })
+  )
+
+  ipcMain.handle('watcher:stop', () =>
+    wrapHandler(async () => {
+      const watcher = getWatcherManager()
+      await watcher.stop()
+    })
+  )
+
+  ipcMain.handle('watcher:status', () =>
+    wrapHandler(async () => {
+      const watcher = getWatcherManager()
+      return {
+        state: watcher.getState(),
+        running: watcher.isRunning()
+      }
     })
   )
 }
