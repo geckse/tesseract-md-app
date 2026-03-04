@@ -15,7 +15,7 @@ import {
   setActiveCollection,
   getActiveCollection
 } from './store'
-import type { Collection, FavoriteEntry } from './store'
+import type { Collection, FavoriteEntry, RecentEntry } from './store'
 import {
   pickCollectionFolder,
   validateCollectionPath,
@@ -266,6 +266,37 @@ export function registerIpcHandlers(): void {
       const s = await import('./store').then((m) => m.initStore())
       const favorites = s.get('favorites', [])
       return favorites.some((f) => f.collectionId === collectionId && f.filePath === filePath)
+    })
+  )
+
+  // Recents management
+  ipcMain.handle('recents:list', () =>
+    wrapHandler(async () => {
+      const s = await import('./store').then((m) => m.initStore())
+      return s.get('recentFiles', [])
+    })
+  )
+
+  ipcMain.handle('recents:add', (_event, collectionId: string, filePath: string) =>
+    wrapHandler(async () => {
+      const s = await import('./store').then((m) => m.initStore())
+      let recents = s.get('recentFiles', [])
+      // Remove existing entry for same file (dedup)
+      recents = recents.filter(
+        (r) => !(r.collectionId === collectionId && r.filePath === filePath)
+      )
+      // Add to front (most recent first)
+      recents.unshift({ collectionId, filePath, openedAt: Date.now() })
+      // Cap at 50 entries
+      recents = recents.slice(0, 50)
+      s.set('recentFiles', recents)
+    })
+  )
+
+  ipcMain.handle('recents:clear', () =>
+    wrapHandler(async () => {
+      const s = await import('./store').then((m) => m.initStore())
+      s.set('recentFiles', [])
     })
   )
 
