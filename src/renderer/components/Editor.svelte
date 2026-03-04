@@ -13,11 +13,16 @@
   import { activeCollection } from '../stores/collections';
   import { isDirty, wordCount, countWords, saveRequested, scrollToLine, activeHeadingIndex } from '../stores/editor';
   import { propertiesFileContent, outline } from '../stores/properties';
+  import { DocumentCache } from '../lib/doc-cache';
 
   let editorEl: HTMLDivElement | undefined = $state(undefined);
   let view: EditorView | null = null;
   let lastSavedContent: string = '';
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let previousFilePath: string | null = null;
+
+  // LRU cache for recently opened documents (last 5 files)
+  const docCache = new DocumentCache(5);
 
   let currentOutline: import('../stores/properties').OutlineHeading[] = [];
   const unsubOutline = outline.subscribe((v) => (currentOutline = v));
@@ -102,6 +107,98 @@
     return true;
   }
 
+  /**
+   * Save the current editor state to the document cache.
+   * Caches content, cursor position, and scroll position for instant restoration.
+   */
+  function saveToCacheIfNeeded() {
+    if (!view || !previousFilePath) return;
+
+    const content = view.state.doc.toString();
+    const cursorPos = view.state.selection.main.head;
+    const line = view.state.doc.lineAt(cursorPos);
+    const scrollTop = view.scrollDOM.scrollTop;
+
+    docCache.set(previousFilePath, {
+      content,
+      cursor: {
+        line: line.number,
+        column: cursorPos - line.from,
+      },
+      scrollTop,
+      cachedAt: Date.now(),
+    });
+  }
+
+  /**
+   * Restore editor state from the document cache if available.
+   * Returns true if restored from cache, false if not cached.
+   */
+  function restoreFromCache(filePath: string): boolean {
+    const cached = docCache.get(filePath);
+    if (!cached) return false;
+
+    if (view) {
+      // Replace content
+      lastSavedContent = cached.content;
+      isDirty.set(false);
+      const doc = view.state.doc;
+      view.dispatch({
+        changes: { from: 0, to: doc.length, insert: cached.content },
+      });
+      wordCount.set(countWords(cached.content));
+
+      // Restore cursor position
+      const newDoc = view.state.doc;
+      if (cached.cursor.line <= newDoc.lines) {
+        const line = newDoc.line(cached.cursor.line);
+        const targetPos = Math.min(line.from + cached.cursor.column, line.to);
+        view.dispatch({
+          selection: { anchor: targetPos, head: targetPos },
+        });
+      }
+
+      // Restore scroll position (on next frame to ensure DOM is updated)
+      requestAnimationFrame(() => {
+        if (view) {
+          view.scrollDOM.scrollTop = cached.scrollTop;
+        }
+      });
+    } else if (editorEl) {
+      // Create new view with cached content
+      lastSavedContent = cached.content;
+      isDirty.set(false);
+      wordCount.set(countWords(cached.content));
+
+      view = new EditorView({
+        state: EditorState.create({
+          doc: cached.content,
+          extensions: createExtensions(),
+        }),
+        parent: editorEl,
+      });
+
+      // Restore cursor position
+      const doc = view.state.doc;
+      if (cached.cursor.line <= doc.lines) {
+        const line = doc.line(cached.cursor.line);
+        const targetPos = Math.min(line.from + cached.cursor.column, line.to);
+        view.dispatch({
+          selection: { anchor: targetPos, head: targetPos },
+        });
+      }
+
+      // Restore scroll position (on next frame to ensure DOM is updated)
+      requestAnimationFrame(() => {
+        if (view) {
+          view.scrollDOM.scrollTop = cached.scrollTop;
+        }
+      });
+    }
+
+    return true;
+  }
+
   function createExtensions() {
     return [
       markdown({ base: markdownLanguage }),
@@ -153,18 +250,45 @@
     wordCount.set(countWords(content));
   }
 
-  // React to file content changes
+  // React to file content changes with cache support
   $effect(() => {
     if (currentFileContent !== null && currentSelectedFilePath !== null) {
-      if (view) {
-        replaceContent(currentFileContent);
-      } else if (editorEl) {
-        createView(currentFileContent);
+      // Check if we're switching files
+      const isSwitchingFiles = previousFilePath !== currentSelectedFilePath;
+
+      if (isSwitchingFiles) {
+        // Save current file to cache before switching
+        saveToCacheIfNeeded();
+
+        // Try to restore from cache
+        const restored = restoreFromCache(currentSelectedFilePath);
+
+        if (!restored) {
+          // Not in cache, load normally from disk
+          if (view) {
+            replaceContent(currentFileContent);
+          } else if (editorEl) {
+            createView(currentFileContent);
+          }
+        }
+
+        // Update previous file path
+        previousFilePath = currentSelectedFilePath;
+      } else {
+        // Same file, just update content (e.g., external changes)
+        if (view) {
+          replaceContent(currentFileContent);
+        } else if (editorEl) {
+          createView(currentFileContent);
+        }
       }
     } else {
+      // No file selected, save to cache and destroy view
+      saveToCacheIfNeeded();
       destroyView();
       isDirty.set(false);
       wordCount.set(0);
+      previousFilePath = null;
     }
   });
 
@@ -176,6 +300,7 @@
 
   onDestroy(() => {
     if (debounceTimer) clearTimeout(debounceTimer);
+    saveToCacheIfNeeded();
     destroyView();
     isDirty.set(false);
     wordCount.set(0);
