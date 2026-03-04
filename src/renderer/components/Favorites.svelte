@@ -16,8 +16,10 @@
   favoritesLoading.subscribe((v) => (currentLoading = v))
 
   // Filter out favorites from collections that no longer exist
-  $: validFavorites = currentFavorites.filter((fav) =>
-    currentCollections.some((col) => col.id === fav.collectionId)
+  const validFavorites = $derived(
+    currentFavorites.filter((fav) =>
+      currentCollections.some((col) => col.id === fav.collectionId)
+    )
   )
 
   // Helper to get collection name by ID
