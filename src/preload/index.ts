@@ -40,6 +40,7 @@ const api: MdvdbApi = {
   backlinks: (root, filePath) => invoke('cli:backlinks', root, filePath),
   orphans: (root) => invoke('cli:orphans', root),
   clusters: (root) => invoke('cli:clusters', root),
+  graphData: (root) => invoke('cli:graph', root),
   schema: (root) => invoke('cli:schema', root),
   config: (root) => invoke('cli:config', root),
   doctor: (root) => invoke('cli:doctor', root),
