@@ -221,6 +221,121 @@ describe('execCommand', () => {
     const opts = secondCall[2] as { timeout: number }
     expect(opts.timeout).toBe(300_000)
   })
+
+  it('retries on timeout when retries option is set', async () => {
+    let callCount = 0
+    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
+      callCount++
+      if (callCount === 1) {
+        // which command
+        cb(null, '/usr/local/bin/mdvdb\n', '')
+      } else if (callCount === 2) {
+        // First attempt - timeout
+        const err = Object.assign(new Error('timed out'), { killed: true })
+        cb(err, '', '')
+      } else {
+        // Second attempt - success
+        cb(null, '{"status":"ok"}', '')
+      }
+    })
+
+    const result = await execCommand<{ status: string }>('status', [], '/tmp/project', { retries: 1 })
+    expect(result).toEqual({ status: 'ok' })
+    expect(callCount).toBe(3) // which + 2 command attempts
+  })
+
+  it('retries on execution error when retries option is set', async () => {
+    let callCount = 0
+    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
+      callCount++
+      if (callCount === 1) {
+        // which command
+        cb(null, '/usr/local/bin/mdvdb\n', '')
+      } else if (callCount === 2) {
+        // First attempt - failure
+        const err = Object.assign(new Error('failed'), { exitCode: 1, stderr: 'temporary error' })
+        cb(err, '', '')
+      } else {
+        // Second attempt - success
+        cb(null, '{"status":"ok"}', '')
+      }
+    })
+
+    const result = await execCommand<{ status: string }>('status', [], '/tmp/project', { retries: 1 })
+    expect(result).toEqual({ status: 'ok' })
+    expect(callCount).toBe(3)
+  })
+
+  it('throws error after exhausting all retries', async () => {
+    let callCount = 0
+    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
+      callCount++
+      if (callCount === 1) {
+        // which command
+        cb(null, '/usr/local/bin/mdvdb\n', '')
+      } else {
+        // All attempts - timeout
+        const err = Object.assign(new Error('timed out'), { killed: true })
+        cb(err, '', '')
+      }
+    })
+
+    await expect(
+      execCommand('ingest', [], '/tmp/project', { retries: 2 })
+    ).rejects.toThrow(CliTimeoutError)
+
+    expect(callCount).toBe(4) // which + 3 command attempts (initial + 2 retries)
+  })
+
+  it('does not retry CliParseError', async () => {
+    let callCount = 0
+    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
+      callCount++
+      if (callCount === 1) {
+        cb(null, '/usr/local/bin/mdvdb\n', '')
+      } else {
+        cb(null, 'not json', '')
+      }
+    })
+
+    await expect(
+      execCommand('status', [], '/tmp/project', { retries: 2 })
+    ).rejects.toThrow(CliParseError)
+
+    expect(callCount).toBe(2) // which + 1 command attempt (no retries)
+  })
+
+  it('includes retry info in error messages during retries', async () => {
+    let callCount = 0
+    let errorMessage = ''
+    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
+      callCount++
+      if (callCount === 1) {
+        cb(null, '/usr/local/bin/mdvdb\n', '')
+      } else {
+        const err = Object.assign(new Error('failed'), { exitCode: 1, stderr: 'error' })
+        // Capture the error message during retry
+        if (callCount === 2) {
+          try {
+            cb(err, '', '')
+          } catch (e) {
+            errorMessage = (e as Error).message
+            throw e
+          }
+        } else {
+          cb(err, '', '')
+        }
+      }
+    })
+
+    try {
+      await execCommand('status', [], '/tmp/project', { retries: 2 })
+    } catch (error) {
+      const err = error as CliExecutionError
+      expect(err.message).toContain('failed after')
+      expect(err.message).toContain('attempts')
+    }
+  })
 })
 
 describe('execRaw', () => {
@@ -288,5 +403,43 @@ describe('execRaw', () => {
     })
 
     await expect(execRaw('tree', [], '/tmp/project')).rejects.toThrow(CliExecutionError)
+  })
+
+  it('retries on timeout when retries option is set', async () => {
+    let callCount = 0
+    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
+      callCount++
+      if (callCount === 1) {
+        cb(null, '/usr/local/bin/mdvdb\n', '')
+      } else if (callCount === 2) {
+        const err = Object.assign(new Error('timed out'), { killed: true })
+        cb(err, '', '')
+      } else {
+        cb(null, 'success output', '')
+      }
+    })
+
+    const result = await execRaw('tree', [], '/tmp/project', { retries: 1 })
+    expect(result.stdout).toBe('success output')
+    expect(callCount).toBe(3)
+  })
+
+  it('throws error after exhausting all retries for execRaw', async () => {
+    let callCount = 0
+    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
+      callCount++
+      if (callCount === 1) {
+        cb(null, '/usr/local/bin/mdvdb\n', '')
+      } else {
+        const err = Object.assign(new Error('failed'), { exitCode: 1, stderr: 'error' })
+        cb(err, '', '')
+      }
+    })
+
+    await expect(
+      execRaw('tree', [], '/tmp/project', { retries: 2 })
+    ).rejects.toThrow(CliExecutionError)
+
+    expect(callCount).toBe(4) // which + 3 command attempts
   })
 })
