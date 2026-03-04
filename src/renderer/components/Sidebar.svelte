@@ -12,6 +12,7 @@
   import { loadFileTree } from '../stores/files'
   import { sidebarCollapsed, toggleSidebar } from '../stores/ui'
   import FileTree from './FileTree.svelte'
+  import ResizeHandle from './ResizeHandle.svelte'
   import type { Collection } from '../../preload/api'
 
   interface SidebarProps {
@@ -74,11 +75,31 @@
   collectionStatus.subscribe((v) => (currentCollectionStatus = v))
   collectionsLoading.subscribe((v) => (currentCollectionsLoading = v))
   sidebarCollapsed.subscribe((v) => (collapsed = v))
+
+  // Sidebar width state with localStorage persistence
+  let sidebarWidth = $state(
+    typeof localStorage !== 'undefined'
+      ? parseInt(localStorage.getItem('sidebarWidth') ?? '256')
+      : 256
+  )
+
+  function handleResize(newWidth: number) {
+    sidebarWidth = newWidth
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('sidebarWidth', String(newWidth))
+    }
+  }
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_keys -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<aside class="sidebar" class:collapsed={collapsed} onclick={closeContextMenu}>
+<aside
+  class="sidebar"
+  class:collapsed={collapsed}
+  style:width={collapsed ? undefined : `${sidebarWidth}px`}
+  style:min-width={collapsed ? undefined : `${sidebarWidth}px`}
+  onclick={closeContextMenu}
+>
   <!-- Traffic light spacer (macOS window controls) -->
   <div class="traffic-light-spacer"></div>
 
@@ -165,6 +186,16 @@
     {/if}
   </div>
 
+  <!-- Resize handle (only shown when not collapsed) -->
+  {#if !collapsed}
+    <ResizeHandle
+      position="right"
+      minWidth={180}
+      maxWidth={500}
+      width={sidebarWidth}
+      onresize={handleResize}
+    />
+  {/if}
 </aside>
 
 <!-- Context menu -->
