@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
+  import { fade } from 'svelte/transition';
   import {
     searchQuery,
     searchResults,
@@ -69,7 +70,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="search-results-overlay" onclick={handleOverlayClick}>
-  <div class="search-results">
+  <div class="search-results" transition:fade={{ duration: 150 }}>
     <!-- Mode toggle pills -->
     <div class="mode-bar">
       <div class="mode-pills">
@@ -102,13 +103,14 @@
       {:else if !hasQuery}
         <div class="state-message">Type to search across {currentCollection?.name ?? 'collection'}</div>
       {:else}
-        {#each results as result, i}
+        {#each results as result, i (result.chunk.id)}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             class="result-card"
             class:highlighted={currentHighlighted === i}
             onclick={() => handleResultClick(result)}
+            transition:fade={{ duration: 150 }}
           >
             <div class="result-path">{result.file.path}</div>
             {#if result.chunk.heading_hierarchy.length > 0}
