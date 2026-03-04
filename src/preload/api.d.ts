@@ -23,6 +23,20 @@ export interface Collection {
   lastOpenedAt: number
 }
 
+/** A favorited file entry. */
+export interface FavoriteEntry {
+  collectionId: string // Which collection this file belongs to
+  filePath: string // Relative path within the collection
+  addedAt: number // Unix timestamp
+}
+
+/** A recently opened file entry. */
+export interface RecentEntry {
+  collectionId: string
+  filePath: string
+  openedAt: number // Unix timestamp, updated on each open
+}
+
 /** Options for the search command. */
 export interface SearchOptions {
   limit?: number
@@ -71,6 +85,17 @@ export interface MdvdbApi {
 
   // Single-file ingest
   ingestFile(root: string, filePath: string, options?: IngestOptions): Promise<IngestResult>
+
+  // Favorites management
+  listFavorites(): Promise<FavoriteEntry[]>
+  addFavorite(collectionId: string, filePath: string): Promise<void>
+  removeFavorite(collectionId: string, filePath: string): Promise<void>
+  isFavorite(collectionId: string, filePath: string): Promise<boolean>
+
+  // Recents management
+  listRecents(): Promise<RecentEntry[]>
+  addRecent(collectionId: string, filePath: string): Promise<void>
+  clearRecents(): Promise<void>
 }
 
 declare global {
