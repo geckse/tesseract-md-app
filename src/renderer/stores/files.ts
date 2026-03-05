@@ -2,6 +2,7 @@ import { writable, derived, get } from 'svelte/store'
 import type { FileTree, FileTreeNode, FileState } from '../types/cli'
 import { activeCollection } from './collections'
 import { loadProperties, clearProperties, propertiesFileContent } from './properties'
+import { editorMode } from './editor'
 // Lazy import to avoid circular dependency (favorites.ts imports selectedFilePath from here)
 const lazyTrackRecent = (...args: Parameters<typeof import('./favorites').trackRecent>) =>
   import('./favorites').then((m) => m.trackRecent(...args))
@@ -83,6 +84,9 @@ export async function selectFile(path: string | null): Promise<void> {
     clearProperties()
     return
   }
+
+  // Reset to preview mode when opening a new file
+  editorMode.set('preview')
 
   const collection = get(activeCollection)
   if (!collection) return

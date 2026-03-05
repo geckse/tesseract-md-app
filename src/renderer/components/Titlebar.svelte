@@ -1,6 +1,5 @@
 <script lang="ts">
   import { searchOpen, clearSearch } from '../stores/search';
-  import { isDirty, requestSave } from '../stores/editor';
   import { graphViewActive, toggleGraphView } from '../stores/graph';
   import type { SearchResult } from '../types/cli';
   import Search from './Search.svelte';
@@ -24,9 +23,6 @@
 
   let currentSearchOpen = $state(false);
   searchOpen.subscribe((v) => (currentSearchOpen = v));
-
-  let currentIsDirty = $state(false);
-  isDirty.subscribe((v) => (currentIsDirty = v));
 
   function handleResultClick(result: SearchResult) {
     onsearchresultclick?.(result);
@@ -70,13 +66,6 @@
     >
       <span class="material-symbols-outlined">side_navigation</span>
     </button>
-
-    {#if currentIsDirty}
-      <button class="save-button" onclick={requestSave}>
-        <span>Save</span>
-        <kbd class="save-kbd"><span class="kbd-symbol">⌘</span>S</kbd>
-      </button>
-    {/if}
   </div>
 </div>
 
@@ -174,42 +163,4 @@
     font-size: 18px;
   }
 
-  .save-button {
-    -webkit-app-region: no-drag;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 10px;
-    margin-right: 8px;
-    background: var(--color-primary, #00E5FF);
-    color: var(--color-surface-darker, #0a0a0a);
-    border: none;
-    border-radius: 4px;
-    font-weight: 700;
-    font-size: 11px;
-    cursor: pointer;
-    transition: background 0.15s;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    font-family: inherit;
-  }
-
-  .save-button:hover {
-    background: var(--color-primary-dark, #00B8CC);
-  }
-
-  .save-kbd {
-    display: inline-flex;
-    height: 16px;
-    align-items: center;
-    gap: 1px;
-    border-radius: 3px;
-    background: rgba(0, 0, 0, 0.15);
-    padding: 0 4px;
-    font-family: var(--font-mono, 'JetBrains Mono', monospace);
-    font-size: 9px;
-    font-weight: 600;
-    color: var(--color-surface-darker, #0a0a0a);
-    border: none;
-  }
 </style>

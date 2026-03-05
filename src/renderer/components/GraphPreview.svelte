@@ -1,11 +1,11 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
-  import { marked } from 'marked'
   import Badge from './ui/Badge.svelte'
   import ResizeHandle from './ResizeHandle.svelte'
   import { graphSelectedNode, graphViewActive } from '../stores/graph'
   import { selectFile } from '../stores/files'
   import { activeCollection } from '../stores/collections'
+  import { renderMarkdown, formatFrontmatterValue } from '../lib/markdown-render'
   import type { GraphNode, JsonValue } from '../types/cli'
 
   // Panel width management with persistence
@@ -93,36 +93,7 @@
   }
 
   // Rendered HTML from markdown
-  let renderedHtml = $derived.by(() => {
-    if (!fileContent) return ''
-    // Strip frontmatter before rendering
-    let content = fileContent
-    if (content.startsWith('---')) {
-      const endIdx = content.indexOf('---', 3)
-      if (endIdx !== -1) {
-        content = content.slice(endIdx + 3).trimStart()
-      }
-    }
-    try {
-      const html = marked.parse(content, { async: false }) as string
-      return sanitizeHtml(html)
-    } catch {
-      return '<p>Failed to render markdown.</p>'
-    }
-  })
-
-  /** Basic HTML sanitization to prevent XSS in Electron context. */
-  function sanitizeHtml(html: string): string {
-    // Remove script tags, event handlers, and dangerous attributes
-    return html
-      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-      .replace(/\son\w+\s*=\s*["'][^"']*["']/gi, '')
-      .replace(/\son\w+\s*=\s*[^\s>]*/gi, '')
-      .replace(/javascript\s*:/gi, '')
-      .replace(/<iframe\b[^>]*>.*?<\/iframe>/gi, '')
-      .replace(/<object\b[^>]*>.*?<\/object>/gi, '')
-      .replace(/<embed\b[^>]*\/?>/gi, '')
-  }
+  let renderedHtml = $derived(fileContent ? renderMarkdown(fileContent) : '')
 
   // Filename derivation
   let fileName = $derived.by(() => {
@@ -146,14 +117,6 @@
     graphViewActive.set(false)
     graphSelectedNode.set(null)
     selectFile(currentNode.path)
-  }
-
-  function formatValue(value: JsonValue): string {
-    if (value === null) return '—'
-    if (typeof value === 'string') return value
-    if (typeof value === 'number' || typeof value === 'boolean') return String(value)
-    if (Array.isArray(value)) return value.map(formatValue).join(', ')
-    return JSON.stringify(value)
   }
 </script>
 

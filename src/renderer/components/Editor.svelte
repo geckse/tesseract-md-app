@@ -11,7 +11,7 @@
   import { frontmatterDecoration } from '../lib/frontmatter-decoration';
   import { fileContent, fileContentLoading, selectedFilePath } from '../stores/files';
   import { activeCollection } from '../stores/collections';
-  import { isDirty, wordCount, tokenCount, countWords, countTokens, saveRequested, scrollToLine, activeHeadingIndex } from '../stores/editor';
+  import { isDirty, wordCount, tokenCount, countWords, countTokens, saveRequested, scrollToLine, activeHeadingIndex, editorMode, type EditorMode } from '../stores/editor';
   import { propertiesFileContent, outline } from '../stores/properties';
   import { DocumentCache } from '../lib/doc-cache';
   import ConflictNotification from './ConflictNotification.svelte';
@@ -58,6 +58,16 @@
   const unsubSave = saveRequested.subscribe((v) => (saveCounter = v));
   $effect(() => {
     if (saveCounter > 0) handleSave();
+  });
+
+  // Focus editor when switching from preview to editor mode
+  let currentEditorMode = $state<EditorMode>('preview');
+  const unsubEditorMode = editorMode.subscribe((v) => (currentEditorMode = v));
+  $effect(() => {
+    if (currentEditorMode === 'editor' && view) {
+      // Defer focus so the display:none is removed first
+      requestAnimationFrame(() => view?.focus());
+    }
   });
 
   // Scroll editor to a specific line when requested
@@ -474,6 +484,7 @@
     unsubSave();
     unsubScrollToLine();
     unsubOutline();
+    unsubEditorMode();
   });
 </script>
 

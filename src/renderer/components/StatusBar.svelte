@@ -78,17 +78,17 @@
 
 <style>
   .status-bar {
-    height: 32px;
-    min-height: 32px;
+    height: 35px;
+    min-height: 35px;
     background: var(--color-surface-darker, #0a0a0a);
     border-top: 1px solid var(--color-border, #27272a);
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 16px;
-    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    padding: 0 20px 8px 16px;
+    font-family: var(--font-mono);
     font-size: 11px;
-    line-height: 32px;
+    line-height: 35px;
     color: var(--color-text-dim, #71717a);
     user-select: none;
     letter-spacing: -0.025em;

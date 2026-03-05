@@ -24,6 +24,22 @@ export const scrollToLine = writable<number | null>(null)
 /** Currently active heading index in the outline (based on editor scroll position). */
 export const activeHeadingIndex = writable<number>(-1)
 
+/** Current editor mode: 'preview' (rendered HTML) or 'editor' (CodeMirror). */
+export type EditorMode = 'preview' | 'editor'
+
+/** Current editor/preview mode. Defaults to preview. */
+export const editorMode = writable<EditorMode>('preview')
+
+/** Toggle between editor and preview modes. */
+export function toggleEditorMode(): void {
+  editorMode.update((m) => (m === 'editor' ? 'preview' : 'editor'))
+}
+
+/** Set editor mode explicitly. */
+export function setEditorMode(mode: EditorMode): void {
+  editorMode.set(mode)
+}
+
 /** Monotonic counter — increment to request a save from the Editor. */
 export const saveRequested = writable<number>(0)
 

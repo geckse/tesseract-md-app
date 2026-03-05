@@ -5,15 +5,16 @@
   import Titlebar from './components/Titlebar.svelte';
   import StatusBar from './components/StatusBar.svelte';
   import Editor from './components/Editor.svelte';
+  import MarkdownPreview from './components/MarkdownPreview.svelte';
   import PropertiesPanel from './components/PropertiesPanel.svelte';
   import GraphView from './components/GraphView.svelte';
   import GraphPreview from './components/GraphPreview.svelte';
   import IngestModal from './components/IngestModal.svelte';
   import QuickOpen from './components/QuickOpen.svelte';
   import { loadCollections, setActiveCollection, activeCollectionId } from './stores/collections';
-  import { selectFile, fileContentLoading } from './stores/files';
+  import { selectFile, fileContentLoading, selectedFilePath } from './stores/files';
   import { searchOpen, clearSearch } from './stores/search';
-  import { scrollToLine } from './stores/editor';
+  import { scrollToLine, editorMode, toggleEditorMode, requestSave, isDirty } from './stores/editor';
   import { loadFavorites } from './stores/favorites';
   import { openQuickOpen } from './stores/quickopen';
   import { shortcutManager } from './lib/shortcuts';
@@ -89,6 +90,29 @@
         meta: true,
         handler: () => {
           toggleGraphView();
+        },
+      }),
+
+      // Cmd+E / Ctrl+E: Toggle editor/preview mode
+      shortcutManager.register({
+        key: 'e',
+        meta: true,
+        handler: () => {
+          if (!get(graphViewActive)) {
+            toggleEditorMode();
+          }
+        },
+      }),
+
+      // Cmd+S / Ctrl+S: Global save (works in preview mode too)
+      shortcutManager.register({
+        key: 's',
+        meta: true,
+        handler: () => {
+          if (get(editorMode) === 'preview') {
+            requestSave();
+          }
+          // In editor mode, CodeMirror's own keymap handles Cmd+S
         },
       }),
 
@@ -272,8 +296,56 @@
             </div>
           {/if}
         {:else}
-          <div id="main-content" class="editor-region" bind:this={editorEl} tabindex="-1" role="main" aria-label="Editor">
-            <Editor />
+          <div class="editor-with-tabs">
+            {#if $selectedFilePath}
+              <div class="mode-toggle-bar">
+                <div class="mode-toggle-spacer"></div>
+                <div class="mode-toggle" role="tablist" aria-label="Editor mode">
+                  <button
+                    class="mode-tab"
+                    class:active={$editorMode === 'preview'}
+                    role="tab"
+                    aria-selected={$editorMode === 'preview'}
+                    onclick={() => editorMode.set('preview')}
+                  >
+                    Preview
+                  </button>
+                  <button
+                    class="mode-tab"
+                    class:active={$editorMode === 'editor'}
+                    role="tab"
+                    aria-selected={$editorMode === 'editor'}
+                    onclick={() => editorMode.set('editor')}
+                  >
+                    Editor
+                  </button>
+                </div>
+                <div class="mode-toggle-spacer">
+                  {#if $isDirty}
+                    <button class="save-button" onclick={requestSave}>
+                      <span>Save</span>
+                      <kbd class="save-kbd"><span class="kbd-symbol">⌘</span>S</kbd>
+                    </button>
+                  {/if}
+                </div>
+              </div>
+            {/if}
+            <div
+              id="main-content"
+              class="editor-region"
+              class:hidden-region={$editorMode === 'preview'}
+              bind:this={editorEl}
+              tabindex="-1"
+              role="main"
+              aria-label="Editor"
+            >
+              <Editor />
+            </div>
+            {#if $editorMode === 'preview'}
+              <div class="preview-content-region" role="main" aria-label="Preview">
+                <MarkdownPreview />
+              </div>
+            {/if}
           </div>
           {#if propertiesOpen}
             <div class="properties-region" bind:this={propertiesEl} tabindex="-1" role="complementary" aria-label="File metadata">
@@ -397,5 +469,121 @@
     display: flex;
     flex-direction: column;
     height: 100%;
+  }
+
+  .hidden-region {
+    display: none !important;
+  }
+
+  .preview-content-region {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  /* ── Editor with mode tabs ─────────────────────── */
+
+  .editor-with-tabs {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .mode-toggle-bar {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 6px 12px;
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--color-border, #27272a);
+    background: var(--color-bg, #0f0f10);
+  }
+
+  .mode-toggle-spacer {
+    flex: 1;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+  }
+
+  .mode-toggle {
+    display: flex;
+    background: var(--color-surface-dark, #0a0a0a);
+    border: 1px solid var(--color-border, #27272a);
+    border-radius: 6px;
+    padding: 2px;
+    gap: 2px;
+  }
+
+  .mode-tab {
+    padding: 3px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: inherit;
+    color: var(--color-text-dim, #71717a);
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all var(--transition-fast, 150ms ease);
+    letter-spacing: 0.02em;
+  }
+
+  .mode-tab:hover {
+    color: var(--color-text, #e4e4e7);
+  }
+
+  .mode-tab.active {
+    background: var(--color-surface, #161617);
+    color: var(--color-primary, #00E5FF);
+  }
+
+  /* ── Save button ──────────────────────────────── */
+
+  .save-button {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: var(--color-primary, #00E5FF);
+    color: var(--color-surface-darker, #0a0a0a);
+    border: none;
+    border-radius: 4px;
+    font-weight: 700;
+    font-size: 11px;
+    cursor: pointer;
+    transition: background 0.15s;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    font-family: inherit;
+  }
+
+  .save-button:hover {
+    background: var(--color-primary-dark, #00B8CC);
+  }
+
+  .save-kbd {
+    display: inline-flex;
+    height: 16px;
+    align-items: center;
+    gap: 1px;
+    border-radius: 3px;
+    background: rgba(0, 0, 0, 0.15);
+    padding: 0 4px;
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-size: 9px;
+    font-weight: 600;
+    color: var(--color-surface-darker, #0a0a0a);
+    border: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .mode-tab {
+      transition: none;
+    }
   }
 </style>
