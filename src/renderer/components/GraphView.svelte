@@ -40,6 +40,7 @@
   let simEdges: SimEdge[] = [];
   let animFrameId: number | null = null;
   let dirty = true;
+  let pendingData: GraphData | null = null;
 
   // Pan/zoom state
   let panX = 0;
@@ -51,6 +52,9 @@
   let panStartPanX = 0;
   let panStartPanY = 0;
 
+  // Drag state
+  let draggedNode: SimNode | null = null;
+
   // Hover state
   let hoveredNode: SimNode | null = null;
   let tooltipX = 0;
@@ -60,8 +64,8 @@
   let legendVisible = $state(true);
 
   // Canvas dimensions
-  let width = 0;
-  let height = 0;
+  let width = $state(0);
+  let height = $state(0);
 
   // Store subscriptions
   let unsubData: (() => void) | null = null;
@@ -93,13 +97,18 @@
 
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
+    resizeObs = new ResizeObserver(() => resizeCanvas());
+    if (containerEl) resizeObs.observe(containerEl);
     startRenderLoop();
   });
+
+  let resizeObs: ResizeObserver | null = null;
 
   onDestroy(() => {
     if (animFrameId !== null) cancelAnimationFrame(animFrameId);
     if (simulation) simulation.stop();
     window.removeEventListener('resize', resizeCanvas);
+    resizeObs?.disconnect();
     unsubData?.();
     unsubColoring?.();
     unsubSelected?.();
@@ -108,23 +117,35 @@
   function resizeCanvas() {
     if (!containerEl || !canvasEl) return;
     const rect = containerEl.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
     width = rect.width;
     height = rect.height;
     canvasEl.width = width * devicePixelRatio;
     canvasEl.height = height * devicePixelRatio;
-    canvasEl.style.width = `${width}px`;
-    canvasEl.style.height = `${height}px`;
     dirty = true;
+
+    // Flush deferred simulation build once we have real dimensions
+    if (pendingData) {
+      const data = pendingData;
+      pendingData = null;
+      buildSimulation(data);
+    }
   }
 
   function buildSimulation(data: GraphData) {
+    // Defer if container hasn't been measured yet
+    if (!width || !height) {
+      pendingData = data;
+      return;
+    }
+
     if (simulation) simulation.stop();
 
     simNodes = data.nodes.map((n) => ({
       path: n.path,
       cluster_id: n.cluster_id,
-      x: Math.random() * (width || 800),
-      y: Math.random() * (height || 600),
+      x: Math.random() * width,
+      y: Math.random() * height,
     }));
 
     const nodeMap = new Map(simNodes.map((n) => [n.path, n]));
@@ -148,7 +169,7 @@
           .strength(isLarge ? -60 : -120)
           .distanceMax(isLarge ? 200 : 400),
       )
-      .force('center', forceCenter(width / 2 || 400, height / 2 || 300))
+      .force('center', forceCenter(width / 2, height / 2))
       .force('collide', forceCollide<SimNode>(16))
       .alphaDecay(isLarge ? 0.04 : 0.02)
       .velocityDecay(0.3)
@@ -177,6 +198,70 @@
     animFrameId = requestAnimationFrame(frame);
   }
 
+  /** Build neighbor sets for the selected node. */
+  function getSelectedNeighbors(selectedPath: string | null): {
+    neighbors: Set<string>;
+    outEdges: Set<SimEdge>;
+    inEdges: Set<SimEdge>;
+  } {
+    const neighbors = new Set<string>();
+    const outEdges = new Set<SimEdge>();
+    const inEdges = new Set<SimEdge>();
+    if (!selectedPath) return { neighbors, outEdges, inEdges };
+
+    for (const edge of simEdges) {
+      const s = (edge.source as SimNode).path;
+      const t = (edge.target as SimNode).path;
+      if (s === selectedPath) {
+        neighbors.add(t);
+        outEdges.add(edge);
+      }
+      if (t === selectedPath) {
+        neighbors.add(s);
+        inEdges.add(edge);
+      }
+    }
+    return { neighbors, outEdges, inEdges };
+  }
+
+  const EDGE_COLOR_OUT = '#00E5FF';  // outgoing — cyan
+  const EDGE_COLOR_IN = '#FF6B6B';   // incoming — red
+  const ARROW_SIZE = 8;              // arrowhead length in graph-space pixels
+
+  /** Draw an arrowhead at the target end of an edge, stopping at the node radius. */
+  function drawArrow(
+    ctx: CanvasRenderingContext2D,
+    sx: number, sy: number,
+    tx: number, ty: number,
+    nodeRadius: number,
+  ) {
+    const dx = tx - sx;
+    const dy = ty - sy;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len < 1) return;
+
+    // Unit vector from source to target
+    const ux = dx / len;
+    const uy = dy / len;
+
+    // Arrow tip stops at the target node's edge
+    const tipX = tx - ux * nodeRadius;
+    const tipY = ty - uy * nodeRadius;
+
+    // Two wing points
+    const size = ARROW_SIZE / zoom;
+    const wingAngle = Math.PI / 7; // ~25 degrees
+    const cos = Math.cos(wingAngle);
+    const sin = Math.sin(wingAngle);
+
+    ctx.beginPath();
+    ctx.moveTo(tipX, tipY);
+    ctx.lineTo(tipX - size * (ux * cos + uy * sin), tipY - size * (uy * cos - ux * sin));
+    ctx.lineTo(tipX - size * (ux * cos - uy * sin), tipY - size * (uy * cos + ux * sin));
+    ctx.closePath();
+    ctx.fill();
+  }
+
   function draw() {
     if (!canvasEl) return;
     const ctx = canvasEl.getContext('2d');
@@ -189,11 +274,17 @@
     ctx.translate(panX, panY);
     ctx.scale(zoom, zoom);
 
-    // Draw edges
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+    const selectedPath = currentSelected?.path ?? null;
+    const { neighbors, outEdges, inEdges } = getSelectedNeighbors(selectedPath);
+    const hasSelection = selectedPath !== null;
+
+    // --- Edges ---
+    // 1. Draw non-highlighted edges first (dimmed when there's a selection)
     ctx.lineWidth = 1 / zoom;
     ctx.beginPath();
+    ctx.strokeStyle = hasSelection ? 'rgba(255, 255, 255, 0.03)' : 'rgba(255, 255, 255, 0.08)';
     for (const edge of simEdges) {
+      if (outEdges.has(edge) || inEdges.has(edge)) continue;
       const s = edge.source as SimNode;
       const t = edge.target as SimNode;
       if (s.x == null || t.x == null) continue;
@@ -202,18 +293,56 @@
     }
     ctx.stroke();
 
-    // Draw nodes
-    const selectedPath = currentSelected?.path ?? null;
+    // 2. Draw highlighted incoming edges with arrows
+    if (inEdges.size > 0) {
+      ctx.strokeStyle = EDGE_COLOR_IN;
+      ctx.fillStyle = EDGE_COLOR_IN;
+      ctx.lineWidth = 2 / zoom;
+      for (const edge of inEdges) {
+        const s = edge.source as SimNode;
+        const t = edge.target as SimNode;
+        if (s.x == null || t.x == null) continue;
+        ctx.beginPath();
+        ctx.moveTo(s.x, s.y);
+        ctx.lineTo(t.x, t.y);
+        ctx.stroke();
+        drawArrow(ctx, s.x, s.y, t.x, t.y, 8);
+      }
+    }
+
+    // 3. Draw highlighted outgoing edges with arrows
+    if (outEdges.size > 0) {
+      ctx.strokeStyle = EDGE_COLOR_OUT;
+      ctx.fillStyle = EDGE_COLOR_OUT;
+      ctx.lineWidth = 2 / zoom;
+      for (const edge of outEdges) {
+        const s = edge.source as SimNode;
+        const t = edge.target as SimNode;
+        if (s.x == null || t.x == null) continue;
+        ctx.beginPath();
+        ctx.moveTo(s.x, s.y);
+        ctx.lineTo(t.x, t.y);
+        ctx.stroke();
+        drawArrow(ctx, s.x, s.y, t.x, t.y, 6);
+      }
+    }
+
+    // --- Nodes ---
     for (const node of simNodes) {
       const isHovered = hoveredNode === node;
       const isSelected = node.path === selectedPath;
-      const radius = isSelected ? 8 : isHovered ? 7 : 5;
+      const isNeighbor = neighbors.has(node.path);
+      const dimmed = hasSelection && !isSelected && !isNeighbor;
+
+      const radius = isSelected ? 8 : isHovered ? 7 : isNeighbor ? 6 : 5;
 
       ctx.beginPath();
       ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
 
       // Fill color
-      if (currentColoring && node.cluster_id != null) {
+      if (dimmed) {
+        ctx.fillStyle = 'rgba(228, 228, 231, 0.15)';
+      } else if (currentColoring && node.cluster_id != null) {
         ctx.fillStyle = CLUSTER_COLORS[node.cluster_id % CLUSTER_COLORS.length];
       } else {
         ctx.fillStyle = DEFAULT_NODE_COLOR;
@@ -228,15 +357,26 @@
       }
     }
 
-    // Draw labels when zoomed in
+    // --- Labels ---
     if (zoom > 0.8) {
-      ctx.fillStyle = 'rgba(228, 228, 231, 0.8)';
-      ctx.font = `${11 / zoom}px 'Space Grotesk', sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
       for (const node of simNodes) {
+        const isSelected = node.path === selectedPath;
+        const isNeighbor = neighbors.has(node.path);
+        const dimmed = hasSelection && !isSelected && !isNeighbor;
+
+        ctx.fillStyle = dimmed
+          ? 'rgba(228, 228, 231, 0.15)'
+          : isSelected
+            ? '#00E5FF'
+            : isNeighbor
+              ? 'rgba(228, 228, 231, 1.0)'
+              : 'rgba(228, 228, 231, 0.8)';
+        ctx.font = `${(isSelected || isNeighbor ? 12 : 11) / zoom}px 'Space Grotesk', sans-serif`;
+
         const label = node.path.split('/').pop() ?? node.path;
-        ctx.fillText(label, node.x, node.y + (hoveredNode === node ? 10 : 8));
+        ctx.fillText(label, node.x, node.y + (hoveredNode === node || isSelected ? 10 : 8));
       }
     }
 
@@ -264,6 +404,12 @@
 
     const node = findNodeAt(sx, sy);
     if (node) {
+      // Start dragging the node
+      draggedNode = node;
+      node.fx = node.x;
+      node.fy = node.y;
+      // Reheat simulation so other nodes react
+      simulation?.alphaTarget(0.3).restart();
       selectGraphNode({ path: node.path, cluster_id: node.cluster_id });
       return;
     }
@@ -282,6 +428,14 @@
     const sx = e.clientX - rect.left;
     const sy = e.clientY - rect.top;
 
+    if (draggedNode) {
+      const [gx, gy] = screenToGraph(sx, sy);
+      draggedNode.fx = gx;
+      draggedNode.fy = gy;
+      dirty = true;
+      return;
+    }
+
     if (isPanning) {
       panX = panStartPanX + (e.clientX - panStartX);
       panY = panStartPanY + (e.clientY - panStartY);
@@ -299,6 +453,13 @@
   }
 
   function handleMouseUp() {
+    if (draggedNode) {
+      // Release the node — unpin it so simulation can move it again
+      draggedNode.fx = undefined;
+      draggedNode.fy = undefined;
+      draggedNode = null;
+      simulation?.alphaTarget(0);
+    }
     isPanning = false;
   }
 
@@ -308,7 +469,10 @@
     const sx = e.clientX - rect.left;
     const sy = e.clientY - rect.top;
 
-    const factor = e.deltaY < 0 ? 1.1 : 0.9;
+    // Smooth zoom: scale factor proportional to deltaY magnitude
+    // Clamp individual step to avoid massive jumps from trackpad inertia
+    const delta = Math.max(-50, Math.min(50, e.deltaY));
+    const factor = 1 - delta * 0.003;
     const newZoom = Math.max(0.1, Math.min(10, zoom * factor));
 
     // Zoom toward cursor
@@ -367,7 +531,7 @@
       onmouseup={handleMouseUp}
       onmouseleave={handleMouseUp}
       onwheel={handleWheel}
-      style="cursor: {isPanning ? 'grabbing' : hoveredNode ? 'pointer' : 'grab'}"
+      style="width: {width ? `${width}px` : '100%'}; height: {height ? `${height}px` : '100%'}; cursor: {draggedNode ? 'grabbing' : isPanning ? 'grabbing' : hoveredNode ? 'pointer' : 'grab'}"
     ></canvas>
 
     {#if currentData.edges.length === 0}
@@ -434,8 +598,6 @@
 
   canvas {
     display: block;
-    width: 100%;
-    height: 100%;
   }
 
   .graph-empty {
