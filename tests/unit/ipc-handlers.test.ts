@@ -26,7 +26,27 @@ vi.mock('../../src/main/store', () => ({
   addCollection: (...args: unknown[]) => mockAddCollection(...args),
   removeCollection: (...args: unknown[]) => mockRemoveCollection(...args),
   setActiveCollection: (...args: unknown[]) => mockSetActiveCollection(...args),
-  getActiveCollection: (...args: unknown[]) => mockGetActiveCollection(...args)
+  getActiveCollection: (...args: unknown[]) => mockGetActiveCollection(...args),
+  getOnboardingComplete: vi.fn().mockReturnValue(false),
+  setOnboardingComplete: vi.fn(),
+  getEditorFontSize: vi.fn().mockReturnValue(17),
+  setEditorFontSize: vi.fn(),
+  setCliInfo: vi.fn(),
+  initStore: vi.fn()
+}))
+
+// Mock cli-install module
+vi.mock('../../src/main/cli-install', () => ({
+  detectCli: vi.fn().mockResolvedValue({ found: false }),
+  installCli: vi.fn().mockResolvedValue({ success: true, path: '/usr/local/bin/mdvdb', version: '0.1.0' }),
+  checkLatestVersion: vi.fn().mockResolvedValue('0.1.0')
+}))
+
+// Mock config-io module
+vi.mock('../../src/main/config-io', () => ({
+  readConfig: vi.fn().mockResolvedValue({}),
+  writeConfigKey: vi.fn().mockResolvedValue(undefined),
+  deleteConfigKey: vi.fn().mockResolvedValue(undefined)
 }))
 
 // Mock collections module
@@ -212,7 +232,7 @@ describe('registerIpcHandlers', () => {
     expect(channels).toContain('shell:open-path')
     expect(channels).toContain('clipboard:write-text')
     expect(channels).toContain('updater:app-version')
-    expect(channels).toHaveLength(60)
+    expect(channels).toHaveLength(61)
   })
 })
 
