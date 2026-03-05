@@ -102,6 +102,10 @@
   }
 
   onMount(() => {
+    const colors = getEdgeColors();
+    EDGE_COLOR_OUT = colors.out;
+    EDGE_COLOR_IN = colors.in;
+    EDGE_COLOR_BIDI = colors.bidi;
     unsubData = graphData.subscribe((d) => {
       currentData = d;
       if (d) buildSimulation(d);
@@ -288,8 +292,18 @@
     return { neighbors, outEdges, inEdges };
   }
 
-  const EDGE_COLOR_OUT = '#00E5FF';  // outgoing — cyan
-  const EDGE_COLOR_IN = '#FF6B6B';   // incoming — red
+  /** Read edge colors from CSS custom properties (design tokens). */
+  function getEdgeColors() {
+    const style = getComputedStyle(document.documentElement);
+    return {
+      out: style.getPropertyValue('--color-edge-out').trim() || '#00E5FF',
+      in: style.getPropertyValue('--color-edge-in').trim() || '#FF6B6B',
+      bidi: style.getPropertyValue('--color-edge-bidi').trim() || '#51CF66',
+    };
+  }
+  let EDGE_COLOR_OUT = '#00E5FF';
+  let EDGE_COLOR_IN = '#FF6B6B';
+  let EDGE_COLOR_BIDI = '#51CF66';
   const ARROW_SIZE = 8;              // arrowhead length in graph-space pixels
 
   /** Draw an arrowhead at the target end of an edge, stopping at the node radius. */
@@ -369,12 +383,30 @@
       }
     }
 
-    // 2. Draw highlighted incoming edges with arrows
+    // Detect bidirectional: find neighbor IDs that appear in both in and out sets
+    const outTargets = new Set<string>();
+    for (const edge of outEdges) outTargets.add((edge.target as SimNode).id);
+    const inSources = new Set<string>();
+    for (const edge of inEdges) inSources.add((edge.source as SimNode).id);
+    const bidiNeighbors = new Set<string>();
+    for (const id of outTargets) { if (inSources.has(id)) bidiNeighbors.add(id); }
+
+    const bidiOutEdges = new Set<SimEdge>();
+    const bidiInEdges = new Set<SimEdge>();
+    for (const edge of outEdges) {
+      if (bidiNeighbors.has((edge.target as SimNode).id)) bidiOutEdges.add(edge);
+    }
+    for (const edge of inEdges) {
+      if (bidiNeighbors.has((edge.source as SimNode).id)) bidiInEdges.add(edge);
+    }
+
+    // 2. Draw highlighted incoming edges (one-way only) with arrows
     if (inEdges.size > 0) {
       ctx.strokeStyle = EDGE_COLOR_IN;
       ctx.fillStyle = EDGE_COLOR_IN;
       ctx.lineWidth = 2 / zoom;
       for (const edge of inEdges) {
+        if (bidiInEdges.has(edge)) continue;
         const s = edge.source as SimNode;
         const t = edge.target as SimNode;
         if (s.x == null || t.x == null) continue;
@@ -386,12 +418,13 @@
       }
     }
 
-    // 3. Draw highlighted outgoing edges with arrows
+    // 3. Draw highlighted outgoing edges (one-way only) with arrows
     if (outEdges.size > 0) {
       ctx.strokeStyle = EDGE_COLOR_OUT;
       ctx.fillStyle = EDGE_COLOR_OUT;
       ctx.lineWidth = 2 / zoom;
       for (const edge of outEdges) {
+        if (bidiOutEdges.has(edge)) continue;
         const s = edge.source as SimNode;
         const t = edge.target as SimNode;
         if (s.x == null || t.x == null) continue;
@@ -400,6 +433,24 @@
         ctx.lineTo(t.x, t.y);
         ctx.stroke();
         drawArrow(ctx, s.x, s.y, t.x, t.y, 6);
+      }
+    }
+
+    // 4. Draw bidirectional edges — single line, arrows on both ends
+    if (bidiOutEdges.size > 0) {
+      ctx.strokeStyle = EDGE_COLOR_BIDI;
+      ctx.fillStyle = EDGE_COLOR_BIDI;
+      ctx.lineWidth = 2 / zoom;
+      for (const edge of bidiOutEdges) {
+        const s = edge.source as SimNode;
+        const t = edge.target as SimNode;
+        if (s.x == null || t.x == null) continue;
+        ctx.beginPath();
+        ctx.moveTo(s.x, s.y);
+        ctx.lineTo(t.x, t.y);
+        ctx.stroke();
+        drawArrow(ctx, s.x, s.y, t.x, t.y, 8);
+        drawArrow(ctx, t.x, t.y, s.x, s.y, 8);
       }
     }
 

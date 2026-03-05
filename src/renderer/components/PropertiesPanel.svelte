@@ -342,7 +342,7 @@
                     tabindex="0"
                     onclick={() => handleBacklinkClick(link.entry.source)}
                   >
-                    <span class="material-symbols-outlined link-icon">arrow_back</span>
+                    <span class="material-symbols-outlined link-icon link-icon-in">arrow_back</span>
                     <div class="link-info">
                       <span class="link-name">{getFileName(link.entry.source)}</span>
                       {#if link.entry.text}
@@ -370,7 +370,7 @@
                     tabindex="0"
                     onclick={() => handleBacklinkClick(link.entry.target)}
                   >
-                    <span class="material-symbols-outlined link-icon">arrow_forward</span>
+                    <span class="material-symbols-outlined link-icon link-icon-out">arrow_forward</span>
                     <div class="link-info">
                       <span class="link-name">{getFileName(link.entry.target)}</span>
                       {#if link.entry.text}
@@ -744,9 +744,16 @@
 
   .link-icon {
     font-size: 16px;
-    color: var(--color-primary, #00e5ff);
     margin-top: 1px;
     flex-shrink: 0;
+  }
+
+  .link-icon-in {
+    color: var(--color-edge-in, #FF6B6B);
+  }
+
+  .link-icon-out {
+    color: var(--color-edge-out, #00E5FF);
   }
 
   .link-info {

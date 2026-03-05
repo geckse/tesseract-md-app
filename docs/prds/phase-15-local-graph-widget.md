@@ -20,7 +20,7 @@ The data needed is already available: `cli:links` and `cli:backlinks` return out
 
 ## Non-Goals
 
-- **Depth > 1** — Only direct neighbors (depth=1). Multi-hop exploration belongs in the full graph view.
+- ~~**Depth > 1**~~ — *Now implemented:* 2-hop neighbors (depth=2) are fetched asynchronously and displayed with dimmer styling.
 - **Cluster coloring in the widget** — The widget is too small for a cluster legend. Cluster visualization is a full graph view feature.
 - **Editable edges** — Read-only, same as Phase 14.
 - **New Rust API** — This phase reuses existing `links()` and `backlinks()` data already fetched by the Properties Panel. No new CLI commands needed.
@@ -333,11 +333,82 @@ No migration. Purely additive — one new component and minor modifications to P
 - [ ] Graph stabilizes quickly (no visible "explosion" animation)
 - [ ] App tests pass (`npm test` in `app/`)
 
+## Enhancements (Implemented)
+
+The following features were added beyond the original spec during development:
+
+### 2-Hop Graph (Depth 2)
+
+The original PRD specified depth=1 only. The widget now fetches and displays depth-2 (neighbors of neighbors) via additional `window.api.links()` / `window.api.backlinks()` calls for each depth-1 neighbor. This provides richer context without requiring the full graph view.
+
+- **Node depths:** `depth=0` (center), `depth=1` (direct neighbor), `depth=2` (second-hop neighbor)
+- **Async fetch:** Depth-2 data is fetched via `fetchNeighborLinks()` before rendering — no visual "jump" from depth-1 to depth-2
+- **Fallback:** If no active collection or fetch fails, renders depth-1 only
+- **Visual hierarchy:** Center (6px cyan) → depth-1 (4px gray) → depth-2 (3px dimmer)
+
+### Directional Edges with Color Coding
+
+Edges are color-coded by direction using design token CSS variables:
+
+| Direction | Color | Token | Default |
+|---|---|---|---|
+| Outgoing (center → target) | Cyan | `--color-edge-out` | `#00E5FF` |
+| Incoming (source → center) | Red | `--color-edge-in` | `#FF6B6B` |
+| Bidirectional (both ways) | Green | `--color-edge-bidi` | `#51CF66` |
+| Depth-2 / default | Dim white | — | `rgba(255,255,255,0.08–0.15)` |
+
+- **Bidirectional detection:** `buildLocalGraph()` tracks when A→B and B→A both exist, marks the edge `bidirectional: true`, and renders a single line (not two overlapping lines)
+- **Arrowheads on hover only:** SVG marker arrowheads appear only when hovering a connected node, keeping the default view clean
+- **Bidirectional arrows:** Bidirectional edges show green arrowheads on both ends (`marker-start` + `marker-end`) on hover
+
+These same tokens are also applied in:
+- `GraphView.svelte` — global graph uses the same bidi detection and green color for canvas-drawn edges
+- `PropertiesPanel.svelte` — incoming link icons use `--color-edge-in`, outgoing link icons use `--color-edge-out`
+
+### Zoom & Pan Controls
+
+Bottom-left overlay buttons:
+
+- **Pan tool** (`pan_tool` icon): Toggle pan mode — click and drag to move the viewBox
+- **Zoom in** (`add` icon): Increase zoom by 0.25 (max 3x)
+- **Zoom out** (`remove` icon): Decrease zoom by 0.25 (min 0.3x)
+
+Implemented via SVG `viewBox` manipulation (not CSS transform), using pointer events with `setPointerCapture` for smooth dragging. Zoom/pan state resets when the selected file changes.
+
+### Spread In/Out Controls
+
+Bottom-right overlay buttons:
+
+- **Spread out** (`open_in_full` icon): Increase d3-force link distance by 15 (max 150)
+- **Spread in** (`close_fullscreen` icon): Decrease link distance by 15 (min 30)
+
+Changing spread re-runs the d3-force simulation with the new distance parameter.
+
+### Label Backgrounds
+
+Node labels have an opaque background `<rect>` behind the `<text>` element (`rgba(15, 15, 16, 0.85)`) for readability against dense edge clusters.
+
+### Edge Sorting
+
+Edges are rendered in a deliberate order for visibility: depth-2 edges first (background), then outgoing, then incoming last (on top). This ensures directional edges from/to the center node are always visible above the dim depth-2 edges.
+
+### Files Modified
+
+| File | Purpose |
+|---|---|
+| `app/src/renderer/utils/local-graph.ts` | Graph building utility — `LocalNode` (with `depth`), `LocalEdge` (with `bidirectional`), `NeighborLinks`, `buildLocalGraph()` |
+| `app/src/renderer/components/LocalGraph.svelte` | SVG graph component with zoom/pan, spread, directional edges, hover arrowheads |
+| `app/src/renderer/components/PropertiesPanel.svelte` | Direction-colored link icons (`.link-icon-in`, `.link-icon-out`) |
+| `app/src/renderer/components/GraphView.svelte` | Bidirectional edge detection + green color in global canvas graph |
+| `app/src/renderer/styles/tokens.css` | Design tokens: `--color-edge-out`, `--color-edge-in`, `--color-edge-bidi` |
+| `app/src/renderer/styles/app.css` | Tailwind theme mapping for edge color tokens |
+| `app/tests/unit/LocalGraph.test.ts` | 34 tests covering depth-2, bidirectional edges, component rendering |
+
 ## Anti-Patterns to Avoid
 
 - **Canvas for the widget** — Canvas is overkill for ~30 nodes and makes click handling harder. SVG gives native DOM events, cursor changes, and accessibility for free.
 - **Fetching extra data** — Don't add new IPC calls. The Properties Panel already fetches `linksInfo` and `backlinksInfo` for the selected file. Build the graph from existing store data.
-- **Pan/zoom on the widget** — The widget is a fixed-size peripheral glance, not an exploration tool. Pan/zoom belongs in the full graph view (Phase 14). Keep interaction simple: click to navigate.
+- ~~**Pan/zoom on the widget**~~ — *Now implemented:* Zoom/pan controls were added (bottom-left buttons) since depth-2 graphs can be dense. ViewBox-based zoom keeps the SVG crisp at all levels.
 - **Re-running simulation on every store update** — Only rebuild the simulation when the selected file path changes, not on every render. Use `$effect` keyed on `centerPath`.
 - **Large fixed height** — Don't make the graph section taller than 200px. It should complement the other sections, not dominate the panel. Users who want more space use the expand button.
 

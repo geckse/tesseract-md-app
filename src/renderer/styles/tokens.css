@@ -31,6 +31,11 @@
   --color-error: #ef4444;
   --color-info: #60a5fa;
 
+  /* --- Colors: Graph edges --- */
+  --color-edge-out: #00E5FF;
+  --color-edge-in: #FF6B6B;
+  --color-edge-bidi: #51CF66;
+
   /* --- Fonts --- */
   --font-display: 'Space Grotesk', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
