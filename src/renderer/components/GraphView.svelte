@@ -471,8 +471,12 @@
       if (dimmed) {
         ctx.fillStyle = 'rgba(228, 228, 231, 0.15)';
       } else if (chunk) {
-        // Chunk mode: color by source file path
-        ctx.fillStyle = fileColor(node.path);
+        // Chunk mode: cluster color when enabled, else file color
+        if (currentColoring && node.cluster_id != null) {
+          ctx.fillStyle = CLUSTER_COLORS[node.cluster_id % CLUSTER_COLORS.length];
+        } else {
+          ctx.fillStyle = fileColor(node.path);
+        }
       } else if (currentColoring && node.cluster_id != null) {
         ctx.fillStyle = CLUSTER_COLORS[node.cluster_id % CLUSTER_COLORS.length];
       } else {
@@ -704,7 +708,8 @@
         <div class="tooltip-path">{hoveredNode.path}</div>
         {#if isChunkMode() && hoveredNode.label}
           <div class="tooltip-heading">{hoveredNode.label}</div>
-        {:else if hoveredNode.cluster_id != null && currentData}
+        {/if}
+        {#if hoveredNode.cluster_id != null && currentData}
           {@const cluster = currentData.clusters.find((c) => c.id === hoveredNode!.cluster_id)}
           {#if cluster}
             <div class="tooltip-cluster">{cluster.label}</div>
