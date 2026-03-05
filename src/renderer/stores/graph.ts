@@ -1,5 +1,5 @@
 import { writable, get } from 'svelte/store'
-import type { GraphData, GraphNode } from '../types/cli'
+import type { GraphData, GraphLevel, GraphNode } from '../types/cli'
 import { activeCollection } from './collections'
 
 /** Whether the graph view is currently active. */
@@ -20,6 +20,9 @@ export const graphSelectedNode = writable<GraphNode | null>(null)
 /** Whether cluster coloring is enabled. */
 export const graphClusterColoring = writable<boolean>(true)
 
+/** Current graph detail level (document or chunk). */
+export const graphLevel = writable<GraphLevel>('document')
+
 /** Generation counter to discard stale async results. */
 let loadGeneration = 0
 
@@ -37,7 +40,8 @@ export async function loadGraphData(): Promise<void> {
   graphError.set(null)
 
   try {
-    const data = await window.api.graphData(collection.path)
+    const level = get(graphLevel)
+    const data = await window.api.graphData(collection.path, level)
 
     // Ignore stale results
     if (generation !== loadGeneration) return
@@ -67,6 +71,15 @@ export function toggleGraphView(): void {
   }
 }
 
+/** Set the graph detail level and reload data. */
+export function setGraphLevel(level: GraphLevel): void {
+  graphLevel.set(level)
+  graphSelectedNode.set(null)
+  if (get(graphViewActive)) {
+    loadGraphData()
+  }
+}
+
 /** Select a node in the graph, or clear selection with null. */
 export function selectGraphNode(node: GraphNode | null): void {
   graphSelectedNode.set(node)
@@ -81,4 +94,5 @@ export function resetGraphState(): void {
   graphError.set(null)
   graphSelectedNode.set(null)
   graphClusterColoring.set(true)
+  graphLevel.set('document')
 }
