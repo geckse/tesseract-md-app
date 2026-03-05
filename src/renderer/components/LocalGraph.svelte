@@ -1,8 +1,10 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide } from 'd3-force';
-  import type { Simulation, SimulationNodeDatum, SimulationLinkDatum } from 'd3-force';
+  import type { Simulation } from 'd3-force';
   import type { LinksOutput, BacklinksOutput } from '../types/cli';
+  import { buildLocalGraph } from '../utils/local-graph';
+  import type { LocalNode, LocalEdge, LocalGraphData } from '../utils/local-graph';
 
   interface LocalGraphProps {
     centerPath: string | null;
@@ -13,23 +15,6 @@
   }
 
   let { centerPath, linksInfo, backlinksInfo, onfileselect, onexpand }: LocalGraphProps = $props();
-
-  interface LocalNode extends SimulationNodeDatum {
-    path: string;
-    isCenter: boolean;
-    x: number;
-    y: number;
-  }
-
-  interface LocalEdge extends SimulationLinkDatum<LocalNode> {
-    source: LocalNode | string;
-    target: LocalNode | string;
-  }
-
-  interface LocalGraph {
-    nodes: LocalNode[];
-    edges: LocalEdge[];
-  }
 
   const WIDTH = 250;
   const HEIGHT = 200;
@@ -50,73 +35,7 @@
     return parts[parts.length - 1];
   }
 
-  function buildLocalGraph(
-    center: string | null,
-    links: LinksOutput | null,
-    backlinks: BacklinksOutput | null,
-  ): LocalGraph {
-    if (!center) return { nodes: [], edges: [] };
-
-    const nodeMap = new Map<string, LocalNode>();
-
-    // Center node
-    nodeMap.set(center, {
-      path: center,
-      isCenter: true,
-      x: WIDTH / 2,
-      y: HEIGHT / 2,
-    });
-
-    const edges: LocalEdge[] = [];
-
-    // Outgoing links (center -> target)
-    if (links?.links?.outgoing) {
-      for (const resolved of links.links.outgoing) {
-        if (resolved.state !== 'Valid') continue;
-        const target = resolved.entry.target;
-        if (target === center) continue; // skip self-links
-        if (!nodeMap.has(target)) {
-          nodeMap.set(target, {
-            path: target,
-            isCenter: false,
-            x: WIDTH / 2 + (Math.random() - 0.5) * 100,
-            y: HEIGHT / 2 + (Math.random() - 0.5) * 100,
-          });
-        }
-        edges.push({ source: center, target });
-      }
-    }
-
-    // Incoming backlinks (source -> center)
-    if (backlinks?.backlinks) {
-      for (const resolved of backlinks.backlinks) {
-        if (resolved.state !== 'Valid') continue;
-        const source = resolved.entry.source;
-        if (source === center) continue;
-        if (!nodeMap.has(source)) {
-          nodeMap.set(source, {
-            path: source,
-            isCenter: false,
-            x: WIDTH / 2 + (Math.random() - 0.5) * 100,
-            y: HEIGHT / 2 + (Math.random() - 0.5) * 100,
-          });
-        }
-        // Avoid duplicate edges
-        const alreadyExists = edges.some(
-          (e) =>
-            (e.source === source && e.target === center) ||
-            (e.source === center && e.target === source),
-        );
-        if (!alreadyExists) {
-          edges.push({ source, target: center });
-        }
-      }
-    }
-
-    return { nodes: Array.from(nodeMap.values()), edges };
-  }
-
-  function runSimulation(graph: LocalGraph) {
+  function runSimulation(graph: LocalGraphData) {
     if (simulation) simulation.stop();
 
     if (graph.nodes.length === 0) {
@@ -125,9 +44,9 @@
       return;
     }
 
-    simNodes = graph.nodes;
+    const nodes = graph.nodes;
 
-    simulation = forceSimulation<LocalNode>(simNodes)
+    simulation = forceSimulation<LocalNode>(nodes)
       .force(
         'link',
         forceLink<LocalNode, LocalEdge>(graph.edges)
@@ -145,10 +64,9 @@
     simulation.tick(100);
     simulation.stop();
 
-    // Capture resolved edges
+    // Capture resolved edges and trigger reactivity
     simEdges = graph.edges as LocalEdge[];
-    // Trigger reactivity
-    simNodes = [...simNodes];
+    simNodes = [...nodes];
   }
 
   // Rebuild graph when inputs change
