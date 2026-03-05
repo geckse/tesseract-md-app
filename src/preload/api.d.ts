@@ -52,6 +52,28 @@ export interface IngestOptions {
   reindex?: boolean
 }
 
+/** Result of CLI detection. */
+export interface CliDetectResult {
+  found: boolean
+  path?: string
+  version?: string
+}
+
+/** Progress update during CLI installation. */
+export interface CliInstallProgress {
+  stage: string
+  percent?: number
+  error?: string
+}
+
+/** Result of CLI installation. */
+export interface CliInstallResult {
+  success: boolean
+  path: string
+  version: string
+  error?: string
+}
+
 /** Typed API exposed to the renderer process via contextBridge. */
 export interface MdvdbApi {
   findCli(): Promise<string>
@@ -123,6 +145,31 @@ export interface MdvdbApi {
   // Native menu events
   onMenuOpenRecent(callback: (data: { collectionId: string; filePath: string }) => void): void
   removeMenuOpenRecentListener(): void
+
+  // CLI detection & installation
+  detectCli(): Promise<CliDetectResult>
+  installCli(): Promise<CliInstallResult>
+  onInstallProgress(callback: (progress: CliInstallProgress) => void): void
+  removeInstallProgressListener(): void
+  checkLatestCliVersion(): Promise<string>
+
+  // User-level config (~/.mdvdb/config)
+  getUserConfig(): Promise<Record<string, string>>
+  setUserConfig(key: string, value: string): Promise<void>
+  deleteUserConfig(key: string): Promise<void>
+
+  // Collection-level config (.markdownvdb/.config)
+  getCollectionConfig(root: string): Promise<Record<string, string>>
+  setCollectionConfig(root: string, key: string, value: string): Promise<void>
+  deleteCollectionConfig(root: string, key: string): Promise<void>
+
+  // Onboarding state
+  getOnboardingComplete(): Promise<boolean>
+  setOnboardingComplete(value: boolean): Promise<void>
+
+  // Editor preferences
+  getEditorFontSize(): Promise<number>
+  setEditorFontSize(value: number): Promise<void>
 }
 
 /** Watcher status returned by getWatcherStatus. */
