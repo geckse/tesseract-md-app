@@ -283,3 +283,116 @@ describe('LocalGraph component rendering', () => {
     expect(lines.length).toBe(1)
   })
 })
+
+// --- Integration tests: LocalGraph within PropertiesPanel ---
+import { fireEvent } from '@testing-library/svelte'
+import {
+  documentInfo,
+  backlinksInfo,
+  linksInfo,
+  propertiesLoading,
+  propertiesError,
+  propertiesFileContent,
+} from '../../src/renderer/stores/properties'
+import { selectedFilePath } from '../../src/renderer/stores/files'
+import PropertiesPanel from '@renderer/components/PropertiesPanel.svelte'
+import type { LinksOutput as LinksOutputType, BacklinksOutput as BacklinksOutputType } from '../../src/renderer/types/cli'
+
+const sampleLinks: LinksOutputType = {
+  file: 'docs/test.md',
+  links: {
+    file: 'docs/test.md',
+    outgoing: [
+      {
+        entry: { source: 'docs/test.md', target: 'docs/guide.md', text: 'see guide', line_number: 10, is_wikilink: false },
+        state: 'Valid',
+      },
+    ],
+    incoming: [],
+  },
+}
+
+const sampleBacklinks: BacklinksOutputType = {
+  file: 'docs/test.md',
+  backlinks: [
+    {
+      entry: { source: 'notes/standup.md', target: 'docs/test.md', text: 'Discussed test doc', line_number: 12, is_wikilink: true },
+      state: 'Valid',
+    },
+  ],
+  total_backlinks: 1,
+}
+
+function resetStores() {
+  documentInfo.set(null)
+  backlinksInfo.set(null)
+  linksInfo.set(null)
+  propertiesLoading.set(false)
+  propertiesError.set(null)
+  propertiesFileContent.set(null)
+  selectedFilePath.set(null)
+}
+
+describe('LocalGraph integration in PropertiesPanel', () => {
+  beforeEach(() => {
+    resetStores()
+    vi.resetAllMocks()
+  })
+
+  it('shows "Local Graph" section header when a file is selected', () => {
+    selectedFilePath.set('docs/test.md')
+    render(PropertiesPanel)
+    expect(screen.getByText('Local Graph')).toBeTruthy()
+  })
+
+  it('collapses and expands Local Graph section on header click', async () => {
+    selectedFilePath.set('docs/test.md')
+    linksInfo.set(sampleLinks)
+    backlinksInfo.set(sampleBacklinks)
+
+    render(PropertiesPanel)
+
+    // Local Graph section should be open by default — the Graph header inside LocalGraph should be visible
+    const graphHeader = screen.getByText('Graph')
+    expect(graphHeader).toBeTruthy()
+
+    // Collapse
+    await fireEvent.click(screen.getByText('Local Graph'))
+    expect(screen.queryByText('Graph')).toBeNull()
+
+    // Re-expand
+    await fireEvent.click(screen.getByText('Local Graph'))
+    expect(screen.getByText('Graph')).toBeTruthy()
+  })
+
+  it('has expand button with correct title attribute', () => {
+    selectedFilePath.set('docs/test.md')
+    render(PropertiesPanel)
+
+    const expandBtn = screen.getByTitle('Open in full graph view')
+    expect(expandBtn).toBeTruthy()
+  })
+
+  it('fires onfileselect with correct path when a graph node is clicked', async () => {
+    // Set stores BEFORE render so subscriptions fire during initialization
+    selectedFilePath.set('docs/test.md')
+    linksInfo.set(sampleLinks)
+    backlinksInfo.set(sampleBacklinks)
+
+    const handler = vi.fn()
+    const { container } = render(PropertiesPanel, { props: { onfileselect: handler } })
+
+    // Neighbor labels only appear on hover, so click a neighbor node circle directly
+    const graphNodes = container.querySelectorAll('.graph-node')
+    // First graph-node is center (test.md), second and third are neighbors
+    expect(graphNodes.length).toBeGreaterThanOrEqual(2)
+
+    // Click the second node (a neighbor — either guide.md or standup.md)
+    await fireEvent.click(graphNodes[1])
+
+    // Handler should be called with one of the neighbor paths
+    expect(handler).toHaveBeenCalledTimes(1)
+    const calledPath = handler.mock.calls[0][0].path
+    expect(['docs/guide.md', 'notes/standup.md']).toContain(calledPath)
+  })
+})
