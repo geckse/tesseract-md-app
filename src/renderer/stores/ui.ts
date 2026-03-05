@@ -17,3 +17,12 @@ export async function completeOnboarding(): Promise<void> {
   await window.api.setOnboardingComplete(true)
   onboardingComplete.set(true)
 }
+
+/** Editor font size in pixels. */
+export const editorFontSize = writable<number>(17)
+
+/** Load editor font size from the main process store. */
+export async function loadEditorFontSize(): Promise<void> {
+  const size = await window.api.getEditorFontSize()
+  editorFontSize.set(size)
+}
