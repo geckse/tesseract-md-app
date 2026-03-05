@@ -21,7 +21,7 @@
 
   /** Cluster color palette (12 colors, cycling). */
   const CLUSTER_COLORS = [
-    '#00E5FF', '#FF6B6B', '#51CF66', '#FFD43B', '#845EF7', '#FF922B',
+    '#E879F9', '#FF6B6B', '#51CF66', '#FFD43B', '#845EF7', '#FF922B',
     '#20C997', '#F06595', '#339AF0', '#B2F2BB', '#D0BFFF', '#FFC078',
   ];
 
@@ -108,6 +108,15 @@
     return currentLevel === 'chunk';
   }
 
+  // When canvasEl becomes available (after {#if} renders it), sync its buffer size
+  $effect(() => {
+    if (canvasEl && width && height) {
+      canvasEl.width = width * devicePixelRatio;
+      canvasEl.height = height * devicePixelRatio;
+      dirty = true;
+    }
+  });
+
   onMount(() => {
     const colors = getEdgeColors();
     EDGE_COLOR_OUT = colors.out;
@@ -167,14 +176,16 @@
   });
 
   function resizeCanvas() {
-    if (!containerEl || !canvasEl) return;
+    if (!containerEl) return;
     const rect = containerEl.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return;
     width = rect.width;
     height = rect.height;
-    canvasEl.width = width * devicePixelRatio;
-    canvasEl.height = height * devicePixelRatio;
-    dirty = true;
+    if (canvasEl) {
+      canvasEl.width = width * devicePixelRatio;
+      canvasEl.height = height * devicePixelRatio;
+      dirty = true;
+    }
 
     // Flush deferred simulation build once we have real dimensions
     if (pendingData) {
@@ -324,13 +335,20 @@
     }
     if (fileNodeIds.size === 0) return { fileNodeIds, fileEdges };
 
+    const fileNeighborIds = new Set<string>();
     for (const edge of simEdges) {
       const s = (edge.source as SimNode).id;
       const t = (edge.target as SimNode).id;
-      if (fileNodeIds.has(s) || fileNodeIds.has(t)) {
+      if (fileNodeIds.has(s)) {
         fileEdges.add(edge);
+        fileNeighborIds.add(t);
+      } else if (fileNodeIds.has(t)) {
+        fileEdges.add(edge);
+        fileNeighborIds.add(s);
       }
     }
+    // Include neighbors so they aren't dimmed
+    for (const id of fileNeighborIds) fileNodeIds.add(id);
     return { fileNodeIds, fileEdges };
   }
 
@@ -780,7 +798,7 @@
       onmouseup={handleMouseUp}
       onmouseleave={handleMouseUp}
       onwheel={handleWheel}
-      style="width: {width ? `${width}px` : '100%'}; height: {height ? `${height}px` : '100%'}; cursor: {draggedNode ? 'grabbing' : isPanning ? 'grabbing' : hoveredNode ? 'pointer' : 'grab'}"
+      style="cursor: {draggedNode ? 'grabbing' : isPanning ? 'grabbing' : hoveredNode ? 'pointer' : 'grab'}"
     ></canvas>
 
     <!-- Level tab switcher -->
@@ -867,6 +885,8 @@
 
   canvas {
     display: block;
+    width: 100%;
+    height: 100%;
   }
 
   .graph-empty {
