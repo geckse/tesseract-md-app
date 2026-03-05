@@ -186,16 +186,23 @@ export interface ClusterSummary {
 
 // ─── Graph ───────────────────────────────────────────────────────
 
-/** A node in the graph representing an indexed file. */
+/** Graph level controlling node granularity. */
+export type GraphLevel = 'document' | 'chunk';
+
+/** A node in the graph representing an indexed file or chunk. */
 export interface GraphNode {
+  id: string;
   path: string;
+  label: string | null;
   cluster_id: number | null;
+  chunk_index: number | null;
 }
 
-/** An edge in the graph representing a link between two indexed files. */
+/** An edge in the graph representing a link between two indexed files or chunks. */
 export interface GraphEdge {
   source: string;
   target: string;
+  weight: number | null;
 }
 
 /** A cluster summary for graph visualization. */
@@ -211,6 +218,7 @@ export interface GraphData {
   nodes: GraphNode[];
   edges: GraphEdge[];
   clusters: GraphCluster[];
+  level: GraphLevel;
 }
 
 // ─── File Tree ───────────────────────────────────────────────────────
