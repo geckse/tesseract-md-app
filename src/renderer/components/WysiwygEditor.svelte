@@ -10,6 +10,7 @@
   import { propertiesFileContent } from '../stores/properties';
   import { DocumentCache } from '../lib/doc-cache';
   import ConflictNotification from './ConflictNotification.svelte';
+  import FrontmatterEditor from './wysiwyg/FrontmatterEditor.svelte';
   import { showConflict, dismissConflict } from '../stores/conflict';
 
   let editorEl: HTMLDivElement | undefined = $state(undefined);
@@ -221,6 +222,14 @@
       .run();
   }
 
+  /**
+   * Handle frontmatter updates from the visual property editor.
+   */
+  function handleFrontmatterUpdate(newYaml: string | null) {
+    currentFrontmatter = newYaml;
+    handleEditorUpdate();
+  }
+
   function createEditor(body: string) {
     if (!editorEl) return;
     destroyEditor();
@@ -338,6 +347,7 @@
 {#if currentSelectedFilePath}
   <div class="wysiwyg-editor-container">
     <ConflictNotification />
+    <FrontmatterEditor frontmatterYaml={currentFrontmatter} onUpdate={handleFrontmatterUpdate} />
     {#if largeFileWarning}
       <div class="large-file-warning">
         <span class="material-symbols-outlined warning-icon">warning</span>
