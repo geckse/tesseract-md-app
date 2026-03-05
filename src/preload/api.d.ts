@@ -10,6 +10,7 @@ import type {
   OrphansOutput,
   ClusterSummary,
   GraphData,
+  GraphLevel,
   Schema,
   Config,
   DoctorResult
@@ -65,7 +66,7 @@ export interface MdvdbApi {
   backlinks(root: string, filePath: string): Promise<BacklinksOutput>
   orphans(root: string): Promise<OrphansOutput>
   clusters(root: string): Promise<ClusterSummary[]>
-  graphData(root: string): Promise<GraphData>
+  graphData(root: string, level?: GraphLevel): Promise<GraphData>
   schema(root: string): Promise<Schema>
   config(root: string): Promise<Config>
   doctor(root: string): Promise<DoctorResult>
