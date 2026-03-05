@@ -17,7 +17,7 @@
   let items: LinkSuggestionItem[] = $state([]);
   let loading = $state(false);
   let headingMode = $state(false);
-  let selectedFile = $state('');
+  let _selectedFile = $state('');
 
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let searchGeneration = 0;
@@ -122,7 +122,7 @@
   }
 
   async function switchToHeadingMode(filePath: string): Promise<void> {
-    selectedFile = filePath;
+    _selectedFile = filePath;
     headingMode = true;
     loading = true;
     selectedIndex = 0;
@@ -236,8 +236,11 @@
 <div
   class="link-autocomplete-menu"
   bind:this={menuEl}
-  role="listbox"
+  role="combobox"
   aria-label="Link autocomplete"
+  aria-expanded="true"
+  aria-haspopup="listbox"
+  aria-controls="link-autocomplete-listbox"
 >
   {#if loading}
     <div class="link-empty">Searching...</div>

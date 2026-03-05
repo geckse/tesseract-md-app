@@ -27,7 +27,7 @@
       pluginKey: 'bubbleMenu',
       editor,
       element: menuEl,
-      shouldShow: ({ editor: e, state, from, to }) => {
+      shouldShow: ({ editor: e, state: _state, from, to }) => {
         // Don't show for empty selections or node selections (images, etc.)
         if (from === to) return false;
         if (e.isActive('image')) return false;

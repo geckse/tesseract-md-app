@@ -130,11 +130,11 @@
   })
 </script>
 
-<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <div
   bind:this={menuEl}
   class="block-toolbar-menu"
-  role="listbox"
+  role="toolbar"
+  aria-label="Block type"
   tabindex="0"
   onkeydown={handleKeyDown}
 >

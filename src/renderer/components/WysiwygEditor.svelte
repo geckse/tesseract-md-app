@@ -20,7 +20,7 @@
   let previousFilePath: string | null = null;
 
   // Frontmatter preserved across edits (WYSIWYG only edits the body)
-  let currentFrontmatter: string | null = null;
+  let currentFrontmatter: string | null = $state(null);
 
   // File change detection
   let fileWatchInterval: ReturnType<typeof setInterval> | null = null;
@@ -33,7 +33,7 @@
   // Large file handling (>1MB)
   const LARGE_FILE_THRESHOLD = 1024 * 1024;
   let largeFileWarning = $state(false);
-  let forcedSourceMode = $state(false);
+  let _forcedSourceMode = $state(false);
 
   let currentFileContent: string | null = $state(null);
   let currentSelectedFilePath: string | null = $state(null);
@@ -120,7 +120,7 @@
         showConflict(currentSelectedFilePath);
         stopFileWatcher();
       }
-    } catch (err) {
+    } catch {
       stopFileWatcher();
     }
   }
@@ -165,13 +165,13 @@
     const contentSize = new Blob([cached.content]).size;
     if (contentSize > LARGE_FILE_THRESHOLD) {
       largeFileWarning = true;
-      forcedSourceMode = true;
+      _forcedSourceMode = true;
       editorMode.set('editor');
       return false;
     }
 
     largeFileWarning = false;
-    forcedSourceMode = false;
+    _forcedSourceMode = false;
     loadContentIntoEditor(cached.content);
 
     // Restore scroll position
@@ -271,7 +271,7 @@
     const contentSize = new Blob([currentFileContent]).size;
     if (contentSize > LARGE_FILE_THRESHOLD) {
       largeFileWarning = true;
-      forcedSourceMode = true;
+      _forcedSourceMode = true;
       editorMode.set('editor');
       previousFilePath = currentSelectedFilePath;
       lastAppliedFileContent = currentFileContent;
@@ -279,7 +279,7 @@
     }
 
     largeFileWarning = false;
-    forcedSourceMode = false;
+    _forcedSourceMode = false;
 
     const isSwitchingFiles = previousFilePath !== currentSelectedFilePath;
 
@@ -310,7 +310,7 @@
       const contentSize = new Blob([currentFileContent]).size;
       if (contentSize > LARGE_FILE_THRESHOLD) {
         largeFileWarning = true;
-        forcedSourceMode = true;
+        _forcedSourceMode = true;
         editorMode.set('editor');
         return;
       }
@@ -483,5 +483,11 @@
 
   .warning-dismiss .material-symbols-outlined {
     font-size: 16px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .warning-dismiss {
+      transition: none;
+    }
   }
 </style>

@@ -107,7 +107,7 @@
   <div class="frontmatter-editor">
     <div class="fm-header">
       <span class="fm-title">Properties</span>
-      <button class="fm-add-btn" onclick={addProperty} title="Add property">
+      <button class="fm-add-btn" onclick={addProperty} title="Add property" aria-label="Add property">
         <span class="material-symbols-outlined">add</span>
       </button>
     </div>
@@ -121,6 +121,7 @@
             type="text"
             value={row.key}
             placeholder="key"
+            aria-label="Property name"
             oninput={(e) => updateKey(row, (e.target as HTMLInputElement).value)}
           />
           <div class="fm-value-cell">
@@ -138,6 +139,7 @@
                 class="fm-value"
                 type="number"
                 value={row.value as number}
+                aria-label="{row.key} value"
                 oninput={(e) => updateValue(row, Number((e.target as HTMLInputElement).value))}
               />
             {:else if type === 'date'}
@@ -145,6 +147,7 @@
                 class="fm-value"
                 type="date"
                 value={row.value as string}
+                aria-label="{row.key} value"
                 oninput={(e) => updateValue(row, (e.target as HTMLInputElement).value)}
               />
             {:else if type === 'array'}
@@ -159,6 +162,7 @@
                   class="fm-tag-input"
                   type="text"
                   placeholder="+ tag"
+                  aria-label="Add tag to {row.key}"
                   bind:value={newTagInputs[row.id]}
                   onkeydown={(e) => handleTagKeydown(e, row)}
                   onblur={() => addTag(row)}
@@ -168,6 +172,7 @@
               <textarea
                 class="fm-value fm-textarea"
                 value={JSON.stringify(row.value, null, 2)}
+                aria-label="{row.key} value"
                 oninput={(e) => {
                   try {
                     updateValue(row, JSON.parse((e.target as HTMLTextAreaElement).value))
@@ -181,6 +186,7 @@
                 class="fm-value"
                 type="text"
                 value={String(row.value ?? '')}
+                aria-label="{row.key} value"
                 oninput={(e) => updateValue(row, (e.target as HTMLInputElement).value)}
               />
             {/if}
@@ -408,5 +414,17 @@
 
   .fm-remove-btn .material-symbols-outlined {
     font-size: 14px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .fm-add-btn,
+    .fm-key,
+    .fm-value,
+    .fm-toggle,
+    .fm-toggle-knob,
+    .fm-tag-remove,
+    .fm-remove-btn {
+      transition: none;
+    }
   }
 </style>
