@@ -3,6 +3,7 @@
   import { createWysiwygEditor, type WysiwygEditor as WysiwygEditorInstance } from '../lib/tiptap/editor-factory';
   import { splitFrontmatter, joinFrontmatter } from '../lib/tiptap/markdown-bridge';
   import '../lib/tiptap/wysiwyg-theme.css';
+  import 'highlight.js/styles/github-dark.css';
   import { fileContent, fileContentLoading, selectedFilePath } from '../stores/files';
   import { activeCollection } from '../stores/collections';
   import { isDirty, wordCount, tokenCount, countWords, countTokens, saveRequested, editorMode, type EditorMode } from '../stores/editor';

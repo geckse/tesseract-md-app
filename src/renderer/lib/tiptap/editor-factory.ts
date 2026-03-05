@@ -5,8 +5,15 @@ import Typography from '@tiptap/extension-typography'
 import { Markdown } from '@tiptap/markdown'
 import Image from '@tiptap/extension-image'
 import Link from '@tiptap/extension-link'
+import { TableKit } from '@tiptap/extension-table'
+import { CodeBlockLowlight } from '@tiptap/extension-code-block-lowlight'
+import { TaskList, TaskItem } from '@tiptap/extension-list'
+import { createLowlight } from 'lowlight'
+import { grammars as commonGrammars } from 'lowlight/lib/common'
 import { Wikilink } from './wikilink-extension'
 import { SlashCommandExtension } from './slash-command-extension'
+
+const lowlight = createLowlight(commonGrammars)
 
 export interface WysiwygEditorOptions {
   /** Callback fired on every content change */
@@ -68,6 +75,10 @@ export function createWysiwygEditor(
         openOnClick: false,
         HTMLAttributes: { class: 'wysiwyg-link' },
       }),
+      TableKit,
+      CodeBlockLowlight.configure({ lowlight }),
+      TaskList,
+      TaskItem.configure({ nested: true }),
       Wikilink,
       SlashCommandExtension,
     ],

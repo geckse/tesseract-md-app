@@ -255,6 +255,14 @@
   background-color: var(--color-bg);
 }
 
+.ProseMirror .selectedCell {
+  background-color: var(--color-primary-dim);
+}
+
+.ProseMirror tr:hover td {
+  background-color: var(--color-surface-dark);
+}
+
 /* -------------------------------------------------------------------------- */
 /*  Images                                                                    */
 /* -------------------------------------------------------------------------- */
