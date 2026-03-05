@@ -9,9 +9,11 @@
     graphSelectedNode,
     graphClusterColoring,
     graphLevel,
+    graphPathFilter,
     loadGraphData,
     selectGraphNode,
     setGraphLevel,
+    setGraphPathFilter,
   } from '../stores/graph';
   import type { GraphLevel } from '../types/cli';
   import type { GraphNode, GraphEdge, GraphData } from '../types/cli';
@@ -80,6 +82,7 @@
   let unsubColoring: (() => void) | null = null;
   let unsubSelected: (() => void) | null = null;
   let unsubFilePath: (() => void) | null = null;
+  let unsubPathFilter: (() => void) | null = null;
 
   // Reactive local copies for template use
   let currentData: GraphData | null = $state(null);
@@ -89,6 +92,7 @@
   let currentSelected: GraphNode | null = $state(null);
   let currentLevel: GraphLevel = $state('document');
   let currentFilePath: string | null = $state(null);
+  let currentPathFilter: string | null = $state(null);
 
   /** Hash a string to a stable index for color assignment. */
   function fileColor(path: string): string {
@@ -125,6 +129,9 @@
       currentFilePath = p;
       dirty = true;
     });
+    unsubPathFilter = graphPathFilter.subscribe((p) => {
+      currentPathFilter = p;
+    });
     graphLoading.subscribe((v) => { currentLoading = v; });
     graphError.subscribe((v) => { currentError = v; });
     graphLevel.subscribe((v) => {
@@ -156,6 +163,7 @@
     unsubColoring?.();
     unsubSelected?.();
     unsubFilePath?.();
+    unsubPathFilter?.();
   });
 
   function resizeCanvas() {
@@ -783,6 +791,15 @@
         onclick={() => setGraphLevel('chunk')}>Chunks</button>
     </div>
 
+    <!-- Path filter badge -->
+    {#if currentPathFilter}
+      <div class="graph-path-badge">
+        <span class="material-symbols-outlined path-badge-icon">folder</span>
+        <span class="path-badge-text">{currentPathFilter}</span>
+        <button class="path-badge-close" onclick={() => setGraphPathFilter(null)} title="Clear path filter">×</button>
+      </div>
+    {/if}
+
     {#if currentData.edges.length === 0 && currentLevel !== 'chunk'}
       <div class="graph-notice">No link connections found.</div>
     {/if}
@@ -1068,5 +1085,54 @@
   .level-tab.active {
     color: var(--color-primary, #00E5FF);
     background: rgba(0, 229, 255, 0.08);
+  }
+
+  .graph-path-badge {
+    position: absolute;
+    top: var(--space-3, 0.75rem);
+    left: var(--space-3, 0.75rem);
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 0.5rem);
+    padding: var(--space-1, 0.25rem) var(--space-3, 0.75rem);
+    background: var(--color-surface, #161617);
+    border: 1px solid var(--color-border, #27272a);
+    border-radius: var(--radius-md, 0.375rem);
+    z-index: var(--z-base, 10);
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-size: var(--text-xs, 0.625rem);
+    color: var(--color-text, #e4e4e7);
+  }
+
+  .path-badge-icon {
+    font-size: 14px;
+    color: var(--color-text-dim, #71717a);
+  }
+
+  .path-badge-text {
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .path-badge-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    background: none;
+    border: none;
+    color: var(--color-text-dim, #71717a);
+    font-size: 14px;
+    cursor: pointer;
+    border-radius: 2px;
+    transition: color var(--transition-fast, 150ms ease);
+  }
+
+  .path-badge-close:hover {
+    color: var(--color-text, #e4e4e7);
   }
 </style>
