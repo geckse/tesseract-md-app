@@ -32,6 +32,9 @@ export interface RecentEntry {
   openedAt: number // Unix timestamp, updated on each open
 }
 
+/** Update channel preference */
+export type UpdateChannel = 'stable' | 'beta'
+
 /** Schema for the persistent store */
 export interface AppStore {
   collections: Collection[]
@@ -45,6 +48,9 @@ export interface AppStore {
   cliVersion: string | null
   onboardingComplete: boolean
   editorFontSize: number
+  updateChannel: UpdateChannel
+  lastUpdateCheck: number | null
+  skipVersion: string | null
 }
 
 /** electron-store schema definition for validation */
@@ -127,6 +133,19 @@ const schema = {
   editorFontSize: {
     type: 'number' as const,
     default: 17
+  },
+  updateChannel: {
+    type: 'string' as const,
+    default: 'stable' as UpdateChannel,
+    enum: ['stable', 'beta']
+  },
+  lastUpdateCheck: {
+    type: ['number', 'null'] as const,
+    default: null
+  },
+  skipVersion: {
+    type: ['string', 'null'] as const,
+    default: null
   }
 }
 
@@ -251,4 +270,40 @@ export function setCliInfo(path: string | null, version: string | null): void {
   const s = initStore()
   s.set('cliPath', path)
   s.set('cliVersion', version)
+}
+
+/** Get the current update channel */
+export function getUpdateChannel(): UpdateChannel {
+  const s = initStore()
+  return s.get('updateChannel', 'stable')
+}
+
+/** Set the update channel */
+export function setUpdateChannel(channel: UpdateChannel): void {
+  const s = initStore()
+  s.set('updateChannel', channel)
+}
+
+/** Get the timestamp of the last update check, or null if never checked */
+export function getLastUpdateCheck(): number | null {
+  const s = initStore()
+  return s.get('lastUpdateCheck', null)
+}
+
+/** Record the current time as the last update check */
+export function setLastUpdateCheck(timestamp: number): void {
+  const s = initStore()
+  s.set('lastUpdateCheck', timestamp)
+}
+
+/** Get the version string the user chose to skip, or null */
+export function getSkipVersion(): string | null {
+  const s = initStore()
+  return s.get('skipVersion', null)
+}
+
+/** Set a version to skip (user dismissed the update) */
+export function setSkipVersion(version: string | null): void {
+  const s = initStore()
+  s.set('skipVersion', version)
 }
