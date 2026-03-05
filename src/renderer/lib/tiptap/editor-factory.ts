@@ -13,6 +13,7 @@ import { grammars as commonGrammars } from 'lowlight/lib/common'
 import { Wikilink } from './wikilink-extension'
 import { SlashCommandExtension } from './slash-command-extension'
 import { LinkAutocompleteExtension } from './link-autocomplete-extension'
+import { BlockDragExtension } from './block-drag-extension'
 
 const lowlight = createLowlight(commonGrammars)
 
@@ -87,6 +88,7 @@ export function createWysiwygEditor(
       LinkAutocompleteExtension.configure({
         collectionPath: options.collectionPath ?? '',
       }),
+      BlockDragExtension,
     ],
     onUpdate: options.onUpdate ? ({ editor: e }) => options.onUpdate!(e) : undefined,
   })
