@@ -66,7 +66,7 @@ export interface MdvdbApi {
   backlinks(root: string, filePath: string): Promise<BacklinksOutput>
   orphans(root: string): Promise<OrphansOutput>
   clusters(root: string): Promise<ClusterSummary[]>
-  graphData(root: string, level?: GraphLevel): Promise<GraphData>
+  graphData(root: string, level?: GraphLevel, path?: string): Promise<GraphData>
   schema(root: string): Promise<Schema>
   config(root: string): Promise<Config>
   doctor(root: string): Promise<DoctorResult>

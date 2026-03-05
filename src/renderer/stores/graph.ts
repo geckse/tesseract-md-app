@@ -23,6 +23,9 @@ export const graphClusterColoring = writable<boolean>(true)
 /** Current graph detail level (document or chunk). */
 export const graphLevel = writable<GraphLevel>('document')
 
+/** Optional path filter to scope graph to a subdirectory. */
+export const graphPathFilter = writable<string | null>(null)
+
 /** Generation counter to discard stale async results. */
 let loadGeneration = 0
 
@@ -41,7 +44,8 @@ export async function loadGraphData(): Promise<void> {
 
   try {
     const level = get(graphLevel)
-    const data = await window.api.graphData(collection.path, level)
+    const pathFilter = get(graphPathFilter)
+    const data = await window.api.graphData(collection.path, level, pathFilter ?? undefined)
 
     // Ignore stale results
     if (generation !== loadGeneration) return
@@ -80,6 +84,15 @@ export function setGraphLevel(level: GraphLevel): void {
   }
 }
 
+/** Set the path filter and reload graph data. */
+export function setGraphPathFilter(path: string | null): void {
+  graphPathFilter.set(path)
+  graphSelectedNode.set(null)
+  if (get(graphViewActive)) {
+    loadGraphData()
+  }
+}
+
 /** Select a node in the graph, or clear selection with null. */
 export function selectGraphNode(node: GraphNode | null): void {
   graphSelectedNode.set(node)
@@ -95,4 +108,5 @@ export function resetGraphState(): void {
   graphSelectedNode.set(null)
   graphClusterColoring.set(true)
   graphLevel.set('document')
+  graphPathFilter.set(null)
 }
