@@ -14,6 +14,7 @@
   import QuickOpen from './components/QuickOpen.svelte';
   import Onboarding from './components/Onboarding.svelte';
   import Settings from './components/Settings.svelte';
+  import UpdateNotification from './components/UpdateNotification.svelte';
   import { loadCollections, setActiveCollection, activeCollectionId } from './stores/collections';
   import { selectFile, fileContentLoading, selectedFilePath } from './stores/files';
   import { searchOpen, clearSearch } from './stores/search';
@@ -24,6 +25,7 @@
   import { setupWatcherListener, teardownWatcherListener, fetchWatcherStatus } from './stores/watcher';
   import { graphViewActive, graphSelectedNode, toggleGraphView, selectGraphNode, loadGraphData } from './stores/graph';
   import { settingsOpen, onboardingComplete, loadOnboardingState, editorFontSize, loadEditorFontSize } from './stores/ui';
+  import { setupUpdateListener, teardownUpdateListener } from './stores/updater';
   import type { SearchResult } from './types/cli';
 
 
@@ -39,6 +41,7 @@
     loadCollections();
     loadFavorites();
     setupWatcherListener();
+    setupUpdateListener();
     fetchWatcherStatus();
     loadOnboardingState();
     loadEditorFontSize();
@@ -205,6 +208,7 @@
       shortcutManager.detach();
       document.removeEventListener('mousedown', handleClickAway);
       teardownWatcherListener();
+      teardownUpdateListener();
       window.api.removeMenuOpenRecentListener();
       unsub();
     };
@@ -287,6 +291,7 @@
 <a href="#main-content" class="skip-link">Skip to main content</a>
 
 <div class="app-shell bg-grain" style="--editor-font-size: {$editorFontSize}px">
+  <UpdateNotification />
   <div class="titlebar-region" bind:this={searchAreaEl}>
     <Titlebar
       bind:propertiesOpen
