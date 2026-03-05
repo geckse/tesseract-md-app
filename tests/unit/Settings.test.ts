@@ -41,6 +41,7 @@ import {
   collectionConfig,
   configLoading,
   activeSection,
+  settingsTarget,
 } from '../../src/renderer/stores/settings'
 import { collections, activeCollectionId } from '../../src/renderer/stores/collections'
 import { get } from 'svelte/store'
@@ -51,6 +52,7 @@ function resetStores() {
   collectionConfig.set({})
   configLoading.set(false)
   activeSection.set('cli')
+  settingsTarget.set('global')
   collections.set([])
   activeCollectionId.set(null)
 }
@@ -66,9 +68,16 @@ beforeEach(() => {
 })
 
 describe('Settings component', () => {
-  it('renders all 6 section headings in navigation', () => {
+  it('renders Global Settings in navigation', () => {
     render(Settings, { props: { onclose: vi.fn() } })
 
+    expect(screen.getByText('Global Settings')).toBeTruthy()
+  })
+
+  it('renders all section tabs for global view', () => {
+    render(Settings, { props: { onclose: vi.fn() } })
+
+    // Section tabs should be visible in the content area
     expect(screen.getByText('CLI')).toBeTruthy()
     expect(screen.getByText('Embedding Provider')).toBeTruthy()
     expect(screen.getByText('Search Defaults')).toBeTruthy()
@@ -77,11 +86,72 @@ describe('Settings component', () => {
     expect(screen.getByText('About')).toBeTruthy()
   })
 
-  it('section navigation switches active section', async () => {
+  it('shows global page title and explainer', () => {
     render(Settings, { props: { onclose: vi.fn() } })
 
-    const embeddingNav = screen.getByText('Embedding Provider')
-    await fireEvent.click(embeddingNav)
+    expect(screen.getByText('Global System-Wide Settings')).toBeTruthy()
+    expect(screen.getByText(/These settings apply to all collections/)).toBeTruthy()
+  })
+
+  it('renders collections in nav when collections exist', () => {
+    collections.set([
+      { id: 'c1', name: 'My Notes', path: '/tmp/notes' },
+      { id: 'c2', name: 'Work Docs', path: '/tmp/work' },
+    ])
+    render(Settings, { props: { onclose: vi.fn() } })
+
+    expect(screen.getByText('Collections')).toBeTruthy()
+    expect(screen.getByText('My Notes')).toBeTruthy()
+    expect(screen.getByText('Work Docs')).toBeTruthy()
+  })
+
+  it('clicking collection in nav shows collection settings', async () => {
+    collections.set([
+      { id: 'c1', name: 'My Notes', path: '/tmp/notes' },
+    ])
+    render(Settings, { props: { onclose: vi.fn() } })
+
+    const collectionNav = screen.getByText('My Notes')
+    await fireEvent.click(collectionNav)
+
+    expect(get(settingsTarget)).toBe('c1')
+    expect(screen.getByText('Settings for My Notes')).toBeTruthy()
+    expect(screen.getByText(/These settings override global defaults/)).toBeTruthy()
+  })
+
+  it('collection view shows only embedding/search/chunking tabs', async () => {
+    collections.set([
+      { id: 'c1', name: 'My Notes', path: '/tmp/notes' },
+    ])
+    settingsTarget.set('c1')
+    activeSection.set('embedding')
+    render(Settings, { props: { onclose: vi.fn() } })
+
+    // These should be present as section tabs
+    const sectionTabs = screen.getAllByRole('button').filter(
+      (btn) => btn.classList.contains('section-tab')
+    )
+    const tabTexts = sectionTabs.map((btn) => btn.textContent?.trim() ?? '')
+
+    expect(tabTexts.some((t) => t.includes('Embedding Provider'))).toBe(true)
+    expect(tabTexts.some((t) => t.includes('Search Defaults'))).toBe(true)
+    expect(tabTexts.some((t) => t.includes('Chunking'))).toBe(true)
+    // These should NOT be present
+    expect(tabTexts.some((t) => t.includes('CLI'))).toBe(false)
+    expect(tabTexts.some((t) => t.includes('Appearance'))).toBe(false)
+    expect(tabTexts.some((t) => t.includes('About'))).toBe(false)
+  })
+
+  it('section tab navigation switches active section', async () => {
+    render(Settings, { props: { onclose: vi.fn() } })
+
+    // Find the Embedding Provider section tab and click it
+    const tabs = screen.getAllByRole('button').filter(
+      (btn) => btn.classList.contains('section-tab')
+    )
+    const embeddingTab = tabs.find((btn) => btn.textContent?.includes('Embedding Provider'))
+    expect(embeddingTab).toBeTruthy()
+    await fireEvent.click(embeddingTab!)
 
     expect(get(activeSection)).toBe('embedding')
   })
@@ -151,14 +221,17 @@ describe('Settings component', () => {
     expect(mockApi.setEditorFontSize).toHaveBeenCalledWith(14)
   })
 
-  it('close button fires close event', async () => {
+  it('close button fires close event and resets target', async () => {
     const onclose = vi.fn()
+    settingsTarget.set('some-collection')
     render(Settings, { props: { onclose } })
 
     const closeBtn = screen.getByTitle('Close settings')
     await fireEvent.click(closeBtn)
 
     expect(onclose).toHaveBeenCalledOnce()
+    expect(get(settingsTarget)).toBe('global')
+    expect(get(activeSection)).toBe('cli')
   })
 
   it('CLI section shows version and path', async () => {
@@ -170,5 +243,41 @@ describe('Settings component', () => {
 
     expect(screen.getByText('/usr/local/bin/mdvdb')).toBeTruthy()
     expect(screen.getByText('1.2.3')).toBeTruthy()
+  })
+
+  it('shows section explainer text', () => {
+    activeSection.set('cli')
+    render(Settings, { props: { onclose: vi.fn() } })
+
+    expect(screen.getByText('Manage the mdvdb command-line binary used for indexing and search.')).toBeTruthy()
+  })
+
+  it('collection view shows annotations for overridden and inherited fields', async () => {
+    collections.set([
+      { id: 'c1', name: 'My Notes', path: '/tmp/notes' },
+    ])
+    settingsTarget.set('c1')
+    activeSection.set('embedding')
+    userConfig.set({ MDVDB_EMBEDDING_PROVIDER: 'openai' })
+    collectionConfig.set({ MDVDB_EMBEDDING_PROVIDER: 'ollama' })
+    render(Settings, { props: { onclose: vi.fn() } })
+
+    // The overridden field should show (overridden) annotation
+    expect(screen.getByText('(overridden)')).toBeTruthy()
+    // Non-overridden fields should show (inherited from global)
+    const inheritedAnnotations = screen.getAllByText('(inherited from global)')
+    expect(inheritedAnnotations.length).toBeGreaterThan(0)
+  })
+
+  it('deep-link via settingsTarget opens correct collection', async () => {
+    collections.set([
+      { id: 'c1', name: 'My Notes', path: '/tmp/notes' },
+      { id: 'c2', name: 'Work Docs', path: '/tmp/work' },
+    ])
+    settingsTarget.set('c2')
+    activeSection.set('embedding')
+    render(Settings, { props: { onclose: vi.fn() } })
+
+    expect(screen.getByText('Settings for Work Docs')).toBeTruthy()
   })
 })

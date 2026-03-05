@@ -12,6 +12,15 @@ export const configLoading = writable<boolean>(false)
 /** Currently active settings section. */
 export const activeSection = writable<string>('cli')
 
+/** Settings target: 'global' for user-level config, or a collection ID for collection overrides. */
+export const settingsTarget = writable<string>('global')
+
+/** Open settings panel targeting a specific collection. */
+export function openCollectionSettings(collectionId: string): void {
+  settingsTarget.set(collectionId)
+  activeSection.set('embedding')
+}
+
 // Debounce timers for save operations
 let userSaveTimer: ReturnType<typeof setTimeout> | null = null
 let collectionSaveTimer: ReturnType<typeof setTimeout> | null = null

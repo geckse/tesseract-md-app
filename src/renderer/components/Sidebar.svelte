@@ -12,6 +12,7 @@
   import { loadFileTree } from '../stores/files'
   import { runIngest } from '../stores/ingest'
   import { settingsOpen } from '../stores/ui'
+  import { settingsTarget } from '../stores/settings'
   import FileTree from './FileTree.svelte'
   import Favorites from './Favorites.svelte'
   import ResizeHandle from './ResizeHandle.svelte'
@@ -77,6 +78,14 @@
     const path = contextMenuCollection.path
     closeContextMenu()
     await window.api.writeToClipboard(path)
+  }
+
+  function handleCollectionSettings() {
+    if (!contextMenuCollection) return
+    const id = contextMenuCollection.id
+    closeContextMenu()
+    settingsTarget.set(id)
+    settingsOpen.set(true)
   }
 
   async function handleReindexCollection() {
@@ -224,6 +233,11 @@
       <button class="context-menu-item" onclick={handleCopyCollectionPath}>
         <span class="material-symbols-outlined">content_copy</span>
         Copy Path
+      </button>
+      <div class="context-menu-separator"></div>
+      <button class="context-menu-item" onclick={handleCollectionSettings}>
+        <span class="material-symbols-outlined">settings</span>
+        Settings
       </button>
       <div class="context-menu-separator"></div>
       <button class="context-menu-item" onclick={handleReindexCollection}>
@@ -513,16 +527,20 @@
 
   .sidebar-footer {
     flex-shrink: 0;
-    padding: 8px 12px;
+    height: 35px;
+    min-height: 35px;
+    padding: 0 12px 8px 2px;
     border-top: 1px solid var(--color-border, #27272a);
+    display: flex;
+    align-items: center;
   }
 
   .sidebar-footer-btn {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 32px;
-    height: 32px;
+    width: 28px;
+    height: 28px;
     border-radius: 6px;
     background: none;
     border: none;

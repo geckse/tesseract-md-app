@@ -5,13 +5,15 @@
     collectionConfig,
     configLoading,
     activeSection,
+    settingsTarget,
     loadUserConfig,
     loadCollectionConfig,
     saveUserConfig,
     saveCollectionConfig,
     deleteCollectionConfigKey,
   } from '../stores/settings'
-  import { activeCollection } from '../stores/collections'
+  import { settingsOpen } from '../stores/ui'
+  import { collections, activeCollection } from '../stores/collections'
   import type { Collection } from '../../preload/api'
 
   interface SettingsProps {
@@ -21,9 +23,8 @@
   let { onclose }: SettingsProps = $props()
 
   type Section = 'cli' | 'embedding' | 'search' | 'chunking' | 'appearance' | 'about'
-  type ConfigScope = 'user' | 'collection'
 
-  const sections: { id: Section; label: string; icon: string }[] = [
+  const globalSections: { id: Section; label: string; icon: string }[] = [
     { id: 'cli', label: 'CLI', icon: 'terminal' },
     { id: 'embedding', label: 'Embedding Provider', icon: 'hub' },
     { id: 'search', label: 'Search Defaults', icon: 'search' },
@@ -32,12 +33,27 @@
     { id: 'about', label: 'About', icon: 'info' },
   ]
 
+  const collectionSections: { id: Section; label: string; icon: string }[] = [
+    { id: 'embedding', label: 'Embedding Provider', icon: 'hub' },
+    { id: 'search', label: 'Search Defaults', icon: 'search' },
+    { id: 'chunking', label: 'Chunking', icon: 'content_cut' },
+  ]
+
+  const sectionExplainers: Record<Section, string> = {
+    cli: 'Manage the mdvdb command-line binary used for indexing and search.',
+    embedding: 'Configure which AI model generates vector embeddings for your documents.',
+    search: 'Default parameters for search queries.',
+    chunking: 'Control how documents are split into chunks before embedding.',
+    appearance: 'Visual preferences for the app.',
+    about: 'Version information and resources.',
+  }
+
   let currentSection: Section = $state('cli')
-  let configScope: ConfigScope = $state('user')
+  let currentTarget: string = $state('global')
   let currentUserConfig: Record<string, string> = $state({})
   let currentCollectionConfig: Record<string, string> = $state({})
   let currentLoading = $state(false)
-  let currentCollection: Collection | null = $state(null)
+  let allCollections: Collection[] = $state([])
 
   // CLI state
   let cliPath = $state('')
@@ -55,19 +71,21 @@
   let showApiKey = $state(false)
 
   activeSection.subscribe((v) => (currentSection = v as Section))
+  settingsTarget.subscribe((v) => (currentTarget = v))
   userConfig.subscribe((v) => (currentUserConfig = v))
   collectionConfig.subscribe((v) => (currentCollectionConfig = v))
   configLoading.subscribe((v) => (currentLoading = v))
-  activeCollection.subscribe((v) => (currentCollection = v))
+  collections.subscribe((v) => (allCollections = v))
 
-  // Has config scope tabs (sections 2-4)
-  let hasScopeTabs = $derived(
-    currentSection === 'embedding' || currentSection === 'search' || currentSection === 'chunking'
+  let isGlobal = $derived(currentTarget === 'global')
+  let availableSections = $derived(isGlobal ? globalSections : collectionSections)
+  let targetCollection = $derived(
+    isGlobal ? null : allCollections.find((c) => c.id === currentTarget) ?? null
   )
 
   // Resolve effective config value: collection override > user > empty
   function getConfigValue(key: string): string {
-    if (configScope === 'collection' && currentCollectionConfig[key] !== undefined) {
+    if (!isGlobal && currentCollectionConfig[key] !== undefined) {
       return currentCollectionConfig[key]
     }
     return currentUserConfig[key] ?? ''
@@ -80,29 +98,40 @@
 
   // Get annotation for a config value
   function getAnnotation(key: string): string {
-    if (configScope !== 'collection') return ''
-    if (isCollectionOverride(key)) return '(collection override)'
-    if (currentUserConfig[key] !== undefined) return '(inherited)'
-    return ''
+    if (isGlobal) return ''
+    if (isCollectionOverride(key)) return '(overridden)'
+    return '(inherited from global)'
   }
 
   function handleSave(key: string, value: string) {
-    if (configScope === 'collection' && currentCollection) {
-      saveCollectionConfig(currentCollection.path, key, value)
+    if (!isGlobal && targetCollection) {
+      saveCollectionConfig(targetCollection.path, key, value)
     } else {
       saveUserConfig(key, value)
     }
   }
 
   function handleResetToInherited(key: string) {
-    if (configScope === 'collection' && currentCollection) {
-      deleteCollectionConfigKey(currentCollection.path, key)
+    if (!isGlobal && targetCollection) {
+      deleteCollectionConfigKey(targetCollection.path, key)
+    }
+  }
+
+  function selectTarget(target: string) {
+    settingsTarget.set(target)
+    if (target === 'global') {
+      activeSection.set('cli')
+    } else {
+      activeSection.set('embedding')
+      const coll = allCollections.find((c) => c.id === target)
+      if (coll) {
+        loadCollectionConfig(coll.path)
+      }
     }
   }
 
   function selectSection(id: Section) {
     activeSection.set(id)
-    configScope = 'user'
   }
 
   // Load configs on mount
@@ -113,10 +142,10 @@
     window.api.getEditorFontSize().then((s) => (fontSize = s)).catch(() => {})
   })
 
-  // Load collection config when collection changes
+  // Load collection config when target changes to a collection
   $effect(() => {
-    if (currentCollection) {
-      loadCollectionConfig(currentCollection.path)
+    if (!isGlobal && targetCollection) {
+      loadCollectionConfig(targetCollection.path)
     }
   })
 
@@ -147,9 +176,16 @@
     window.api.setEditorFontSize(newSize)
   }
 
+  function handleClose() {
+    settingsTarget.set('global')
+    activeSection.set('cli')
+    settingsOpen.set(false)
+    onclose?.()
+  }
+
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape' && !shortcutsOpen) {
-      onclose()
+      handleClose()
     }
   }
 
@@ -165,45 +201,63 @@
 <div class="settings-panel">
   <div class="settings-header">
     <h1 class="settings-title">Settings</h1>
-    <button class="close-btn" onclick={onclose} title="Close settings">
+    <button class="close-btn" onclick={handleClose} title="Close settings">
       <span class="material-symbols-outlined">close</span>
     </button>
   </div>
 
   <div class="settings-body">
     <nav class="settings-nav">
-      {#each sections as section}
-        <button
-          class="nav-item"
-          class:active={currentSection === section.id}
-          onclick={() => selectSection(section.id)}
-        >
-          <span class="material-symbols-outlined nav-icon">{section.icon}</span>
-          {section.label}
-        </button>
-      {/each}
+      <button
+        class="nav-item"
+        class:active={isGlobal}
+        onclick={() => selectTarget('global')}
+      >
+        <span class="material-symbols-outlined nav-icon">settings</span>
+        Global Settings
+      </button>
+
+      {#if allCollections.length > 0}
+        <div class="nav-section-header">Collections</div>
+        {#each allCollections as collection}
+          <button
+            class="nav-item"
+            class:active={currentTarget === collection.id}
+            onclick={() => selectTarget(collection.id)}
+          >
+            <span class="material-symbols-outlined nav-icon">folder</span>
+            <span class="nav-label">{collection.name}</span>
+          </button>
+        {/each}
+      {/if}
     </nav>
 
     <div class="settings-content">
-      {#if hasScopeTabs}
-        <div class="scope-tabs">
-          <button
-            class="scope-tab"
-            class:active={configScope === 'user'}
-            onclick={() => (configScope = 'user')}
-          >User</button>
-          <button
-            class="scope-tab"
-            class:active={configScope === 'collection'}
-            disabled={!currentCollection}
-            onclick={() => (configScope = 'collection')}
-          >Collection</button>
-        </div>
+      {#if isGlobal}
+        <h2 class="page-title">Global System-Wide Settings</h2>
+        <p class="page-explainer">These settings apply to all collections unless a collection has its own overrides.</p>
+      {:else}
+        <h2 class="page-title">Settings for {targetCollection?.name ?? 'Unknown'}</h2>
+        <p class="page-explainer">These settings override global defaults for this collection only. Reset a field to inherit from global settings.</p>
       {/if}
 
-      {#if currentSection === 'cli'}
+      <div class="section-tabs">
+        {#each availableSections as section}
+          <button
+            class="section-tab"
+            class:active={currentSection === section.id}
+            onclick={() => selectSection(section.id)}
+          >
+            <span class="material-symbols-outlined">{section.icon}</span>
+            {section.label}
+          </button>
+        {/each}
+      </div>
+
+      {#if currentSection === 'cli' && isGlobal}
         <div class="section">
           <h2 class="section-title">CLI Configuration</h2>
+          <p class="section-explainer">{sectionExplainers.cli}</p>
           <div class="field-group">
             <label class="field-label">Binary Path</label>
             <div class="field-value mono">{cliPath || 'Not found'}</div>
@@ -228,6 +282,7 @@
       {:else if currentSection === 'embedding'}
         <div class="section">
           <h2 class="section-title">Embedding Provider</h2>
+          <p class="section-explainer">{sectionExplainers.embedding}</p>
           <div class="field-group">
             <label class="field-label">
               Provider
@@ -244,7 +299,7 @@
                 <option value="ollama">Ollama</option>
                 <option value="custom">Custom</option>
               </select>
-              {#if configScope === 'collection' && isCollectionOverride('MDVDB_EMBEDDING_PROVIDER')}
+              {#if !isGlobal && isCollectionOverride('MDVDB_EMBEDDING_PROVIDER')}
                 <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_EMBEDDING_PROVIDER')}>
                   <span class="material-symbols-outlined">undo</span>
                 </button>
@@ -264,7 +319,7 @@
                 placeholder="text-embedding-3-small"
                 oninput={(e) => handleSave('MDVDB_EMBEDDING_MODEL', (e.target as HTMLInputElement).value)}
               />
-              {#if configScope === 'collection' && isCollectionOverride('MDVDB_EMBEDDING_MODEL')}
+              {#if !isGlobal && isCollectionOverride('MDVDB_EMBEDDING_MODEL')}
                 <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_EMBEDDING_MODEL')}>
                   <span class="material-symbols-outlined">undo</span>
                 </button>
@@ -287,7 +342,7 @@
               <button class="icon-btn" onclick={() => (showApiKey = !showApiKey)} title={showApiKey ? 'Hide' : 'Show'}>
                 <span class="material-symbols-outlined">{showApiKey ? 'visibility_off' : 'visibility'}</span>
               </button>
-              {#if configScope === 'collection' && isCollectionOverride('MDVDB_API_KEY')}
+              {#if !isGlobal && isCollectionOverride('MDVDB_API_KEY')}
                 <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_API_KEY')}>
                   <span class="material-symbols-outlined">undo</span>
                 </button>
@@ -307,7 +362,7 @@
                 placeholder="1536"
                 oninput={(e) => handleSave('MDVDB_EMBEDDING_DIMENSIONS', (e.target as HTMLInputElement).value)}
               />
-              {#if configScope === 'collection' && isCollectionOverride('MDVDB_EMBEDDING_DIMENSIONS')}
+              {#if !isGlobal && isCollectionOverride('MDVDB_EMBEDDING_DIMENSIONS')}
                 <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_EMBEDDING_DIMENSIONS')}>
                   <span class="material-symbols-outlined">undo</span>
                 </button>
@@ -328,7 +383,7 @@
                   placeholder="http://localhost:11434"
                   oninput={(e) => handleSave('MDVDB_EMBEDDING_HOST', (e.target as HTMLInputElement).value)}
                 />
-                {#if configScope === 'collection' && isCollectionOverride('MDVDB_EMBEDDING_HOST')}
+                {#if !isGlobal && isCollectionOverride('MDVDB_EMBEDDING_HOST')}
                   <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_EMBEDDING_HOST')}>
                     <span class="material-symbols-outlined">undo</span>
                   </button>
@@ -341,6 +396,7 @@
       {:else if currentSection === 'search'}
         <div class="section">
           <h2 class="section-title">Search Defaults</h2>
+          <p class="section-explainer">{sectionExplainers.search}</p>
           <div class="field-group">
             <label class="field-label">
               Mode
@@ -357,7 +413,7 @@
                 <option value="semantic">Semantic</option>
                 <option value="lexical">Lexical</option>
               </select>
-              {#if configScope === 'collection' && isCollectionOverride('MDVDB_SEARCH_MODE')}
+              {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_MODE')}
                 <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_SEARCH_MODE')}>
                   <span class="material-symbols-outlined">undo</span>
                 </button>
@@ -377,7 +433,7 @@
                 placeholder="10"
                 oninput={(e) => handleSave('MDVDB_SEARCH_LIMIT', (e.target as HTMLInputElement).value)}
               />
-              {#if configScope === 'collection' && isCollectionOverride('MDVDB_SEARCH_LIMIT')}
+              {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_LIMIT')}
                 <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_SEARCH_LIMIT')}>
                   <span class="material-symbols-outlined">undo</span>
                 </button>
@@ -398,7 +454,7 @@
                 placeholder="0.0"
                 oninput={(e) => handleSave('MDVDB_SEARCH_MIN_SCORE', (e.target as HTMLInputElement).value)}
               />
-              {#if configScope === 'collection' && isCollectionOverride('MDVDB_SEARCH_MIN_SCORE')}
+              {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_MIN_SCORE')}
                 <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_SEARCH_MIN_SCORE')}>
                   <span class="material-symbols-outlined">undo</span>
                 </button>
@@ -419,7 +475,7 @@
                 />
                 Enable time decay
               </label>
-              {#if configScope === 'collection' && isCollectionOverride('MDVDB_TIME_DECAY')}
+              {#if !isGlobal && isCollectionOverride('MDVDB_TIME_DECAY')}
                 <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_TIME_DECAY')}>
                   <span class="material-symbols-outlined">undo</span>
                 </button>
@@ -440,7 +496,7 @@
                   placeholder="30"
                   oninput={(e) => handleSave('MDVDB_TIME_DECAY_HALF_LIFE', (e.target as HTMLInputElement).value)}
                 />
-                {#if configScope === 'collection' && isCollectionOverride('MDVDB_TIME_DECAY_HALF_LIFE')}
+                {#if !isGlobal && isCollectionOverride('MDVDB_TIME_DECAY_HALF_LIFE')}
                   <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_TIME_DECAY_HALF_LIFE')}>
                     <span class="material-symbols-outlined">undo</span>
                   </button>
@@ -453,6 +509,7 @@
       {:else if currentSection === 'chunking'}
         <div class="section">
           <h2 class="section-title">Chunking</h2>
+          <p class="section-explainer">{sectionExplainers.chunking}</p>
           <div class="field-group">
             <label class="field-label">
               Max Tokens
@@ -466,7 +523,7 @@
                 placeholder="512"
                 oninput={(e) => handleSave('MDVDB_CHUNK_MAX_TOKENS', (e.target as HTMLInputElement).value)}
               />
-              {#if configScope === 'collection' && isCollectionOverride('MDVDB_CHUNK_MAX_TOKENS')}
+              {#if !isGlobal && isCollectionOverride('MDVDB_CHUNK_MAX_TOKENS')}
                 <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_CHUNK_MAX_TOKENS')}>
                   <span class="material-symbols-outlined">undo</span>
                 </button>
@@ -486,7 +543,7 @@
                 placeholder="50"
                 oninput={(e) => handleSave('MDVDB_CHUNK_OVERLAP', (e.target as HTMLInputElement).value)}
               />
-              {#if configScope === 'collection' && isCollectionOverride('MDVDB_CHUNK_OVERLAP')}
+              {#if !isGlobal && isCollectionOverride('MDVDB_CHUNK_OVERLAP')}
                 <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_CHUNK_OVERLAP')}>
                   <span class="material-symbols-outlined">undo</span>
                 </button>
@@ -495,9 +552,10 @@
           </div>
         </div>
 
-      {:else if currentSection === 'appearance'}
+      {:else if currentSection === 'appearance' && isGlobal}
         <div class="section">
           <h2 class="section-title">Appearance</h2>
+          <p class="section-explainer">{sectionExplainers.appearance}</p>
           <div class="field-group">
             <label class="field-label">Editor Font Size</label>
             <div class="field-row font-size-row">
@@ -512,9 +570,10 @@
           </div>
         </div>
 
-      {:else if currentSection === 'about'}
+      {:else if currentSection === 'about' && isGlobal}
         <div class="section">
           <h2 class="section-title">About</h2>
+          <p class="section-explainer">{sectionExplainers.about}</p>
           <div class="field-group">
             <label class="field-label">App Version</label>
             <div class="field-value mono">{cliVersion || 'Unknown'}</div>
@@ -630,27 +689,61 @@
     font-size: 18px;
   }
 
+  .nav-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .nav-section-header {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--color-text-dim, #71717a);
+    padding: 16px 16px 8px;
+    margin-top: 8px;
+    border-top: 1px solid var(--color-border, #27272a);
+  }
+
   .settings-content {
     flex: 1;
     padding: 24px;
     overflow-y: auto;
   }
 
-  .scope-tabs {
+  .page-title {
+    font-size: var(--text-lg, 16px);
+    font-weight: var(--weight-bold, 700);
+    margin: 0 0 8px 0;
+  }
+
+  .page-explainer {
+    font-size: var(--text-sm, 12px);
+    color: var(--color-text-dim, #71717a);
+    margin: 0 0 20px 0;
+    line-height: 1.5;
+  }
+
+  .section-tabs {
     display: flex;
     gap: 0;
     margin-bottom: 20px;
     border-bottom: 1px solid var(--color-border, #27272a);
+    flex-wrap: wrap;
   }
 
-  .scope-tab {
-    padding: 8px 16px;
+  .section-tab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
     background: none;
     border: none;
     border-bottom: 2px solid transparent;
     color: var(--color-text-dim, #71717a);
     font-family: inherit;
-    font-size: var(--text-sm, 12px);
+    font-size: var(--text-xs, 10px);
     font-weight: var(--weight-bold, 700);
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -658,18 +751,17 @@
     transition: color var(--transition-fast, 150ms ease), border-color var(--transition-fast, 150ms ease);
   }
 
-  .scope-tab:hover:not(:disabled) {
+  .section-tab:hover {
     color: var(--color-text, #e4e4e7);
   }
 
-  .scope-tab.active {
+  .section-tab.active {
     color: var(--color-primary, #00E5FF);
     border-bottom-color: var(--color-primary, #00E5FF);
   }
 
-  .scope-tab:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
+  .section-tab .material-symbols-outlined {
+    font-size: 14px;
   }
 
   .section {
@@ -681,7 +773,14 @@
     font-weight: var(--weight-bold, 700);
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    margin: 0 0 20px 0;
+    margin: 0 0 6px 0;
+  }
+
+  .section-explainer {
+    font-size: var(--text-xs, 10px);
+    color: var(--color-text-dim, #71717a);
+    margin: 0 0 16px 0;
+    line-height: 1.5;
   }
 
   .field-group {

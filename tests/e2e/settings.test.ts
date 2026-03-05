@@ -33,7 +33,7 @@ test.describe('Settings Panel', () => {
     await electronApp.close()
   })
 
-  test('should display all navigation sections', async () => {
+  test('should display Global Settings in navigation', async () => {
     const electronApp = await electron.launch({
       args: [appPath]
     })
@@ -51,20 +51,23 @@ test.describe('Settings Panel', () => {
 
     await expect(window.locator('.settings-panel')).toBeVisible()
 
-    // Verify navigation items exist
-    const navItems = window.locator('.nav-item')
-    const count = await navItems.count()
-    expect(count).toBeGreaterThanOrEqual(4)
-
-    // Check expected section names
+    // Verify Global Settings nav item exists
     const navText = await window.locator('.settings-nav').textContent()
-    expect(navText).toContain('CLI')
-    expect(navText).toContain('Appearance')
+    expect(navText).toContain('Global Settings')
+
+    // Verify page title
+    const pageTitle = window.locator('.page-title')
+    await expect(pageTitle).toContainText('Global System-Wide Settings')
+
+    // Verify section tabs exist
+    const sectionTabs = window.locator('.section-tab')
+    const count = await sectionTabs.count()
+    expect(count).toBeGreaterThanOrEqual(4)
 
     await electronApp.close()
   })
 
-  test('should navigate between sections', async () => {
+  test('should navigate between sections using section tabs', async () => {
     const electronApp = await electron.launch({
       args: [appPath]
     })
@@ -82,17 +85,17 @@ test.describe('Settings Panel', () => {
 
     await expect(window.locator('.settings-panel')).toBeVisible()
 
-    // Click on Appearance nav item
-    const appearanceNav = window.locator('.nav-item', { hasText: 'Appearance' })
-    await appearanceNav.click()
+    // Click on Appearance section tab
+    const appearanceTab = window.locator('.section-tab', { hasText: 'Appearance' })
+    await appearanceTab.click()
 
     // Verify it becomes active
-    await expect(appearanceNav).toHaveClass(/active/)
+    await expect(appearanceTab).toHaveClass(/active/)
 
-    // Click on CLI nav item
-    const cliNav = window.locator('.nav-item', { hasText: 'CLI' })
-    await cliNav.click()
-    await expect(cliNav).toHaveClass(/active/)
+    // Click on CLI section tab
+    const cliTab = window.locator('.section-tab', { hasText: 'CLI' })
+    await cliTab.click()
+    await expect(cliTab).toHaveClass(/active/)
 
     await electronApp.close()
   })
@@ -115,9 +118,9 @@ test.describe('Settings Panel', () => {
 
     await expect(window.locator('.settings-panel')).toBeVisible()
 
-    // Navigate to Appearance section
-    const appearanceNav = window.locator('.nav-item', { hasText: 'Appearance' })
-    await appearanceNav.click()
+    // Navigate to Appearance section tab
+    const appearanceTab = window.locator('.section-tab', { hasText: 'Appearance' })
+    await appearanceTab.click()
 
     // Get initial font size
     const fontSizeValue = window.locator('.font-size-value')
@@ -185,8 +188,8 @@ test.describe('Settings Panel', () => {
     await settingsBtn.click()
     await expect(window.locator('.settings-panel')).toBeVisible()
 
-    const appearanceNav = window.locator('.nav-item', { hasText: 'Appearance' })
-    await appearanceNav.click()
+    const appearanceTab = window.locator('.section-tab', { hasText: 'Appearance' })
+    await appearanceTab.click()
 
     const fontSizeValue = window.locator('.font-size-value')
     const initialSize = await fontSizeValue.textContent()
@@ -207,7 +210,7 @@ test.describe('Settings Panel', () => {
     await expect(window.locator('.settings-panel')).toBeVisible()
 
     // Navigate back to Appearance
-    await window.locator('.nav-item', { hasText: 'Appearance' }).click()
+    await window.locator('.section-tab', { hasText: 'Appearance' }).click()
 
     // Verify font size persisted
     const persistedSize = await fontSizeValue.textContent()
