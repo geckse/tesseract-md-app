@@ -5,6 +5,7 @@
   import Titlebar from './components/Titlebar.svelte';
   import StatusBar from './components/StatusBar.svelte';
   import Editor from './components/Editor.svelte';
+  import WysiwygEditor from './components/WysiwygEditor.svelte';
   import MarkdownPreview from './components/MarkdownPreview.svelte';
   import PropertiesPanel from './components/PropertiesPanel.svelte';
   import GraphView from './components/GraphView.svelte';
@@ -104,12 +105,13 @@
         },
       }),
 
-      // Cmd+S / Ctrl+S: Global save (works in preview mode too)
+      // Cmd+S / Ctrl+S: Global save (works in preview and wysiwyg mode too)
       shortcutManager.register({
         key: 's',
         meta: true,
         handler: () => {
-          if (get(editorMode) === 'preview') {
+          const mode = get(editorMode);
+          if (mode === 'preview' || mode === 'wysiwyg') {
             requestSave();
           }
           // In editor mode, CodeMirror's own keymap handles Cmd+S
@@ -312,12 +314,21 @@
                   </button>
                   <button
                     class="mode-tab"
+                    class:active={$editorMode === 'wysiwyg'}
+                    role="tab"
+                    aria-selected={$editorMode === 'wysiwyg'}
+                    onclick={() => editorMode.set('wysiwyg')}
+                  >
+                    WYSIWYG
+                  </button>
+                  <button
+                    class="mode-tab"
                     class:active={$editorMode === 'editor'}
                     role="tab"
                     aria-selected={$editorMode === 'editor'}
                     onclick={() => editorMode.set('editor')}
                   >
-                    Editor
+                    Source
                   </button>
                 </div>
                 <div class="mode-toggle-spacer">
@@ -330,18 +341,29 @@
                 </div>
               </div>
             {/if}
-            <div
-              id="main-content"
-              class="editor-region"
-              class:hidden-region={$editorMode === 'preview'}
-              bind:this={editorEl}
-              tabindex="-1"
-              role="main"
-              aria-label="Editor"
-            >
-              <Editor />
-            </div>
-            {#if $editorMode === 'preview'}
+            {#if $editorMode === 'editor'}
+              <div
+                id="main-content"
+                class="editor-region"
+                bind:this={editorEl}
+                tabindex="-1"
+                role="main"
+                aria-label="Source editor"
+              >
+                <Editor />
+              </div>
+            {:else if $editorMode === 'wysiwyg'}
+              <div
+                id="main-content"
+                class="editor-region"
+                bind:this={editorEl}
+                tabindex="-1"
+                role="main"
+                aria-label="WYSIWYG editor"
+              >
+                <WysiwygEditor />
+              </div>
+            {:else}
               <div class="preview-content-region" role="main" aria-label="Preview">
                 <MarkdownPreview />
               </div>
@@ -473,10 +495,6 @@
     display: flex;
     flex-direction: column;
     height: 100%;
-  }
-
-  .hidden-region {
-    display: none !important;
   }
 
   .preview-content-region {
