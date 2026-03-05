@@ -6,6 +6,7 @@ import { Markdown } from '@tiptap/markdown'
 import Image from '@tiptap/extension-image'
 import Link from '@tiptap/extension-link'
 import { Wikilink } from './wikilink-extension'
+import { SlashCommandExtension } from './slash-command-extension'
 
 export interface WysiwygEditorOptions {
   /** Callback fired on every content change */
@@ -68,6 +69,7 @@ export function createWysiwygEditor(
         HTMLAttributes: { class: 'wysiwyg-link' },
       }),
       Wikilink,
+      SlashCommandExtension,
     ],
     onUpdate: options.onUpdate ? ({ editor: e }) => options.onUpdate!(e) : undefined,
   })
