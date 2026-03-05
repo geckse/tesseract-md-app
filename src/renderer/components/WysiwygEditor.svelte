@@ -397,6 +397,7 @@
     flex: 1;
     min-height: 0;
     outline: none;
+    overflow-y: auto;
   }
 
   .empty-state {

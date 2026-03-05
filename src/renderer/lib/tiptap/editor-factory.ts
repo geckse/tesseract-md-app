@@ -4,12 +4,10 @@ import { Placeholder } from '@tiptap/extensions'
 import Typography from '@tiptap/extension-typography'
 import { Markdown } from '@tiptap/markdown'
 import Image from '@tiptap/extension-image'
-import Link from '@tiptap/extension-link'
 import { TableKit } from '@tiptap/extension-table'
 import { CodeBlockLowlight } from '@tiptap/extension-code-block-lowlight'
 import { TaskList, TaskItem } from '@tiptap/extension-list'
-import { createLowlight } from 'lowlight'
-import { grammars as commonGrammars } from 'lowlight/lib/common'
+import { createLowlight, common as commonGrammars } from 'lowlight'
 import { Wikilink } from './wikilink-extension'
 import { SlashCommandExtension } from './slash-command-extension'
 import { LinkAutocompleteExtension } from './link-autocomplete-extension'
@@ -49,10 +47,15 @@ export function createWysiwygEditor(
   const editor = new Editor({
     element,
     content,
+    contentType: 'markdown',
     editable: options.editable ?? true,
     extensions: [
       StarterKit.configure({
         codeBlock: false, // Replaced by CodeBlockLowlight later
+        link: {
+          openOnClick: false,
+          HTMLAttributes: { class: 'wysiwyg-link' },
+        },
       }),
       Placeholder.configure({
         placeholder: options.placeholder ?? 'Type / for commands...',
@@ -75,10 +78,6 @@ export function createWysiwygEditor(
         inline: false,
         allowBase64: true,
       }),
-      Link.configure({
-        openOnClick: false,
-        HTMLAttributes: { class: 'wysiwyg-link' },
-      }),
       TableKit,
       CodeBlockLowlight.configure({ lowlight }),
       TaskList,
@@ -94,9 +93,9 @@ export function createWysiwygEditor(
   })
 
   function getMarkdown(): string {
-    const storage = editor.storage.markdown as { getMarkdown?: () => string } | undefined
-    if (storage?.getMarkdown) {
-      return storage.getMarkdown()
+    // TipTap v3: @tiptap/markdown adds editor.getMarkdown() directly
+    if (typeof (editor as any).getMarkdown === 'function') {
+      return (editor as any).getMarkdown()
     }
     // Fallback: return text content — this strips all formatting!
     console.error('Warning: Markdown extension storage not available, falling back to plain text. Content formatting will be lost.')
@@ -104,7 +103,7 @@ export function createWysiwygEditor(
   }
 
   function setMarkdownContent(md: string): void {
-    editor.commands.setContent(md)
+    editor.commands.setContent(md, { contentType: 'markdown' })
   }
 
   function destroy(): void {

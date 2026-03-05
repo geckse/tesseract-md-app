@@ -24,6 +24,7 @@ export const linkAutocompletePluginKey = new PluginKey('linkAutocomplete')
  */
 function findSuggestionMatch(config: { editor: Editor }): { range: Range; query: string; text: string } | null {
   const { editor } = config
+  if (!editor?.state) return null
   const { selection } = editor.state
   const { $anchor } = selection
 
