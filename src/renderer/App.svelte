@@ -12,6 +12,8 @@
   import GraphPreview from './components/GraphPreview.svelte';
   import IngestModal from './components/IngestModal.svelte';
   import QuickOpen from './components/QuickOpen.svelte';
+  import Onboarding from './components/Onboarding.svelte';
+  import Settings from './components/Settings.svelte';
   import { loadCollections, setActiveCollection, activeCollectionId } from './stores/collections';
   import { selectFile, fileContentLoading, selectedFilePath } from './stores/files';
   import { searchOpen, clearSearch } from './stores/search';
@@ -21,6 +23,7 @@
   import { shortcutManager } from './lib/shortcuts';
   import { setupWatcherListener, teardownWatcherListener, fetchWatcherStatus } from './stores/watcher';
   import { graphViewActive, graphSelectedNode, toggleGraphView, selectGraphNode, loadGraphData } from './stores/graph';
+  import { settingsOpen, onboardingComplete, loadOnboardingState, editorFontSize, loadEditorFontSize } from './stores/ui';
   import type { SearchResult } from './types/cli';
 
 
@@ -37,6 +40,8 @@
     loadFavorites();
     setupWatcherListener();
     fetchWatcherStatus();
+    loadOnboardingState();
+    loadEditorFontSize();
 
     // Listen for native menu "Open Recent" clicks
     window.api.onMenuOpenRecent(({ collectionId, filePath }) => {
@@ -129,6 +134,15 @@
               toggleGraphView();
             }
           }
+        },
+      }),
+
+      // Cmd+, / Ctrl+,: Toggle settings panel
+      shortcutManager.register({
+        key: ',',
+        meta: true,
+        handler: () => {
+          settingsOpen.update((v) => !v);
         },
       }),
 
@@ -266,10 +280,13 @@
 
 </script>
 
+{#if !$onboardingComplete}
+  <Onboarding />
+{:else}
 <!-- Skip navigation link for accessibility -->
 <a href="#main-content" class="skip-link">Skip to main content</a>
 
-<div class="app-shell bg-grain">
+<div class="app-shell bg-grain" style="--editor-font-size: {$editorFontSize}px">
   <div class="titlebar-region" bind:this={searchAreaEl}>
     <Titlebar
       bind:propertiesOpen
@@ -297,6 +314,10 @@
               <GraphPreview />
             </div>
           {/if}
+        {:else if $settingsOpen}
+          <div class="settings-region" role="main" aria-label="Settings">
+            <Settings />
+          </div>
         {:else}
           <div class="editor-with-tabs">
             {#if $selectedFilePath}
@@ -384,6 +405,7 @@
   <IngestModal />
   <QuickOpen />
 </div>
+{/if}
 
 <style>
   /* Skip link for accessibility - only visible on keyboard focus */
@@ -480,6 +502,15 @@
     display: flex;
     flex-direction: column;
     height: 100%;
+  }
+
+  .settings-region {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
   }
 
   .graph-region {

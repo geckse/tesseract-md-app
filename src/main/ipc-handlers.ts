@@ -8,6 +8,15 @@
 import { ipcMain, shell, clipboard, type BrowserWindow } from 'electron'
 import { promises as fs } from 'node:fs'
 import { findCli, getCliVersion, execCommand, execRaw } from './cli'
+import { detectCli, installCli, checkLatestVersion } from './cli-install'
+import { readConfig, writeConfigKey, deleteConfigKey } from './config-io'
+import {
+  getOnboardingComplete,
+  setOnboardingComplete,
+  getEditorFontSize,
+  setEditorFontSize,
+  setCliInfo
+} from './store'
 import { WatcherManager, type WatcherState } from './watcher'
 import {
   getCollections,
@@ -487,6 +496,108 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   ipcMain.handle('clipboard:write-text', (_event, text: string) =>
     wrapHandler(async () => {
       clipboard.writeText(text)
+    })
+  )
+
+  // CLI detection and installation
+  ipcMain.handle('cli:detect', () =>
+    wrapHandler(async () => {
+      const result = await detectCli()
+      if (result.found && result.path) {
+        setCliInfo(result.path, result.version ?? null)
+      }
+      return result
+    })
+  )
+
+  ipcMain.handle('cli:install', () =>
+    wrapHandler(async () => {
+      if (!mainWindow) {
+        throw new Error('No main window available for install progress')
+      }
+      const result = await installCli(mainWindow)
+      if (result.success) {
+        setCliInfo(result.path, result.version ?? null)
+      }
+      return result
+    })
+  )
+
+  ipcMain.handle('cli:check-update', () =>
+    wrapHandler(() => checkLatestVersion())
+  )
+
+  // User-level config (~/.mdvdb/config)
+  ipcMain.handle('settings:get-user-config', () =>
+    wrapHandler(async () => {
+      const { join } = await import('node:path')
+      const { homedir } = await import('node:os')
+      const configPath = join(homedir(), '.mdvdb', 'config')
+      return readConfig(configPath)
+    })
+  )
+
+  ipcMain.handle('settings:set-user-config', (_event, key: string, value: string) =>
+    wrapHandler(async () => {
+      const { join } = await import('node:path')
+      const { homedir } = await import('node:os')
+      const configPath = join(homedir(), '.mdvdb', 'config')
+      await writeConfigKey(configPath, key, value)
+    })
+  )
+
+  ipcMain.handle('settings:delete-user-config', (_event, key: string) =>
+    wrapHandler(async () => {
+      const { join } = await import('node:path')
+      const { homedir } = await import('node:os')
+      const configPath = join(homedir(), '.mdvdb', 'config')
+      await deleteConfigKey(configPath, key)
+    })
+  )
+
+  // Collection-level config (.markdownvdb/.config)
+  ipcMain.handle('settings:get-collection-config', (_event, root: string) =>
+    wrapHandler(async () => {
+      const { join } = await import('node:path')
+      const configPath = join(root, '.markdownvdb', '.config')
+      return readConfig(configPath)
+    })
+  )
+
+  ipcMain.handle('settings:set-collection-config', (_event, root: string, key: string, value: string) =>
+    wrapHandler(async () => {
+      const { join } = await import('node:path')
+      const configPath = join(root, '.markdownvdb', '.config')
+      await writeConfigKey(configPath, key, value)
+    })
+  )
+
+  ipcMain.handle('settings:delete-collection-config', (_event, root: string, key: string) =>
+    wrapHandler(async () => {
+      const { join } = await import('node:path')
+      const configPath = join(root, '.markdownvdb', '.config')
+      await deleteConfigKey(configPath, key)
+    })
+  )
+
+  // Onboarding and editor font size store
+  ipcMain.handle('store:get-onboarding-complete', () =>
+    wrapHandler(async () => getOnboardingComplete())
+  )
+
+  ipcMain.handle('store:set-onboarding-complete', (_event, value: boolean) =>
+    wrapHandler(async () => {
+      setOnboardingComplete(value)
+    })
+  )
+
+  ipcMain.handle('store:get-editor-font-size', () =>
+    wrapHandler(async () => getEditorFontSize())
+  )
+
+  ipcMain.handle('store:set-editor-font-size', (_event, value: number) =>
+    wrapHandler(async () => {
+      setEditorFontSize(value)
     })
   )
 

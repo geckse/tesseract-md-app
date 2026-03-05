@@ -104,7 +104,36 @@ const api: MdvdbApi = {
   },
   removeMenuOpenRecentListener: () => {
     ipcRenderer.removeAllListeners('menu:open-recent')
-  }
+  },
+
+  // CLI detection & installation
+  detectCli: () => invoke('cli:detect'),
+  installCli: () => invoke('cli:install'),
+  onInstallProgress: (callback) => {
+    ipcRenderer.on('cli:install-progress', (_event, data) => callback(data))
+  },
+  removeInstallProgressListener: () => {
+    ipcRenderer.removeAllListeners('cli:install-progress')
+  },
+  checkLatestCliVersion: () => invoke('cli:check-latest-version'),
+
+  // User-level config (~/.mdvdb/config)
+  getUserConfig: () => invoke('config:get-user'),
+  setUserConfig: (key, value) => invoke('config:set-user', key, value),
+  deleteUserConfig: (key) => invoke('config:delete-user', key),
+
+  // Collection-level config (.markdownvdb/.config)
+  getCollectionConfig: (root) => invoke('config:get-collection', root),
+  setCollectionConfig: (root, key, value) => invoke('config:set-collection', root, key, value),
+  deleteCollectionConfig: (root, key) => invoke('config:delete-collection', root, key),
+
+  // Onboarding state
+  getOnboardingComplete: () => invoke('store:get-onboarding-complete'),
+  setOnboardingComplete: (value) => invoke('store:set-onboarding-complete', value),
+
+  // Editor preferences
+  getEditorFontSize: () => invoke('store:get-editor-font-size'),
+  setEditorFontSize: (value) => invoke('store:set-editor-font-size', value)
 }
 
 if (process.contextIsolated) {

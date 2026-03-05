@@ -11,6 +11,7 @@
   } from '../stores/collections'
   import { loadFileTree } from '../stores/files'
   import { runIngest } from '../stores/ingest'
+  import { settingsOpen } from '../stores/ui'
   import FileTree from './FileTree.svelte'
   import Favorites from './Favorites.svelte'
   import ResizeHandle from './ResizeHandle.svelte'
@@ -185,6 +186,12 @@
         <FileTree onfileselect={(detail) => onfileselect?.({ folderId: currentActiveCollectionId!, fileId: detail.path })} />
       </div>
     {/if}
+  </div>
+
+  <div class="sidebar-footer">
+    <button class="sidebar-footer-btn" onclick={() => settingsOpen.set(true)} title="Settings">
+      <span class="material-symbols-outlined">settings</span>
+    </button>
   </div>
 
   <ResizeHandle
@@ -502,5 +509,41 @@
     height: 1px;
     background: var(--color-border, #27272a);
     margin: 4px 0;
+  }
+
+  .sidebar-footer {
+    flex-shrink: 0;
+    padding: 8px 12px;
+    border-top: 1px solid var(--color-border, #27272a);
+  }
+
+  .sidebar-footer-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    background: none;
+    border: none;
+    color: var(--color-text-dim, #71717a);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    padding: 0;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sidebar-footer-btn {
+      transition: none;
+    }
+  }
+
+  .sidebar-footer-btn:hover {
+    background: var(--color-surface, #161617);
+    color: var(--color-primary, #00E5FF);
+  }
+
+  .sidebar-footer-btn .material-symbols-outlined {
+    font-size: 18px;
   }
 </style>

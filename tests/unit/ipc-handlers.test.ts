@@ -174,7 +174,7 @@ describe('registerIpcHandlers', () => {
     expect(channels).toContain('watcher:status')
     expect(channels).toContain('shell:open-path')
     expect(channels).toContain('clipboard:write-text')
-    expect(channels).toHaveLength(41)
+    expect(channels).toHaveLength(55)
   })
 })
 
