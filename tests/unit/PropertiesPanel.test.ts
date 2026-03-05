@@ -273,8 +273,9 @@ describe('PropertiesPanel component', () => {
 
       render(PropertiesPanel)
 
-      // 2 incoming + 2 outgoing = 4
-      expect(screen.getByText('4')).toBeTruthy()
+      // 2 incoming + 2 outgoing = 4 (shown in both Local Graph and Links sections)
+      const counts = screen.getAllByText('4')
+      expect(counts.length).toBeGreaterThanOrEqual(1)
     })
 
     it('fires onfileselect when an incoming link is clicked', async () => {
