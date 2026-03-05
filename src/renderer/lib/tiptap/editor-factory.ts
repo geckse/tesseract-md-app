@@ -12,6 +12,7 @@ import { createLowlight } from 'lowlight'
 import { grammars as commonGrammars } from 'lowlight/lib/common'
 import { Wikilink } from './wikilink-extension'
 import { SlashCommandExtension } from './slash-command-extension'
+import { LinkAutocompleteExtension } from './link-autocomplete-extension'
 
 const lowlight = createLowlight(commonGrammars)
 
@@ -22,6 +23,8 @@ export interface WysiwygEditorOptions {
   placeholder?: string
   /** Whether the editor is editable */
   editable?: boolean
+  /** Collection root path for link autocomplete IPC search */
+  collectionPath?: string
 }
 
 export interface WysiwygEditor {
@@ -81,6 +84,9 @@ export function createWysiwygEditor(
       TaskItem.configure({ nested: true }),
       Wikilink,
       SlashCommandExtension,
+      LinkAutocompleteExtension.configure({
+        collectionPath: options.collectionPath ?? '',
+      }),
     ],
     onUpdate: options.onUpdate ? ({ editor: e }) => options.onUpdate!(e) : undefined,
   })
