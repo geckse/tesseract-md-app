@@ -1,0 +1,340 @@
+/* ==========================================================================
+   WYSIWYG Theme — mdvdb TipTap Editor
+   Dark theme styles for the ProseMirror editor, using design tokens.
+   ========================================================================== */
+
+/* -------------------------------------------------------------------------- */
+/*  Editor Container                                                          */
+/* -------------------------------------------------------------------------- */
+
+.ProseMirror {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  line-height: var(--leading-relaxed);
+  padding: var(--space-4);
+  max-width: var(--content-max-width);
+  margin: 0 auto;
+  caret-color: var(--color-primary);
+  outline: none;
+}
+
+.ProseMirror:focus {
+  outline: none;
+}
+
+.ProseMirror > * + * {
+  margin-top: var(--space-3);
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Headings                                                                  */
+/* -------------------------------------------------------------------------- */
+
+.ProseMirror h1 {
+  font-size: 2.25rem;
+  font-weight: var(--weight-bold);
+  color: var(--color-text-white);
+  line-height: var(--leading-tight);
+  margin-top: var(--space-8);
+  margin-bottom: var(--space-4);
+}
+
+.ProseMirror h2 {
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+  line-height: var(--leading-tight);
+  margin-top: var(--space-6);
+  margin-bottom: var(--space-3);
+}
+
+.ProseMirror h3 {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+  color: var(--color-text);
+  line-height: var(--leading-tight);
+  margin-top: var(--space-5);
+  margin-bottom: var(--space-2);
+}
+
+.ProseMirror h4 {
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+  line-height: var(--leading-tight);
+  margin-top: var(--space-4);
+  margin-bottom: var(--space-2);
+}
+
+.ProseMirror h5 {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-dim);
+  line-height: var(--leading-tight);
+  margin-top: var(--space-4);
+  margin-bottom: var(--space-1);
+}
+
+.ProseMirror h6 {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-dim);
+  line-height: var(--leading-tight);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: var(--space-4);
+  margin-bottom: var(--space-1);
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Inline Styles                                                             */
+/* -------------------------------------------------------------------------- */
+
+.ProseMirror strong {
+  font-weight: var(--weight-bold);
+  color: var(--color-text-white);
+}
+
+.ProseMirror em {
+  font-style: italic;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Links                                                                     */
+/* -------------------------------------------------------------------------- */
+
+.ProseMirror a {
+  color: var(--color-primary);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+.ProseMirror a:hover {
+  color: var(--color-primary-dark);
+  text-decoration: underline;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Code                                                                      */
+/* -------------------------------------------------------------------------- */
+
+.ProseMirror code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  color: var(--color-primary);
+  background-color: var(--color-primary-dim);
+  border-radius: var(--radius-sm);
+  padding: 0.1em 0.3em;
+}
+
+.ProseMirror pre {
+  background-color: var(--color-surface-dark);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  overflow-x: auto;
+  margin: var(--space-4) 0;
+}
+
+.ProseMirror pre code {
+  background: none;
+  color: var(--color-text);
+  padding: 0;
+  border-radius: 0;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Blockquotes                                                               */
+/* -------------------------------------------------------------------------- */
+
+.ProseMirror blockquote {
+  border-left: 3px solid var(--color-border-hover);
+  padding-left: var(--space-4);
+  color: #b0b8bf;
+  font-style: italic;
+  margin: var(--space-4) 0;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Lists                                                                     */
+/* -------------------------------------------------------------------------- */
+
+.ProseMirror ul,
+.ProseMirror ol {
+  padding-left: var(--space-6);
+  margin: var(--space-3) 0;
+}
+
+.ProseMirror li {
+  margin-bottom: var(--space-1);
+}
+
+.ProseMirror li > p {
+  margin: 0;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Task Lists                                                                */
+/* -------------------------------------------------------------------------- */
+
+.ProseMirror ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0;
+}
+
+.ProseMirror ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.ProseMirror ul[data-type="taskList"] li > label {
+  flex-shrink: 0;
+  margin-top: 0.2em;
+}
+
+.ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"] {
+  appearance: none;
+  width: 1rem;
+  height: 1rem;
+  border: 1px solid var(--color-border-hover);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-dark);
+  cursor: pointer;
+  position: relative;
+}
+
+.ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"]:checked {
+  background-color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"]:checked::after {
+  content: '✓';
+  position: absolute;
+  top: -1px;
+  left: 2px;
+  font-size: 0.7rem;
+  color: var(--color-bg);
+  font-weight: var(--weight-bold);
+}
+
+.ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div > p {
+  text-decoration: line-through;
+  color: var(--color-text-dim);
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Tables                                                                    */
+/* -------------------------------------------------------------------------- */
+
+.ProseMirror table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: var(--space-4) 0;
+}
+
+.ProseMirror th,
+.ProseMirror td {
+  border: 1px solid var(--color-border);
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+}
+
+.ProseMirror th {
+  background-color: var(--color-surface);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-white);
+}
+
+.ProseMirror td {
+  background-color: var(--color-bg);
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Images                                                                    */
+/* -------------------------------------------------------------------------- */
+
+.ProseMirror img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-md);
+  margin: var(--space-4) 0;
+  display: block;
+}
+
+.ProseMirror img.ProseMirror-selectednode {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Horizontal Rules                                                          */
+/* -------------------------------------------------------------------------- */
+
+.ProseMirror hr {
+  border: none;
+  border-top: 1px solid var(--color-border);
+  margin: var(--space-6) 0;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Selection                                                                 */
+/* -------------------------------------------------------------------------- */
+
+.ProseMirror ::selection {
+  background-color: var(--color-primary-dim);
+}
+
+.ProseMirror .ProseMirror-selectednode {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Placeholder                                                               */
+/* -------------------------------------------------------------------------- */
+
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: var(--color-text-dim);
+  pointer-events: none;
+  height: 0;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Scrollbar                                                                 */
+/* -------------------------------------------------------------------------- */
+
+.ProseMirror::-webkit-scrollbar {
+  width: var(--scrollbar-width);
+}
+
+.ProseMirror::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+.ProseMirror::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: var(--radius-full);
+}
+
+.ProseMirror::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Reduced Motion                                                            */
+/* -------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .ProseMirror a,
+  .ProseMirror * {
+    transition: none !important;
+  }
+}
