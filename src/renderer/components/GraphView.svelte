@@ -25,8 +25,11 @@
   const DEFAULT_NODE_COLOR = 'rgba(228, 228, 231, 0.6)';
 
   interface SimNode extends SimulationNodeDatum {
+    id: string;
     path: string;
+    label: string | null;
     cluster_id: number | null;
+    chunk_index: number | null;
     x: number;
     y: number;
   }
@@ -34,6 +37,7 @@
   interface SimEdge extends SimulationLinkDatum<SimNode> {
     source: SimNode | string;
     target: SimNode | string;
+    weight: number | null;
   }
 
   let canvasEl: HTMLCanvasElement | undefined = $state(undefined);
@@ -83,6 +87,20 @@
   let currentSelected: GraphNode | null = $state(null);
   let currentLevel: GraphLevel = $state('document');
 
+  /** Hash a string to a stable index for color assignment. */
+  function fileColor(path: string): string {
+    let hash = 0;
+    for (let i = 0; i < path.length; i++) {
+      hash = ((hash << 5) - hash + path.charCodeAt(i)) | 0;
+    }
+    return CLUSTER_COLORS[Math.abs(hash) % CLUSTER_COLORS.length];
+  }
+
+  /** Whether we're currently in chunk mode. */
+  function isChunkMode(): boolean {
+    return currentLevel === 'chunk';
+  }
+
   onMount(() => {
     unsubData = graphData.subscribe((d) => {
       currentData = d;
@@ -98,7 +116,14 @@
     });
     graphLoading.subscribe((v) => { currentLoading = v; });
     graphError.subscribe((v) => { currentError = v; });
-    graphLevel.subscribe((v) => { currentLevel = v; });
+    graphLevel.subscribe((v) => {
+      const prevLevel = currentLevel;
+      currentLevel = v;
+      // Destroy and rebuild simulation on mode switch
+      if (prevLevel !== v && currentData) {
+        buildSimulation(currentData);
+      }
+    });
 
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
@@ -144,46 +169,78 @@
       return;
     }
 
-    if (simulation) simulation.stop();
+    // Destroy previous simulation completely
+    if (simulation) {
+      simulation.stop();
+      simulation = null;
+    }
+
+    const chunk = isChunkMode();
 
     simNodes = data.nodes.map((n) => ({
+      id: n.id,
       path: n.path,
+      label: n.label,
       cluster_id: n.cluster_id,
+      chunk_index: n.chunk_index,
       x: Math.random() * width,
       y: Math.random() * height,
     }));
 
-    const nodeMap = new Map(simNodes.map((n) => [n.path, n]));
+    const nodeMap = new Map(simNodes.map((n) => [n.id, n]));
     simEdges = data.edges
       .filter((e) => nodeMap.has(e.source) && nodeMap.has(e.target))
-      .map((e) => ({ source: e.source, target: e.target }));
+      .map((e) => ({ source: e.source, target: e.target, weight: e.weight }));
 
     const isLarge = simNodes.length > 300;
 
-    simulation = forceSimulation<SimNode>(simNodes)
-      .force(
-        'link',
-        forceLink<SimNode, SimEdge>(simEdges)
-          .id((d) => d.path)
-          .distance(80)
-          .strength(0.4),
-      )
-      .force(
-        'charge',
-        forceManyBody<SimNode>()
-          .strength(isLarge ? -60 : -120)
-          .distanceMax(isLarge ? 200 : 400),
-      )
-      .force('center', forceCenter(width / 2, height / 2))
-      .force('collide', forceCollide<SimNode>(16))
-      .alphaDecay(isLarge ? 0.04 : 0.02)
-      .velocityDecay(0.3)
-      .on('tick', () => {
-        dirty = true;
-      });
+    if (chunk) {
+      // Chunk mode: smaller, tighter forces
+      simulation = forceSimulation<SimNode>(simNodes)
+        .force(
+          'link',
+          forceLink<SimNode, SimEdge>(simEdges)
+            .id((d) => d.id)
+            .distance(60)
+            .strength(0.4),
+        )
+        .force(
+          'charge',
+          forceManyBody<SimNode>()
+            .strength(-80)
+            .distanceMax(isLarge ? 200 : 400),
+        )
+        .force('center', forceCenter(width / 2, height / 2))
+        .force('collide', forceCollide<SimNode>(10))
+        .alphaDecay(isLarge ? 0.04 : 0.02)
+        .velocityDecay(0.3)
+        .on('tick', () => { dirty = true; });
 
-    // Warm-up
-    simulation.tick(300);
+      simulation.tick(200);
+    } else {
+      // Document mode: original forces
+      simulation = forceSimulation<SimNode>(simNodes)
+        .force(
+          'link',
+          forceLink<SimNode, SimEdge>(simEdges)
+            .id((d) => d.id)
+            .distance(80)
+            .strength(0.4),
+        )
+        .force(
+          'charge',
+          forceManyBody<SimNode>()
+            .strength(isLarge ? -60 : -120)
+            .distanceMax(isLarge ? 200 : 400),
+        )
+        .force('center', forceCenter(width / 2, height / 2))
+        .force('collide', forceCollide<SimNode>(16))
+        .alphaDecay(isLarge ? 0.04 : 0.02)
+        .velocityDecay(0.3)
+        .on('tick', () => { dirty = true; });
+
+      simulation.tick(300);
+    }
 
     // Center the view
     panX = 0;
@@ -204,7 +261,7 @@
   }
 
   /** Build neighbor sets for the selected node. */
-  function getSelectedNeighbors(selectedPath: string | null): {
+  function getSelectedNeighbors(selectedId: string | null): {
     neighbors: Set<string>;
     outEdges: Set<SimEdge>;
     inEdges: Set<SimEdge>;
@@ -212,16 +269,16 @@
     const neighbors = new Set<string>();
     const outEdges = new Set<SimEdge>();
     const inEdges = new Set<SimEdge>();
-    if (!selectedPath) return { neighbors, outEdges, inEdges };
+    if (!selectedId) return { neighbors, outEdges, inEdges };
 
     for (const edge of simEdges) {
-      const s = (edge.source as SimNode).path;
-      const t = (edge.target as SimNode).path;
-      if (s === selectedPath) {
+      const s = (edge.source as SimNode).id;
+      const t = (edge.target as SimNode).id;
+      if (s === selectedId) {
         neighbors.add(t);
         outEdges.add(edge);
       }
-      if (t === selectedPath) {
+      if (t === selectedId) {
         neighbors.add(s);
         inEdges.add(edge);
       }
@@ -279,24 +336,36 @@
     ctx.translate(panX, panY);
     ctx.scale(zoom, zoom);
 
-    const selectedPath = currentSelected?.path ?? null;
-    const { neighbors, outEdges, inEdges } = getSelectedNeighbors(selectedPath);
-    const hasSelection = selectedPath !== null;
+    const chunk = isChunkMode();
+    const selectedId = currentSelected?.id ?? null;
+    const { neighbors, outEdges, inEdges } = getSelectedNeighbors(selectedId);
+    const hasSelection = selectedId !== null;
 
     // --- Edges ---
     // 1. Draw non-highlighted edges first (dimmed when there's a selection)
     ctx.lineWidth = 1 / zoom;
-    ctx.beginPath();
-    ctx.strokeStyle = hasSelection ? 'rgba(255, 255, 255, 0.03)' : 'rgba(255, 255, 255, 0.08)';
     for (const edge of simEdges) {
       if (outEdges.has(edge) || inEdges.has(edge)) continue;
       const s = edge.source as SimNode;
       const t = edge.target as SimNode;
       if (s.x == null || t.x == null) continue;
-      ctx.moveTo(s.x, s.y);
-      ctx.lineTo(t.x, t.y);
+
+      // In chunk mode, edge opacity is proportional to weight
+      if (chunk && edge.weight != null) {
+        const alpha = hasSelection ? (0.15 + edge.weight * 0.6) * 0.3 : 0.15 + edge.weight * 0.6;
+        ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+        ctx.beginPath();
+        ctx.moveTo(s.x, s.y);
+        ctx.lineTo(t.x, t.y);
+        ctx.stroke();
+      } else {
+        ctx.strokeStyle = hasSelection ? 'rgba(255, 255, 255, 0.03)' : 'rgba(255, 255, 255, 0.08)';
+        ctx.beginPath();
+        ctx.moveTo(s.x, s.y);
+        ctx.lineTo(t.x, t.y);
+        ctx.stroke();
+      }
     }
-    ctx.stroke();
 
     // 2. Draw highlighted incoming edges with arrows
     if (inEdges.size > 0) {
@@ -333,13 +402,14 @@
     }
 
     // --- Nodes ---
+    const baseRadius = chunk ? 3 : 5;
     for (const node of simNodes) {
       const isHovered = hoveredNode === node;
-      const isSelected = node.path === selectedPath;
-      const isNeighbor = neighbors.has(node.path);
+      const isSelected = node.id === selectedId;
+      const isNeighbor = neighbors.has(node.id);
       const dimmed = hasSelection && !isSelected && !isNeighbor;
 
-      const radius = isSelected ? 8 : isHovered ? 7 : isNeighbor ? 6 : 5;
+      const radius = isSelected ? (chunk ? 6 : 8) : isHovered ? (chunk ? 5 : 7) : isNeighbor ? (chunk ? 4 : 6) : baseRadius;
 
       ctx.beginPath();
       ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
@@ -347,6 +417,9 @@
       // Fill color
       if (dimmed) {
         ctx.fillStyle = 'rgba(228, 228, 231, 0.15)';
+      } else if (chunk) {
+        // Chunk mode: color by source file path
+        ctx.fillStyle = fileColor(node.path);
       } else if (currentColoring && node.cluster_id != null) {
         ctx.fillStyle = CLUSTER_COLORS[node.cluster_id % CLUSTER_COLORS.length];
       } else {
@@ -367,8 +440,8 @@
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
       for (const node of simNodes) {
-        const isSelected = node.path === selectedPath;
-        const isNeighbor = neighbors.has(node.path);
+        const isSelected = node.id === selectedId;
+        const isNeighbor = neighbors.has(node.id);
         const dimmed = hasSelection && !isSelected && !isNeighbor;
 
         ctx.fillStyle = dimmed
@@ -380,7 +453,13 @@
               : 'rgba(228, 228, 231, 0.8)';
         ctx.font = `${(isSelected || isNeighbor ? 12 : 11) / zoom}px 'Space Grotesk', sans-serif`;
 
-        const label = node.path.split('/').pop() ?? node.path;
+        let label: string;
+        if (chunk && node.label) {
+          // Show deepest heading segment
+          label = node.label.split(' > ').pop() ?? node.label;
+        } else {
+          label = node.path.split('/').pop() ?? node.path;
+        }
         ctx.fillText(label, node.x, node.y + (hoveredNode === node || isSelected ? 10 : 8));
       }
     }
@@ -415,7 +494,7 @@
       node.fy = node.y;
       // Reheat simulation so other nodes react
       simulation?.alphaTarget(0.3).restart();
-      selectGraphNode({ path: node.path, cluster_id: node.cluster_id });
+      selectGraphNode({ id: node.id, path: node.path, label: node.label, cluster_id: node.cluster_id, chunk_index: node.chunk_index });
       return;
     }
 
@@ -547,7 +626,7 @@
         onclick={() => setGraphLevel('chunk')}>Chunks</button>
     </div>
 
-    {#if currentData.edges.length === 0}
+    {#if currentData.edges.length === 0 && currentLevel !== 'chunk'}
       <div class="graph-notice">No link connections found.</div>
     {/if}
 
@@ -562,7 +641,9 @@
         style="left: {tooltipX + 12}px; top: {tooltipY - 30}px"
       >
         <div class="tooltip-path">{hoveredNode.path}</div>
-        {#if hoveredNode.cluster_id != null && currentData}
+        {#if hoveredNode.label}
+          <div class="tooltip-cluster">{hoveredNode.label}</div>
+        {:else if hoveredNode.cluster_id != null && currentData}
           {@const cluster = currentData.clusters.find((c) => c.id === hoveredNode!.cluster_id)}
           {#if cluster}
             <div class="tooltip-cluster">{cluster.label}</div>
