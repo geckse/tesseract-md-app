@@ -9,12 +9,15 @@
     graphSelectedNode,
     graphClusterColoring,
     graphLevel,
+    graphPathFilter,
     loadGraphData,
     selectGraphNode,
     setGraphLevel,
+    setGraphPathFilter,
   } from '../stores/graph';
   import type { GraphLevel } from '../types/cli';
   import type { GraphNode, GraphEdge, GraphData } from '../types/cli';
+  import { selectedFilePath } from '../stores/files';
 
   /** Cluster color palette (12 colors, cycling). */
   const CLUSTER_COLORS = [
@@ -78,6 +81,8 @@
   let unsubData: (() => void) | null = null;
   let unsubColoring: (() => void) | null = null;
   let unsubSelected: (() => void) | null = null;
+  let unsubFilePath: (() => void) | null = null;
+  let unsubPathFilter: (() => void) | null = null;
 
   // Reactive local copies for template use
   let currentData: GraphData | null = $state(null);
@@ -86,6 +91,8 @@
   let currentColoring = $state(true);
   let currentSelected: GraphNode | null = $state(null);
   let currentLevel: GraphLevel = $state('document');
+  let currentFilePath: string | null = $state(null);
+  let currentPathFilter: string | null = $state(null);
 
   /** Hash a string to a stable index for color assignment. */
   function fileColor(path: string): string {
@@ -118,6 +125,13 @@
       currentSelected = n;
       dirty = true;
     });
+    unsubFilePath = selectedFilePath.subscribe((p) => {
+      currentFilePath = p;
+      dirty = true;
+    });
+    unsubPathFilter = graphPathFilter.subscribe((p) => {
+      currentPathFilter = p;
+    });
     graphLoading.subscribe((v) => { currentLoading = v; });
     graphError.subscribe((v) => { currentError = v; });
     graphLevel.subscribe((v) => {
@@ -148,6 +162,8 @@
     unsubData?.();
     unsubColoring?.();
     unsubSelected?.();
+    unsubFilePath?.();
+    unsubPathFilter?.();
   });
 
   function resizeCanvas() {
@@ -292,6 +308,32 @@
     return { neighbors, outEdges, inEdges };
   }
 
+  /** Build sets of node IDs and edges belonging to the selected file path. */
+  function getFileHighlight(filePath: string | null): {
+    fileNodeIds: Set<string>;
+    fileEdges: Set<SimEdge>;
+  } {
+    const fileNodeIds = new Set<string>();
+    const fileEdges = new Set<SimEdge>();
+    if (!filePath) return { fileNodeIds, fileEdges };
+
+    for (const node of simNodes) {
+      if (node.path === filePath) {
+        fileNodeIds.add(node.id);
+      }
+    }
+    if (fileNodeIds.size === 0) return { fileNodeIds, fileEdges };
+
+    for (const edge of simEdges) {
+      const s = (edge.source as SimNode).id;
+      const t = (edge.target as SimNode).id;
+      if (fileNodeIds.has(s) || fileNodeIds.has(t)) {
+        fileEdges.add(edge);
+      }
+    }
+    return { fileNodeIds, fileEdges };
+  }
+
   /** Read edge colors from CSS custom properties (design tokens). */
   function getEdgeColors() {
     const style = getComputedStyle(document.documentElement);
@@ -356,26 +398,46 @@
     const selectedId = currentSelected?.id ?? null;
     const { neighbors, outEdges, inEdges } = getSelectedNeighbors(selectedId);
     const hasSelection = selectedId !== null;
+    const { fileNodeIds, fileEdges } = getFileHighlight(currentFilePath);
+    const hasFileHighlight = !hasSelection && fileNodeIds.size > 0;
 
     // --- Edges ---
-    // 1. Draw non-highlighted edges first (dimmed when there's a selection)
+    // 1. Draw non-highlighted edges first (dimmed when there's a selection or file highlight)
     ctx.lineWidth = 1 / zoom;
     for (const edge of simEdges) {
       if (outEdges.has(edge) || inEdges.has(edge)) continue;
+      // Skip file-highlighted edges here; they're drawn later with brighter style
+      if (hasFileHighlight && fileEdges.has(edge)) continue;
       const s = edge.source as SimNode;
       const t = edge.target as SimNode;
       if (s.x == null || t.x == null) continue;
 
+      const dimFactor = hasSelection || hasFileHighlight;
       // In chunk mode, edge opacity is proportional to weight
       if (chunk && edge.weight != null) {
-        const alpha = hasSelection ? (0.15 + edge.weight * 0.6) * 0.3 : 0.15 + edge.weight * 0.6;
+        const alpha = dimFactor ? (0.05 + edge.weight * 0.2) * 0.3 : 0.05 + edge.weight * 0.2;
         ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
         ctx.beginPath();
         ctx.moveTo(s.x, s.y);
         ctx.lineTo(t.x, t.y);
         ctx.stroke();
       } else {
-        ctx.strokeStyle = hasSelection ? 'rgba(255, 255, 255, 0.03)' : 'rgba(255, 255, 255, 0.08)';
+        ctx.strokeStyle = dimFactor ? 'rgba(255, 255, 255, 0.03)' : 'rgba(255, 255, 255, 0.08)';
+        ctx.beginPath();
+        ctx.moveTo(s.x, s.y);
+        ctx.lineTo(t.x, t.y);
+        ctx.stroke();
+      }
+    }
+
+    // 1b. Draw file-highlighted edges (brighter)
+    if (hasFileHighlight && fileEdges.size > 0) {
+      ctx.strokeStyle = '#00E5FF';
+      ctx.lineWidth = 1.5 / zoom;
+      for (const edge of fileEdges) {
+        const s = edge.source as SimNode;
+        const t = edge.target as SimNode;
+        if (s.x == null || t.x == null) continue;
         ctx.beginPath();
         ctx.moveTo(s.x, s.y);
         ctx.lineTo(t.x, t.y);
@@ -400,57 +462,78 @@
       if (bidiNeighbors.has((edge.source as SimNode).id)) bidiInEdges.add(edge);
     }
 
-    // 2. Draw highlighted incoming edges (one-way only) with arrows
-    if (inEdges.size > 0) {
-      ctx.strokeStyle = EDGE_COLOR_IN;
-      ctx.fillStyle = EDGE_COLOR_IN;
-      ctx.lineWidth = 2 / zoom;
-      for (const edge of inEdges) {
-        if (bidiInEdges.has(edge)) continue;
-        const s = edge.source as SimNode;
-        const t = edge.target as SimNode;
-        if (s.x == null || t.x == null) continue;
-        ctx.beginPath();
-        ctx.moveTo(s.x, s.y);
-        ctx.lineTo(t.x, t.y);
-        ctx.stroke();
-        drawArrow(ctx, s.x, s.y, t.x, t.y, 8);
+    // 2-4. Draw highlighted edges — chunk mode uses uniform cyan, no arrows (symmetric similarity);
+    //       document mode uses directional in/out/bidi with arrows.
+    if (chunk) {
+      // Chunk mode: all connected edges drawn as cyan lines, no arrows
+      const allHighlighted = new Set<SimEdge>([...outEdges, ...inEdges]);
+      if (allHighlighted.size > 0) {
+        ctx.strokeStyle = '#00E5FF';
+        ctx.lineWidth = 2 / zoom;
+        for (const edge of allHighlighted) {
+          const s = edge.source as SimNode;
+          const t = edge.target as SimNode;
+          if (s.x == null || t.x == null) continue;
+          ctx.beginPath();
+          ctx.moveTo(s.x, s.y);
+          ctx.lineTo(t.x, t.y);
+          ctx.stroke();
+        }
       }
-    }
-
-    // 3. Draw highlighted outgoing edges (one-way only) with arrows
-    if (outEdges.size > 0) {
-      ctx.strokeStyle = EDGE_COLOR_OUT;
-      ctx.fillStyle = EDGE_COLOR_OUT;
-      ctx.lineWidth = 2 / zoom;
-      for (const edge of outEdges) {
-        if (bidiOutEdges.has(edge)) continue;
-        const s = edge.source as SimNode;
-        const t = edge.target as SimNode;
-        if (s.x == null || t.x == null) continue;
-        ctx.beginPath();
-        ctx.moveTo(s.x, s.y);
-        ctx.lineTo(t.x, t.y);
-        ctx.stroke();
-        drawArrow(ctx, s.x, s.y, t.x, t.y, 6);
+    } else {
+      // Document mode: directional edges with arrows
+      // 2. Incoming edges (one-way only)
+      if (inEdges.size > 0) {
+        ctx.strokeStyle = EDGE_COLOR_IN;
+        ctx.fillStyle = EDGE_COLOR_IN;
+        ctx.lineWidth = 2 / zoom;
+        for (const edge of inEdges) {
+          if (bidiInEdges.has(edge)) continue;
+          const s = edge.source as SimNode;
+          const t = edge.target as SimNode;
+          if (s.x == null || t.x == null) continue;
+          ctx.beginPath();
+          ctx.moveTo(s.x, s.y);
+          ctx.lineTo(t.x, t.y);
+          ctx.stroke();
+          drawArrow(ctx, s.x, s.y, t.x, t.y, 8);
+        }
       }
-    }
 
-    // 4. Draw bidirectional edges — single line, arrows on both ends
-    if (bidiOutEdges.size > 0) {
-      ctx.strokeStyle = EDGE_COLOR_BIDI;
-      ctx.fillStyle = EDGE_COLOR_BIDI;
-      ctx.lineWidth = 2 / zoom;
-      for (const edge of bidiOutEdges) {
-        const s = edge.source as SimNode;
-        const t = edge.target as SimNode;
-        if (s.x == null || t.x == null) continue;
-        ctx.beginPath();
-        ctx.moveTo(s.x, s.y);
-        ctx.lineTo(t.x, t.y);
-        ctx.stroke();
-        drawArrow(ctx, s.x, s.y, t.x, t.y, 8);
-        drawArrow(ctx, t.x, t.y, s.x, s.y, 8);
+      // 3. Outgoing edges (one-way only)
+      if (outEdges.size > 0) {
+        ctx.strokeStyle = EDGE_COLOR_OUT;
+        ctx.fillStyle = EDGE_COLOR_OUT;
+        ctx.lineWidth = 2 / zoom;
+        for (const edge of outEdges) {
+          if (bidiOutEdges.has(edge)) continue;
+          const s = edge.source as SimNode;
+          const t = edge.target as SimNode;
+          if (s.x == null || t.x == null) continue;
+          ctx.beginPath();
+          ctx.moveTo(s.x, s.y);
+          ctx.lineTo(t.x, t.y);
+          ctx.stroke();
+          drawArrow(ctx, s.x, s.y, t.x, t.y, 6);
+        }
+      }
+
+      // 4. Bidirectional edges — single line, arrows on both ends
+      if (bidiOutEdges.size > 0) {
+        ctx.strokeStyle = EDGE_COLOR_BIDI;
+        ctx.fillStyle = EDGE_COLOR_BIDI;
+        ctx.lineWidth = 2 / zoom;
+        for (const edge of bidiOutEdges) {
+          const s = edge.source as SimNode;
+          const t = edge.target as SimNode;
+          if (s.x == null || t.x == null) continue;
+          ctx.beginPath();
+          ctx.moveTo(s.x, s.y);
+          ctx.lineTo(t.x, t.y);
+          ctx.stroke();
+          drawArrow(ctx, s.x, s.y, t.x, t.y, 8);
+          drawArrow(ctx, t.x, t.y, s.x, s.y, 8);
+        }
       }
     }
 
@@ -460,9 +543,24 @@
       const isHovered = hoveredNode === node;
       const isSelected = node.id === selectedId;
       const isNeighbor = neighbors.has(node.id);
-      const dimmed = hasSelection && !isSelected && !isNeighbor;
+      const isFileNode = hasFileHighlight && fileNodeIds.has(node.id);
+      const dimmed = (hasSelection && !isSelected && !isNeighbor) ||
+                     (hasFileHighlight && !isFileNode);
 
-      const radius = isSelected ? (chunk ? 6 : 8) : isHovered ? (chunk ? 5 : 7) : isNeighbor ? (chunk ? 4 : 6) : baseRadius;
+      const radius = isSelected ? (chunk ? 6 : 8) : isHovered ? (chunk ? 5 : 7) : isNeighbor ? (chunk ? 4 : 6) : isFileNode ? (chunk ? 5 : 7) : baseRadius;
+
+      // Cyan glow effect for file-highlighted nodes
+      if (isFileNode) {
+        ctx.save();
+        ctx.shadowColor = '#00E5FF';
+        ctx.shadowBlur = 12;
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
+        ctx.strokeStyle = '#00E5FF';
+        ctx.lineWidth = 1.5 / zoom;
+        ctx.stroke();
+        ctx.restore();
+      }
 
       ctx.beginPath();
       ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
@@ -471,8 +569,12 @@
       if (dimmed) {
         ctx.fillStyle = 'rgba(228, 228, 231, 0.15)';
       } else if (chunk) {
-        // Chunk mode: color by source file path
-        ctx.fillStyle = fileColor(node.path);
+        // Chunk mode: cluster color when enabled, else file color
+        if (currentColoring && node.cluster_id != null) {
+          ctx.fillStyle = CLUSTER_COLORS[node.cluster_id % CLUSTER_COLORS.length];
+        } else {
+          ctx.fillStyle = fileColor(node.path);
+        }
       } else if (currentColoring && node.cluster_id != null) {
         ctx.fillStyle = CLUSTER_COLORS[node.cluster_id % CLUSTER_COLORS.length];
       } else {
@@ -495,7 +597,9 @@
       for (const node of simNodes) {
         const isSelected = node.id === selectedId;
         const isNeighbor = neighbors.has(node.id);
-        const dimmed = hasSelection && !isSelected && !isNeighbor;
+        const isFileNode = hasFileHighlight && fileNodeIds.has(node.id);
+        const dimmed = (hasSelection && !isSelected && !isNeighbor) ||
+                       (hasFileHighlight && !isFileNode);
 
         ctx.fillStyle = dimmed
           ? 'rgba(228, 228, 231, 0.15)'
@@ -687,6 +791,15 @@
         onclick={() => setGraphLevel('chunk')}>Chunks</button>
     </div>
 
+    <!-- Path filter badge -->
+    {#if currentPathFilter}
+      <div class="graph-path-badge">
+        <span class="material-symbols-outlined path-badge-icon">folder</span>
+        <span class="path-badge-text">{currentPathFilter}</span>
+        <button class="path-badge-close" onclick={() => setGraphPathFilter(null)} title="Clear path filter">×</button>
+      </div>
+    {/if}
+
     {#if currentData.edges.length === 0 && currentLevel !== 'chunk'}
       <div class="graph-notice">No link connections found.</div>
     {/if}
@@ -704,7 +817,8 @@
         <div class="tooltip-path">{hoveredNode.path}</div>
         {#if isChunkMode() && hoveredNode.label}
           <div class="tooltip-heading">{hoveredNode.label}</div>
-        {:else if hoveredNode.cluster_id != null && currentData}
+        {/if}
+        {#if hoveredNode.cluster_id != null && currentData}
           {@const cluster = currentData.clusters.find((c) => c.id === hoveredNode!.cluster_id)}
           {#if cluster}
             <div class="tooltip-cluster">{cluster.label}</div>
@@ -971,5 +1085,54 @@
   .level-tab.active {
     color: var(--color-primary, #00E5FF);
     background: rgba(0, 229, 255, 0.08);
+  }
+
+  .graph-path-badge {
+    position: absolute;
+    top: var(--space-3, 0.75rem);
+    left: var(--space-3, 0.75rem);
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 0.5rem);
+    padding: var(--space-1, 0.25rem) var(--space-3, 0.75rem);
+    background: var(--color-surface, #161617);
+    border: 1px solid var(--color-border, #27272a);
+    border-radius: var(--radius-md, 0.375rem);
+    z-index: var(--z-base, 10);
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-size: var(--text-xs, 0.625rem);
+    color: var(--color-text, #e4e4e7);
+  }
+
+  .path-badge-icon {
+    font-size: 14px;
+    color: var(--color-text-dim, #71717a);
+  }
+
+  .path-badge-text {
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .path-badge-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    background: none;
+    border: none;
+    color: var(--color-text-dim, #71717a);
+    font-size: 14px;
+    cursor: pointer;
+    border-radius: 2px;
+    transition: color var(--transition-fast, 150ms ease);
+  }
+
+  .path-badge-close:hover {
+    color: var(--color-text, #e4e4e7);
   }
 </style>

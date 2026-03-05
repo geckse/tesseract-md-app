@@ -15,6 +15,8 @@
   import { activeCollection, activeCollectionId } from '../stores/collections'
   import { runIngest, ingestRunning } from '../stores/ingest'
   import { favorites, toggleFavorite } from '../stores/favorites'
+  import { setGraphPathFilter, graphViewActive } from '../stores/graph'
+  import { get } from 'svelte/store'
   import type { Collection } from '../../preload/api'
   import type { FileTree as FileTreeType, FileState, FileTreeNode as FileTreeNodeType } from '../types/cli'
   import {
@@ -291,6 +293,16 @@
     await toggleFavorite(collectionId, filePath)
   }
 
+  function handleShowInGraph() {
+    if (!contextMenuPath) return
+    const path = contextMenuPath
+    closeContextMenu()
+    setGraphPathFilter(path)
+    if (!get(graphViewActive)) {
+      graphViewActive.set(true)
+    }
+  }
+
   async function handleRefresh() {
     await loadFileTree()
   }
@@ -460,6 +472,13 @@
         <span class="material-symbols-outlined">content_copy</span>
         Copy Relative Path
       </button>
+      {#if contextMenuIsDir}
+        <div class="context-menu-separator"></div>
+        <button class="context-menu-item" onclick={handleShowInGraph}>
+          <span class="material-symbols-outlined">hub</span>
+          Show in Graph
+        </button>
+      {/if}
       {#if !contextMenuIsDir}
         <div class="context-menu-separator"></div>
         <button class="context-menu-item" onclick={handleToggleFavorite}>
