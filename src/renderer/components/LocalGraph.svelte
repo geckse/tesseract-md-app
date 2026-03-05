@@ -20,10 +20,6 @@
   const HEIGHT = 200;
   const CENTER_RADIUS = 6;
   const NEIGHBOR_RADIUS = 4;
-  const CENTER_COLOR = '#00E5FF';
-  const NEIGHBOR_COLOR = 'rgba(228, 228, 231, 0.4)';
-  const EDGE_COLOR = 'rgba(255, 255, 255, 0.15)';
-  const EDGE_HOVER_COLOR = '#00E5FF';
 
   let simNodes: LocalNode[] = $state([]);
   let simEdges: LocalEdge[] = $state([]);
@@ -32,7 +28,8 @@
 
   function getFileName(path: string): string {
     const parts = path.split('/');
-    return parts[parts.length - 1];
+    const name = parts[parts.length - 1];
+    return name.length > 15 ? name.slice(0, 12) + '…' : name;
   }
 
   function runSimulation(graph: LocalGraphData) {
@@ -106,7 +103,7 @@
   <div class="local-graph-header">
     <span class="local-graph-title">Graph</span>
     {#if onexpand && hasLinks}
-      <button class="expand-button" title="Open full graph" onclick={onexpand}>
+      <button class="expand-button" title="Open full graph view" onclick={onexpand}>
         <span class="material-symbols-outlined">open_in_full</span>
       </button>
     {/if}
@@ -140,12 +137,12 @@
         {@const isHovered =
           hoveredPath === src.path || hoveredPath === tgt.path}
         <line
+          class="graph-edge"
+          class:edge-hovered={isHovered}
           x1={getNodeX(src)}
           y1={getNodeY(src)}
           x2={getNodeX(tgt)}
           y2={getNodeY(tgt)}
-          stroke={isHovered ? EDGE_HOVER_COLOR : EDGE_COLOR}
-          stroke-width={isHovered ? 1.5 : 0.5}
         />
       {/each}
 
@@ -154,21 +151,23 @@
         {@const nx = getNodeX(node)}
         {@const ny = getNodeY(node)}
         {@const isHovered = hoveredPath === node.path}
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
         <g
           class="graph-node"
+          class:center-node={node.isCenter}
+          class:neighbor-node={!node.isCenter}
+          class:node-hovered={isHovered}
+          role="button"
+          tabindex="0"
+          aria-label={getFileName(node.path)}
           onmouseenter={() => (hoveredPath = node.path)}
           onmouseleave={() => (hoveredPath = null)}
           onclick={() => handleNodeClick(node.path)}
+          onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') handleNodeClick(node.path); }}
         >
           <circle
             cx={nx}
             cy={ny}
             r={node.isCenter ? CENTER_RADIUS : NEIGHBOR_RADIUS}
-            fill={node.isCenter ? CENTER_COLOR : NEIGHBOR_COLOR}
-            stroke={isHovered ? CENTER_COLOR : 'none'}
-            stroke-width={isHovered ? 1.5 : 0}
           />
           {#if node.isCenter || isHovered}
             <text
@@ -253,8 +252,31 @@
     display: block;
   }
 
+  .graph-edge {
+    stroke: var(--color-edge, rgba(255, 255, 255, 0.15));
+    stroke-width: 0.5;
+  }
+
+  .graph-edge.edge-hovered {
+    stroke: var(--color-primary, #00E5FF);
+    stroke-width: 1.5;
+  }
+
   .graph-node {
     cursor: pointer;
+  }
+
+  .graph-node.center-node circle {
+    fill: var(--color-primary, #00E5FF);
+  }
+
+  .graph-node.neighbor-node circle {
+    fill: var(--color-neighbor, rgba(228, 228, 231, 0.4));
+  }
+
+  .graph-node.node-hovered circle {
+    stroke: var(--color-primary, #00E5FF);
+    stroke-width: 1.5;
   }
 
   .node-label {

@@ -369,7 +369,7 @@ describe('LocalGraph integration in PropertiesPanel', () => {
     selectedFilePath.set('docs/test.md')
     render(PropertiesPanel)
 
-    const expandBtn = screen.getByTitle('Open in full graph view')
+    const expandBtn = screen.getByTitle('Open full graph view')
     expect(expandBtn).toBeTruthy()
   })
 

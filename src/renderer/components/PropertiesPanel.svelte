@@ -269,7 +269,7 @@
         {/if}
         <button
           class="expand-button"
-          title="Open in full graph view"
+          title="Open full graph view"
           onclick={(e) => { e.stopPropagation(); expandToFullGraph(); }}
         >
           <span class="material-symbols-outlined">open_in_full</span>
