@@ -27,6 +27,8 @@ vi.mock('@codemirror/view', () => {
     this.dom.className = 'cm-editor'
     this.destroy = vi.fn()
     this.dispatch = vi.fn()
+    this.scrollDOM = { scrollTop: 0 }
+    this.contentDOM = { scrollTop: 0 }
     if (config.parent) {
       config.parent.appendChild(this.dom)
     }
@@ -35,7 +37,7 @@ vi.mock('@codemirror/view', () => {
   return {
     EditorView: Object.assign(EditorView, {
       updateListener: { of: vi.fn(() => []) },
-      domEventHandler: vi.fn(() => []),
+      domEventHandlers: vi.fn(() => []),
     }),
     keymap: { of: vi.fn(() => []) },
   }
@@ -47,6 +49,12 @@ vi.mock('@codemirror/state', () => ({
       doc: {
         toString: () => config.doc || '',
         length: (config.doc || '').length,
+        lineAt: () => ({ from: 0, to: 0, number: 1, text: '' }),
+        line: () => ({ from: 0, to: 0, number: 1, text: '' }),
+        sliceString: () => config.doc || '',
+      },
+      selection: {
+        main: { head: 0 },
       },
     })),
   },

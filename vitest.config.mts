@@ -8,7 +8,7 @@ export default defineConfig({
     environment: 'jsdom',
     include: ['tests/unit/**/*.test.ts'],
     globals: true,
-    setupFiles: [],
+    setupFiles: ['./tests/setup.ts'],
     alias: {
       '@renderer': new URL('./src/renderer', import.meta.url).pathname
     }

@@ -5,7 +5,7 @@
  * Called once from the main process on app ready.
  */
 
-import { ipcMain, shell, clipboard, type BrowserWindow } from 'electron'
+import { app, ipcMain, shell, clipboard, type BrowserWindow } from 'electron'
 import { promises as fs } from 'node:fs'
 import { findCli, getCliVersion, execCommand, execRaw } from './cli'
 import { detectCli, installCli, checkLatestVersion } from './cli-install'
@@ -18,6 +18,7 @@ import {
   setCliInfo
 } from './store'
 import { WatcherManager, type WatcherState } from './watcher'
+import { AppUpdater } from './updater'
 import {
   getCollections,
   addCollection,
@@ -102,6 +103,29 @@ function getWatcherManager(): WatcherManager {
     watcherManager = new WatcherManager()
   }
   return watcherManager
+}
+
+/** Singleton AppUpdater instance */
+let appUpdater: AppUpdater | null = null
+
+/**
+ * Get or create the AppUpdater singleton.
+ */
+export function getAppUpdater(): AppUpdater {
+  if (!appUpdater) {
+    appUpdater = new AppUpdater()
+  }
+  return appUpdater
+}
+
+/**
+ * Destroy the app updater (call on app quit).
+ */
+export function destroyAppUpdater(): void {
+  if (appUpdater) {
+    appUpdater.destroy()
+    appUpdater = null
+  }
 }
 
 /**
@@ -648,5 +672,47 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
         running: watcher.isRunning()
       }
     })
+  )
+
+  // Updater management
+  const updater = getAppUpdater()
+
+  // Wire event forwarding from AppUpdater to renderer
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    updater.setMainWindow(mainWindow)
+  }
+
+  ipcMain.handle('updater:check', () =>
+    wrapHandler(async () => {
+      await updater.checkForUpdates()
+    })
+  )
+
+  ipcMain.handle('updater:download', () =>
+    wrapHandler(async () => {
+      await updater.downloadUpdate()
+    })
+  )
+
+  ipcMain.handle('updater:install', () =>
+    wrapHandler(async () => {
+      updater.quitAndInstall()
+    })
+  )
+
+  ipcMain.handle('updater:status', () =>
+    wrapHandler(async () => {
+      return { state: updater.getState() }
+    })
+  )
+
+  ipcMain.handle('updater:skip-version', (_event, version: string) =>
+    wrapHandler(async () => {
+      updater.skipVersion(version)
+    })
+  )
+
+  ipcMain.handle('updater:app-version', () =>
+    wrapHandler(async () => app.getVersion())
   )
 }

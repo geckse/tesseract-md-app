@@ -26,7 +26,27 @@ vi.mock('../../src/main/store', () => ({
   addCollection: (...args: unknown[]) => mockAddCollection(...args),
   removeCollection: (...args: unknown[]) => mockRemoveCollection(...args),
   setActiveCollection: (...args: unknown[]) => mockSetActiveCollection(...args),
-  getActiveCollection: (...args: unknown[]) => mockGetActiveCollection(...args)
+  getActiveCollection: (...args: unknown[]) => mockGetActiveCollection(...args),
+  getOnboardingComplete: vi.fn().mockReturnValue(false),
+  setOnboardingComplete: vi.fn(),
+  getEditorFontSize: vi.fn().mockReturnValue(17),
+  setEditorFontSize: vi.fn(),
+  setCliInfo: vi.fn(),
+  initStore: vi.fn()
+}))
+
+// Mock cli-install module
+vi.mock('../../src/main/cli-install', () => ({
+  detectCli: vi.fn().mockResolvedValue({ found: false }),
+  installCli: vi.fn().mockResolvedValue({ success: true, path: '/usr/local/bin/mdvdb', version: '0.1.0' }),
+  checkLatestVersion: vi.fn().mockResolvedValue('0.1.0')
+}))
+
+// Mock config-io module
+vi.mock('../../src/main/config-io', () => ({
+  readConfig: vi.fn().mockResolvedValue({}),
+  writeConfigKey: vi.fn().mockResolvedValue(undefined),
+  deleteConfigKey: vi.fn().mockResolvedValue(undefined)
 }))
 
 // Mock collections module
@@ -89,10 +109,47 @@ vi.mock('../../src/main/menu', () => ({
   refreshRecentMenu: (...args: unknown[]) => mockRefreshRecentMenu(...args)
 }))
 
+// Mock updater module
+vi.mock('../../src/main/updater', () => ({
+  AppUpdater: vi.fn().mockImplementation(() => ({
+    setMainWindow: vi.fn(),
+    start: vi.fn(),
+    stop: vi.fn(),
+    checkForUpdates: vi.fn(),
+    downloadUpdate: vi.fn(),
+    quitAndInstall: vi.fn(),
+    skipVersion: vi.fn(),
+    clearSkippedVersion: vi.fn(),
+    getState: vi.fn().mockReturnValue('idle'),
+    destroy: vi.fn(),
+  }))
+}))
+
+// Mock electron-updater
+vi.mock('electron-updater', () => ({
+  autoUpdater: {
+    autoDownload: false,
+    autoInstallOnAppQuit: true,
+    on: vi.fn(),
+    removeAllListeners: vi.fn(),
+    checkForUpdates: vi.fn(),
+    downloadUpdate: vi.fn(),
+    quitAndInstall: vi.fn(),
+  }
+}))
+
+// Mock @electron-toolkit/utils
+vi.mock('@electron-toolkit/utils', () => ({
+  is: { dev: true }
+}))
+
 // Mock electron shell and clipboard
 const mockShellOpenPath = vi.fn()
 const mockClipboardWriteText = vi.fn()
 vi.mock('electron', () => ({
+  app: {
+    getVersion: () => '1.0.0-test'
+  },
   ipcMain: {
     handle: (...args: unknown[]) => mockHandle(...args)
   },
@@ -174,7 +231,8 @@ describe('registerIpcHandlers', () => {
     expect(channels).toContain('watcher:status')
     expect(channels).toContain('shell:open-path')
     expect(channels).toContain('clipboard:write-text')
-    expect(channels).toHaveLength(55)
+    expect(channels).toContain('updater:app-version')
+    expect(channels).toHaveLength(61)
   })
 })
 

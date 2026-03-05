@@ -17,20 +17,30 @@ Object.defineProperty(globalThis, 'window', {
   writable: true
 })
 
-// Mock collections stores
-const mockCollections = [
-  { id: 'a', name: 'alpha', path: '/alpha', addedAt: 1, lastOpenedAt: 1 },
-  { id: 'b', name: 'beta', path: '/beta', addedAt: 2, lastOpenedAt: 2 }
-]
+// Create writable stores for mocks so derived stores work properly
+// vi.hoisted ensures these are available when vi.mock factories run (hoisted above imports)
+const { mockActiveCollectionId, mockSelectedFilePath } = vi.hoisted(() => {
+  // Inline writable implementation to avoid import issues in hoisted context
+  function makeWritable<T>(initial: T) {
+    let value = initial
+    const subscribers = new Set<(v: T) => void>()
+    return {
+      set(v: T) { value = v; subscribers.forEach(fn => fn(v)) },
+      update(fn: (v: T) => T) { value = fn(value); subscribers.forEach(s => s(value)) },
+      subscribe(fn: (v: T) => void) { fn(value); subscribers.add(fn); return () => { subscribers.delete(fn) } },
+    }
+  }
+  return {
+    mockActiveCollectionId: makeWritable<string | null>(null),
+    mockSelectedFilePath: makeWritable<string | null>(null),
+  }
+})
 
 vi.mock('../../src/renderer/stores/collections', () => ({
   activeCollection: { subscribe: vi.fn() },
-  activeCollectionId: { subscribe: vi.fn() },
-  collections: { subscribe: (fn: any) => fn(mockCollections) }
+  activeCollectionId: mockActiveCollectionId,
+  collections: { subscribe: (fn: any) => { fn([]); return () => {} } }
 }))
-
-// Mock files stores
-const mockSelectedFilePath = { subscribe: vi.fn() }
 
 vi.mock('../../src/renderer/stores/files', () => ({
   selectedFilePath: mockSelectedFilePath
@@ -57,6 +67,10 @@ beforeEach(() => {
   recentFiles.set([])
   favoritesLoading.set(false)
   recentsLoading.set(false)
+
+  // Reset mock stores
+  mockActiveCollectionId.set(null)
+  mockSelectedFilePath.set(null)
 
   // Reset mocks
   vi.resetAllMocks()
@@ -199,78 +213,32 @@ describe('favorites store', () => {
   describe('isFavorited derived store', () => {
     it('returns true when file is favorited', () => {
       favorites.set([fav1, fav2])
-
-      // Mock the activeCollectionId subscription
-      const activeCollectionIdMock = vi.mocked(
-        require('../../src/renderer/stores/collections').activeCollectionId
-      )
-      activeCollectionIdMock.subscribe = (fn: any) => {
-        fn('a')
-        return () => {}
-      }
-
-      // Mock the selectedFilePath subscription
-      mockSelectedFilePath.subscribe = (fn: any) => {
-        fn('doc1.md')
-        return () => {}
-      }
+      mockActiveCollectionId.set('a')
+      mockSelectedFilePath.set('doc1.md')
 
       expect(get(isFavorited)).toBe(true)
     })
 
     it('returns false when file is not favorited', () => {
       favorites.set([fav1])
-
-      const activeCollectionIdMock = vi.mocked(
-        require('../../src/renderer/stores/collections').activeCollectionId
-      )
-      activeCollectionIdMock.subscribe = (fn: any) => {
-        fn('a')
-        return () => {}
-      }
-
-      mockSelectedFilePath.subscribe = (fn: any) => {
-        fn('doc-not-favorited.md')
-        return () => {}
-      }
+      mockActiveCollectionId.set('a')
+      mockSelectedFilePath.set('doc-not-favorited.md')
 
       expect(get(isFavorited)).toBe(false)
     })
 
     it('returns false when no active collection', () => {
       favorites.set([fav1])
-
-      const activeCollectionIdMock = vi.mocked(
-        require('../../src/renderer/stores/collections').activeCollectionId
-      )
-      activeCollectionIdMock.subscribe = (fn: any) => {
-        fn(null)
-        return () => {}
-      }
-
-      mockSelectedFilePath.subscribe = (fn: any) => {
-        fn('doc1.md')
-        return () => {}
-      }
+      mockActiveCollectionId.set(null)
+      mockSelectedFilePath.set('doc1.md')
 
       expect(get(isFavorited)).toBe(false)
     })
 
     it('returns false when no selected file', () => {
       favorites.set([fav1])
-
-      const activeCollectionIdMock = vi.mocked(
-        require('../../src/renderer/stores/collections').activeCollectionId
-      )
-      activeCollectionIdMock.subscribe = (fn: any) => {
-        fn('a')
-        return () => {}
-      }
-
-      mockSelectedFilePath.subscribe = (fn: any) => {
-        fn(null)
-        return () => {}
-      }
+      mockActiveCollectionId.set('a')
+      mockSelectedFilePath.set(null)
 
       expect(get(isFavorited)).toBe(false)
     })
@@ -279,14 +247,7 @@ describe('favorites store', () => {
   describe('favoritesByCollection derived store', () => {
     it('filters favorites by active collection', () => {
       favorites.set([fav1, fav2, fav3])
-
-      const activeCollectionIdMock = vi.mocked(
-        require('../../src/renderer/stores/collections').activeCollectionId
-      )
-      activeCollectionIdMock.subscribe = (fn: any) => {
-        fn('a')
-        return () => {}
-      }
+      mockActiveCollectionId.set('a')
 
       const result = get(favoritesByCollection)
       expect(result).toHaveLength(2)
@@ -296,14 +257,7 @@ describe('favorites store', () => {
 
     it('sorts by most recently added first', () => {
       favorites.set([fav1, fav2])
-
-      const activeCollectionIdMock = vi.mocked(
-        require('../../src/renderer/stores/collections').activeCollectionId
-      )
-      activeCollectionIdMock.subscribe = (fn: any) => {
-        fn('a')
-        return () => {}
-      }
+      mockActiveCollectionId.set('a')
 
       const result = get(favoritesByCollection)
       expect(result[0]).toEqual(fav2) // addedAt: 2000
@@ -312,28 +266,14 @@ describe('favorites store', () => {
 
     it('returns empty array when no active collection', () => {
       favorites.set([fav1, fav2])
-
-      const activeCollectionIdMock = vi.mocked(
-        require('../../src/renderer/stores/collections').activeCollectionId
-      )
-      activeCollectionIdMock.subscribe = (fn: any) => {
-        fn(null)
-        return () => {}
-      }
+      mockActiveCollectionId.set(null)
 
       expect(get(favoritesByCollection)).toEqual([])
     })
 
     it('returns empty array when collection has no favorites', () => {
       favorites.set([fav1, fav2])
-
-      const activeCollectionIdMock = vi.mocked(
-        require('../../src/renderer/stores/collections').activeCollectionId
-      )
-      activeCollectionIdMock.subscribe = (fn: any) => {
-        fn('c') // non-existent collection
-        return () => {}
-      }
+      mockActiveCollectionId.set('c') // non-existent collection
 
       expect(get(favoritesByCollection)).toEqual([])
     })

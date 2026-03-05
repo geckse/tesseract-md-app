@@ -1,7 +1,7 @@
 import { app, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import { registerIpcHandlers, destroyWatcherManager } from './ipc-handlers'
+import { registerIpcHandlers, destroyWatcherManager, destroyAppUpdater, getAppUpdater } from './ipc-handlers'
 import { initStore } from './store'
 import { buildAppMenu } from './menu'
 
@@ -72,6 +72,11 @@ app.whenReady().then(() => {
   registerIpcHandlers(mainWindow)
   buildAppMenu(mainWindow)
 
+  // Initialize auto-updater via the singleton (same instance used by IPC handlers)
+  const updater = getAppUpdater()
+  updater.setMainWindow(mainWindow)
+  updater.start()
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow()
@@ -80,6 +85,9 @@ app.whenReady().then(() => {
 })
 
 app.on('before-quit', () => {
+  // Clean up auto-updater
+  destroyAppUpdater()
+
   // Kill any spawned CLI child processes on quit
   destroyWatcherManager().catch(() => {
     // Best-effort cleanup during shutdown

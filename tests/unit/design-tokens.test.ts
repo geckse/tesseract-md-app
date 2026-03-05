@@ -128,8 +128,8 @@ describe('Design Tokens — tokens.css', () => {
       expect(tokens.get('--sidebar-width')).toBe('16rem');
     });
 
-    it('defines header height as 56px (3.5rem)', () => {
-      expect(tokens.get('--header-height')).toBe('3.5rem');
+    it('defines header height as 40px (2.5rem)', () => {
+      expect(tokens.get('--header-height')).toBe('2.5rem');
     });
 
     it('defines content max width', () => {

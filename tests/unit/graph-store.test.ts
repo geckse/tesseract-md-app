@@ -73,7 +73,7 @@ describe('graph store', () => {
 
       await loadGraphData()
 
-      expect(mockApi.graphData).toHaveBeenCalledWith('/test')
+      expect(mockApi.graphData).toHaveBeenCalledWith('/test', 'document', undefined)
       expect(get(graphData)).toEqual(sampleGraphData)
       expect(get(graphLoading)).toBe(false)
       expect(get(graphError)).toBeNull()
