@@ -24,15 +24,19 @@ export const scrollToLine = writable<number | null>(null)
 /** Currently active heading index in the outline (based on editor scroll position). */
 export const activeHeadingIndex = writable<number>(-1)
 
-/** Current editor mode: 'preview' (rendered HTML) or 'editor' (CodeMirror). */
-export type EditorMode = 'preview' | 'editor'
+/** Current editor mode: 'preview' (rendered HTML), 'wysiwyg' (Tiptap), or 'editor' (CodeMirror). */
+export type EditorMode = 'preview' | 'wysiwyg' | 'editor'
 
 /** Current editor/preview mode. Defaults to preview. */
 export const editorMode = writable<EditorMode>('preview')
 
-/** Toggle between editor and preview modes. */
+/** Cycle through editor modes: preview → wysiwyg → editor → preview. */
 export function toggleEditorMode(): void {
-  editorMode.update((m) => (m === 'editor' ? 'preview' : 'editor'))
+  editorMode.update((m) => {
+    if (m === 'preview') return 'wysiwyg'
+    if (m === 'wysiwyg') return 'editor'
+    return 'preview'
+  })
 }
 
 /** Set editor mode explicitly. */

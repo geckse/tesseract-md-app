@@ -1,12 +1,14 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { get } from 'svelte/store'
-import { isDirty, wordCount, tokenCount, countWords, countTokens } from '../../src/renderer/stores/editor'
+import { isDirty, wordCount, tokenCount, countWords, countTokens, editorMode, toggleEditorMode, setEditorMode, saveRequested, requestSave } from '../../src/renderer/stores/editor'
 
 describe('editor stores', () => {
   beforeEach(() => {
     isDirty.set(false)
     wordCount.set(0)
     tokenCount.set(0)
+    editorMode.set('preview')
+    saveRequested.set(0)
   })
 
   describe('countWords', () => {
@@ -69,6 +71,39 @@ describe('editor stores', () => {
     it('can be updated', () => {
       tokenCount.set(100)
       expect(get(tokenCount)).toBe(100)
+    })
+  })
+
+  describe('toggleEditorMode', () => {
+    it('cycles preview → wysiwyg → editor → preview', () => {
+      expect(get(editorMode)).toBe('preview')
+      toggleEditorMode()
+      expect(get(editorMode)).toBe('wysiwyg')
+      toggleEditorMode()
+      expect(get(editorMode)).toBe('editor')
+      toggleEditorMode()
+      expect(get(editorMode)).toBe('preview')
+    })
+  })
+
+  describe('setEditorMode', () => {
+    it('sets mode explicitly', () => {
+      setEditorMode('wysiwyg')
+      expect(get(editorMode)).toBe('wysiwyg')
+      setEditorMode('editor')
+      expect(get(editorMode)).toBe('editor')
+      setEditorMode('preview')
+      expect(get(editorMode)).toBe('preview')
+    })
+  })
+
+  describe('requestSave', () => {
+    it('increments saveRequested counter', () => {
+      expect(get(saveRequested)).toBe(0)
+      requestSave()
+      expect(get(saveRequested)).toBe(1)
+      requestSave()
+      expect(get(saveRequested)).toBe(2)
     })
   })
 })

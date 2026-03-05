@@ -32,6 +32,14 @@
     onctx?.({ path: node.path, isDir: node.is_dir, x: event.clientX, y: event.clientY })
   }
 
+  function handleDragStart(event: DragEvent) {
+    if (node.is_dir || !event.dataTransfer) return
+    const filename = node.name.replace(/\.[^.]+$/, '')
+    event.dataTransfer.setData('text/plain', `[[${filename}]]`)
+    event.dataTransfer.setData('application/x-mdvdb-path', node.path)
+    event.dataTransfer.effectAllowed = 'link'
+  }
+
   let isExpanded = $derived(currentExpandedPaths.has(node.path))
   let isSelected = $derived(!node.is_dir && currentSelectedFilePath === node.path)
   let isFocused = $derived(focusedPath === node.path)
@@ -89,8 +97,10 @@
     class:focused={isFocused}
     class:directory={node.is_dir}
     style="padding-left: {12 + depth * 16}px;"
+    draggable={!node.is_dir}
     onclick={handleClick}
     oncontextmenu={handleContextMenu}
+    ondragstart={handleDragStart}
     title={node.path}
     role="treeitem"
     aria-level={depth + 1}
