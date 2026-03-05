@@ -152,8 +152,6 @@ export const LinkAutocompleteExtension = Extension.create({
         },
         command: ({ editor, range, props }: { editor: Editor; range: Range; props: LinkSuggestionItem }) => {
           const anchor = props.anchor ? `#${props.anchor}` : ''
-          const wikilinkText = `[[${props.path}${anchor}]]`
-
           editor
             .chain()
             .focus()

@@ -93,7 +93,9 @@
           const { state, dispatch } = view
           const node = state.doc.nodeAt(pos)
           if (node && state.schema.nodes.blockquote) {
-            const tr = state.tr.wrap(state.tr.doc.resolve(pos).blockRange()!, [{ type: state.schema.nodes.blockquote }])
+            const range = state.tr.doc.resolve(pos).blockRange()
+            if (!range) { onClose(); return }
+            const tr = state.tr.wrap(range, [{ type: state.schema.nodes.blockquote }])
             dispatch(tr)
           }
           onClose()

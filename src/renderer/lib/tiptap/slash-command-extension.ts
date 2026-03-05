@@ -1,4 +1,5 @@
 import { Extension } from '@tiptap/core'
+import { isValidUrl } from './url-validation'
 import Suggestion from '@tiptap/suggestion'
 import type { SuggestionOptions, SuggestionProps, SuggestionKeyDownProps } from '@tiptap/suggestion'
 import type { Editor, Range } from '@tiptap/core'
@@ -88,6 +89,10 @@ export const slashCommandItems: SlashCommandItem[] = [
     command: (editor, range) => {
       const url = window.prompt('Enter image URL:')
       if (url) {
+        if (!isValidUrl(url)) {
+          window.alert('Invalid URL. Only http://, https://, mailto:, and relative paths are allowed.')
+          return
+        }
         editor.chain().focus().deleteRange(range).setImage({ src: url }).run()
       }
     },

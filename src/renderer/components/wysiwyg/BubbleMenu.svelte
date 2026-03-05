@@ -3,6 +3,7 @@
   import { BubbleMenuPlugin } from '@tiptap/extension-bubble-menu';
   import type { Editor } from '@tiptap/core';
   import type { Plugin } from '@tiptap/pm/state';
+  import { isValidUrl } from '../../lib/tiptap/url-validation';
 
   interface Props {
     editor: Editor;
@@ -68,6 +69,10 @@
           } else {
             const url = window.prompt('Enter URL:');
             if (url) {
+              if (!isValidUrl(url)) {
+                window.alert('Invalid URL. Only http://, https://, mailto:, and relative paths are allowed.');
+                return;
+              }
               editor.chain().focus().setLink({ href: url }).run();
             }
           }

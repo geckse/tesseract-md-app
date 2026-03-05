@@ -98,7 +98,8 @@ export function createWysiwygEditor(
     if (storage?.getMarkdown) {
       return storage.getMarkdown()
     }
-    // Fallback: return text content
+    // Fallback: return text content — this strips all formatting!
+    console.error('Warning: Markdown extension storage not available, falling back to plain text. Content formatting will be lost.')
     return editor.getText()
   }
 

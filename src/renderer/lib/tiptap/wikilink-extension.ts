@@ -141,7 +141,6 @@ export const Wikilink = Node.create({
         'data-wikilink-target': target,
         ...(anchor ? { 'data-wikilink-anchor': anchor } : {}),
         ...(display ? { 'data-wikilink-display': display } : {}),
-        style: 'color: #00bcd4; cursor: pointer;',
       },
       label,
     ]

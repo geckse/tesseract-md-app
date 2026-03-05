@@ -18,6 +18,7 @@
   let loading = $state(false);
   let headingMode = $state(false);
   let _selectedFile = $state('');
+  let allHeadings: LinkSuggestionItem[] = [];
 
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let searchGeneration = 0;
@@ -133,11 +134,12 @@
       const content = await window.api.readFile(fullPath);
       const headings = parseHeadingsFromContent(content);
 
-      items = headings.map((h) => ({
+      allHeadings = headings.map((h) => ({
         path: filePath,
         anchor: h,
         label: `# ${h}`,
       }));
+      items = allHeadings;
     } catch {
       items = [];
     } finally {
@@ -211,12 +213,13 @@
       // Filter headings by text after #
       const headingQuery = q.slice(q.indexOf('#') + 1).toLowerCase();
       if (headingQuery) {
-        // Re-filter is handled by reading file, but we can filter displayed items
-        items = items.filter((i) =>
+        items = allHeadings.filter((i) =>
           i.label.toLowerCase().includes(headingQuery)
         );
-        selectedIndex = 0;
+      } else {
+        items = allHeadings;
       }
+      selectedIndex = 0;
       return;
     }
 
