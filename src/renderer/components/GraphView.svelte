@@ -368,7 +368,7 @@
 
       // In chunk mode, edge opacity is proportional to weight
       if (chunk && edge.weight != null) {
-        const alpha = hasSelection ? (0.15 + edge.weight * 0.6) * 0.3 : 0.15 + edge.weight * 0.6;
+        const alpha = hasSelection ? (0.05 + edge.weight * 0.2) * 0.3 : 0.05 + edge.weight * 0.2;
         ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
         ctx.beginPath();
         ctx.moveTo(s.x, s.y);
@@ -400,57 +400,78 @@
       if (bidiNeighbors.has((edge.source as SimNode).id)) bidiInEdges.add(edge);
     }
 
-    // 2. Draw highlighted incoming edges (one-way only) with arrows
-    if (inEdges.size > 0) {
-      ctx.strokeStyle = EDGE_COLOR_IN;
-      ctx.fillStyle = EDGE_COLOR_IN;
-      ctx.lineWidth = 2 / zoom;
-      for (const edge of inEdges) {
-        if (bidiInEdges.has(edge)) continue;
-        const s = edge.source as SimNode;
-        const t = edge.target as SimNode;
-        if (s.x == null || t.x == null) continue;
-        ctx.beginPath();
-        ctx.moveTo(s.x, s.y);
-        ctx.lineTo(t.x, t.y);
-        ctx.stroke();
-        drawArrow(ctx, s.x, s.y, t.x, t.y, 8);
+    // 2-4. Draw highlighted edges — chunk mode uses uniform cyan, no arrows (symmetric similarity);
+    //       document mode uses directional in/out/bidi with arrows.
+    if (chunk) {
+      // Chunk mode: all connected edges drawn as cyan lines, no arrows
+      const allHighlighted = new Set<SimEdge>([...outEdges, ...inEdges]);
+      if (allHighlighted.size > 0) {
+        ctx.strokeStyle = '#00E5FF';
+        ctx.lineWidth = 2 / zoom;
+        for (const edge of allHighlighted) {
+          const s = edge.source as SimNode;
+          const t = edge.target as SimNode;
+          if (s.x == null || t.x == null) continue;
+          ctx.beginPath();
+          ctx.moveTo(s.x, s.y);
+          ctx.lineTo(t.x, t.y);
+          ctx.stroke();
+        }
       }
-    }
-
-    // 3. Draw highlighted outgoing edges (one-way only) with arrows
-    if (outEdges.size > 0) {
-      ctx.strokeStyle = EDGE_COLOR_OUT;
-      ctx.fillStyle = EDGE_COLOR_OUT;
-      ctx.lineWidth = 2 / zoom;
-      for (const edge of outEdges) {
-        if (bidiOutEdges.has(edge)) continue;
-        const s = edge.source as SimNode;
-        const t = edge.target as SimNode;
-        if (s.x == null || t.x == null) continue;
-        ctx.beginPath();
-        ctx.moveTo(s.x, s.y);
-        ctx.lineTo(t.x, t.y);
-        ctx.stroke();
-        drawArrow(ctx, s.x, s.y, t.x, t.y, 6);
+    } else {
+      // Document mode: directional edges with arrows
+      // 2. Incoming edges (one-way only)
+      if (inEdges.size > 0) {
+        ctx.strokeStyle = EDGE_COLOR_IN;
+        ctx.fillStyle = EDGE_COLOR_IN;
+        ctx.lineWidth = 2 / zoom;
+        for (const edge of inEdges) {
+          if (bidiInEdges.has(edge)) continue;
+          const s = edge.source as SimNode;
+          const t = edge.target as SimNode;
+          if (s.x == null || t.x == null) continue;
+          ctx.beginPath();
+          ctx.moveTo(s.x, s.y);
+          ctx.lineTo(t.x, t.y);
+          ctx.stroke();
+          drawArrow(ctx, s.x, s.y, t.x, t.y, 8);
+        }
       }
-    }
 
-    // 4. Draw bidirectional edges — single line, arrows on both ends
-    if (bidiOutEdges.size > 0) {
-      ctx.strokeStyle = EDGE_COLOR_BIDI;
-      ctx.fillStyle = EDGE_COLOR_BIDI;
-      ctx.lineWidth = 2 / zoom;
-      for (const edge of bidiOutEdges) {
-        const s = edge.source as SimNode;
-        const t = edge.target as SimNode;
-        if (s.x == null || t.x == null) continue;
-        ctx.beginPath();
-        ctx.moveTo(s.x, s.y);
-        ctx.lineTo(t.x, t.y);
-        ctx.stroke();
-        drawArrow(ctx, s.x, s.y, t.x, t.y, 8);
-        drawArrow(ctx, t.x, t.y, s.x, s.y, 8);
+      // 3. Outgoing edges (one-way only)
+      if (outEdges.size > 0) {
+        ctx.strokeStyle = EDGE_COLOR_OUT;
+        ctx.fillStyle = EDGE_COLOR_OUT;
+        ctx.lineWidth = 2 / zoom;
+        for (const edge of outEdges) {
+          if (bidiOutEdges.has(edge)) continue;
+          const s = edge.source as SimNode;
+          const t = edge.target as SimNode;
+          if (s.x == null || t.x == null) continue;
+          ctx.beginPath();
+          ctx.moveTo(s.x, s.y);
+          ctx.lineTo(t.x, t.y);
+          ctx.stroke();
+          drawArrow(ctx, s.x, s.y, t.x, t.y, 6);
+        }
+      }
+
+      // 4. Bidirectional edges — single line, arrows on both ends
+      if (bidiOutEdges.size > 0) {
+        ctx.strokeStyle = EDGE_COLOR_BIDI;
+        ctx.fillStyle = EDGE_COLOR_BIDI;
+        ctx.lineWidth = 2 / zoom;
+        for (const edge of bidiOutEdges) {
+          const s = edge.source as SimNode;
+          const t = edge.target as SimNode;
+          if (s.x == null || t.x == null) continue;
+          ctx.beginPath();
+          ctx.moveTo(s.x, s.y);
+          ctx.lineTo(t.x, t.y);
+          ctx.stroke();
+          drawArrow(ctx, s.x, s.y, t.x, t.y, 8);
+          drawArrow(ctx, t.x, t.y, s.x, s.y, 8);
+        }
       }
     }
 
