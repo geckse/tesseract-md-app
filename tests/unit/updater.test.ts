@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 // Must use vi.hoisted so mocks can reference these in the hoisted factory
 const { mockAutoUpdater, mockIs, mockStoreGet, mockStoreSet } = vi.hoisted(() => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { EventEmitter } = require('node:events')
   return {
     mockAutoUpdater: Object.assign(new EventEmitter(), {

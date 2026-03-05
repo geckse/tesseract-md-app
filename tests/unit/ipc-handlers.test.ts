@@ -89,6 +89,40 @@ vi.mock('../../src/main/menu', () => ({
   refreshRecentMenu: (...args: unknown[]) => mockRefreshRecentMenu(...args)
 }))
 
+// Mock updater module
+vi.mock('../../src/main/updater', () => ({
+  AppUpdater: vi.fn().mockImplementation(() => ({
+    setMainWindow: vi.fn(),
+    start: vi.fn(),
+    stop: vi.fn(),
+    checkForUpdates: vi.fn(),
+    downloadUpdate: vi.fn(),
+    quitAndInstall: vi.fn(),
+    skipVersion: vi.fn(),
+    clearSkippedVersion: vi.fn(),
+    getState: vi.fn().mockReturnValue('idle'),
+    destroy: vi.fn(),
+  }))
+}))
+
+// Mock electron-updater
+vi.mock('electron-updater', () => ({
+  autoUpdater: {
+    autoDownload: false,
+    autoInstallOnAppQuit: true,
+    on: vi.fn(),
+    removeAllListeners: vi.fn(),
+    checkForUpdates: vi.fn(),
+    downloadUpdate: vi.fn(),
+    quitAndInstall: vi.fn(),
+  }
+}))
+
+// Mock @electron-toolkit/utils
+vi.mock('@electron-toolkit/utils', () => ({
+  is: { dev: true }
+}))
+
 // Mock electron shell and clipboard
 const mockShellOpenPath = vi.fn()
 const mockClipboardWriteText = vi.fn()
@@ -174,7 +208,7 @@ describe('registerIpcHandlers', () => {
     expect(channels).toContain('watcher:status')
     expect(channels).toContain('shell:open-path')
     expect(channels).toContain('clipboard:write-text')
-    expect(channels).toHaveLength(55)
+    expect(channels).toHaveLength(60)
   })
 })
 
