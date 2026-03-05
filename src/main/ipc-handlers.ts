@@ -5,7 +5,7 @@
  * Called once from the main process on app ready.
  */
 
-import { ipcMain, shell, clipboard, type BrowserWindow } from 'electron'
+import { app, ipcMain, shell, clipboard, type BrowserWindow } from 'electron'
 import { promises as fs } from 'node:fs'
 import { findCli, getCliVersion, execCommand, execRaw } from './cli'
 import { detectCli, installCli, checkLatestVersion } from './cli-install'
@@ -111,7 +111,7 @@ let appUpdater: AppUpdater | null = null
 /**
  * Get or create the AppUpdater singleton.
  */
-function getAppUpdater(): AppUpdater {
+export function getAppUpdater(): AppUpdater {
   if (!appUpdater) {
     appUpdater = new AppUpdater()
   }
@@ -710,5 +710,9 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
     wrapHandler(async () => {
       updater.skipVersion(version)
     })
+  )
+
+  ipcMain.handle('updater:app-version', () =>
+    wrapHandler(async () => app.getVersion())
   )
 }

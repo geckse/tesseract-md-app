@@ -127,6 +127,9 @@ vi.mock('@electron-toolkit/utils', () => ({
 const mockShellOpenPath = vi.fn()
 const mockClipboardWriteText = vi.fn()
 vi.mock('electron', () => ({
+  app: {
+    getVersion: () => '1.0.0-test'
+  },
   ipcMain: {
     handle: (...args: unknown[]) => mockHandle(...args)
   },
@@ -208,6 +211,7 @@ describe('registerIpcHandlers', () => {
     expect(channels).toContain('watcher:status')
     expect(channels).toContain('shell:open-path')
     expect(channels).toContain('clipboard:write-text')
+    expect(channels).toContain('updater:app-version')
     expect(channels).toHaveLength(60)
   })
 })

@@ -25,6 +25,8 @@ const mockApi = {
   installUpdate: vi.fn().mockResolvedValue(undefined),
   onUpdateEvent: vi.fn(),
   removeUpdateEventListener: vi.fn(),
+  skipVersion: vi.fn().mockResolvedValue(undefined),
+  getAppVersion: vi.fn().mockResolvedValue('1.0.0'),
 }
 
 Object.defineProperty(globalThis, 'window', {

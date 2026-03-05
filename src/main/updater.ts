@@ -169,7 +169,7 @@ export class AppUpdater {
 
     autoUpdater.on('error', (error: Error) => {
       this.setState('error')
-      this.sendToRenderer('update-error', { message: error.message })
+      this.sendToRenderer('update-error', { error: error.message })
     })
   }
 
@@ -178,11 +178,30 @@ export class AppUpdater {
     this.sendToRenderer('state-changed', { state })
   }
 
+  /**
+   * Map internal electron-updater event names to UpdateEvent type values
+   * expected by the renderer store.
+   */
+  private static readonly EVENT_TYPE_MAP: Record<string, string> = {
+    'update-available': 'available',
+    'update-not-available': 'not-available',
+    'download-progress': 'downloading',
+    'update-downloaded': 'downloaded',
+    'update-error': 'error',
+    'state-changed': 'checking' // state-changed is handled separately
+  }
+
   private sendToRenderer(event: string, data: Record<string, unknown>): void {
     if (!this.mainWindow || this.mainWindow.isDestroyed()) return
 
+    // Map event name to the type expected by the renderer's UpdateEvent interface.
+    // For 'state-changed', use the state value directly as the type.
+    const type = event === 'state-changed'
+      ? (data.state as string)
+      : (AppUpdater.EVENT_TYPE_MAP[event] ?? event)
+
     try {
-      this.mainWindow.webContents.send(`${IPC_PREFIX}:${event}`, data)
+      this.mainWindow.webContents.send(`${IPC_PREFIX}:event`, { type, data })
     } catch {
       // Window may have been destroyed between the check and the send
     }

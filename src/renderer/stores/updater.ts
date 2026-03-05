@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store'
+import { writable, get } from 'svelte/store'
 import type { UpdateEvent, UpdateCheckResult } from '../../preload/api'
 
 /** Current update state. */
@@ -106,6 +106,10 @@ export async function installUpdate(): Promise<void> {
 
 /** Skip the current version (dismiss and reset state). */
 export function skipVersion(): void {
+  const version = get(updateVersion)
+  if (version) {
+    window.api.skipVersion(version)
+  }
   updateDismissed.set(true)
   updateState.set('idle')
   updateVersion.set(null)
