@@ -2,6 +2,7 @@
   import { onDestroy } from 'svelte'
   import Badge from './ui/Badge.svelte'
   import ResizeHandle from './ResizeHandle.svelte'
+  import LocalGraph from './LocalGraph.svelte'
   import {
     documentInfo,
     backlinksInfo,
@@ -15,6 +16,7 @@
   import { selectedFilePath } from '../stores/files'
   import { scrollToLine, activeHeadingIndex, isDirty } from '../stores/editor'
   import { isFavorited, toggleFavorite } from '../stores/favorites'
+  import { graphViewActive, graphSelectedNode } from '../stores/graph'
   import type { DocumentInfo, BacklinksOutput, LinksOutput, JsonValue } from '../types/cli'
   import type { OutlineHeading } from '../stores/properties'
 
@@ -96,6 +98,7 @@
 
   // Section collapse state
   let metadataOpen = $state(true)
+  let localGraphOpen = $state(true)
   let linksOpen = $state(true)
   let outlineOpen = $state(true)
 
@@ -105,6 +108,13 @@
 
   let incomingCount = $derived(currentBacklinks?.total_backlinks ?? 0)
   let outgoingCount = $derived(currentLinks?.links?.outgoing?.length ?? 0)
+  let neighborCount = $derived(incomingCount + outgoingCount)
+
+  function expandToFullGraph() {
+    if (!currentFilePath) return
+    graphViewActive.set(true)
+    graphSelectedNode.set({ path: currentFilePath, cluster_id: null })
+  }
 
   function formatDate(timestamp: number | null | undefined): string {
     if (!timestamp) return '—'
@@ -241,6 +251,40 @@
               <span class="value-text">{formatDate(currentDocInfo?.indexed_at)}</span>
             </div>
           </div>
+        </div>
+      {/if}
+    </section>
+
+    <!-- LOCAL GRAPH section -->
+    <section class="panel-section">
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="section-header" onclick={() => (localGraphOpen = !localGraphOpen)}>
+        <span class="material-symbols-outlined section-chevron" class:rotated={localGraphOpen}
+          >chevron_right</span
+        >
+        <h3 class="section-title">Local Graph</h3>
+        {#if neighborCount > 0}
+          <span class="section-count">{neighborCount}</span>
+        {/if}
+        <button
+          class="expand-button"
+          title="Open in full graph view"
+          onclick={(e) => { e.stopPropagation(); expandToFullGraph(); }}
+        >
+          <span class="material-symbols-outlined">open_in_full</span>
+        </button>
+      </div>
+
+      {#if localGraphOpen}
+        <div class="graph-section-content">
+          <LocalGraph
+            centerPath={currentFilePath}
+            linksInfo={currentLinks}
+            backlinksInfo={currentBacklinks}
+            onfileselect={onfileselect}
+            onexpand={expandToFullGraph}
+          />
         </div>
       {/if}
     </section>
@@ -556,6 +600,32 @@
 
   .section-content {
     padding: 0 var(--space-4, 16px) var(--space-4, 16px);
+  }
+
+  .graph-section-content {
+    padding: 0 0 var(--space-4, 16px);
+  }
+
+  .expand-button {
+    padding: 2px;
+    color: var(--color-text-dim, #71717a);
+    background: none;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .expand-button:hover {
+    color: var(--color-primary, #00E5FF);
+    background: var(--color-surface, #161617);
+  }
+
+  .expand-button .material-symbols-outlined {
+    font-size: 16px;
   }
 
   /* Properties grid */
