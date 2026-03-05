@@ -4,6 +4,7 @@ import { Placeholder } from '@tiptap/extensions'
 import Typography from '@tiptap/extension-typography'
 import { Markdown } from '@tiptap/markdown'
 import Image from '@tiptap/extension-image'
+import Link from '@tiptap/extension-link'
 import { Wikilink } from './wikilink-extension'
 
 export interface WysiwygEditorOptions {
@@ -61,6 +62,10 @@ export function createWysiwygEditor(
       Image.configure({
         inline: false,
         allowBase64: true,
+      }),
+      Link.configure({
+        openOnClick: false,
+        HTMLAttributes: { class: 'wysiwyg-link' },
       }),
       Wikilink,
     ],
