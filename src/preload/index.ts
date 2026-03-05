@@ -133,7 +133,20 @@ const api: MdvdbApi = {
 
   // Editor preferences
   getEditorFontSize: () => invoke('store:get-editor-font-size'),
-  setEditorFontSize: (value) => invoke('store:set-editor-font-size', value)
+  setEditorFontSize: (value) => invoke('store:set-editor-font-size', value),
+
+  // Auto-updater
+  checkForUpdates: () => invoke('updater:check'),
+  downloadUpdate: () => invoke('updater:download'),
+  installUpdate: () => invoke('updater:install'),
+  getUpdateStatus: () => invoke('updater:status'),
+  getAppVersion: () => invoke('updater:app-version'),
+  onUpdateEvent: (callback) => {
+    ipcRenderer.on('updater:event', (_event, data) => callback(data))
+  },
+  removeUpdateEventListener: () => {
+    ipcRenderer.removeAllListeners('updater:event')
+  }
 }
 
 if (process.contextIsolated) {

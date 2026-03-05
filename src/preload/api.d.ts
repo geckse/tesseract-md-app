@@ -170,6 +170,36 @@ export interface MdvdbApi {
   // Editor preferences
   getEditorFontSize(): Promise<number>
   setEditorFontSize(value: number): Promise<void>
+
+  // Auto-updater
+  checkForUpdates(): Promise<UpdateCheckResult>
+  downloadUpdate(): Promise<void>
+  installUpdate(): Promise<void>
+  getUpdateStatus(): Promise<UpdateStatus>
+  getAppVersion(): Promise<string>
+  onUpdateEvent(callback: (event: UpdateEvent) => void): void
+  removeUpdateEventListener(): void
+}
+
+/** Result of checking for updates. */
+export interface UpdateCheckResult {
+  updateAvailable: boolean
+  version?: string
+  releaseNotes?: string
+}
+
+/** Current status of the auto-updater. */
+export interface UpdateStatus {
+  state: 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'
+  version?: string
+  progress?: number
+  error?: string
+}
+
+/** Event emitted by the auto-updater. */
+export interface UpdateEvent {
+  type: 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'
+  data: UpdateCheckResult | UpdateStatus | { percent: number } | { error: string } | null
 }
 
 /** Watcher status returned by getWatcherStatus. */
