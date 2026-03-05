@@ -127,6 +127,7 @@
 
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
+    window.addEventListener('keydown', handleKeyDown);
     resizeObs = new ResizeObserver(() => resizeCanvas());
     if (containerEl) resizeObs.observe(containerEl);
     startRenderLoop();
@@ -138,6 +139,7 @@
     if (animFrameId !== null) cancelAnimationFrame(animFrameId);
     if (simulation) simulation.stop();
     window.removeEventListener('resize', resizeCanvas);
+    window.removeEventListener('keydown', handleKeyDown);
     resizeObs?.disconnect();
     unsubData?.();
     unsubColoring?.();
@@ -574,6 +576,14 @@
     graphClusterColoring.update((v) => !v);
   }
 
+  function handleKeyDown(e: KeyboardEvent) {
+    if (e.key === 'Escape') {
+      selectGraphNode(null);
+      hoveredNode = null;
+      dirty = true;
+    }
+  }
+
   function handleRetry() {
     loadGraphData();
   }
@@ -641,8 +651,8 @@
         style="left: {tooltipX + 12}px; top: {tooltipY - 30}px"
       >
         <div class="tooltip-path">{hoveredNode.path}</div>
-        {#if hoveredNode.label}
-          <div class="tooltip-cluster">{hoveredNode.label}</div>
+        {#if isChunkMode() && hoveredNode.label}
+          <div class="tooltip-heading">{hoveredNode.label}</div>
         {:else if hoveredNode.cluster_id != null && currentData}
           {@const cluster = currentData.clusters.find((c) => c.id === hoveredNode!.cluster_id)}
           {#if cluster}
@@ -779,6 +789,13 @@
     font-family: var(--font-mono, 'JetBrains Mono', monospace);
     font-size: var(--text-sm, 0.75rem);
     word-break: break-all;
+  }
+
+  .tooltip-heading {
+    color: var(--color-primary, #00E5FF);
+    font-family: var(--font-display, 'Space Grotesk', sans-serif);
+    font-size: var(--text-xs, 0.625rem);
+    margin-top: var(--space-1, 0.25rem);
   }
 
   .tooltip-cluster {
