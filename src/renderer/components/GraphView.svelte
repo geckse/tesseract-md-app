@@ -8,9 +8,12 @@
     graphError,
     graphSelectedNode,
     graphClusterColoring,
+    graphLevel,
     loadGraphData,
     selectGraphNode,
+    setGraphLevel,
   } from '../stores/graph';
+  import type { GraphLevel } from '../types/cli';
   import type { GraphNode, GraphEdge, GraphData } from '../types/cli';
 
   /** Cluster color palette (12 colors, cycling). */
@@ -78,6 +81,7 @@
   let currentError: string | null = $state(null);
   let currentColoring = $state(true);
   let currentSelected: GraphNode | null = $state(null);
+  let currentLevel: GraphLevel = $state('document');
 
   onMount(() => {
     unsubData = graphData.subscribe((d) => {
@@ -94,6 +98,7 @@
     });
     graphLoading.subscribe((v) => { currentLoading = v; });
     graphError.subscribe((v) => { currentError = v; });
+    graphLevel.subscribe((v) => { currentLevel = v; });
 
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
@@ -534,6 +539,14 @@
       style="width: {width ? `${width}px` : '100%'}; height: {height ? `${height}px` : '100%'}; cursor: {draggedNode ? 'grabbing' : isPanning ? 'grabbing' : hoveredNode ? 'pointer' : 'grab'}"
     ></canvas>
 
+    <!-- Level tab switcher -->
+    <div class="graph-level-switcher" role="tablist">
+      <button class="level-tab" class:active={currentLevel === 'document'}
+        onclick={() => setGraphLevel('document')}>Documents</button>
+      <button class="level-tab" class:active={currentLevel === 'chunk'}
+        onclick={() => setGraphLevel('chunk')}>Chunks</button>
+    </div>
+
     {#if currentData.edges.length === 0}
       <div class="graph-notice">No link connections found.</div>
     {/if}
@@ -773,5 +786,41 @@
   .legend-count {
     color: var(--color-text-dim, #71717a);
     flex-shrink: 0;
+  }
+
+  .graph-level-switcher {
+    position: absolute;
+    top: var(--space-3, 0.75rem);
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    background: var(--color-surface, #161617);
+    border: 1px solid var(--color-border, #27272a);
+    border-radius: var(--radius-md, 0.375rem);
+    z-index: var(--z-base, 10);
+    overflow: hidden;
+  }
+
+  .level-tab {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1, 0.25rem);
+    padding: var(--space-1, 0.25rem) var(--space-3, 0.75rem);
+    background: none;
+    border: none;
+    color: var(--color-text-dim, #71717a);
+    font-family: var(--font-display, 'Space Grotesk', sans-serif);
+    font-size: var(--text-xs, 0.625rem);
+    cursor: pointer;
+    transition: all var(--transition-fast, 150ms ease);
+  }
+
+  .level-tab:not(:last-child) {
+    border-right: 1px solid var(--color-border, #27272a);
+  }
+
+  .level-tab.active {
+    color: var(--color-primary, #00E5FF);
+    background: rgba(0, 229, 255, 0.08);
   }
 </style>
