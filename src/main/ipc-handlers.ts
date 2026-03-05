@@ -211,9 +211,11 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   )
 
   // Graph data
-  ipcMain.handle('cli:graph', (_event, root: string) =>
-    wrapHandler(() => execCommand<GraphData>('graph', [], root))
-  )
+  ipcMain.handle('cli:graph', (_event, root: string, level?: string) => {
+    const args: string[] = []
+    if (level) args.push('--level', level)
+    return wrapHandler(() => execCommand<GraphData>('graph', args, root))
+  })
 
   // Schema
   ipcMain.handle('cli:schema', (_event, root: string) =>
