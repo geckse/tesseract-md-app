@@ -41,6 +41,10 @@ export interface AppStore {
   recentFiles: RecentEntry[]
   sidebarWidth: number
   metadataPanelWidth: number
+  cliPath: string | null
+  cliVersion: string | null
+  onboardingComplete: boolean
+  editorFontSize: number
 }
 
 /** electron-store schema definition for validation */
@@ -107,6 +111,22 @@ const schema = {
   metadataPanelWidth: {
     type: 'number' as const,
     default: 320
+  },
+  cliPath: {
+    type: ['string', 'null'] as const,
+    default: null
+  },
+  cliVersion: {
+    type: ['string', 'null'] as const,
+    default: null
+  },
+  onboardingComplete: {
+    type: 'boolean' as const,
+    default: false
+  },
+  editorFontSize: {
+    type: 'number' as const,
+    default: 17
   }
 }
 
@@ -191,4 +211,44 @@ export function getActiveCollection(): Collection | null {
 
   const collections = s.get('collections', [])
   return collections.find((c) => c.id === activeId) ?? null
+}
+
+/** Get whether onboarding has been completed */
+export function getOnboardingComplete(): boolean {
+  const s = initStore()
+  return s.get('onboardingComplete', false)
+}
+
+/** Set onboarding completion status */
+export function setOnboardingComplete(value: boolean): void {
+  const s = initStore()
+  s.set('onboardingComplete', value)
+}
+
+/** Get the editor font size */
+export function getEditorFontSize(): number {
+  const s = initStore()
+  return s.get('editorFontSize', 17)
+}
+
+/** Set the editor font size */
+export function setEditorFontSize(value: number): void {
+  const s = initStore()
+  s.set('editorFontSize', value)
+}
+
+/** Get CLI path and version info */
+export function getCliInfo(): { path: string | null; version: string | null } {
+  const s = initStore()
+  return {
+    path: s.get('cliPath', null),
+    version: s.get('cliVersion', null)
+  }
+}
+
+/** Set CLI path and version info */
+export function setCliInfo(path: string | null, version: string | null): void {
+  const s = initStore()
+  s.set('cliPath', path)
+  s.set('cliVersion', version)
 }
