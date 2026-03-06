@@ -329,21 +329,21 @@
           <div class="field-group">
             <label class="field-label">
               API Key
-              <span class="annotation">{getAnnotation('MDVDB_API_KEY')}</span>
+              <span class="annotation">{getAnnotation('OPENAI_API_KEY')}</span>
             </label>
             <div class="field-row">
               <input
                 class="field-input"
                 type={showApiKey ? 'text' : 'password'}
-                value={getConfigValue('MDVDB_API_KEY')}
+                value={getConfigValue('OPENAI_API_KEY')}
                 placeholder="sk-..."
-                oninput={(e) => handleSave('MDVDB_API_KEY', (e.target as HTMLInputElement).value)}
+                oninput={(e) => handleSave('OPENAI_API_KEY', (e.target as HTMLInputElement).value)}
               />
               <button class="icon-btn" onclick={() => (showApiKey = !showApiKey)} title={showApiKey ? 'Hide' : 'Show'}>
                 <span class="material-symbols-outlined">{showApiKey ? 'visibility_off' : 'visibility'}</span>
               </button>
-              {#if !isGlobal && isCollectionOverride('MDVDB_API_KEY')}
-                <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_API_KEY')}>
+              {#if !isGlobal && isCollectionOverride('OPENAI_API_KEY')}
+                <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('OPENAI_API_KEY')}>
                   <span class="material-symbols-outlined">undo</span>
                 </button>
               {/if}
@@ -373,18 +373,18 @@
             <div class="field-group">
               <label class="field-label">
                 Host URL
-                <span class="annotation">{getAnnotation('MDVDB_EMBEDDING_HOST')}</span>
+                <span class="annotation">{getAnnotation('OLLAMA_HOST')}</span>
               </label>
               <div class="field-row">
                 <input
                   class="field-input"
                   type="text"
-                  value={getConfigValue('MDVDB_EMBEDDING_HOST')}
+                  value={getConfigValue('OLLAMA_HOST')}
                   placeholder="http://localhost:11434"
-                  oninput={(e) => handleSave('MDVDB_EMBEDDING_HOST', (e.target as HTMLInputElement).value)}
+                  oninput={(e) => handleSave('OLLAMA_HOST', (e.target as HTMLInputElement).value)}
                 />
-                {#if !isGlobal && isCollectionOverride('MDVDB_EMBEDDING_HOST')}
-                  <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_EMBEDDING_HOST')}>
+                {#if !isGlobal && isCollectionOverride('OLLAMA_HOST')}
+                  <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('OLLAMA_HOST')}>
                     <span class="material-symbols-outlined">undo</span>
                   </button>
                 {/if}
@@ -423,18 +423,18 @@
           <div class="field-group">
             <label class="field-label">
               Result Limit
-              <span class="annotation">{getAnnotation('MDVDB_SEARCH_LIMIT')}</span>
+              <span class="annotation">{getAnnotation('MDVDB_SEARCH_DEFAULT_LIMIT')}</span>
             </label>
             <div class="field-row">
               <input
                 class="field-input field-input-sm"
                 type="number"
-                value={getConfigValue('MDVDB_SEARCH_LIMIT')}
+                value={getConfigValue('MDVDB_SEARCH_DEFAULT_LIMIT')}
                 placeholder="10"
-                oninput={(e) => handleSave('MDVDB_SEARCH_LIMIT', (e.target as HTMLInputElement).value)}
+                oninput={(e) => handleSave('MDVDB_SEARCH_DEFAULT_LIMIT', (e.target as HTMLInputElement).value)}
               />
-              {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_LIMIT')}
-                <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_SEARCH_LIMIT')}>
+              {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_DEFAULT_LIMIT')}
+                <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_SEARCH_DEFAULT_LIMIT')}>
                   <span class="material-symbols-outlined">undo</span>
                 </button>
               {/if}
@@ -463,45 +463,108 @@
           </div>
           <div class="field-group">
             <label class="field-label">
-              Time Decay
-              <span class="annotation">{getAnnotation('MDVDB_TIME_DECAY')}</span>
+              Link Boosting
+              <span class="annotation">{getAnnotation('MDVDB_SEARCH_BOOST_LINKS')}</span>
             </label>
             <div class="field-row">
               <label class="toggle-label">
                 <input
                   type="checkbox"
-                  checked={getConfigValue('MDVDB_TIME_DECAY') === 'true'}
-                  onchange={(e) => handleSave('MDVDB_TIME_DECAY', (e.target as HTMLInputElement).checked ? 'true' : 'false')}
+                  checked={getConfigValue('MDVDB_SEARCH_BOOST_LINKS') === 'true'}
+                  onchange={(e) => handleSave('MDVDB_SEARCH_BOOST_LINKS', (e.target as HTMLInputElement).checked ? 'true' : 'false')}
                 />
-                Enable time decay
+                Boost results linked to top matches
               </label>
-              {#if !isGlobal && isCollectionOverride('MDVDB_TIME_DECAY')}
-                <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_TIME_DECAY')}>
+              {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_BOOST_LINKS')}
+                <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_SEARCH_BOOST_LINKS')}>
                   <span class="material-symbols-outlined">undo</span>
                 </button>
               {/if}
             </div>
           </div>
-          {#if getConfigValue('MDVDB_TIME_DECAY') === 'true'}
+          <div class="field-group">
+            <label class="field-label">
+              Time Decay
+              <span class="annotation">{getAnnotation('MDVDB_SEARCH_DECAY')}</span>
+            </label>
+            <div class="field-row">
+              <label class="toggle-label">
+                <input
+                  type="checkbox"
+                  checked={getConfigValue('MDVDB_SEARCH_DECAY') === 'true'}
+                  onchange={(e) => handleSave('MDVDB_SEARCH_DECAY', (e.target as HTMLInputElement).checked ? 'true' : 'false')}
+                />
+                Enable time decay
+              </label>
+              {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_DECAY')}
+                <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_SEARCH_DECAY')}>
+                  <span class="material-symbols-outlined">undo</span>
+                </button>
+              {/if}
+            </div>
+          </div>
+          {#if getConfigValue('MDVDB_SEARCH_DECAY') === 'true'}
             <div class="field-group">
               <label class="field-label">
                 Half-Life (days)
-                <span class="annotation">{getAnnotation('MDVDB_TIME_DECAY_HALF_LIFE')}</span>
+                <span class="annotation">{getAnnotation('MDVDB_SEARCH_DECAY_HALF_LIFE')}</span>
               </label>
               <div class="field-row">
                 <input
                   class="field-input field-input-sm"
                   type="number"
-                  value={getConfigValue('MDVDB_TIME_DECAY_HALF_LIFE')}
-                  placeholder="30"
-                  oninput={(e) => handleSave('MDVDB_TIME_DECAY_HALF_LIFE', (e.target as HTMLInputElement).value)}
+                  value={getConfigValue('MDVDB_SEARCH_DECAY_HALF_LIFE')}
+                  placeholder="90"
+                  oninput={(e) => handleSave('MDVDB_SEARCH_DECAY_HALF_LIFE', (e.target as HTMLInputElement).value)}
                 />
-                {#if !isGlobal && isCollectionOverride('MDVDB_TIME_DECAY_HALF_LIFE')}
-                  <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_TIME_DECAY_HALF_LIFE')}>
+                {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_DECAY_HALF_LIFE')}
+                  <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_SEARCH_DECAY_HALF_LIFE')}>
                     <span class="material-symbols-outlined">undo</span>
                   </button>
                 {/if}
               </div>
+            </div>
+            <div class="field-group">
+              <label class="field-label">
+                Exclude Paths
+                <span class="annotation">{getAnnotation('MDVDB_SEARCH_DECAY_EXCLUDE')}</span>
+              </label>
+              <div class="field-row">
+                <input
+                  class="field-input"
+                  type="text"
+                  value={getConfigValue('MDVDB_SEARCH_DECAY_EXCLUDE')}
+                  placeholder="docs/reference,wiki/glossary"
+                  oninput={(e) => handleSave('MDVDB_SEARCH_DECAY_EXCLUDE', (e.target as HTMLInputElement).value)}
+                />
+                {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_DECAY_EXCLUDE')}
+                  <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_SEARCH_DECAY_EXCLUDE')}>
+                    <span class="material-symbols-outlined">undo</span>
+                  </button>
+                {/if}
+              </div>
+              <div class="field-hint">Comma-separated path prefixes immune to decay (evergreen content)</div>
+            </div>
+            <div class="field-group">
+              <label class="field-label">
+                Include Paths
+                <span class="annotation">{getAnnotation('MDVDB_SEARCH_DECAY_INCLUDE')}</span>
+              </label>
+              <div class="field-row">
+                <input
+                  class="field-input"
+                  type="text"
+                  value={getConfigValue('MDVDB_SEARCH_DECAY_INCLUDE')}
+                  placeholder="journal,daily"
+                  oninput={(e) => handleSave('MDVDB_SEARCH_DECAY_INCLUDE', (e.target as HTMLInputElement).value)}
+                />
+                {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_DECAY_INCLUDE')}
+                  <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_SEARCH_DECAY_INCLUDE')}>
+                    <span class="material-symbols-outlined">undo</span>
+                  </button>
+                {/if}
+              </div>
+              <div class="field-hint">Comma-separated path prefixes where decay applies (whitelist). Empty = all files. Exclude takes precedence.</div>
             </div>
           {/if}
         </div>
@@ -533,18 +596,18 @@
           <div class="field-group">
             <label class="field-label">
               Overlap
-              <span class="annotation">{getAnnotation('MDVDB_CHUNK_OVERLAP')}</span>
+              <span class="annotation">{getAnnotation('MDVDB_CHUNK_OVERLAP_TOKENS')}</span>
             </label>
             <div class="field-row">
               <input
                 class="field-input field-input-sm"
                 type="number"
-                value={getConfigValue('MDVDB_CHUNK_OVERLAP')}
+                value={getConfigValue('MDVDB_CHUNK_OVERLAP_TOKENS')}
                 placeholder="50"
-                oninput={(e) => handleSave('MDVDB_CHUNK_OVERLAP', (e.target as HTMLInputElement).value)}
+                oninput={(e) => handleSave('MDVDB_CHUNK_OVERLAP_TOKENS', (e.target as HTMLInputElement).value)}
               />
-              {#if !isGlobal && isCollectionOverride('MDVDB_CHUNK_OVERLAP')}
-                <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_CHUNK_OVERLAP')}>
+              {#if !isGlobal && isCollectionOverride('MDVDB_CHUNK_OVERLAP_TOKENS')}
+                <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_CHUNK_OVERLAP_TOKENS')}>
                   <span class="material-symbols-outlined">undo</span>
                 </button>
               {/if}
