@@ -789,6 +789,20 @@
       member_count: c.member_count,
     }));
   }
+
+  /** Get legend items for folder coloring mode. */
+  function getFolderLegendItems(): { folder: string; color: string; count: number }[] {
+    const counts = new Map<string, number>();
+    for (const node of simNodes) {
+      const folder = getTopLevelFolder(node.path);
+      counts.set(folder, (counts.get(folder) ?? 0) + 1);
+    }
+    const items: { folder: string; color: string; count: number }[] = [];
+    for (const [folder, color] of folderColorMap) {
+      items.push({ folder, color, count: counts.get(folder) ?? 0 });
+    }
+    return items.sort((a, b) => a.folder.localeCompare(b.folder));
+  }
 </script>
 
 <div class="graph-view" bind:this={containerEl}>
@@ -863,13 +877,19 @@
       </div>
     {/if}
 
-    <!-- Cluster legend -->
-    {#if getClusters().length > 0}
+    <!-- Legend: tri-state coloring mode -->
+    {#if currentColoringMode === 'none'}
+      <div class="graph-legend-collapsed">
+        <button class="legend-toggle" onclick={cycleColoringMode} title="Color by clusters">
+          <span class="material-symbols-outlined">visibility_off</span>
+        </button>
+      </div>
+    {:else if (currentColoringMode === 'cluster' && getClusters().length > 0) || (currentColoringMode === 'folder' && folderColorMap.size > 0)}
       <div class="graph-legend">
         <div class="legend-header">
-          <span class="legend-title">Clusters</span>
-          <button class="legend-toggle" onclick={cycleColoringMode} title="Coloring: {currentColoringMode}">
-            <span class="material-symbols-outlined">{currentColoringMode === 'none' ? 'visibility_off' : 'visibility'}</span>
+          <span class="legend-title">{currentColoringMode === 'cluster' ? 'Clusters' : 'Folders'}</span>
+          <button class="legend-toggle" onclick={cycleColoringMode} title={currentColoringMode === 'cluster' ? 'Color by folders' : 'No coloring'}>
+            <span class="material-symbols-outlined">{currentColoringMode === 'cluster' ? 'category' : 'folder'}</span>
           </button>
           <button class="legend-toggle" onclick={toggleLegend} title={legendVisible ? 'Hide legend' : 'Show legend'}>
             <span class="material-symbols-outlined">{legendVisible ? 'expand_less' : 'expand_more'}</span>
@@ -877,13 +897,23 @@
         </div>
         {#if legendVisible}
           <div class="legend-items">
-            {#each getClusters() as cluster}
-              <div class="legend-item">
-                <span class="legend-dot" style="background: {cluster.color}"></span>
-                <span class="legend-label">{cluster.label}</span>
-                <span class="legend-count">{cluster.member_count}</span>
-              </div>
-            {/each}
+            {#if currentColoringMode === 'cluster'}
+              {#each getClusters() as cluster}
+                <div class="legend-item">
+                  <span class="legend-dot" style="background: {cluster.color}"></span>
+                  <span class="legend-label">{cluster.label}</span>
+                  <span class="legend-count">{cluster.member_count}</span>
+                </div>
+              {/each}
+            {:else if currentColoringMode === 'folder'}
+              {#each getFolderLegendItems() as item}
+                <div class="legend-item">
+                  <span class="legend-dot" style="background: {item.color}"></span>
+                  <span class="legend-label">{item.folder}</span>
+                  <span class="legend-count">{item.count}</span>
+                </div>
+              {/each}
+            {/if}
           </div>
         {/if}
       </div>
@@ -1006,6 +1036,20 @@
     font-family: var(--font-display, 'Space Grotesk', sans-serif);
     font-size: var(--text-xs, 0.625rem);
     margin-top: var(--space-1, 0.25rem);
+  }
+
+  .graph-legend-collapsed {
+    position: absolute;
+    top: var(--space-4, 1rem);
+    right: var(--space-4, 1rem);
+    background: var(--color-surface, #161617);
+    border: 1px solid var(--color-border, #27272a);
+    border-radius: var(--radius-md, 0.375rem);
+    padding: var(--space-1, 0.25rem);
+    z-index: var(--z-base, 10);
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .graph-legend {
