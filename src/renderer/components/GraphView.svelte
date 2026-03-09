@@ -22,6 +22,7 @@
   import type { GraphLevel } from '../types/cli';
   import type { GraphNode, GraphEdge, GraphData } from '../types/cli';
   import { selectedFilePath } from '../stores/files';
+  import { convexHull, padHull, centroid, polygonArea, hexToRgb } from '../lib/convex-hull';
 
   /** Cluster color palette (12 colors, cycling). */
   const CLUSTER_COLORS = [
@@ -47,6 +48,16 @@
     weight: number | null;
   }
 
+  interface ClusterHull {
+    clusterId: number;
+    color: string;
+    label: string;
+    rawHull: [number, number][];
+    centroid: { x: number; y: number };
+    area: number;
+    nodeCount: number;
+  }
+
   let canvasEl: HTMLCanvasElement | undefined = $state(undefined);
   let containerEl: HTMLDivElement | undefined = $state(undefined);
   let simulation: Simulation<SimNode, SimEdge> | null = null;
@@ -55,6 +66,10 @@
   let animFrameId: number | null = null;
   let dirty = true;
   let pendingData: GraphData | null = null;
+
+  // Cluster hull state
+  let cachedHulls: ClusterHull[] = [];
+  let hullsDirty = true;
 
   // Pan/zoom state
   let panX = 0;
@@ -121,6 +136,81 @@
   /** Whether we're currently in chunk mode. */
   function isChunkMode(): boolean {
     return currentLevel === 'chunk';
+  }
+
+  /** Compute convex hull data for each cluster from current simulation nodes. */
+  function computeClusterHulls(): void {
+    if (!currentData) {
+      cachedHulls = [];
+      return;
+    }
+
+    // Group simNodes by cluster_id (skip null)
+    const groups = new Map<number, [number, number][]>();
+    for (const node of simNodes) {
+      if (node.cluster_id == null) continue;
+      let pts = groups.get(node.cluster_id);
+      if (!pts) {
+        pts = [];
+        groups.set(node.cluster_id, pts);
+      }
+      pts.push([node.x, node.y]);
+    }
+
+    // Build a lookup for cluster labels
+    const clusterLabelMap = new Map<number, string>();
+    for (const c of currentData.clusters) {
+      clusterLabelMap.set(c.id, c.label);
+    }
+
+    const hulls: ClusterHull[] = [];
+    for (const [clusterId, points] of groups) {
+      const color = CLUSTER_COLORS[clusterId % CLUSTER_COLORS.length];
+      const label = clusterLabelMap.get(clusterId) ?? `Cluster ${clusterId}`;
+      const nodeCount = points.length;
+
+      if (nodeCount === 1) {
+        // Single node: store centroid, area=0
+        hulls.push({
+          clusterId,
+          color,
+          label,
+          rawHull: points,
+          centroid: { x: points[0][0], y: points[0][1] },
+          area: 0,
+          nodeCount,
+        });
+      } else if (nodeCount === 2) {
+        // Two nodes: store both points, area=0
+        const c = centroid(points);
+        hulls.push({
+          clusterId,
+          color,
+          label,
+          rawHull: points,
+          centroid: c,
+          area: 0,
+          nodeCount,
+        });
+      } else {
+        // 3+ nodes: full convex hull
+        const hull = convexHull(points);
+        const c = centroid(hull.length > 0 ? hull : points);
+        const area = polygonArea(hull);
+        hulls.push({
+          clusterId,
+          color,
+          label,
+          rawHull: hull,
+          centroid: c,
+          area,
+          nodeCount,
+        });
+      }
+    }
+
+    cachedHulls = hulls;
+    hullsDirty = false;
   }
 
   // When canvasEl becomes available (after {#if} renders it), sync its buffer size
@@ -278,7 +368,7 @@
         .force('collide', forceCollide<SimNode>(10))
         .alphaDecay(isLarge ? 0.04 : 0.02)
         .velocityDecay(0.3)
-        .on('tick', () => { dirty = true; });
+        .on('tick', () => { dirty = true; hullsDirty = true; });
 
       simulation.tick(200);
     } else {
@@ -301,7 +391,7 @@
         .force('collide', forceCollide<SimNode>(16))
         .alphaDecay(isLarge ? 0.04 : 0.02)
         .velocityDecay(0.3)
-        .on('tick', () => { dirty = true; });
+        .on('tick', () => { dirty = true; hullsDirty = true; });
 
       simulation.tick(300);
     }
@@ -311,6 +401,7 @@
     panY = 0;
     zoom = 1;
     dirty = true;
+    hullsDirty = true;
   }
 
   function startRenderLoop() {
@@ -465,6 +556,86 @@
     ctx.fill();
   }
 
+  /** Draw a smooth hull shape using quadratic curves through midpoints of edges. */
+  function drawSmoothHull(
+    ctx: CanvasRenderingContext2D,
+    points: [number, number][],
+    r: number, g: number, b: number,
+    fillAlpha: number,
+    strokeAlpha: number,
+  ): void {
+    if (points.length < 3) return;
+
+    const n = points.length;
+    // Start at the midpoint between the last and first point
+    const mx0 = (points[n - 1][0] + points[0][0]) / 2;
+    const my0 = (points[n - 1][1] + points[0][1]) / 2;
+
+    ctx.beginPath();
+    ctx.moveTo(mx0, my0);
+
+    for (let i = 0; i < n; i++) {
+      const next = (i + 1) % n;
+      const mx = (points[i][0] + points[next][0]) / 2;
+      const my = (points[i][1] + points[next][1]) / 2;
+      ctx.quadraticCurveTo(points[i][0], points[i][1], mx, my);
+    }
+
+    ctx.closePath();
+    ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${fillAlpha})`;
+    ctx.fill();
+    ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${strokeAlpha})`;
+    ctx.stroke();
+  }
+
+  /** Draw a capsule (rounded rectangle) between two points. */
+  function drawCapsule(
+    ctx: CanvasRenderingContext2D,
+    p1: [number, number],
+    p2: [number, number],
+    radius: number,
+    r: number, g: number, b: number,
+    fillAlpha: number,
+    strokeAlpha: number,
+  ): void {
+    const dx = p2[0] - p1[0];
+    const dy = p2[1] - p1[1];
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist === 0) {
+      // Degenerate: draw a circle
+      ctx.beginPath();
+      ctx.arc(p1[0], p1[1], radius, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${fillAlpha})`;
+      ctx.fill();
+      ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${strokeAlpha})`;
+      ctx.stroke();
+      return;
+    }
+
+    // Normal perpendicular to the line
+    const nx = -dy / dist;
+    const ny = dx / dist;
+    const angle = Math.atan2(dy, dx);
+
+    ctx.beginPath();
+    // Top edge offset
+    ctx.moveTo(p1[0] + nx * radius, p1[1] + ny * radius);
+    ctx.lineTo(p2[0] + nx * radius, p2[1] + ny * radius);
+    // Arc around p2
+    ctx.arc(p2[0], p2[1], radius, angle - Math.PI / 2, angle + Math.PI / 2);
+    // Bottom edge offset
+    ctx.lineTo(p1[0] - nx * radius, p1[1] - ny * radius);
+    // Arc around p1
+    ctx.arc(p1[0], p1[1], radius, angle + Math.PI / 2, angle + Math.PI * 1.5);
+    ctx.closePath();
+
+    ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${fillAlpha})`;
+    ctx.fill();
+    ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${strokeAlpha})`;
+    ctx.stroke();
+  }
+
   function draw() {
     if (!canvasEl) return;
     const ctx = canvasEl.getContext('2d');
@@ -476,6 +647,45 @@
     ctx.save();
     ctx.translate(panX, panY);
     ctx.scale(zoom, zoom);
+
+    // --- Cluster Hulls (rendered behind edges and nodes) ---
+    if (currentColoringMode === 'cluster') {
+      if (hullsDirty) {
+        computeClusterHulls();
+      }
+
+      ctx.lineWidth = 1.5 / zoom;
+      for (const hull of cachedHulls) {
+        const { r, g, b } = hexToRgb(hull.color);
+
+        if (hull.nodeCount === 1) {
+          // Single node: draw a circle
+          const radius = 30 / zoom;
+          ctx.beginPath();
+          ctx.arc(hull.centroid.x, hull.centroid.y, radius, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.10)`;
+          ctx.fill();
+          ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.25)`;
+          ctx.stroke();
+        } else if (hull.nodeCount === 2) {
+          // Two nodes: draw capsule
+          const capsuleRadius = 20 / zoom;
+          drawCapsule(ctx, hull.rawHull[0], hull.rawHull[1], capsuleRadius, r, g, b, 0.10, 0.25);
+        } else {
+          // 3+ nodes: padded smooth hull
+          const padded = padHull(hull.rawHull, 20 / zoom);
+          drawSmoothHull(ctx, padded, r, g, b, 0.10, 0.25);
+        }
+
+        // Draw cluster label at centroid
+        const fontSize = Math.min(14, Math.max(10, Math.sqrt(hull.area) * 0.04)) / zoom;
+        ctx.font = `${fontSize}px sans-serif`;
+        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.50)`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(hull.label, hull.centroid.x, hull.centroid.y);
+      }
+    }
 
     const chunk = isChunkMode();
     const selectedId = currentSelected?.id ?? null;
