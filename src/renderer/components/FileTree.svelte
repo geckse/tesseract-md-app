@@ -15,7 +15,7 @@
   import { activeCollection, activeCollectionId } from '../stores/collections'
   import { runIngest, ingestRunning } from '../stores/ingest'
   import { favorites, toggleFavorite } from '../stores/favorites'
-  import { setGraphPathFilter, graphViewActive } from '../stores/graph'
+  import { setGraphPathFilter, setGraphHighlightedFolder, graphViewActive } from '../stores/graph'
   import { get } from 'svelte/store'
   import type { Collection } from '../../preload/api'
   import type { FileTree as FileTreeType, FileState, FileTreeNode as FileTreeNodeType } from '../types/cli'
@@ -168,7 +168,10 @@
 
       case 'Enter':
         e.preventDefault()
-        if (currentNode && !currentNode.isDir) {
+        if (currentNode && currentNode.isDir) {
+          toggleExpanded(currentNode.path)
+          handleFolderClick(currentNode.path)
+        } else if (currentNode) {
           onfileselect?.({ path: currentNode.path })
         }
         break
@@ -335,6 +338,10 @@
       closeContextMenu()
     }
   }
+
+  function handleFolderClick(path: string) {
+    setGraphHighlightedFolder(path)
+  }
 </script>
 
 <div class="file-tree-container" onclick={handleClickOutside} onkeydown={handleKeyDown} tabindex="0">
@@ -430,6 +437,7 @@
               {node}
               {onfileselect}
               oncontextmenu={handleNodeContextMenu}
+              onfolderclick={handleFolderClick}
               focusedPath={flatNodes[focusedNodeIndex]?.path}
               depth={depth}
               noRecursiveRender={true}
