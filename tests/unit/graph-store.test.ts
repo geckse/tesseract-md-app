@@ -24,12 +24,16 @@ import {
   graphLoading,
   graphError,
   graphSelectedNode,
-  graphClusterColoring,
+  graphColoringMode,
+  graphHighlightedFolder,
   loadGraphData,
   toggleGraphView,
   selectGraphNode,
   resetGraphState,
+  cycleColoringMode,
+  setGraphHighlightedFolder,
 } from '../../src/renderer/stores/graph'
+import type { GraphColoringMode } from '../../src/renderer/stores/graph'
 
 import { collections, activeCollectionId } from '../../src/renderer/stores/collections'
 
@@ -39,7 +43,8 @@ function resetStores() {
   graphLoading.set(false)
   graphError.set(null)
   graphSelectedNode.set(null)
-  graphClusterColoring.set(true)
+  graphColoringMode.set('cluster')
+  graphHighlightedFolder.set(null)
   collections.set([])
   activeCollectionId.set(null)
 }
@@ -170,7 +175,8 @@ describe('graph store', () => {
       graphLoading.set(true)
       graphError.set('some error')
       graphSelectedNode.set({ path: 'a.md', cluster_id: 0 })
-      graphClusterColoring.set(false)
+      graphColoringMode.set('none')
+      graphHighlightedFolder.set('/some/folder')
 
       resetGraphState()
 
@@ -179,7 +185,54 @@ describe('graph store', () => {
       expect(get(graphLoading)).toBe(false)
       expect(get(graphError)).toBeNull()
       expect(get(graphSelectedNode)).toBeNull()
-      expect(get(graphClusterColoring)).toBe(true)
+      expect(get(graphColoringMode)).toBe('cluster')
+      expect(get(graphHighlightedFolder)).toBeNull()
+    })
+  })
+
+  describe('cycleColoringMode', () => {
+    it('cycles through cluster → folder → none → cluster', () => {
+      graphColoringMode.set('cluster')
+
+      cycleColoringMode()
+      expect(get(graphColoringMode)).toBe('folder')
+
+      cycleColoringMode()
+      expect(get(graphColoringMode)).toBe('none')
+
+      cycleColoringMode()
+      expect(get(graphColoringMode)).toBe('cluster')
+    })
+  })
+
+  describe('setGraphHighlightedFolder', () => {
+    it('sets highlighted folder path', () => {
+      setGraphHighlightedFolder('/docs')
+      expect(get(graphHighlightedFolder)).toBe('/docs')
+    })
+
+    it('toggles same path to null', () => {
+      setGraphHighlightedFolder('/docs')
+      expect(get(graphHighlightedFolder)).toBe('/docs')
+
+      setGraphHighlightedFolder('/docs')
+      expect(get(graphHighlightedFolder)).toBeNull()
+    })
+
+    it('replaces with different path', () => {
+      setGraphHighlightedFolder('/docs')
+      expect(get(graphHighlightedFolder)).toBe('/docs')
+
+      setGraphHighlightedFolder('/notes')
+      expect(get(graphHighlightedFolder)).toBe('/notes')
+    })
+
+    it('clears with null', () => {
+      setGraphHighlightedFolder('/docs')
+      expect(get(graphHighlightedFolder)).toBe('/docs')
+
+      setGraphHighlightedFolder(null)
+      expect(get(graphHighlightedFolder)).toBeNull()
     })
   })
 })
