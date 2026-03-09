@@ -11,10 +11,12 @@
     cycleColoringMode,
     graphLevel,
     graphPathFilter,
+    graphHighlightedFolder,
     loadGraphData,
     selectGraphNode,
     setGraphLevel,
     setGraphPathFilter,
+    setGraphHighlightedFolder,
   } from '../stores/graph';
   import type { GraphColoringMode } from '../stores/graph';
   import type { GraphLevel } from '../types/cli';
@@ -85,6 +87,7 @@
   let unsubSelected: (() => void) | null = null;
   let unsubFilePath: (() => void) | null = null;
   let unsubPathFilter: (() => void) | null = null;
+  let unsubHighlightedFolder: (() => void) | null = null;
 
   // Reactive local copies for template use
   let currentData: GraphData | null = $state(null);
@@ -95,6 +98,7 @@
   let currentLevel: GraphLevel = $state('document');
   let currentFilePath: string | null = $state(null);
   let currentPathFilter: string | null = $state(null);
+  let currentHighlightedFolder: string | null = $state(null);
 
   /** Hash a string to a stable index for color assignment. */
   function fileColor(path: string): string {
@@ -152,6 +156,10 @@
     unsubPathFilter = graphPathFilter.subscribe((p) => {
       currentPathFilter = p;
     });
+    unsubHighlightedFolder = graphHighlightedFolder.subscribe((p) => {
+      currentHighlightedFolder = p;
+      dirty = true;
+    });
     graphLoading.subscribe((v) => { currentLoading = v; });
     graphError.subscribe((v) => { currentError = v; });
     graphLevel.subscribe((v) => {
@@ -184,6 +192,7 @@
     unsubSelected?.();
     unsubFilePath?.();
     unsubPathFilter?.();
+    unsubHighlightedFolder?.();
   });
 
   function resizeCanvas() {
@@ -374,6 +383,40 @@
     return { fileNodeIds, fileEdges };
   }
 
+  /** Build sets of node IDs and edges belonging to the highlighted folder path. */
+  function getFolderHighlight(folderPath: string | null): {
+    folderNodeIds: Set<string>;
+    folderEdges: Set<SimEdge>;
+  } {
+    const folderNodeIds = new Set<string>();
+    const folderEdges = new Set<SimEdge>();
+    if (!folderPath) return { folderNodeIds, folderEdges };
+
+    const prefix = folderPath;
+    for (const node of simNodes) {
+      if (node.path.startsWith(prefix + '/') || node.path === prefix) {
+        folderNodeIds.add(node.id);
+      }
+    }
+    if (folderNodeIds.size === 0) return { folderNodeIds, folderEdges };
+
+    const folderNeighborIds = new Set<string>();
+    for (const edge of simEdges) {
+      const s = (edge.source as SimNode).id;
+      const t = (edge.target as SimNode).id;
+      if (folderNodeIds.has(s)) {
+        folderEdges.add(edge);
+        if (!folderNodeIds.has(t)) folderNeighborIds.add(t);
+      } else if (folderNodeIds.has(t)) {
+        folderEdges.add(edge);
+        if (!folderNodeIds.has(s)) folderNeighborIds.add(s);
+      }
+    }
+    // Include neighbors so they aren't dimmed
+    for (const id of folderNeighborIds) folderNodeIds.add(id);
+    return { folderNodeIds, folderEdges };
+  }
+
   /** Read edge colors from CSS custom properties (design tokens). */
   function getEdgeColors() {
     const style = getComputedStyle(document.documentElement);
@@ -440,19 +483,23 @@
     const hasSelection = selectedId !== null;
     const { fileNodeIds, fileEdges } = getFileHighlight(currentFilePath);
     const hasFileHighlight = !hasSelection && fileNodeIds.size > 0;
+    const { folderNodeIds, folderEdges } = getFolderHighlight(currentHighlightedFolder);
+    const hasFolderHighlight = !hasSelection && !hasFileHighlight && folderNodeIds.size > 0;
 
     // --- Edges ---
-    // 1. Draw non-highlighted edges first (dimmed when there's a selection or file highlight)
+    // 1. Draw non-highlighted edges first (dimmed when there's a selection, file highlight, or folder highlight)
     ctx.lineWidth = 1 / zoom;
     for (const edge of simEdges) {
       if (outEdges.has(edge) || inEdges.has(edge)) continue;
       // Skip file-highlighted edges here; they're drawn later with brighter style
       if (hasFileHighlight && fileEdges.has(edge)) continue;
+      // Skip folder-highlighted edges here; they're drawn later with cyan style
+      if (hasFolderHighlight && folderEdges.has(edge)) continue;
       const s = edge.source as SimNode;
       const t = edge.target as SimNode;
       if (s.x == null || t.x == null) continue;
 
-      const dimFactor = hasSelection || hasFileHighlight;
+      const dimFactor = hasSelection || hasFileHighlight || hasFolderHighlight;
       // In chunk mode, edge opacity is proportional to weight
       if (chunk && edge.weight != null) {
         const alpha = dimFactor ? (0.05 + edge.weight * 0.2) * 0.3 : 0.05 + edge.weight * 0.2;
@@ -475,6 +522,21 @@
       ctx.strokeStyle = '#00E5FF';
       ctx.lineWidth = 1.5 / zoom;
       for (const edge of fileEdges) {
+        const s = edge.source as SimNode;
+        const t = edge.target as SimNode;
+        if (s.x == null || t.x == null) continue;
+        ctx.beginPath();
+        ctx.moveTo(s.x, s.y);
+        ctx.lineTo(t.x, t.y);
+        ctx.stroke();
+      }
+    }
+
+    // 1c. Draw folder-highlighted edges (cyan)
+    if (hasFolderHighlight && folderEdges.size > 0) {
+      ctx.strokeStyle = '#00E5FF';
+      ctx.lineWidth = 1.5 / zoom;
+      for (const edge of folderEdges) {
         const s = edge.source as SimNode;
         const t = edge.target as SimNode;
         if (s.x == null || t.x == null) continue;
@@ -584,10 +646,25 @@
       const isSelected = node.id === selectedId;
       const isNeighbor = neighbors.has(node.id);
       const isFileNode = hasFileHighlight && fileNodeIds.has(node.id);
+      const isFolderNode = hasFolderHighlight && folderNodeIds.has(node.id);
       const dimmed = (hasSelection && !isSelected && !isNeighbor) ||
-                     (hasFileHighlight && !isFileNode);
+                     (hasFileHighlight && !isFileNode) ||
+                     (hasFolderHighlight && !isFolderNode);
 
-      const radius = isSelected ? (chunk ? 6 : 8) : isHovered ? (chunk ? 5 : 7) : isNeighbor ? (chunk ? 4 : 6) : isFileNode ? (chunk ? 5 : 7) : baseRadius;
+      const radius = isSelected ? (chunk ? 6 : 8) : isHovered ? (chunk ? 5 : 7) : isNeighbor ? (chunk ? 4 : 6) : isFileNode ? (chunk ? 5 : 7) : isFolderNode ? (chunk ? 5 : 7) : baseRadius;
+
+      // Cyan glow effect for folder-highlighted nodes
+      if (isFolderNode) {
+        ctx.save();
+        ctx.shadowColor = '#00E5FF';
+        ctx.shadowBlur = 12;
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
+        ctx.strokeStyle = '#00E5FF';
+        ctx.lineWidth = 1.5 / zoom;
+        ctx.stroke();
+        ctx.restore();
+      }
 
       // Cyan glow effect for file-highlighted nodes
       if (isFileNode) {
@@ -638,8 +715,10 @@
         const isSelected = node.id === selectedId;
         const isNeighbor = neighbors.has(node.id);
         const isFileNode = hasFileHighlight && fileNodeIds.has(node.id);
+        const isFolderNode = hasFolderHighlight && folderNodeIds.has(node.id);
         const dimmed = (hasSelection && !isSelected && !isNeighbor) ||
-                       (hasFileHighlight && !isFileNode);
+                       (hasFileHighlight && !isFileNode) ||
+                       (hasFolderHighlight && !isFolderNode);
 
         ctx.fillStyle = dimmed
           ? 'rgba(228, 228, 231, 0.15)'
@@ -770,6 +849,7 @@
   function handleKeyDown(e: KeyboardEvent) {
     if (e.key === 'Escape') {
       selectGraphNode(null);
+      setGraphHighlightedFolder(null);
       hoveredNode = null;
       dirty = true;
     }
@@ -847,6 +927,15 @@
         <span class="material-symbols-outlined path-badge-icon">folder</span>
         <span class="path-badge-text">{currentPathFilter}</span>
         <button class="path-badge-close" onclick={() => setGraphPathFilter(null)} title="Clear path filter">×</button>
+      </div>
+    {/if}
+
+    <!-- Folder highlight badge -->
+    {#if currentHighlightedFolder}
+      <div class="graph-folder-badge" class:has-path-filter={!!currentPathFilter}>
+        <span class="material-symbols-outlined folder-badge-icon">folder_open</span>
+        <span class="folder-badge-text">{currentHighlightedFolder}</span>
+        <button class="folder-badge-close" onclick={() => setGraphHighlightedFolder(null)} title="Clear folder highlight">×</button>
       </div>
     {/if}
 
@@ -1215,6 +1304,59 @@
   }
 
   .path-badge-close:hover {
+    color: var(--color-text, #e4e4e7);
+  }
+
+  .graph-folder-badge {
+    position: absolute;
+    top: var(--space-3, 0.75rem);
+    left: var(--space-3, 0.75rem);
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 0.5rem);
+    padding: var(--space-1, 0.25rem) var(--space-3, 0.75rem);
+    background: var(--color-surface, #161617);
+    border: 1px solid #00E5FF40;
+    border-radius: var(--radius-md, 0.375rem);
+    z-index: var(--z-base, 10);
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-size: var(--text-xs, 0.625rem);
+    color: var(--color-text, #e4e4e7);
+  }
+
+  .graph-folder-badge.has-path-filter {
+    top: calc(var(--space-3, 0.75rem) + 32px);
+  }
+
+  .folder-badge-icon {
+    font-size: 14px;
+    color: #00E5FF;
+  }
+
+  .folder-badge-text {
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .folder-badge-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    background: none;
+    border: none;
+    color: var(--color-text-dim, #71717a);
+    font-size: 14px;
+    cursor: pointer;
+    border-radius: 2px;
+    transition: color var(--transition-fast, 150ms ease);
+  }
+
+  .folder-badge-close:hover {
     color: var(--color-text, #e4e4e7);
   }
 </style>
