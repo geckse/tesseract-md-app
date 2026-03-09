@@ -7,7 +7,8 @@
     graphLoading,
     graphError,
     graphSelectedNode,
-    graphClusterColoring,
+    graphColoringMode,
+    cycleColoringMode,
     graphLevel,
     graphPathFilter,
     loadGraphData,
@@ -15,6 +16,7 @@
     setGraphLevel,
     setGraphPathFilter,
   } from '../stores/graph';
+  import type { GraphColoringMode } from '../stores/graph';
   import type { GraphLevel } from '../types/cli';
   import type { GraphNode, GraphEdge, GraphData } from '../types/cli';
   import { selectedFilePath } from '../stores/files';
@@ -88,7 +90,7 @@
   let currentData: GraphData | null = $state(null);
   let currentLoading = $state(false);
   let currentError: string | null = $state(null);
-  let currentColoring = $state(true);
+  let currentColoringMode: GraphColoringMode = $state('cluster');
   let currentSelected: GraphNode | null = $state(null);
   let currentLevel: GraphLevel = $state('document');
   let currentFilePath: string | null = $state(null);
@@ -102,6 +104,15 @@
     }
     return CLUSTER_COLORS[Math.abs(hash) % CLUSTER_COLORS.length];
   }
+
+  /** Extract the top-level folder from a path, or '(root)' if no folder. */
+  function getTopLevelFolder(path: string): string {
+    const idx = path.indexOf('/');
+    return idx >= 0 ? path.substring(0, idx) : '(root)';
+  }
+
+  /** Map from top-level folder name to assigned color. */
+  let folderColorMap: Map<string, string> = new Map();
 
   /** Whether we're currently in chunk mode. */
   function isChunkMode(): boolean {
@@ -126,8 +137,8 @@
       currentData = d;
       if (d) buildSimulation(d);
     });
-    unsubColoring = graphClusterColoring.subscribe((v) => {
-      currentColoring = v;
+    unsubColoring = graphColoringMode.subscribe((v) => {
+      currentColoringMode = v;
       dirty = true;
     });
     unsubSelected = graphSelectedNode.subscribe((n) => {
@@ -219,6 +230,17 @@
       x: Math.random() * width,
       y: Math.random() * height,
     }));
+
+    // Rebuild folder color map
+    const folders = new Set<string>();
+    for (const node of simNodes) {
+      folders.add(getTopLevelFolder(node.path));
+    }
+    const sortedFolders = [...folders].sort();
+    folderColorMap = new Map();
+    for (let i = 0; i < sortedFolders.length; i++) {
+      folderColorMap.set(sortedFolders[i], CLUSTER_COLORS[i % CLUSTER_COLORS.length]);
+    }
 
     const nodeMap = new Map(simNodes.map((n) => [n.id, n]));
     simEdges = data.edges
@@ -583,20 +605,20 @@
       ctx.beginPath();
       ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
 
-      // Fill color
+      // Fill color — three-way coloring mode: cluster, folder, none
       if (dimmed) {
         ctx.fillStyle = 'rgba(228, 228, 231, 0.15)';
-      } else if (chunk) {
-        // Chunk mode: cluster color when enabled, else file color
-        if (currentColoring && node.cluster_id != null) {
+      } else if (currentColoringMode === 'cluster') {
+        if (node.cluster_id != null) {
           ctx.fillStyle = CLUSTER_COLORS[node.cluster_id % CLUSTER_COLORS.length];
         } else {
-          ctx.fillStyle = fileColor(node.path);
+          ctx.fillStyle = chunk ? fileColor(node.path) : DEFAULT_NODE_COLOR;
         }
-      } else if (currentColoring && node.cluster_id != null) {
-        ctx.fillStyle = CLUSTER_COLORS[node.cluster_id % CLUSTER_COLORS.length];
+      } else if (currentColoringMode === 'folder') {
+        ctx.fillStyle = folderColorMap.get(getTopLevelFolder(node.path)) ?? DEFAULT_NODE_COLOR;
       } else {
-        ctx.fillStyle = DEFAULT_NODE_COLOR;
+        // 'none' mode
+        ctx.fillStyle = chunk ? fileColor(node.path) : DEFAULT_NODE_COLOR;
       }
       ctx.fill();
 
@@ -745,10 +767,6 @@
     legendVisible = !legendVisible;
   }
 
-  function toggleClusterColoring() {
-    graphClusterColoring.update((v) => !v);
-  }
-
   function handleKeyDown(e: KeyboardEvent) {
     if (e.key === 'Escape') {
       selectGraphNode(null);
@@ -850,8 +868,8 @@
       <div class="graph-legend">
         <div class="legend-header">
           <span class="legend-title">Clusters</span>
-          <button class="legend-toggle" onclick={toggleClusterColoring} title={currentColoring ? 'Disable coloring' : 'Enable coloring'}>
-            <span class="material-symbols-outlined">{currentColoring ? 'visibility' : 'visibility_off'}</span>
+          <button class="legend-toggle" onclick={cycleColoringMode} title="Coloring: {currentColoringMode}">
+            <span class="material-symbols-outlined">{currentColoringMode === 'none' ? 'visibility_off' : 'visibility'}</span>
           </button>
           <button class="legend-toggle" onclick={toggleLegend} title={legendVisible ? 'Hide legend' : 'Show legend'}>
             <span class="material-symbols-outlined">{legendVisible ? 'expand_less' : 'expand_more'}</span>
