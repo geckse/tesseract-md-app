@@ -8,6 +8,7 @@
     depth?: number
     onfileselect?: (detail: { path: string }) => void
     oncontextmenu?: (detail: { path: string; isDir: boolean; x: number; y: number }) => void
+    onfolderclick?: (folderPath: string) => void
     focusedPath?: string
     noRecursiveRender?: boolean // If true, don't render children recursively (for virtual lists)
     currentSelectedFilePath?: string | null
@@ -19,6 +20,7 @@
     depth = 0,
     onfileselect,
     oncontextmenu: onctx,
+    onfolderclick: onfc,
     focusedPath,
     noRecursiveRender = false,
     currentSelectedFilePath = null,
@@ -47,6 +49,7 @@
   function handleClick() {
     if (node.is_dir) {
       toggleExpanded(node.path)
+      onfc?.(node.path)
     } else {
       onfileselect?.({ path: node.path })
     }
@@ -133,7 +136,7 @@
   {#if !noRecursiveRender && node.is_dir && isExpanded}
     <div class="tree-children" transition:slide={{ duration: 150 }}>
       {#each node.children as child (child.path)}
-        <svelte:self node={child} depth={depth + 1} {onfileselect} oncontextmenu={onctx} {focusedPath} {currentSelectedFilePath} {currentExpandedPaths} />
+        <svelte:self node={child} depth={depth + 1} {onfileselect} oncontextmenu={onctx} onfolderclick={onfc} {focusedPath} {currentSelectedFilePath} {currentExpandedPaths} />
       {/each}
     </div>
   {/if}

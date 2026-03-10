@@ -17,8 +17,14 @@ export const graphError = writable<string | null>(null)
 /** Currently selected node in the graph. */
 export const graphSelectedNode = writable<GraphNode | null>(null)
 
-/** Whether cluster coloring is enabled. */
-export const graphClusterColoring = writable<boolean>(true)
+/** Graph coloring mode: cluster-based, folder-based, or none. */
+export type GraphColoringMode = 'cluster' | 'folder' | 'none'
+
+/** Current graph coloring mode. */
+export const graphColoringMode = writable<GraphColoringMode>('cluster')
+
+/** Currently highlighted folder path in the graph. */
+export const graphHighlightedFolder = writable<string | null>(null)
 
 /** Current graph detail level (document or chunk). */
 export const graphLevel = writable<GraphLevel>('document')
@@ -98,6 +104,22 @@ export function selectGraphNode(node: GraphNode | null): void {
   graphSelectedNode.set(node)
 }
 
+/** Cycle graph coloring mode: cluster → folder → none → cluster. */
+export function cycleColoringMode(): void {
+  const current = get(graphColoringMode)
+  const next: GraphColoringMode =
+    current === 'cluster' ? 'folder' :
+    current === 'folder' ? 'none' :
+    'cluster'
+  graphColoringMode.set(next)
+}
+
+/** Set or toggle the highlighted folder. If the same path is set again, clears it. */
+export function setGraphHighlightedFolder(path: string | null): void {
+  const current = get(graphHighlightedFolder)
+  graphHighlightedFolder.set(current === path ? null : path)
+}
+
 /** Reset all graph state. */
 export function resetGraphState(): void {
   loadGeneration++
@@ -106,7 +128,8 @@ export function resetGraphState(): void {
   graphLoading.set(false)
   graphError.set(null)
   graphSelectedNode.set(null)
-  graphClusterColoring.set(true)
+  graphColoringMode.set('cluster')
+  graphHighlightedFolder.set(null)
   graphLevel.set('document')
   graphPathFilter.set(null)
 }
