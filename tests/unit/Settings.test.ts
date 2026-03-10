@@ -280,4 +280,46 @@ describe('Settings component', () => {
 
     expect(screen.getByText('Settings for Work Docs')).toBeTruthy()
   })
+
+  it('shows boost hop depth when link boosting is enabled', () => {
+    activeSection.set('search')
+    userConfig.set({ MDVDB_SEARCH_BOOST_LINKS: 'true' })
+    render(Settings, { props: { onclose: vi.fn() } })
+
+    expect(screen.getByPlaceholderText('1')).toBeTruthy()
+    expect(screen.getByText(/How many link hops/)).toBeTruthy()
+  })
+
+  it('hides boost hop depth when link boosting is disabled', () => {
+    activeSection.set('search')
+    userConfig.set({ MDVDB_SEARCH_BOOST_LINKS: 'false' })
+    render(Settings, { props: { onclose: vi.fn() } })
+
+    expect(screen.queryByPlaceholderText('1')).toBeNull()
+  })
+
+  it('shows graph expansion settings', () => {
+    activeSection.set('search')
+    render(Settings, { props: { onclose: vi.fn() } })
+
+    expect(screen.getByPlaceholderText('0')).toBeTruthy()
+    expect(screen.getByText(/Include context from linked files/)).toBeTruthy()
+  })
+
+  it('shows expansion limit when graph expansion is enabled', () => {
+    activeSection.set('search')
+    userConfig.set({ MDVDB_SEARCH_EXPAND_GRAPH: '2' })
+    render(Settings, { props: { onclose: vi.fn() } })
+
+    expect(screen.getByPlaceholderText('3')).toBeTruthy()
+    expect(screen.getByText(/Maximum graph context items/)).toBeTruthy()
+  })
+
+  it('hides expansion limit when graph expansion is disabled', () => {
+    activeSection.set('search')
+    userConfig.set({ MDVDB_SEARCH_EXPAND_GRAPH: '0' })
+    render(Settings, { props: { onclose: vi.fn() } })
+
+    expect(screen.queryByPlaceholderText('3')).toBeNull()
+  })
 })

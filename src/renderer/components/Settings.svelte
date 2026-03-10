@@ -482,6 +482,79 @@
               {/if}
             </div>
           </div>
+          {#if getConfigValue('MDVDB_SEARCH_BOOST_LINKS') === 'true'}
+            <div class="field-group">
+              <label class="field-label">
+                Boost Hop Depth
+                <span class="annotation">{getAnnotation('MDVDB_SEARCH_BOOST_HOPS')}</span>
+              </label>
+              <div class="field-row">
+                <input
+                  class="field-input field-input-sm"
+                  type="number"
+                  min="1"
+                  max="3"
+                  value={getConfigValue('MDVDB_SEARCH_BOOST_HOPS')}
+                  placeholder="1"
+                  oninput={(e) => handleSave('MDVDB_SEARCH_BOOST_HOPS', (e.target as HTMLInputElement).value)}
+                />
+                {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_BOOST_HOPS')}
+                  <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_SEARCH_BOOST_HOPS')}>
+                    <span class="material-symbols-outlined">undo</span>
+                  </button>
+                {/if}
+              </div>
+              <div class="field-hint">How many link hops to traverse for score boosting (1–3)</div>
+            </div>
+          {/if}
+          <div class="field-group">
+            <label class="field-label">
+              Graph Expansion Depth
+              <span class="annotation">{getAnnotation('MDVDB_SEARCH_EXPAND_GRAPH')}</span>
+            </label>
+            <div class="field-row">
+              <input
+                class="field-input field-input-sm"
+                type="number"
+                min="0"
+                max="3"
+                value={getConfigValue('MDVDB_SEARCH_EXPAND_GRAPH')}
+                placeholder="0"
+                oninput={(e) => handleSave('MDVDB_SEARCH_EXPAND_GRAPH', (e.target as HTMLInputElement).value)}
+              />
+              {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_EXPAND_GRAPH')}
+                <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_SEARCH_EXPAND_GRAPH')}>
+                  <span class="material-symbols-outlined">undo</span>
+                </button>
+              {/if}
+            </div>
+            <div class="field-hint">Include context from linked files in results (0 = disabled, 1–3 = hop depth)</div>
+          </div>
+          {#if Number(getConfigValue('MDVDB_SEARCH_EXPAND_GRAPH')) > 0}
+            <div class="field-group">
+              <label class="field-label">
+                Expansion Limit Per Hop
+                <span class="annotation">{getAnnotation('MDVDB_SEARCH_EXPAND_LIMIT')}</span>
+              </label>
+              <div class="field-row">
+                <input
+                  class="field-input field-input-sm"
+                  type="number"
+                  min="1"
+                  max="10"
+                  value={getConfigValue('MDVDB_SEARCH_EXPAND_LIMIT')}
+                  placeholder="3"
+                  oninput={(e) => handleSave('MDVDB_SEARCH_EXPAND_LIMIT', (e.target as HTMLInputElement).value)}
+                />
+                {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_EXPAND_LIMIT')}
+                  <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_SEARCH_EXPAND_LIMIT')}>
+                    <span class="material-symbols-outlined">undo</span>
+                  </button>
+                {/if}
+              </div>
+              <div class="field-hint">Maximum graph context items per hop level (1–10)</div>
+            </div>
+          {/if}
           <div class="field-group">
             <label class="field-label">
               Time Decay
