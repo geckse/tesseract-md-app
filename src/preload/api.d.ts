@@ -8,6 +8,7 @@ import type {
   LinksOutput,
   BacklinksOutput,
   OrphansOutput,
+  NeighborhoodResult,
   ClusterSummary,
   GraphData,
   GraphLevel,
@@ -45,6 +46,9 @@ export interface SearchOptions {
   mode?: string
   path?: string
   filter?: string
+  expand?: number
+  hops?: number
+  boostLinks?: boolean
 }
 
 /** Options for the ingest command. */
@@ -86,6 +90,7 @@ export interface MdvdbApi {
   getFile(root: string, filePath: string): Promise<DocumentInfo>
   links(root: string, filePath: string): Promise<LinksOutput>
   backlinks(root: string, filePath: string): Promise<BacklinksOutput>
+  neighborhood(root: string, filePath: string, depth: number): Promise<NeighborhoodResult>
   orphans(root: string): Promise<OrphansOutput>
   clusters(root: string): Promise<ClusterSummary[]>
   graphData(root: string, level?: GraphLevel, path?: string): Promise<GraphData>

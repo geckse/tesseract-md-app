@@ -45,6 +45,7 @@ import type {
   LinksOutput,
   BacklinksOutput,
   OrphansOutput,
+  NeighborhoodResult,
   ClusterSummary,
   GraphData,
   Schema,
@@ -175,12 +176,17 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   // Search
   ipcMain.handle(
     'cli:search',
-    (_event, root: string, query: string, options?: { limit?: number; mode?: string; path?: string; filter?: string }) => {
+    (_event, root: string, query: string, options?: { limit?: number; mode?: string; path?: string; filter?: string; expand?: number; hops?: number; boostLinks?: boolean }) => {
       const args: string[] = [query]
       if (options?.limit != null) args.push('--limit', String(options.limit))
       if (options?.mode) args.push('--mode', options.mode)
       if (options?.path) args.push('--path', options.path)
       if (options?.filter) args.push('--filter', options.filter)
+      if (options?.boostLinks) {
+        args.push('--boost-links')
+        if (options?.hops != null) args.push('--hops', String(options.hops))
+      }
+      if (options?.expand != null && options.expand > 0) args.push('--expand', String(options.expand))
       return wrapHandler(() => execCommand<SearchOutput>('search', args, root))
     }
   )
@@ -232,6 +238,12 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   ipcMain.handle('cli:backlinks', (_event, root: string, filePath: string) =>
     wrapHandler(() => execCommand<BacklinksOutput>('backlinks', [filePath], root))
   )
+
+  // Neighborhood (multi-hop link tree)
+  ipcMain.handle('cli:neighborhood', (_event, root: string, filePath: string, depth: number) => {
+    const d = Math.min(3, Math.max(1, depth))
+    return wrapHandler(() => execCommand<NeighborhoodResult>('links', [filePath, '--depth', String(d)], root))
+  })
 
   // Orphans
   ipcMain.handle('cli:orphans', (_event, root: string) =>

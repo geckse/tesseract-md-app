@@ -7,6 +7,7 @@
     documentInfo,
     backlinksInfo,
     linksInfo,
+    neighborhoodInfo,
     frontmatter,
     outline,
     propertiesLoading,
@@ -17,7 +18,7 @@
   import { scrollToLine, activeHeadingIndex, isDirty } from '../stores/editor'
   import { isFavorited, toggleFavorite } from '../stores/favorites'
   import { graphViewActive, graphSelectedNode } from '../stores/graph'
-  import type { DocumentInfo, BacklinksOutput, LinksOutput, JsonValue } from '../types/cli'
+  import type { DocumentInfo, BacklinksOutput, LinksOutput, NeighborhoodResult, NeighborhoodNode, JsonValue } from '../types/cli'
   import type { OutlineHeading } from '../stores/properties'
 
   interface PropertiesPanelProps {
@@ -61,6 +62,8 @@
   let currentFilePath: string | null = $state(null)
   let currentActiveHeadingIndex = $state(-1)
 
+  let currentNeighborhood: NeighborhoodResult | null = $state(null)
+
   let currentActiveCollectionId: string | null = $state(null)
   let currentIsDirty = $state(false)
   let currentIsFavorited = $state(false)
@@ -69,6 +72,7 @@
     documentInfo.subscribe((v) => (currentDocInfo = v)),
     backlinksInfo.subscribe((v) => (currentBacklinks = v)),
     linksInfo.subscribe((v) => (currentLinks = v)),
+    neighborhoodInfo.subscribe((v) => (currentNeighborhood = v)),
     frontmatter.subscribe((v) => (currentFrontmatter = v)),
     outline.subscribe((v) => (currentOutline = v)),
     propertiesLoading.subscribe((v) => (currentLoading = v)),
@@ -106,8 +110,8 @@
   type LinksTab = 'incoming' | 'outgoing'
   let linksTab: LinksTab = $state('incoming')
 
-  let incomingCount = $derived(currentBacklinks?.total_backlinks ?? 0)
-  let outgoingCount = $derived(currentLinks?.links?.outgoing?.length ?? 0)
+  let incomingCount = $derived(currentNeighborhood?.incoming_depth_count ?? currentBacklinks?.total_backlinks ?? 0)
+  let outgoingCount = $derived(currentNeighborhood?.outgoing_depth_count ?? currentLinks?.links?.outgoing?.length ?? 0)
   let neighborCount = $derived(incomingCount + outgoingCount)
 
   function expandToFullGraph() {
@@ -331,7 +335,13 @@
 
           <!-- Incoming (backlinks) -->
           {#if linksTab === 'incoming'}
-            {#if currentBacklinks && currentBacklinks.backlinks.length > 0}
+            {#if currentNeighborhood && currentNeighborhood.incoming.length > 0}
+              <div class="links-list">
+                {#each currentNeighborhood.incoming as node}
+                  {@render neighborhoodTreeNode(node, 'in', 0)}
+                {/each}
+              </div>
+            {:else if currentBacklinks && currentBacklinks.backlinks.length > 0}
               <div class="links-list">
                 {#each currentBacklinks.backlinks as link}
                   <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -359,7 +369,13 @@
 
           <!-- Outgoing -->
           {#if linksTab === 'outgoing'}
-            {#if currentLinks && currentLinks.links.outgoing.length > 0}
+            {#if currentNeighborhood && currentNeighborhood.outgoing.length > 0}
+              <div class="links-list">
+                {#each currentNeighborhood.outgoing as node}
+                  {@render neighborhoodTreeNode(node, 'out', 0)}
+                {/each}
+              </div>
+            {:else if currentLinks && currentLinks.links.outgoing.length > 0}
               <div class="links-list">
                 {#each currentLinks.links.outgoing as link}
                   <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -425,6 +441,37 @@
       {/if}
     </section>
   {/if}
+
+  {#snippet neighborhoodTreeNode(node: NeighborhoodNode, direction: 'in' | 'out', depth: number)}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="link-item"
+      class:depth-1={depth === 1}
+      class:depth-2={depth >= 2}
+      role="button"
+      tabindex="0"
+      style="padding-left: {8 + depth * 14}px"
+      onclick={() => node.state === 'Valid' && handleBacklinkClick(node.path)}
+    >
+      <span class="material-symbols-outlined link-icon {direction === 'in' ? 'link-icon-in' : 'link-icon-out'}">
+        {direction === 'in' ? 'arrow_back' : 'arrow_forward'}
+      </span>
+      <div class="link-info">
+        <span class="link-name" class:broken-link={node.state !== 'Valid'}>
+          {getFileName(node.path)}
+          {#if node.state !== 'Valid'}
+            <span class="broken-badge">broken</span>
+          {/if}
+        </span>
+      </div>
+    </div>
+    {#if node.children.length > 0}
+      {#each node.children as child}
+        {@render neighborhoodTreeNode(child, direction, depth + 1)}
+      {/each}
+    {/if}
+  {/snippet}
 </aside>
 
 <style>
@@ -811,5 +858,33 @@
   .outline-item.active .outline-text {
     color: var(--color-primary, #00e5ff);
     font-weight: var(--weight-medium, 500);
+  }
+
+  /* Neighborhood tree depth styles */
+  .link-item.depth-1 .link-name,
+  .link-item.depth-2 .link-name {
+    font-size: var(--text-xs, 10px);
+  }
+
+  .link-item.depth-1 .link-icon,
+  .link-item.depth-2 .link-icon {
+    font-size: 14px;
+  }
+
+  .link-item.depth-2 {
+    opacity: 0.6;
+  }
+
+  .broken-link {
+    color: var(--color-text-dim, #71717a);
+    text-decoration: line-through;
+  }
+
+  .broken-badge {
+    font-size: 9px;
+    color: var(--color-warning, #f59e0b);
+    margin-left: 4px;
+    font-weight: 400;
+    font-style: italic;
   }
 </style>

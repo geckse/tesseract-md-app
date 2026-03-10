@@ -17,6 +17,9 @@ export const searchLoading = writable<boolean>(false)
 /** Current search mode (hybrid, semantic, lexical). */
 export const searchMode = writable<SearchMode>('hybrid')
 
+/** Whether graph context expansion is enabled for search. */
+export const searchExpandEnabled = writable<boolean>(false)
+
 /** Index of the currently highlighted result. */
 export const highlightedIndex = writable<number>(-1)
 
@@ -92,7 +95,12 @@ async function performSearch(query: string): Promise<void> {
 
   try {
     const mode = get(searchMode)
-    const result = await window.api.search(collection.path, query, { mode })
+    const expandEnabled = get(searchExpandEnabled)
+    const result = await window.api.search(collection.path, query, {
+      mode,
+      boostLinks: true,
+      expand: expandEnabled ? 1 : undefined
+    })
 
     // Ignore stale results
     if (generation !== searchGeneration) return

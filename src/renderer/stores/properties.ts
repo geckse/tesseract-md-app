@@ -1,5 +1,5 @@
 import { writable, derived, get } from 'svelte/store'
-import type { DocumentInfo, BacklinksOutput, LinksOutput, JsonValue } from '../types/cli'
+import type { DocumentInfo, BacklinksOutput, LinksOutput, NeighborhoodResult, JsonValue } from '../types/cli'
 import { activeCollection } from './collections'
 
 /** Document info for the selected file (from CLI `get` command). */
@@ -10,6 +10,9 @@ export const backlinksInfo = writable<BacklinksOutput | null>(null)
 
 /** Outgoing links for the selected file (from CLI `links` command). */
 export const linksInfo = writable<LinksOutput | null>(null)
+
+/** Multi-hop neighborhood tree for the selected file (depth 2). */
+export const neighborhoodInfo = writable<NeighborhoodResult | null>(null)
 
 /** Whether properties are currently loading. */
 export const propertiesLoading = writable<boolean>(false)
@@ -165,15 +168,17 @@ export async function loadProperties(filePath: string): Promise<void> {
   propertiesError.set(null)
 
   // Run all read operations in parallel — Tantivy supports concurrent reads.
-  const [docResult, backlinksResult, linksResult] = await Promise.allSettled([
+  const [docResult, backlinksResult, linksResult, neighborhoodResult] = await Promise.allSettled([
     window.api.getFile(collection.path, filePath),
     window.api.backlinks(collection.path, filePath),
     window.api.links(collection.path, filePath),
+    window.api.neighborhood(collection.path, filePath, 2),
   ])
 
   documentInfo.set(docResult.status === 'fulfilled' ? docResult.value : null)
   backlinksInfo.set(backlinksResult.status === 'fulfilled' ? backlinksResult.value : null)
   linksInfo.set(linksResult.status === 'fulfilled' ? linksResult.value : null)
+  neighborhoodInfo.set(neighborhoodResult.status === 'fulfilled' ? neighborhoodResult.value : null)
 
   propertiesLoading.set(false)
 }
@@ -183,6 +188,7 @@ export function clearProperties(): void {
   documentInfo.set(null)
   backlinksInfo.set(null)
   linksInfo.set(null)
+  neighborhoodInfo.set(null)
   propertiesFileContent.set(null)
   propertiesLoading.set(false)
   propertiesError.set(null)

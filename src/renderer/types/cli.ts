@@ -42,12 +42,21 @@ export interface SearchResult {
   file: SearchResultFile;
 }
 
+/** A supplementary chunk from a linked file, surfaced via graph expansion. */
+export interface GraphContextItem {
+  chunk: SearchResultChunk;
+  file: SearchResultFile;
+  linked_from: string;
+  hop_distance: number;
+}
+
 /** Wrapped search output for JSON mode (from main.rs SearchOutput). */
 export interface SearchOutput {
   results: SearchResult[];
   query: string;
   total_results: number;
   mode: SearchMode;
+  graph_context?: GraphContextItem[];
 }
 
 // ─── Index Status ────────────────────────────────────────────────────
@@ -294,6 +303,24 @@ export interface BacklinksOutput {
 export interface OrphansOutput {
   orphans: OrphanFile[];
   total_orphans: number;
+}
+
+/** A node in a multi-hop neighborhood tree (recursive). */
+export interface NeighborhoodNode {
+  path: string;
+  state: LinkState;
+  children: NeighborhoodNode[];
+}
+
+/** Result of querying the multi-hop link neighborhood of a file. */
+export interface NeighborhoodResult {
+  file: string;
+  outgoing: NeighborhoodNode[];
+  incoming: NeighborhoodNode[];
+  outgoing_count: number;
+  incoming_count: number;
+  outgoing_depth_count: number;
+  incoming_depth_count: number;
 }
 
 // ─── Link Graph ──────────────────────────────────────────────────────

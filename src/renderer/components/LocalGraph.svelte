@@ -5,8 +5,8 @@
   import type { Simulation } from 'd3-force';
   import type { LinksOutput, BacklinksOutput } from '../types/cli';
   import { activeCollection } from '../stores/collections';
-  import { buildLocalGraph } from '../utils/local-graph';
-  import type { LocalNode, LocalEdge, LocalGraphData, NeighborLinks } from '../utils/local-graph';
+  import { buildLocalGraph, buildLocalGraphFromNeighborhood } from '../utils/local-graph';
+  import type { LocalNode, LocalEdge, LocalGraphData } from '../utils/local-graph';
 
   interface LocalGraphProps {
     centerPath: string | null;
@@ -150,34 +150,6 @@
     simNodes = [...nodes];
   }
 
-  /** Fetch links + backlinks for a set of neighbor paths (2nd hop). */
-  async function fetchNeighborLinks(paths: string[]): Promise<Map<string, NeighborLinks>> {
-    const collection = get(activeCollection);
-    const map = new Map<string, NeighborLinks>();
-    if (!collection || paths.length === 0) return map;
-
-    const results = await Promise.allSettled(
-      paths.map(async (p) => {
-        const [linksRes, backlinksRes] = await Promise.allSettled([
-          window.api.links(collection.path, p),
-          window.api.backlinks(collection.path, p),
-        ]);
-        return {
-          path: p,
-          links: linksRes.status === 'fulfilled' ? linksRes.value : null,
-          backlinks: backlinksRes.status === 'fulfilled' ? backlinksRes.value : null,
-        };
-      }),
-    );
-
-    for (const r of results) {
-      if (r.status === 'fulfilled') {
-        map.set(r.value.path, { links: r.value.links, backlinks: r.value.backlinks });
-      }
-    }
-    return map;
-  }
-
   // Reset zoom/pan when file changes
   $effect(() => {
     centerPath;
@@ -188,33 +160,29 @@
     spread = 60;
   });
 
-  // Rebuild graph when inputs change — always fetch depth-2 before rendering
+  // Rebuild graph when inputs change — use single neighborhood API call for depth-2
   $effect(() => {
-    const graph1 = buildLocalGraph(centerPath, linksInfo, backlinksInfo);
-
-    const neighborPaths = graph1.nodes
-      .filter((n) => n.depth === 1)
-      .map((n) => n.path);
-
-    if (neighborPaths.length === 0) {
-      runSimulation(graph1);
+    if (!centerPath) {
+      runSimulation({ nodes: [], edges: [] });
       return;
     }
 
-    // Capture reactive values for the async closure.
+    const collection = get(activeCollection);
     const cp = centerPath;
     const li = linksInfo;
     const bi = backlinksInfo;
 
-    // Fetch depth-2 first, then render everything at once
-    fetchNeighborLinks(neighborPaths).then((neighborMap) => {
-      if (neighborMap.size > 0) {
-        const graph2 = buildLocalGraph(cp, li, bi, neighborMap);
-        runSimulation(graph2);
-      } else {
-        // No collection or fetch failed — render depth-1 only
-        runSimulation(buildLocalGraph(cp, li, bi));
-      }
+    if (!collection) {
+      runSimulation(buildLocalGraph(cp, li, bi));
+      return;
+    }
+
+    // Try single neighborhood call (depth 2) — replaces N+1 fetch pattern
+    window.api.neighborhood(collection.path, cp, 2).then((result) => {
+      runSimulation(buildLocalGraphFromNeighborhood(cp, result));
+    }).catch(() => {
+      // Fallback: use existing 1-hop data from props
+      runSimulation(buildLocalGraph(cp, li, bi));
     });
   });
 
@@ -375,8 +343,8 @@
             {#if node.isCenter || isHovered}
               {@const labelText = getFileName(node.path)}
               {@const labelY = ny - (radius + 5)}
-              {@const labelW = labelText.length * 4.5 + 6}
-              {@const labelH = 11}
+              {@const labelW = labelText.length * 5.5 + 8}
+              {@const labelH = 14}
               <rect
                 x={nx - labelW / 2}
                 y={labelY - labelH + 2}
@@ -632,14 +600,14 @@
   }
 
   .node-label {
-    font-size: 9px;
-    fill: rgba(228, 228, 231, 0.6);
+    font-size: 11px;
+    fill: rgba(228, 228, 231, 0.85);
     pointer-events: none;
   }
 
   .node-label.center-label {
-    fill: rgba(228, 228, 231, 0.9);
-    font-weight: 500;
+    fill: #e4e4e7;
+    font-weight: 600;
   }
 
   @keyframes spin {

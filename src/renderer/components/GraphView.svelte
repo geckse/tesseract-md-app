@@ -677,13 +677,6 @@
           drawSmoothHull(ctx, padded, r, g, b, 0.10, 0.25);
         }
 
-        // Draw cluster label at centroid
-        const fontSize = Math.min(14, Math.max(10, Math.sqrt(hull.area) * 0.04)) / zoom;
-        ctx.font = `${fontSize}px sans-serif`;
-        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.50)`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(hull.label, hull.centroid.x, hull.centroid.y);
       }
     }
 
@@ -914,6 +907,19 @@
         ctx.strokeStyle = '#00E5FF';
         ctx.lineWidth = 2 / zoom;
         ctx.stroke();
+      }
+    }
+
+    // --- Cluster Labels (on top of edges and nodes, below node labels) ---
+    if (currentColoringMode === 'cluster' && cachedHulls.length > 0) {
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      for (const hull of cachedHulls) {
+        const { r, g, b } = hexToRgb(hull.color);
+        const fontSize = Math.min(16, Math.max(11, Math.sqrt(hull.area) * 0.05)) / zoom;
+        ctx.font = `bold ${fontSize}px 'Space Grotesk', sans-serif`;
+        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.75)`;
+        ctx.fillText(hull.label, hull.centroid.x, hull.centroid.y);
       }
     }
 

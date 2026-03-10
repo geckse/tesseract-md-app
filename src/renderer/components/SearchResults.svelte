@@ -6,12 +6,14 @@
     searchResults,
     searchLoading,
     searchMode,
+    searchExpandEnabled,
     searchError,
     highlightedIndex,
     setSearchMode,
+    executeSearch,
   } from '../stores/search';
   import { activeCollection } from '../stores/collections';
-  import type { SearchResult, SearchMode } from '../types/cli';
+  import type { SearchResult, SearchMode, GraphContextItem } from '../types/cli';
   import { calculateVirtualListState, throttleScroll } from '../lib/virtual-list';
 
   interface SearchResultsProps {
@@ -42,11 +44,15 @@
   let currentCollection: import('../../preload/api').Collection | null = $state(null);
   const unsub7 = activeCollection.subscribe((v) => (currentCollection = v));
 
+  let expandEnabled = $state(false);
+  const unsub8 = searchExpandEnabled.subscribe((v) => (expandEnabled = v));
+
   onDestroy(() => {
-    unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6(); unsub7();
+    unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6(); unsub7(); unsub8();
   });
 
   let results = $derived(currentResults?.results ?? []);
+  let graphContext = $derived(currentResults?.graph_context ?? []);
   let totalResults = $derived(currentResults?.total_results ?? 0);
   let hasQuery = $derived(currentQuery.length >= 2);
   let hasResults = $derived(results.length > 0);
@@ -85,6 +91,23 @@
     onresultclick?.(result);
   }
 
+  function handleExpandToggle() {
+    searchExpandEnabled.update((v) => !v);
+    // Re-run search with new expand setting
+    const query = currentQuery;
+    if (query.length >= 2) {
+      executeSearch(query);
+    }
+  }
+
+  function handleGraphContextClick(item: GraphContextItem) {
+    onresultclick?.({ score: 0, chunk: item.chunk, file: item.file });
+  }
+
+  function getFileName(path: string): string {
+    return path.split('/').pop() ?? path;
+  }
+
   function handleOverlayClick(event: MouseEvent) {
     if (event.target === event.currentTarget) {
       oncloserequest?.();
@@ -121,6 +144,16 @@
             {mode}
           </button>
         {/each}
+        <span class="mode-separator"></span>
+        <button
+          class="mode-pill"
+          class:active={expandEnabled}
+          onclick={handleExpandToggle}
+          title="Include related documents from link graph"
+        >
+          <span class="material-symbols-outlined" style="font-size: 12px; vertical-align: middle;">hub</span>
+          graph
+        </button>
       </div>
       {#if hasQuery && hasResults}
         <span class="results-count">{totalResults} result{totalResults !== 1 ? 's' : ''}</span>
@@ -185,6 +218,34 @@
             <div class="result-snippet">{result.chunk.content}</div>
           </div>
         {/each}
+      {/if}
+
+      {#if graphContext.length > 0}
+        <div class="graph-context-section">
+          <div class="graph-context-header">
+            <span class="material-symbols-outlined" style="font-size: 14px;">hub</span>
+            <span>Related via links</span>
+            <span class="graph-context-count">{graphContext.length}</span>
+          </div>
+          {#each graphContext as item (item.file.path + ':' + item.chunk.chunk_id)}
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div
+              class="result-card graph-context-card"
+              onclick={() => handleGraphContextClick(item)}
+            >
+              <div class="result-path">
+                {item.file.path}
+                <span class="hop-badge">{item.hop_distance} hop{item.hop_distance > 1 ? 's' : ''}</span>
+                <span class="linked-from">via {getFileName(item.linked_from)}</span>
+              </div>
+              {#if item.chunk.heading_hierarchy.length > 0}
+                <div class="result-heading">{item.chunk.heading_hierarchy.join(' > ')}</div>
+              {/if}
+              <div class="result-snippet">{item.chunk.content}</div>
+            </div>
+          {/each}
+        </div>
       {/if}
     </div>
   </div>
@@ -354,6 +415,57 @@
     left: 0;
     right: 0;
     will-change: transform;
+  }
+
+  .mode-separator {
+    width: 1px;
+    height: 16px;
+    background: var(--color-border, #27272a);
+    margin: 0 2px;
+  }
+
+  .graph-context-section {
+    border-top: 1px solid var(--color-border, #27272a);
+  }
+
+  .graph-context-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    font-size: var(--text-xs, 10px);
+    font-family: var(--font-mono, monospace);
+    color: var(--color-text-dim, #71717a);
+  }
+
+  .graph-context-count {
+    background: var(--color-surface-dark, #0a0a0a);
+    padding: 1px 6px;
+    border-radius: var(--radius-full, 9999px);
+    font-size: var(--text-xs, 10px);
+  }
+
+  .graph-context-card {
+    border-left-color: var(--color-edge-bidi, #4ade80) !important;
+    border-left-width: 2px;
+    border-left-style: solid;
+  }
+
+  .hop-badge {
+    display: inline-block;
+    padding: 0 5px;
+    border-radius: var(--radius-full, 9999px);
+    background: var(--color-surface-dark, #0a0a0a);
+    font-size: 9px;
+    color: var(--color-text-dim, #71717a);
+    margin-left: 4px;
+  }
+
+  .linked-from {
+    font-size: 9px;
+    color: var(--color-text-dim, #71717a);
+    opacity: 0.7;
+    margin-left: 2px;
   }
 
   /* Screen reader only - visually hidden but available to assistive tech */

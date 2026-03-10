@@ -38,6 +38,7 @@ const api: MdvdbApi = {
   getFile: (root, filePath) => invoke('cli:get', root, filePath),
   links: (root, filePath) => invoke('cli:links', root, filePath),
   backlinks: (root, filePath) => invoke('cli:backlinks', root, filePath),
+  neighborhood: (root, filePath, depth) => invoke('cli:neighborhood', root, filePath, depth),
   orphans: (root) => invoke('cli:orphans', root),
   clusters: (root) => invoke('cli:clusters', root),
   graphData: (root, level?, path?) => invoke('cli:graph', root, level, path),

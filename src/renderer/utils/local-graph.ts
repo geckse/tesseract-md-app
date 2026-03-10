@@ -1,5 +1,5 @@
 import type { SimulationNodeDatum, SimulationLinkDatum } from 'd3-force'
-import type { LinksOutput, BacklinksOutput } from '../types/cli'
+import type { LinksOutput, BacklinksOutput, NeighborhoodResult, NeighborhoodNode } from '../types/cli'
 
 export interface LocalNode extends SimulationNodeDatum {
   path: string
@@ -138,6 +138,76 @@ export function buildLocalGraph(
       }
     }
   }
+
+  return { nodes: Array.from(nodeMap.values()), edges }
+}
+
+/**
+ * Build a local graph from a NeighborhoodResult (single API call).
+ * Replaces the N+1 fetch pattern with a single `links --depth 2` response.
+ */
+export function buildLocalGraphFromNeighborhood(
+  center: string,
+  result: NeighborhoodResult,
+): LocalGraphData {
+  const nodeMap = new Map<string, LocalNode>()
+  const edges: LocalEdge[] = []
+  const edgeSet = new Set<string>()
+
+  nodeMap.set(center, {
+    path: center,
+    isCenter: true,
+    depth: 0,
+    x: WIDTH / 2,
+    y: HEIGHT / 2,
+  })
+
+  function addNode(path: string, depth: number) {
+    if (nodeMap.has(path)) return
+    nodeMap.set(path, {
+      path,
+      isCenter: false,
+      depth,
+      x: WIDTH / 2 + (Math.random() - 0.5) * 100,
+      y: HEIGHT / 2 + (Math.random() - 0.5) * 100,
+    })
+  }
+
+  function addEdge(source: string, target: string) {
+    const key = `${source}->${target}`
+    const reverseKey = `${target}->${source}`
+    if (edgeSet.has(key)) return
+    if (edgeSet.has(reverseKey)) {
+      const existing = edges.find(
+        (e) => e.source === target && e.target === source,
+      )
+      if (existing) existing.bidirectional = true
+      return
+    }
+    edgeSet.add(key)
+    edges.push({ source, target, bidirectional: false })
+  }
+
+  function walkOutgoing(nodes: NeighborhoodNode[], parent: string, depth: number) {
+    for (const node of nodes) {
+      if (node.state !== 'Valid') continue
+      addNode(node.path, depth)
+      addEdge(parent, node.path)
+      if (node.children.length > 0) walkOutgoing(node.children, node.path, depth + 1)
+    }
+  }
+
+  function walkIncoming(nodes: NeighborhoodNode[], parent: string, depth: number) {
+    for (const node of nodes) {
+      if (node.state !== 'Valid') continue
+      addNode(node.path, depth)
+      addEdge(node.path, parent)
+      if (node.children.length > 0) walkIncoming(node.children, node.path, depth + 1)
+    }
+  }
+
+  walkOutgoing(result.outgoing, center, 1)
+  walkIncoming(result.incoming, center, 1)
 
   return { nodes: Array.from(nodeMap.values()), edges }
 }
