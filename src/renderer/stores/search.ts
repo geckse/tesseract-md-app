@@ -1,6 +1,7 @@
 import { writable, get } from 'svelte/store'
 import type { SearchOutput, SearchMode } from '../types/cli'
 import { activeCollection } from './collections'
+import { graphHoveredFilePath } from './graph'
 
 /** Whether the search panel is open. */
 export const searchOpen = writable<boolean>(false)
@@ -131,4 +132,5 @@ export function clearSearch(): void {
   searchError.set(null)
   highlightedIndex.set(-1)
   searchOpen.set(false)
+  graphHoveredFilePath.set(null)
 }

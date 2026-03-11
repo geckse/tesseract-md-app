@@ -20,9 +20,9 @@
 
   const WIDTH = 250;
   const HEIGHT = 200;
-  const CENTER_RADIUS = 6;
-  const NEIGHBOR_RADIUS = 4;
-  const DEPTH2_RADIUS = 3;
+  const CENTER_RADIUS = 7;
+  const MIN_RADIUS = 3;
+  const MAX_RADIUS = 6;
   const MIN_ZOOM = 0.3;
   const MAX_ZOOM = 3;
   const ZOOM_STEP = 0.25;
@@ -32,6 +32,7 @@
 
   let simNodes: LocalNode[] = $state([]);
   let simEdges: LocalEdge[] = $state([]);
+  let degreeMap: Map<string, number> = $state(new Map());
   let hoveredPath: string | null = $state(null);
   let simulation: Simulation<LocalNode, LocalEdge> | null = null;
 
@@ -111,8 +112,8 @@
 
   function getNodeRadius(node: LocalNode): number {
     if (node.isCenter) return CENTER_RADIUS;
-    if (node.depth === 2) return DEPTH2_RADIUS;
-    return NEIGHBOR_RADIUS;
+    const degree = degreeMap.get(node.path) ?? 1;
+    return Math.min(MAX_RADIUS, MIN_RADIUS + Math.sqrt(degree) * 0.8);
   }
 
   function runSimulation(graph: LocalGraphData) {
@@ -122,8 +123,19 @@
     if (graph.nodes.length === 0) {
       simNodes = [];
       simEdges = [];
+      degreeMap = new Map();
       return;
     }
+
+    // Compute degree map for data-driven node sizing
+    const dm = new Map<string, number>();
+    for (const e of graph.edges) {
+      const src = typeof e.source === 'string' ? e.source : e.source.path;
+      const tgt = typeof e.target === 'string' ? e.target : e.target.path;
+      dm.set(src, (dm.get(src) ?? 0) + 1);
+      dm.set(tgt, (dm.get(tgt) ?? 0) + 1);
+    }
+    degreeMap = dm;
 
     const nodes = graph.nodes;
 
@@ -177,7 +189,7 @@
       return;
     }
 
-    // Try single neighborhood call (depth 2) — replaces N+1 fetch pattern
+    // Try single neighborhood call (depth 2) — show neighbors of neighbors
     window.api.neighborhood(collection.path, cp, 2).then((result) => {
       runSimulation(buildLocalGraphFromNeighborhood(cp, result));
     }).catch(() => {

@@ -13,6 +13,7 @@
     executeSearch,
   } from '../stores/search';
   import { activeCollection } from '../stores/collections';
+  import { setGraphHoveredFilePath } from '../stores/graph';
   import type { SearchResult, SearchMode, GraphContextItem } from '../types/cli';
   import { calculateVirtualListState, throttleScroll } from '../lib/virtual-list';
 
@@ -49,6 +50,7 @@
 
   onDestroy(() => {
     unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6(); unsub7(); unsub8();
+    setGraphHoveredFilePath(null);
   });
 
   let results = $derived(currentResults?.results ?? []);
@@ -184,6 +186,8 @@
               class="result-card virtual-item"
               class:highlighted={currentHighlighted === actualIndex}
               onclick={() => handleResultClick(result)}
+              onmouseenter={() => setGraphHoveredFilePath(result.file.path)}
+              onmouseleave={() => setGraphHoveredFilePath(null)}
               style="transform: translateY({actualIndex * ITEM_HEIGHT}px); height: {ITEM_HEIGHT}px;"
             >
               <div class="result-path">{result.file.path}</div>
@@ -206,6 +210,8 @@
             class="result-card"
             class:highlighted={currentHighlighted === i}
             onclick={() => handleResultClick(result)}
+            onmouseenter={() => setGraphHoveredFilePath(result.file.path)}
+            onmouseleave={() => setGraphHoveredFilePath(null)}
             transition:fade={{ duration: 150 }}
           >
             <div class="result-path">{result.file.path}</div>
@@ -233,6 +239,8 @@
             <div
               class="result-card graph-context-card"
               onclick={() => handleGraphContextClick(item)}
+              onmouseenter={() => setGraphHoveredFilePath(item.file.path)}
+              onmouseleave={() => setGraphHoveredFilePath(null)}
             >
               <div class="result-path">
                 {item.file.path}

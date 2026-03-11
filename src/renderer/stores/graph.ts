@@ -1,5 +1,5 @@
 import { writable, get } from 'svelte/store'
-import type { GraphData, GraphLevel, GraphNode } from '../types/cli'
+import type { GraphData, GraphLevel, GraphNode, NeighborhoodResult, NeighborhoodNode } from '../types/cli'
 import { activeCollection } from './collections'
 
 /** Whether the graph view is currently active. */
@@ -25,6 +25,9 @@ export const graphColoringMode = writable<GraphColoringMode>('cluster')
 
 /** Currently highlighted folder path in the graph. */
 export const graphHighlightedFolder = writable<string | null>(null)
+
+/** File path hovered in search results — transient highlight for graph view. */
+export const graphHoveredFilePath = writable<string | null>(null)
 
 /** Current graph detail level (document or chunk). */
 export const graphLevel = writable<GraphLevel>('document')
@@ -114,10 +117,57 @@ export function cycleColoringMode(): void {
   graphColoringMode.set(next)
 }
 
+/** Set the hovered file path (from search result hover). */
+export function setGraphHoveredFilePath(path: string | null): void {
+  graphHoveredFilePath.set(path)
+}
+
 /** Set or toggle the highlighted folder. If the same path is set again, clears it. */
 export function setGraphHighlightedFolder(path: string | null): void {
   const current = get(graphHighlightedFolder)
   graphHighlightedFolder.set(current === path ? null : path)
+}
+
+/** Open graph view with neighborhood data converted to GraphData. */
+export function openGraphWithNeighborhood(filePath: string, neighborhood: NeighborhoodResult): void {
+  const nodes = new Map<string, GraphNode>()
+  const edges: GraphData['edges'] = []
+
+  // Add center node
+  nodes.set(filePath, { id: filePath, path: filePath, label: null, cluster_id: null, chunk_index: null })
+
+  // Walk neighborhood tree and collect nodes + edges
+  function walk(items: NeighborhoodNode[], parentPath: string, direction: 'out' | 'in'): void {
+    for (const item of items) {
+      if (!nodes.has(item.path)) {
+        nodes.set(item.path, { id: item.path, path: item.path, label: null, cluster_id: null, chunk_index: null })
+      }
+      const src = direction === 'out' ? parentPath : item.path
+      const tgt = direction === 'out' ? item.path : parentPath
+      // Avoid duplicate edges
+      if (!edges.some(e => e.source === src && e.target === tgt)) {
+        edges.push({ source: src, target: tgt, weight: null })
+      }
+      walk(item.children, item.path, direction)
+    }
+  }
+
+  walk(neighborhood.outgoing ?? [], filePath, 'out')
+  walk(neighborhood.incoming ?? [], filePath, 'in')
+
+  const data: GraphData = {
+    nodes: [...nodes.values()],
+    edges,
+    clusters: [],
+    level: 'document',
+  }
+
+  loadGeneration++
+  graphData.set(data)
+  graphSelectedNode.set({ path: filePath, cluster_id: null })
+  graphViewActive.set(true)
+  graphError.set(null)
+  graphLoading.set(false)
 }
 
 /** Reset all graph state. */
@@ -130,6 +180,7 @@ export function resetGraphState(): void {
   graphSelectedNode.set(null)
   graphColoringMode.set('cluster')
   graphHighlightedFolder.set(null)
+  graphHoveredFilePath.set(null)
   graphLevel.set('document')
   graphPathFilter.set(null)
 }

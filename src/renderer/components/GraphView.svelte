@@ -12,6 +12,7 @@
     graphLevel,
     graphPathFilter,
     graphHighlightedFolder,
+    graphHoveredFilePath,
     loadGraphData,
     selectGraphNode,
     setGraphLevel,
@@ -40,6 +41,8 @@
     chunk_index: number | null;
     x: number;
     y: number;
+    /** Data-driven base radius (computed from degree or content size). */
+    baseRadius: number;
   }
 
   interface SimEdge extends SimulationLinkDatum<SimNode> {
@@ -103,6 +106,7 @@
   let unsubFilePath: (() => void) | null = null;
   let unsubPathFilter: (() => void) | null = null;
   let unsubHighlightedFolder: (() => void) | null = null;
+  let unsubHoveredFilePath: (() => void) | null = null;
 
   // Reactive local copies for template use
   let currentData: GraphData | null = $state(null);
@@ -114,6 +118,7 @@
   let currentFilePath: string | null = $state(null);
   let currentPathFilter: string | null = $state(null);
   let currentHighlightedFolder: string | null = $state(null);
+  let currentHoveredFilePath: string | null = $state(null);
 
   /** Hash a string to a stable index for color assignment. */
   function fileColor(path: string): string {
@@ -250,6 +255,10 @@
       currentHighlightedFolder = p;
       dirty = true;
     });
+    unsubHoveredFilePath = graphHoveredFilePath.subscribe((p) => {
+      currentHoveredFilePath = p;
+      dirty = true;
+    });
     graphLoading.subscribe((v) => { currentLoading = v; });
     graphError.subscribe((v) => { currentError = v; });
     graphLevel.subscribe((v) => {
@@ -283,6 +292,7 @@
     unsubFilePath?.();
     unsubPathFilter?.();
     unsubHighlightedFolder?.();
+    unsubHoveredFilePath?.();
   });
 
   function resizeCanvas() {
@@ -320,6 +330,19 @@
 
     const chunk = isChunkMode();
 
+    // Build node-to-size map from backend data (chunk mode only)
+    const sizeMap = new Map<string, number>();
+    for (const n of data.nodes) {
+      if (n.size != null) sizeMap.set(n.id, n.size);
+    }
+
+    // Compute degree map from edges
+    const degreeMap = new Map<string, number>();
+    for (const e of data.edges) {
+      degreeMap.set(e.source, (degreeMap.get(e.source) ?? 0) + 1);
+      degreeMap.set(e.target, (degreeMap.get(e.target) ?? 0) + 1);
+    }
+
     simNodes = data.nodes.map((n) => ({
       id: n.id,
       path: n.path,
@@ -328,6 +351,9 @@
       chunk_index: n.chunk_index,
       x: Math.random() * width,
       y: Math.random() * height,
+      baseRadius: chunk
+        ? Math.min(5, 1.5 + Math.sqrt((sizeMap.get(n.id) ?? 0) / 200) * 1.2)
+        : Math.min(7, 2 + Math.sqrt(degreeMap.get(n.id) ?? 0) * 1.5),
     }));
 
     // Rebuild folder color map
@@ -520,7 +546,7 @@
   let EDGE_COLOR_OUT = '#00E5FF';
   let EDGE_COLOR_IN = '#FF6B6B';
   let EDGE_COLOR_BIDI = '#51CF66';
-  const ARROW_SIZE = 8;              // arrowhead length in graph-space pixels
+  const ARROW_SIZE = 12;             // arrowhead length in graph-space pixels
 
   /** Draw an arrowhead at the target end of an edge, stopping at the node radius. */
   function drawArrow(
@@ -684,16 +710,22 @@
     const selectedId = currentSelected?.id ?? null;
     const { neighbors, outEdges, inEdges } = getSelectedNeighbors(selectedId);
     const hasSelection = selectedId !== null;
+    // Hover highlight from search results (priority 2)
+    const { fileNodeIds: hoverNodeIds, fileEdges: hoverEdges } = getFileHighlight(currentHoveredFilePath);
+    const hasHoverHighlight = !hasSelection && hoverNodeIds.size > 0;
+    // Editor's open file highlight (priority 3)
     const { fileNodeIds, fileEdges } = getFileHighlight(currentFilePath);
-    const hasFileHighlight = !hasSelection && fileNodeIds.size > 0;
+    const hasFileHighlight = !hasSelection && !hasHoverHighlight && fileNodeIds.size > 0;
     const { folderNodeIds, folderEdges } = getFolderHighlight(currentHighlightedFolder);
-    const hasFolderHighlight = !hasSelection && !hasFileHighlight && folderNodeIds.size > 0;
+    const hasFolderHighlight = !hasSelection && !hasHoverHighlight && !hasFileHighlight && folderNodeIds.size > 0;
 
     // --- Edges ---
-    // 1. Draw non-highlighted edges first (dimmed when there's a selection, file highlight, or folder highlight)
+    // 1. Draw non-highlighted edges first (dimmed when there's a selection or any highlight)
     ctx.lineWidth = 1 / zoom;
     for (const edge of simEdges) {
       if (outEdges.has(edge) || inEdges.has(edge)) continue;
+      // Skip hover-highlighted edges; drawn later
+      if (hasHoverHighlight && hoverEdges.has(edge)) continue;
       // Skip file-highlighted edges here; they're drawn later with brighter style
       if (hasFileHighlight && fileEdges.has(edge)) continue;
       // Skip folder-highlighted edges here; they're drawn later with cyan style
@@ -702,7 +734,7 @@
       const t = edge.target as SimNode;
       if (s.x == null || t.x == null) continue;
 
-      const dimFactor = hasSelection || hasFileHighlight || hasFolderHighlight;
+      const dimFactor = hasSelection || hasHoverHighlight || hasFileHighlight || hasFolderHighlight;
       // In chunk mode, edge opacity is proportional to weight
       if (chunk && edge.weight != null) {
         const alpha = dimFactor ? (0.05 + edge.weight * 0.2) * 0.3 : 0.05 + edge.weight * 0.2;
@@ -720,7 +752,22 @@
       }
     }
 
-    // 1b. Draw file-highlighted edges (brighter)
+    // 1b. Draw hover-highlighted edges (search result hover)
+    if (hasHoverHighlight && hoverEdges.size > 0) {
+      ctx.strokeStyle = '#00E5FF';
+      ctx.lineWidth = 1.5 / zoom;
+      for (const edge of hoverEdges) {
+        const s = edge.source as SimNode;
+        const t = edge.target as SimNode;
+        if (s.x == null || t.x == null) continue;
+        ctx.beginPath();
+        ctx.moveTo(s.x, s.y);
+        ctx.lineTo(t.x, t.y);
+        ctx.stroke();
+      }
+    }
+
+    // 1c. Draw file-highlighted edges (brighter)
     if (hasFileHighlight && fileEdges.size > 0) {
       ctx.strokeStyle = '#00E5FF';
       ctx.lineWidth = 1.5 / zoom;
@@ -735,7 +782,7 @@
       }
     }
 
-    // 1c. Draw folder-highlighted edges (cyan)
+    // 1d. Draw folder-highlighted edges (cyan)
     if (hasFolderHighlight && folderEdges.size > 0) {
       ctx.strokeStyle = '#00E5FF';
       ctx.lineWidth = 1.5 / zoom;
@@ -843,18 +890,34 @@
     }
 
     // --- Nodes ---
-    const baseRadius = chunk ? 3 : 5;
     for (const node of simNodes) {
       const isHovered = hoveredNode === node;
       const isSelected = node.id === selectedId;
       const isNeighbor = neighbors.has(node.id);
+      const isHoverNode = hasHoverHighlight && hoverNodeIds.has(node.id);
       const isFileNode = hasFileHighlight && fileNodeIds.has(node.id);
       const isFolderNode = hasFolderHighlight && folderNodeIds.has(node.id);
       const dimmed = (hasSelection && !isSelected && !isNeighbor) ||
+                     (hasHoverHighlight && !isHoverNode) ||
                      (hasFileHighlight && !isFileNode) ||
                      (hasFolderHighlight && !isFolderNode);
 
-      const radius = isSelected ? (chunk ? 6 : 8) : isHovered ? (chunk ? 5 : 7) : isNeighbor ? (chunk ? 4 : 6) : isFileNode ? (chunk ? 5 : 7) : isFolderNode ? (chunk ? 5 : 7) : baseRadius;
+      // Data-driven base + interaction bonus
+      const bonus = isSelected ? 3 : isHovered ? 2 : (isNeighbor || isHoverNode || isFileNode || isFolderNode) ? 1 : 0;
+      const radius = node.baseRadius + bonus;
+
+      // Cyan glow effect for hover-highlighted nodes (search result hover)
+      if (isHoverNode) {
+        ctx.save();
+        ctx.shadowColor = '#00E5FF';
+        ctx.shadowBlur = 12;
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
+        ctx.strokeStyle = '#00E5FF';
+        ctx.lineWidth = 1.5 / zoom;
+        ctx.stroke();
+        ctx.restore();
+      }
 
       // Cyan glow effect for folder-highlighted nodes
       if (isFolderNode) {
@@ -924,15 +987,31 @@
     }
 
     // --- Labels ---
-    if (zoom > 0.8) {
+    // Dense graphs: only label interactive nodes; sparse graphs: label all
+    const nodeCount = simNodes.length;
+    const denseThreshold = 80;
+    const isDense = nodeCount > denseThreshold;
+    const labelZoomMin = isDense ? 1.5 : 0.8;
+    const showAllLabels = zoom > labelZoomMin;
+    const hasAnyHighlight = hasSelection || hasHoverHighlight || hasFileHighlight || hasFolderHighlight || hoveredNode;
+
+    if (showAllLabels || hasAnyHighlight) {
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
       for (const node of simNodes) {
+        const isHovered = hoveredNode === node;
         const isSelected = node.id === selectedId;
         const isNeighbor = neighbors.has(node.id);
+        const isHoverNode = hasHoverHighlight && hoverNodeIds.has(node.id);
         const isFileNode = hasFileHighlight && fileNodeIds.has(node.id);
         const isFolderNode = hasFolderHighlight && folderNodeIds.has(node.id);
+        const isImportant = isHovered || isSelected || isNeighbor || isHoverNode || isFileNode || isFolderNode;
+
+        // In dense mode without enough zoom, only show labels for interactive nodes
+        if (!showAllLabels && !isImportant) continue;
+
         const dimmed = (hasSelection && !isSelected && !isNeighbor) ||
+                       (hasHoverHighlight && !isHoverNode) ||
                        (hasFileHighlight && !isFileNode) ||
                        (hasFolderHighlight && !isFolderNode);
 
@@ -952,7 +1031,7 @@
         } else {
           label = node.path.split('/').pop() ?? node.path;
         }
-        ctx.fillText(label, node.x, node.y + (hoveredNode === node || isSelected ? 10 : 8));
+        ctx.fillText(label, node.x, node.y + (isHovered || isSelected ? 10 : 8));
       }
     }
 

@@ -172,7 +172,7 @@ export async function loadProperties(filePath: string): Promise<void> {
     window.api.getFile(collection.path, filePath),
     window.api.backlinks(collection.path, filePath),
     window.api.links(collection.path, filePath),
-    window.api.neighborhood(collection.path, filePath, 2),
+    window.api.neighborhood(collection.path, filePath, 1),
   ])
 
   documentInfo.set(docResult.status === 'fulfilled' ? docResult.value : null)

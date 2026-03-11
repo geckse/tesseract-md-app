@@ -205,6 +205,8 @@ export interface GraphNode {
   label: string | null;
   cluster_id: number | null;
   chunk_index: number | null;
+  /** Optional size metric (e.g. content length for chunks). */
+  size?: number | null;
 }
 
 /** An edge in the graph representing a link between two indexed files or chunks. */

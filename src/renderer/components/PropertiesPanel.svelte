@@ -17,7 +17,7 @@
   import { selectedFilePath } from '../stores/files'
   import { scrollToLine, activeHeadingIndex, isDirty } from '../stores/editor'
   import { isFavorited, toggleFavorite } from '../stores/favorites'
-  import { graphViewActive, graphSelectedNode } from '../stores/graph'
+  import { graphViewActive, graphSelectedNode, openGraphWithNeighborhood, loadGraphData } from '../stores/graph'
   import type { DocumentInfo, BacklinksOutput, LinksOutput, NeighborhoodResult, NeighborhoodNode, JsonValue } from '../types/cli'
   import type { OutlineHeading } from '../stores/properties'
 
@@ -116,8 +116,16 @@
 
   function expandToFullGraph() {
     if (!currentFilePath) return
-    graphViewActive.set(true)
-    graphSelectedNode.set({ path: currentFilePath, cluster_id: null })
+    const nh = currentNeighborhood
+    const hasNeighbors = nh && ((nh.outgoing?.length ?? 0) + (nh.incoming?.length ?? 0)) > 0
+    if (hasNeighbors) {
+      openGraphWithNeighborhood(currentFilePath, nh)
+    } else {
+      // No local neighborhood — open full graph with this file selected
+      graphViewActive.set(true)
+      loadGraphData()
+      graphSelectedNode.set({ path: currentFilePath, cluster_id: null })
+    }
   }
 
   function formatDate(timestamp: number | null | undefined): string {
@@ -214,7 +222,7 @@
         <span class="material-symbols-outlined section-chevron" class:rotated={metadataOpen}
           >chevron_right</span
         >
-        <h3 class="section-title">Metadata</h3>
+        <h3 class="section-title">Frontmatter</h3>
       </div>
 
       {#if metadataOpen}
@@ -335,7 +343,7 @@
 
           <!-- Incoming (backlinks) -->
           {#if linksTab === 'incoming'}
-            {#if currentNeighborhood && currentNeighborhood.incoming.length > 0}
+            {#if currentNeighborhood?.incoming?.length > 0}
               <div class="links-list">
                 {#each currentNeighborhood.incoming as node}
                   {@render neighborhoodTreeNode(node, 'in', 0)}
@@ -369,7 +377,7 @@
 
           <!-- Outgoing -->
           {#if linksTab === 'outgoing'}
-            {#if currentNeighborhood && currentNeighborhood.outgoing.length > 0}
+            {#if currentNeighborhood?.outgoing?.length > 0}
               <div class="links-list">
                 {#each currentNeighborhood.outgoing as node}
                   {@render neighborhoodTreeNode(node, 'out', 0)}
