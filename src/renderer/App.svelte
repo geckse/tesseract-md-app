@@ -24,6 +24,7 @@
   import { shortcutManager } from './lib/shortcuts';
   import { setupWatcherListener, teardownWatcherListener, fetchWatcherStatus } from './stores/watcher';
   import { graphViewActive, graphSelectedNode, toggleGraphView, selectGraphNode, loadGraphData } from './stores/graph';
+  import { goBack, goForward, setNavigating, clearNavigation } from './stores/navigation';
   import { settingsOpen, onboardingComplete, loadOnboardingState, editorFontSize, loadEditorFontSize } from './stores/ui';
   import { setupUpdateListener, teardownUpdateListener } from './stores/updater';
   import type { SearchResult } from './types/cli';
@@ -149,6 +150,34 @@
         },
       }),
 
+      // Cmd+[ / Ctrl+[: Navigate back
+      shortcutManager.register({
+        key: '[',
+        meta: true,
+        handler: () => {
+          const path = goBack();
+          if (path) {
+            setNavigating(true);
+            selectFile(path);
+            setNavigating(false);
+          }
+        },
+      }),
+
+      // Cmd+] / Ctrl+]: Navigate forward
+      shortcutManager.register({
+        key: ']',
+        meta: true,
+        handler: () => {
+          const path = goForward();
+          if (path) {
+            setNavigating(true);
+            selectFile(path);
+            setNavigating(false);
+          }
+        },
+      }),
+
       // Tab: Cycle focus forward through regions (sidebar → editor → metadata)
       shortcutManager.register({
         key: 'Tab',
@@ -194,9 +223,10 @@
 
     document.addEventListener('mousedown', handleClickAway);
 
-    // Clear search and reload graph when active collection changes
+    // Clear search, navigation history, and reload graph when active collection changes
     const unsub = activeCollectionId.subscribe(() => {
       clearSearch();
+      clearNavigation();
       if (get(graphViewActive)) {
         loadGraphData();
       }

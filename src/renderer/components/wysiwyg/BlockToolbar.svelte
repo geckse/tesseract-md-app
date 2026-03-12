@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import type { EditorView } from '@tiptap/pm/view'
 
   interface BlockTypeItem {
@@ -41,7 +42,12 @@
           const { state, dispatch } = view
           const node = state.doc.nodeAt(pos)
           if (node) {
-            const tr = state.tr.setBlockType(pos, pos + node.nodeSize, state.schema.nodes.heading, { level: 1 })
+            const tr = state.tr.setBlockType(
+              pos,
+              pos + node.nodeSize,
+              state.schema.nodes.heading,
+              { level: 1 }
+            )
             dispatch(tr)
           }
           onClose()
@@ -54,7 +60,12 @@
           const { state, dispatch } = view
           const node = state.doc.nodeAt(pos)
           if (node) {
-            const tr = state.tr.setBlockType(pos, pos + node.nodeSize, state.schema.nodes.heading, { level: 2 })
+            const tr = state.tr.setBlockType(
+              pos,
+              pos + node.nodeSize,
+              state.schema.nodes.heading,
+              { level: 2 }
+            )
             dispatch(tr)
           }
           onClose()
@@ -67,7 +78,12 @@
           const { state, dispatch } = view
           const node = state.doc.nodeAt(pos)
           if (node) {
-            const tr = state.tr.setBlockType(pos, pos + node.nodeSize, state.schema.nodes.heading, { level: 3 })
+            const tr = state.tr.setBlockType(
+              pos,
+              pos + node.nodeSize,
+              state.schema.nodes.heading,
+              { level: 3 }
+            )
             dispatch(tr)
           }
           onClose()
@@ -80,7 +96,11 @@
           const { state, dispatch } = view
           const node = state.doc.nodeAt(pos)
           if (node) {
-            const tr = state.tr.setBlockType(pos, pos + node.nodeSize, state.schema.nodes.codeBlock)
+            const tr = state.tr.setBlockType(
+              pos,
+              pos + node.nodeSize,
+              state.schema.nodes.codeBlock
+            )
             dispatch(tr)
           }
           onClose()
@@ -94,7 +114,10 @@
           const node = state.doc.nodeAt(pos)
           if (node && state.schema.nodes.blockquote) {
             const range = state.tr.doc.resolve(pos).blockRange()
-            if (!range) { onClose(); return }
+            if (!range) {
+              onClose()
+              return
+            }
             const tr = state.tr.wrap(range, [{ type: state.schema.nodes.blockquote }])
             dispatch(tr)
           }
@@ -122,7 +145,7 @@
     }
   }
 
-  $effect(() => {
+  onMount(() => {
     if (menuEl) {
       menuEl.style.position = 'fixed'
       menuEl.style.left = `${anchorRect.right + 4}px`
@@ -135,9 +158,9 @@
 <div
   bind:this={menuEl}
   class="block-toolbar-menu"
-  role="toolbar"
+  role="listbox"
   aria-label="Block type"
-  tabindex="0"
+  tabindex="-1"
   onkeydown={handleKeyDown}
 >
   {#each items as item, index}
@@ -146,11 +169,69 @@
       class:selected={index === selectedIndex}
       role="option"
       aria-selected={index === selectedIndex}
-      onclick={() => item.action()}
-      onmouseenter={() => { selectedIndex = index }}
+      onmousedown={(e) => {
+        e.preventDefault()
+        item.action()
+      }}
+      onmouseenter={() => {
+        selectedIndex = index
+      }}
     >
-      <span class="block-toolbar-item-icon">{item.icon}</span>
+      <span class="block-toolbar-item-icon material-symbols-outlined">{item.icon}</span>
       <span class="block-toolbar-item-label">{item.label}</span>
     </button>
   {/each}
 </div>
+
+<style>
+  .block-toolbar-menu {
+    z-index: var(--z-overlay, 40);
+    min-width: 180px;
+    max-height: 320px;
+    overflow-y: auto;
+    background: var(--color-surface, #161617);
+    border: 1px solid var(--color-border, #27272a);
+    border-radius: var(--radius-md, 6px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    padding: 4px;
+    outline: none;
+  }
+
+  .block-toolbar-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 12px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--color-text, #e4e4e7);
+    font-size: 13px;
+    cursor: pointer;
+    text-align: left;
+    transition: background-color 150ms ease;
+  }
+
+  .block-toolbar-item:hover,
+  .block-toolbar-item.selected {
+    background: var(--color-border, #27272a);
+  }
+
+  .block-toolbar-item-icon {
+    font-size: 18px;
+    color: var(--color-text-secondary, #a1a1aa);
+    width: 20px;
+    text-align: center;
+  }
+
+  .block-toolbar-item-label {
+    flex: 1;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .block-toolbar-item {
+      transition: none;
+    }
+  }
+</style>

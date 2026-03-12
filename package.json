@@ -48,7 +48,8 @@
     "d3-force": "^3.0.0",
     "js-tiktoken": "^1.0.21",
     "lowlight": "^3.1.0",
-    "marked": "^15.0.0"
+    "marked": "^15.0.0",
+    "mermaid": "^11.0.0"
   },
   "devDependencies": {
     "@electron-toolkit/preload": "^3.0.1",

@@ -1,5 +1,22 @@
-import { marked } from 'marked'
+import { marked, type TokenizerAndRendererExtension } from 'marked'
 import type { JsonValue } from '../types/cli'
+
+// Register mermaid extension: intercept ```mermaid code blocks and emit placeholder divs.
+// Actual SVG rendering happens post-mount in MarkdownPreview.svelte via $effect.
+const mermaidRenderer: TokenizerAndRendererExtension = {
+  name: 'code',
+  renderer(token) {
+    // marked v15 passes a Token object; 'lang' is on the code token
+    const t = token as { lang?: string; text?: string }
+    if (t.lang === 'mermaid' && t.text != null) {
+      const encoded = encodeURIComponent(t.text)
+      return `<div class="mermaid-preview" data-mermaid-code="${encoded}"><div class="mermaid-loading">Loading diagram\u2026</div></div>`
+    }
+    return false // fall through to default renderer
+  }
+}
+
+marked.use({ extensions: [mermaidRenderer] })
 
 /** Basic HTML sanitization to prevent XSS in Electron context. */
 export function sanitizeHtml(html: string): string {

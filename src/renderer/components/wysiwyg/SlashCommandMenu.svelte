@@ -1,31 +1,31 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
-  import { computePosition, flip, shift, offset } from '@floating-ui/dom';
-  import type { SlashCommandItem } from '../../lib/tiptap/slash-command-extension';
+  import { onMount, onDestroy } from 'svelte'
+  import { computePosition, flip, shift, offset } from '@floating-ui/dom'
+  import type { SlashCommandItem } from '../../lib/tiptap/slash-command-extension'
 
   interface Props {
-    items: SlashCommandItem[];
-    command: (item: SlashCommandItem) => void;
-    clientRect: (() => DOMRect | null) | null;
+    items: SlashCommandItem[]
+    command: (item: SlashCommandItem) => void
+    clientRect: (() => DOMRect | null) | null
   }
 
-  let { items, command, clientRect }: Props = $props();
+  let { items, command, clientRect }: Props = $props()
 
-  let menuEl: HTMLDivElement | undefined = $state(undefined);
-  let selectedIndex = $state(0);
+  let menuEl: HTMLDivElement | undefined = $state(undefined)
+  let selectedIndex = $state(0)
 
   function handleKeyDown(event: Event) {
-    const e = event as KeyboardEvent;
+    const e = event as KeyboardEvent
     if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      selectedIndex = (selectedIndex + 1) % items.length;
+      e.preventDefault()
+      selectedIndex = (selectedIndex + 1) % items.length
     } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      selectedIndex = (selectedIndex - 1 + items.length) % items.length;
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
+      e.preventDefault()
+      selectedIndex = (selectedIndex - 1 + items.length) % items.length
+    } else if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault()
       if (items[selectedIndex]) {
-        command(items[selectedIndex]);
+        command(items[selectedIndex])
       }
     }
   }
@@ -35,69 +35,64 @@
   }
 
   function positionMenu() {
-    if (!menuEl || !clientRect) return;
-    const rect = clientRect();
-    if (!rect) return;
+    if (!menuEl || !clientRect) return
+    const rect = clientRect()
+    if (!rect) return
 
     // Create a virtual element for floating-ui
     const virtualEl = {
-      getBoundingClientRect: () => rect,
-    };
+      getBoundingClientRect: () => rect
+    }
 
     computePosition(virtualEl as Element, menuEl, {
       placement: 'bottom-start',
-      middleware: [offset(8), flip(), shift({ padding: 8 })],
+      middleware: [offset(8), flip(), shift({ padding: 8 })]
     }).then(({ x, y }) => {
       if (menuEl) {
-        menuEl.style.left = `${x}px`;
-        menuEl.style.top = `${y}px`;
+        menuEl.style.left = `${x}px`
+        menuEl.style.top = `${y}px`
       }
-    });
+    })
   }
 
   onMount(() => {
-    positionMenu();
+    positionMenu()
     // Listen for keyboard events dispatched from the extension
-    const parent = menuEl?.parentElement;
+    const parent = menuEl?.parentElement
     if (parent) {
-      parent.addEventListener('keydown', handleKeyDown);
-      parent.addEventListener('slash-dismiss', handleDismiss);
+      parent.addEventListener('keydown', handleKeyDown)
+      parent.addEventListener('slash-dismiss', handleDismiss)
     }
-  });
+  })
 
   onDestroy(() => {
-    const parent = menuEl?.parentElement;
+    const parent = menuEl?.parentElement
     if (parent) {
-      parent.removeEventListener('keydown', handleKeyDown);
-      parent.removeEventListener('slash-dismiss', handleDismiss);
+      parent.removeEventListener('keydown', handleKeyDown)
+      parent.removeEventListener('slash-dismiss', handleDismiss)
     }
-  });
+  })
 
   // Re-position when clientRect changes
   $effect(() => {
-    void clientRect;
-    positionMenu();
-  });
+    void clientRect
+    positionMenu()
+  })
 
   // Reset selection when items change
   $effect(() => {
-    void items;
-    selectedIndex = 0;
-  });
+    void items
+    selectedIndex = 0
+  })
 
   function selectItem(index: number) {
     if (items[index]) {
-      command(items[index]);
+      command(items[index])
     }
   }
 </script>
 
-<div
-  class="slash-command-menu"
-  bind:this={menuEl}
-  role="listbox"
-  aria-label="Slash commands"
->
+<div class="slash-command-menu" bind:this={menuEl} role="listbox" aria-label="Slash commands">
   {#if items.length === 0}
     <div class="slash-empty">No results</div>
   {:else}
@@ -107,8 +102,13 @@
         class:selected={index === selectedIndex}
         role="option"
         aria-selected={index === selectedIndex}
-        onclick={() => selectItem(index)}
-        onmouseenter={() => { selectedIndex = index; }}
+        onmousedown={(e) => {
+          e.preventDefault()
+          selectItem(index)
+        }}
+        onmouseenter={() => {
+          selectedIndex = index
+        }}
       >
         <span class="slash-icon material-symbols-outlined">{item.icon}</span>
         <span class="slash-label">{item.label}</span>

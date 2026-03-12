@@ -4,6 +4,7 @@
   import { propertiesFileContent, frontmatter } from '../stores/properties'
   import { fileContent } from '../stores/files'
   import { renderMarkdown, formatFrontmatterValue } from '../lib/markdown-render'
+  import { renderMermaidDiagram } from '../lib/mermaid-renderer'
   import type { JsonValue } from '../types/cli'
 
   // Store subscriptions
@@ -14,7 +15,7 @@
   const unsubs = [
     propertiesFileContent.subscribe((v) => (currentContent = v)),
     frontmatter.subscribe((v) => (currentFrontmatter = v)),
-    fileContent.subscribe((v) => (fallbackContent = v)),
+    fileContent.subscribe((v) => (fallbackContent = v))
   ]
 
   onDestroy(() => unsubs.forEach((u) => u()))
@@ -62,9 +63,43 @@
     if (!currentFrontmatter) return []
     return Object.entries(currentFrontmatter).filter(([, v]) => v !== '' && v !== null)
   })
+
+  // Mermaid diagram rendering — post-process placeholder divs after HTML is in the DOM
+  let previewContainer: HTMLDivElement | undefined = $state(undefined)
+  let renderGeneration = 0
+
+  $effect(() => {
+    void renderedHtml // re-run when content changes
+    const gen = ++renderGeneration
+    requestAnimationFrame(() => {
+      void (async () => {
+        if (!previewContainer || gen !== renderGeneration) return
+        const blocks = previewContainer.querySelectorAll('.mermaid-preview[data-mermaid-code]')
+        for (const block of blocks) {
+          if (gen !== renderGeneration) return
+          const code = decodeURIComponent(block.getAttribute('data-mermaid-code') ?? '')
+          if (!code) continue
+          const result = await renderMermaidDiagram(
+            `preview-${gen}-${Math.random().toString(36).slice(2, 8)}`,
+            code
+          )
+          if (gen !== renderGeneration) return
+          if ('svg' in result) {
+            block.innerHTML = result.svg
+          } else {
+            block.innerHTML = `<div class="mermaid-error"><span class="material-symbols-outlined">error</span><pre>${escapeHtml(result.error)}</pre></div>`
+          }
+        }
+      })()
+    })
+  })
+
+  function escapeHtml(s: string): string {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  }
 </script>
 
-<div class="preview-container">
+<div class="preview-container" bind:this={previewContainer}>
   <!-- Frontmatter accordion -->
   {#if currentFrontmatter && frontmatterEntries.length > 0}
     <div class="frontmatter-card">
@@ -240,17 +275,25 @@
     line-height: var(--leading-tight, 1.2);
   }
 
-  .markdown-body :global(h1) { font-size: 1.75em; }
-  .markdown-body :global(h2) { font-size: 1.4em; }
-  .markdown-body :global(h3) { font-size: 1.15em; }
-  .markdown-body :global(h4) { font-size: 1em; }
+  .markdown-body :global(h1) {
+    font-size: 1.75em;
+  }
+  .markdown-body :global(h2) {
+    font-size: 1.4em;
+  }
+  .markdown-body :global(h3) {
+    font-size: 1.15em;
+  }
+  .markdown-body :global(h4) {
+    font-size: 1em;
+  }
 
   .markdown-body :global(p) {
     margin: 0.75em 0;
   }
 
   .markdown-body :global(a) {
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
     text-decoration: none;
   }
 
@@ -331,6 +374,55 @@
   .markdown-body :global(strong) {
     font-weight: 600;
     color: var(--color-text-white, #ffffff);
+  }
+
+  /* ── Mermaid diagrams ────────────────────────────── */
+
+  .markdown-body :global(.mermaid-preview) {
+    background: var(--color-surface, #161617);
+    border: 1px solid var(--color-border, #27272a);
+    border-radius: var(--radius-md, 6px);
+    padding: var(--space-4, 16px);
+    margin: 1em 0;
+    display: flex;
+    justify-content: center;
+    overflow-x: auto;
+  }
+
+  .markdown-body :global(.mermaid-preview svg) {
+    max-width: 100%;
+    height: auto;
+  }
+
+  .markdown-body :global(.mermaid-error) {
+    padding: var(--space-3, 12px);
+    background: rgba(239, 68, 68, 0.05);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    border-radius: var(--radius-md, 6px);
+    color: #ef4444;
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-size: var(--text-sm, 12px);
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin: 0;
+    width: 100%;
+  }
+
+  .markdown-body :global(.mermaid-error pre) {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    color: inherit;
+    white-space: pre-wrap;
+  }
+
+  .markdown-body :global(.mermaid-loading) {
+    color: var(--color-text-dim, #71717a);
+    font-size: var(--text-sm, 12px);
+    padding: var(--space-4, 16px);
+    text-align: center;
   }
 
   @media (prefers-reduced-motion: reduce) {

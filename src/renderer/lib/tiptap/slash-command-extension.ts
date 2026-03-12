@@ -1,5 +1,4 @@
 import { Extension } from '@tiptap/core'
-import { isValidUrl } from './url-validation'
 import Suggestion from '@tiptap/suggestion'
 import type { SuggestionOptions, SuggestionProps, SuggestionKeyDownProps } from '@tiptap/suggestion'
 import type { Editor, Range } from '@tiptap/core'
@@ -18,91 +17,97 @@ export const slashCommandItems: SlashCommandItem[] = [
     icon: 'format_h1',
     command: (editor, range) => {
       editor.chain().focus().deleteRange(range).setHeading({ level: 1 }).run()
-    },
+    }
   },
   {
     label: 'Heading 2',
     icon: 'format_h2',
     command: (editor, range) => {
       editor.chain().focus().deleteRange(range).setHeading({ level: 2 }).run()
-    },
+    }
   },
   {
     label: 'Heading 3',
     icon: 'format_h3',
     command: (editor, range) => {
       editor.chain().focus().deleteRange(range).setHeading({ level: 3 }).run()
-    },
+    }
   },
   {
     label: 'Bullet List',
     icon: 'format_list_bulleted',
     command: (editor, range) => {
       editor.chain().focus().deleteRange(range).toggleBulletList().run()
-    },
+    }
   },
   {
     label: 'Numbered List',
     icon: 'format_list_numbered',
     command: (editor, range) => {
       editor.chain().focus().deleteRange(range).toggleOrderedList().run()
-    },
+    }
   },
   {
     label: 'Todo List',
     icon: 'check_box',
     command: (editor, range) => {
       editor.chain().focus().deleteRange(range).toggleTaskList().run()
-    },
+    }
   },
   {
     label: 'Code Block',
     icon: 'code_blocks',
     command: (editor, range) => {
       editor.chain().focus().deleteRange(range).toggleCodeBlock().run()
-    },
+    }
+  },
+  {
+    label: 'Mermaid Diagram',
+    icon: 'schema',
+    command: (editor, range) => {
+      editor
+        .chain()
+        .focus()
+        .deleteRange(range)
+        .insertContent({
+          type: 'mermaidBlock',
+          attrs: {
+            code: 'graph TD\n    A[Start] --> B{Decision}\n    B -->|Yes| C[Result 1]\n    B -->|No| D[Result 2]'
+          }
+        })
+        .run()
+    }
   },
   {
     label: 'Table',
     icon: 'table',
     command: (editor, range) => {
-      editor.chain().focus().deleteRange(range).insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
-    },
+      editor
+        .chain()
+        .focus()
+        .deleteRange(range)
+        .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
+        .run()
+    }
   },
   {
     label: 'Blockquote',
     icon: 'format_quote',
     command: (editor, range) => {
       editor.chain().focus().deleteRange(range).toggleBlockquote().run()
-    },
+    }
   },
   {
     label: 'Horizontal Rule',
     icon: 'horizontal_rule',
     command: (editor, range) => {
       editor.chain().focus().deleteRange(range).setHorizontalRule().run()
-    },
-  },
-  {
-    label: 'Image',
-    icon: 'image',
-    command: (editor, range) => {
-      const url = window.prompt('Enter image URL:')
-      if (url) {
-        if (!isValidUrl(url)) {
-          window.alert('Invalid URL. Only http://, https://, mailto:, and relative paths are allowed.')
-          return
-        }
-        editor.chain().focus().deleteRange(range).setImage({ src: url }).run()
-      }
-    },
-  },
+    }
+  }
 ]
 
 function filterItems(query: string): SlashCommandItem[] {
-  return slashCommandItems.filter((item) =>
-    item.label.toLowerCase().includes(query.toLowerCase())
-  )
+  return slashCommandItems.filter((item) => item.label.toLowerCase().includes(query.toLowerCase()))
 }
 
 export const SlashCommandExtension = Extension.create({
@@ -115,6 +120,21 @@ export const SlashCommandExtension = Extension.create({
         allowSpaces: false,
         startOfLine: false,
         items: ({ query }: { query: string }) => filterItems(query),
+        command: ({
+          editor,
+          range,
+          props: item
+        }: {
+          editor: Editor
+          range: Range
+          props: SlashCommandItem
+        }) => {
+          item.command(editor, range)
+          // Ensure the editor regains focus after the command executes
+          requestAnimationFrame(() => {
+            editor.view.focus()
+          })
+        },
         render: () => {
           let component: Record<string, unknown> | null = null
           let popup: HTMLDivElement | null = null
@@ -130,8 +150,8 @@ export const SlashCommandExtension = Extension.create({
                 props: {
                   items: props.items ?? [],
                   command: props.command,
-                  clientRect: props.clientRect ?? null,
-                },
+                  clientRect: props.clientRect ?? null
+                }
               })
             },
 
@@ -146,8 +166,8 @@ export const SlashCommandExtension = Extension.create({
                     props: {
                       items: props.items ?? [],
                       command: props.command,
-                      clientRect: props.clientRect ?? null,
-                    },
+                      clientRect: props.clientRect ?? null
+                    }
                   })
                 }
               }
@@ -161,12 +181,19 @@ export const SlashCommandExtension = Extension.create({
                 return true
               }
 
-              if (props.event.key === 'ArrowDown' || props.event.key === 'ArrowUp' || props.event.key === 'Enter') {
+              if (
+                props.event.key === 'ArrowDown' ||
+                props.event.key === 'ArrowUp' ||
+                props.event.key === 'Enter' ||
+                props.event.key === 'Tab'
+              ) {
                 if (popup) {
-                  popup.dispatchEvent(new KeyboardEvent('keydown', {
-                    key: props.event.key,
-                    bubbles: true,
-                  }))
+                  popup.dispatchEvent(
+                    new KeyboardEvent('keydown', {
+                      key: props.event.key,
+                      bubbles: true
+                    })
+                  )
                 }
                 return true
               }
@@ -183,10 +210,10 @@ export const SlashCommandExtension = Extension.create({
                 popup.remove()
                 popup = null
               }
-            },
+            }
           }
-        },
-      } satisfies Partial<SuggestionOptions<SlashCommandItem>>,
+        }
+      } satisfies Partial<SuggestionOptions<SlashCommandItem>>
     }
   },
 
@@ -194,8 +221,8 @@ export const SlashCommandExtension = Extension.create({
     return [
       Suggestion({
         editor: this.editor,
-        ...this.options.suggestion,
-      }),
+        ...this.options.suggestion
+      })
     ]
-  },
+  }
 })

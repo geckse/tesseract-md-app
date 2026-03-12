@@ -12,6 +12,8 @@ import { Wikilink } from './wikilink-extension'
 import { SlashCommandExtension } from './slash-command-extension'
 import { LinkAutocompleteExtension } from './link-autocomplete-extension'
 import { BlockDragExtension } from './block-drag-extension'
+import { MermaidBlockExtension } from './mermaid-block-extension'
+import { LinkBubbleExtension } from './link-bubble-extension'
 
 const lowlight = createLowlight(commonGrammars)
 
@@ -54,11 +56,11 @@ export function createWysiwygEditor(
         codeBlock: false, // Replaced by CodeBlockLowlight later
         link: {
           openOnClick: false,
-          HTMLAttributes: { class: 'wysiwyg-link' },
-        },
+          HTMLAttributes: { class: 'wysiwyg-link' }
+        }
       }),
       Placeholder.configure({
-        placeholder: options.placeholder ?? 'Type / for commands...',
+        placeholder: options.placeholder ?? 'Type / for commands...'
       }),
       Typography.configure({
         // Disable smart quotes and other auto-conversions to preserve round-trip fidelity
@@ -68,28 +70,30 @@ export function createWysiwygEditor(
         closeSingleQuote: false,
         emDash: false,
         enDash: false,
-        ellipsis: false,
+        ellipsis: false
       }),
       Markdown.configure({
         transformPastedText: true,
-        transformCopiedText: true,
+        transformCopiedText: true
       }),
       Image.configure({
         inline: false,
-        allowBase64: true,
+        allowBase64: true
       }),
       TableKit,
+      MermaidBlockExtension,
       CodeBlockLowlight.configure({ lowlight }),
       TaskList,
       TaskItem.configure({ nested: true }),
       Wikilink,
       SlashCommandExtension,
       LinkAutocompleteExtension.configure({
-        collectionPath: options.collectionPath ?? '',
+        collectionPath: options.collectionPath ?? ''
       }),
       BlockDragExtension,
+      LinkBubbleExtension
     ],
-    onUpdate: options.onUpdate ? ({ editor: e }) => options.onUpdate!(e) : undefined,
+    onUpdate: options.onUpdate ? ({ editor: e }) => options.onUpdate!(e) : undefined
   })
 
   function getMarkdown(): string {
@@ -98,7 +102,9 @@ export function createWysiwygEditor(
       return (editor as any).getMarkdown()
     }
     // Fallback: return text content — this strips all formatting!
-    console.error('Warning: Markdown extension storage not available, falling back to plain text. Content formatting will be lost.')
+    console.error(
+      'Warning: Markdown extension storage not available, falling back to plain text. Content formatting will be lost.'
+    )
     return editor.getText()
   }
 
@@ -114,6 +120,6 @@ export function createWysiwygEditor(
     editor,
     getMarkdown,
     setMarkdownContent,
-    destroy,
+    destroy
   }
 }

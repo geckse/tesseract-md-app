@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { isDirty, wordCount as wordCountStore, tokenCount as tokenCountStore } from '../stores/editor';
   import WatcherToggle from './WatcherToggle.svelte';
+  import logoIcon from '../../../resources/icon.png';
 
   interface StatusBarProps {
     language?: string;
@@ -73,6 +74,7 @@
         CLI not found
       {/if}
     </span>
+    <img class="status-logo" src={logoIcon} alt="mdvdb" />
   </div>
 </div>
 
@@ -154,6 +156,14 @@
 
   .cli-dot-missing {
     background: #ef4444;
+  }
+
+  .status-logo {
+    height: 14px;
+    width: auto;
+    object-fit: contain;
+    filter: grayscale(100%);
+    opacity: 0.5;
   }
 
   /* Screen reader only - visually hidden but available to assistive tech */

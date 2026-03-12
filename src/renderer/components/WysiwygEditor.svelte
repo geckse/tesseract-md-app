@@ -201,27 +201,6 @@
     }
   }
 
-  function handleFileDrop(event: DragEvent) {
-    if (!wysiwygEditor || !event.dataTransfer) return;
-    const mdvdbPath = event.dataTransfer.getData('application/x-mdvdb-path');
-    if (!mdvdbPath) return;
-
-    event.preventDefault();
-
-    const coords = { left: event.clientX, top: event.clientY };
-    const pos = wysiwygEditor.editor.view.posAtCoords(coords);
-    if (!pos) return;
-
-    const filename = mdvdbPath.replace(/^.*\//, '').replace(/\.[^.]+$/, '');
-    wysiwygEditor.editor.chain()
-      .focus()
-      .insertContentAt(pos.pos, {
-        type: 'wikilink',
-        attrs: { target: filename, anchor: null, display: null },
-      })
-      .run();
-  }
-
   /**
    * Handle frontmatter updates from the visual property editor.
    */
@@ -360,12 +339,9 @@
         </button>
       </div>
     {/if}
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       class="wysiwyg-content"
       bind:this={editorEl}
-      ondrop={handleFileDrop}
-      ondragover={(e) => { if (e.dataTransfer?.types.includes('application/x-mdvdb-path')) e.preventDefault(); }}
     ></div>
   </div>
 {:else}
@@ -391,6 +367,7 @@
     display: flex;
     flex-direction: column;
     overflow: auto;
+    position: relative;
   }
 
   .wysiwyg-content :global(.ProseMirror) {

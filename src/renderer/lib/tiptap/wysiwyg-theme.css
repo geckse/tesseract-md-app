@@ -141,7 +141,7 @@
 /* -------------------------------------------------------------------------- */
 
 .ProseMirror a {
-  color: #00E5FF;
+  color: #00e5ff;
   text-decoration: underline;
   text-decoration-color: rgba(0, 229, 255, 0.3);
   text-underline-offset: 2px;
@@ -149,7 +149,7 @@
 }
 
 .ProseMirror a:hover {
-  text-decoration-color: #00E5FF;
+  text-decoration-color: #00e5ff;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -157,7 +157,7 @@
 /* -------------------------------------------------------------------------- */
 
 .ProseMirror .wikilink {
-  color: var(--color-primary, #00E5FF);
+  color: var(--color-primary, #00e5ff);
   cursor: pointer;
   text-decoration: none;
 }
@@ -264,24 +264,24 @@
 /*  Task Lists                                                                */
 /* -------------------------------------------------------------------------- */
 
-.ProseMirror ul[data-type="taskList"] {
+.ProseMirror ul[data-type='taskList'] {
   list-style: none;
   padding-left: 0;
 }
 
-.ProseMirror ul[data-type="taskList"] li {
+.ProseMirror ul[data-type='taskList'] li {
   display: flex;
   align-items: flex-start;
   gap: 0.5rem;
   padding: 0.15rem 0;
 }
 
-.ProseMirror ul[data-type="taskList"] li > label {
+.ProseMirror ul[data-type='taskList'] li > label {
   flex-shrink: 0;
   margin-top: 0.3em;
 }
 
-.ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"] {
+.ProseMirror ul[data-type='taskList'] li > label input[type='checkbox'] {
   appearance: none;
   width: 16px;
   height: 16px;
@@ -290,19 +290,21 @@
   background-color: transparent;
   cursor: pointer;
   position: relative;
-  transition: border-color 150ms ease, background-color 150ms ease;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease;
 }
 
-.ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"]:hover {
-  border-color: #00E5FF;
+.ProseMirror ul[data-type='taskList'] li > label input[type='checkbox']:hover {
+  border-color: #00e5ff;
 }
 
-.ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"]:checked {
-  background-color: #00E5FF;
-  border-color: #00E5FF;
+.ProseMirror ul[data-type='taskList'] li > label input[type='checkbox']:checked {
+  background-color: #00e5ff;
+  border-color: #00e5ff;
 }
 
-.ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"]:checked::after {
+.ProseMirror ul[data-type='taskList'] li > label input[type='checkbox']:checked::after {
   content: '✓';
   position: absolute;
   top: -1px;
@@ -312,7 +314,7 @@
   font-weight: 700;
 }
 
-.ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div > p {
+.ProseMirror ul[data-type='taskList'] li[data-checked='true'] > div > p {
   text-decoration: line-through;
   color: #52525b;
 }
@@ -361,7 +363,7 @@
 }
 
 .ProseMirror td a {
-  color: #00E5FF;
+  color: #00e5ff;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -377,7 +379,7 @@
 }
 
 .ProseMirror img.ProseMirror-selectednode {
-  outline: 2px solid #00E5FF;
+  outline: 2px solid #00e5ff;
   outline-offset: 2px;
   border-radius: 8px;
 }
@@ -420,7 +422,7 @@
 .ProseMirror .footnote-ref {
   font-size: 0.75em;
   vertical-align: super;
-  color: #00E5FF;
+  color: #00e5ff;
   cursor: pointer;
 }
 
@@ -522,28 +524,21 @@
 /*  Block Drag Handles                                                        */
 /* -------------------------------------------------------------------------- */
 
+/* Editor parent needs to be the positioning context for the handle overlay */
 .ProseMirror {
   position: relative;
 }
 
 .block-handle-wrapper {
   position: absolute;
-  left: -3rem;
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 1px;
   opacity: 0;
-  transition: opacity 150ms ease;
+  transition: opacity 100ms ease;
   user-select: none;
-}
-
-.ProseMirror > *:hover > .block-handle-wrapper,
-.block-handle-wrapper:hover {
-  opacity: 0.6;
-}
-
-.block-handle-wrapper:hover {
-  opacity: 1;
+  z-index: 10;
+  pointer-events: auto;
 }
 
 .block-handle-grip,
@@ -551,28 +546,33 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: none;
   border-radius: 4px;
   background: transparent;
-  color: #52525b;
-  font-size: 12px;
+  color: #a1a1aa;
   cursor: pointer;
   line-height: 1;
-  transition: color 150ms ease, background-color 150ms ease;
+  transition:
+    color 150ms ease,
+    background-color 150ms ease;
+}
+
+.block-handle-grip .material-symbols-outlined,
+.block-handle-plus .material-symbols-outlined {
+  font-size: 20px;
 }
 
 .block-handle-grip:hover,
 .block-handle-plus:hover {
-  color: #a1a1aa;
-  background-color: rgba(255, 255, 255, 0.06);
+  color: #e4e4e7;
+  background-color: rgba(255, 255, 255, 0.1);
 }
 
 .block-handle-grip {
   cursor: grab;
-  letter-spacing: -1px;
 }
 
 .block-handle-grip:active {
@@ -595,7 +595,9 @@
   min-width: 200px;
   max-height: 320px;
   overflow-y: auto;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  box-shadow:
+    0 8px 30px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.04);
   outline: none;
 }
 
@@ -637,9 +639,204 @@
   flex: 1;
 }
 
+/* -------------------------------------------------------------------------- */
+/*  Mermaid Diagrams                                                          */
+/* -------------------------------------------------------------------------- */
+
+.ProseMirror .mermaid-node-view {
+  background-color: var(--color-surface, #161617);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  margin: 0.75rem 0;
+  overflow: hidden;
+  position: relative;
+  user-select: none;
+}
+
+.ProseMirror .mermaid-node-view.selected {
+  outline: 2px solid var(--color-primary, #00e5ff);
+  outline-offset: 2px;
+}
+
+.ProseMirror .mermaid-toolbar {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 150ms ease;
+  z-index: 1;
+}
+
+.ProseMirror .mermaid-node-view:hover .mermaid-toolbar {
+  opacity: 1;
+}
+
+.ProseMirror .mermaid-toolbar-btn {
+  background: rgba(22, 22, 23, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: var(--color-text-dim, #71717a);
+  padding: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 150ms ease;
+}
+
+.ProseMirror .mermaid-toolbar-btn .material-symbols-outlined {
+  font-size: 16px;
+}
+
+.ProseMirror .mermaid-toolbar-btn:hover {
+  color: var(--color-primary, #00e5ff);
+}
+
+.ProseMirror .mermaid-svg-preview {
+  padding: 1.5rem;
+  display: flex;
+  justify-content: center;
+  overflow-x: auto;
+}
+
+.ProseMirror .mermaid-svg-preview svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.ProseMirror .mermaid-code-editor {
+  width: 100%;
+  box-sizing: border-box;
+  background: transparent;
+  color: var(--color-text, #e4e4e7);
+  font-family: 'SF Mono', 'Fira Code', 'Fira Mono', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 1rem 1.25rem;
+  border: none;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  min-height: 80px;
+  user-select: text;
+}
+
+.ProseMirror .mermaid-error {
+  padding: 0.75rem 1rem;
+  background: rgba(239, 68, 68, 0.05);
+  color: #ef4444;
+  font-family: 'SF Mono', 'Fira Code', 'Fira Mono', monospace;
+  font-size: 12px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.ProseMirror .mermaid-error pre {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  font-size: inherit;
+  white-space: pre-wrap;
+}
+
+.ProseMirror .mermaid-loading {
+  padding: 1.5rem;
+  text-align: center;
+  color: var(--color-text-dim, #71717a);
+  font-size: 12px;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Mermaid Lightbox (appended to document.body)                              */
+/* -------------------------------------------------------------------------- */
+
+.mermaid-lightbox-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  animation: mermaid-lightbox-fadein 150ms ease;
+}
+
+.mermaid-lightbox-content {
+  position: relative;
+  width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.mermaid-lightbox-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding-bottom: 8px;
+  flex-shrink: 0;
+}
+
+.mermaid-lightbox-close {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  color: #a1a1aa;
+  padding: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 150ms ease;
+}
+
+.mermaid-lightbox-close:hover {
+  color: #e4e4e7;
+}
+
+.mermaid-lightbox-diagram {
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  background: var(--color-surface, #161617);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+}
+
+.mermaid-lightbox-diagram svg {
+  width: 100%;
+  height: auto;
+  max-height: calc(90vh - 6rem);
+}
+
+@keyframes mermaid-lightbox-fadein {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Reduced Motion                                                            */
+/* -------------------------------------------------------------------------- */
+
 @media (prefers-reduced-motion: reduce) {
   .ProseMirror a,
   .ProseMirror * {
     transition: none !important;
+  }
+
+  .mermaid-lightbox-overlay {
+    animation: none;
   }
 }

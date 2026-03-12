@@ -1,10 +1,11 @@
 <script lang="ts">
   import { searchOpen, clearSearch } from '../stores/search';
   import { graphViewActive, toggleGraphView } from '../stores/graph';
+  import { canGoBack, canGoForward, goBack, goForward, setNavigating } from '../stores/navigation';
+  import { selectFile } from '../stores/files';
   import type { SearchResult } from '../types/cli';
   import Search from './Search.svelte';
   import SearchResults from './SearchResults.svelte';
-  import logoIcon from '../../../resources/icon.png';
 
   interface TitlebarProps {
     propertiesOpen?: boolean;
@@ -24,6 +25,30 @@
   let currentSearchOpen = $state(false);
   searchOpen.subscribe((v) => (currentSearchOpen = v));
 
+  let currentCanGoBack = $state(false);
+  canGoBack.subscribe((v) => (currentCanGoBack = v));
+
+  let currentCanGoForward = $state(false);
+  canGoForward.subscribe((v) => (currentCanGoForward = v));
+
+  function handleBack() {
+    const path = goBack();
+    if (path) {
+      setNavigating(true);
+      selectFile(path);
+      setNavigating(false);
+    }
+  }
+
+  function handleForward() {
+    const path = goForward();
+    if (path) {
+      setNavigating(true);
+      selectFile(path);
+      setNavigating(false);
+    }
+  }
+
   function handleResultClick(result: SearchResult) {
     onsearchresultclick?.(result);
   }
@@ -40,8 +65,26 @@
 
 <div class="titlebar">
   <div class="titlebar-left">
-    <img class="logo-icon" src={logoIcon} alt="mdvdb" />
-    <span class="logo-text">mdvdb</span>
+    <div class="nav-arrows">
+      <button
+        class="nav-button"
+        class:disabled={!currentCanGoBack}
+        disabled={!currentCanGoBack}
+        title="Go Back"
+        onclick={handleBack}
+      >
+        <span class="material-symbols-outlined">arrow_back</span>
+      </button>
+      <button
+        class="nav-button"
+        class:disabled={!currentCanGoForward}
+        disabled={!currentCanGoForward}
+        title="Go Forward"
+        onclick={handleForward}
+      >
+        <span class="material-symbols-outlined">arrow_forward</span>
+      </button>
+    </div>
   </div>
 
   <div class="titlebar-center">
@@ -97,23 +140,8 @@
     min-width: 0;
     display: flex;
     align-items: center;
-    gap: 8px;
   }
 
-  .logo-icon {
-    height: 20px;
-    width: auto;
-    object-fit: contain;
-    filter: drop-shadow(0 0 6px rgba(0, 229, 255, 0.4));
-  }
-
-  .logo-text {
-    font-weight: 700;
-    font-size: 14px;
-    letter-spacing: -0.025em;
-    color: #fff;
-    white-space: nowrap;
-  }
 
   .titlebar-center {
     -webkit-app-region: no-drag;
@@ -161,6 +189,50 @@
 
   .icon-button .material-symbols-outlined {
     font-size: 18px;
+  }
+
+  /* ── Navigation arrows ─────────────────────── */
+
+  .nav-arrows {
+    -webkit-app-region: no-drag;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+
+  .nav-button {
+    -webkit-app-region: no-drag;
+    padding: 4px;
+    color: var(--color-text-dim, #71717a);
+    background: none;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .nav-button:hover:not(:disabled) {
+    color: var(--color-text-main, #e4e4e7);
+    background: var(--color-surface-darker, #0a0a0a);
+  }
+
+  .nav-button:disabled {
+    color: var(--color-text-dim, #71717a);
+    opacity: 0.3;
+    cursor: default;
+  }
+
+  .nav-button .material-symbols-outlined {
+    font-size: 16px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .nav-button {
+      transition: none;
+    }
   }
 
 </style>

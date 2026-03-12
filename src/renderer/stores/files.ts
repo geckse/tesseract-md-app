@@ -3,6 +3,7 @@ import type { FileTree, FileTreeNode, FileState } from '../types/cli'
 import { activeCollection } from './collections'
 import { loadProperties, clearProperties, propertiesFileContent } from './properties'
 import { editorMode } from './editor'
+import { recordNavigation } from './navigation'
 // Lazy import to avoid circular dependency (favorites.ts imports selectedFilePath from here)
 const lazyTrackRecent = (...args: Parameters<typeof import('./favorites').trackRecent>) =>
   import('./favorites').then((m) => m.trackRecent(...args))
@@ -76,6 +77,7 @@ let selectGeneration = 0
 /** Select a file path in the tree and load its content. */
 export async function selectFile(path: string | null): Promise<void> {
   const gen = ++selectGeneration
+  recordNavigation(path)
   selectedFilePath.set(path)
   fileContentError.set(null)
 
