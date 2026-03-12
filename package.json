@@ -1,7 +1,7 @@
 {
-  "name": "tesseragt-app",
+  "name": "tesseract-app",
   "version": "0.1.0",
-  "description": "Tesseragt - Powerful MD Editor with search superpowers by markdown-vdb",
+  "description": "Tesseract - Markdown Editor for mdvdb with superpowers",
   "private": true,
   "main": "./out/main/index.js",
   "scripts": {
@@ -79,8 +79,8 @@
     "vitest": "^3.2.1"
   },
   "build": {
-    "appId": "com.tesseragt.app",
-    "productName": "Tesseragt",
+    "appId": "md.tesseract.app",
+    "productName": "Tesseract",
     "directories": {
       "buildResources": "resources",
       "output": "dist"

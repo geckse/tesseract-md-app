@@ -74,7 +74,7 @@
         CLI not found
       {/if}
     </span>
-    <img class="status-logo" src={logoIcon} alt="Tesseragt" />
+    <img class="status-logo" src={logoIcon} alt="Tesseract" />
   </div>
 </div>
 

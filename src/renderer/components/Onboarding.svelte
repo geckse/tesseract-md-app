@@ -90,7 +90,7 @@
       <!-- Step 1: Welcome -->
       <div class="step-content welcome">
         <span class="material-symbols-outlined logo-icon">search_insights</span>
-        <h1 class="app-name">Tesseragt</h1>
+        <h1 class="app-name">Tesseract</h1>
         <p class="tagline">Search your notes by meaning</p>
         <button class="primary-btn" onclick={() => { step = 1 }}>Get Started</button>
       </div>
