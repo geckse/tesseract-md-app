@@ -1,7 +1,7 @@
 {
-  "name": "mdvdb",
+  "name": "tesseragt-app",
   "version": "0.1.0",
-  "description": "Markdown VDB - A visual desktop interface for markdown-vdb",
+  "description": "Tesseragt - Powerful MD Editor with search superpowers by markdown-vdb",
   "private": true,
   "main": "./out/main/index.js",
   "scripts": {
@@ -79,8 +79,8 @@
     "vitest": "^3.2.1"
   },
   "build": {
-    "appId": "com.markdownvdb.app",
-    "productName": "Markdown VDB",
+    "appId": "com.tesseragt.app",
+    "productName": "Tesseragt",
     "directories": {
       "buildResources": "resources",
       "output": "dist"

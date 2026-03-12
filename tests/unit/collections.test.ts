@@ -189,7 +189,7 @@ describe('promptInitCollection', () => {
       expect.objectContaining({
         type: 'question',
         buttons: ['Cancel', 'Initialize'],
-        message: '"my-project" is not yet initialized as a Markdown VDB collection.'
+        message: '"my-project" is not yet initialized as a collection.'
       })
     )
   })

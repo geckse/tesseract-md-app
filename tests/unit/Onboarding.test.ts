@@ -52,7 +52,7 @@ describe('Onboarding component', () => {
   it('renders welcome step on mount', () => {
     const oncomplete = vi.fn()
     render(Onboarding, { props: { oncomplete } })
-    expect(screen.getByText('Markdown VDB')).toBeTruthy()
+    expect(screen.getByText('Tesseragt')).toBeTruthy()
     expect(screen.getByText('Search your notes by meaning')).toBeTruthy()
     expect(screen.getByText('Get Started')).toBeTruthy()
   })

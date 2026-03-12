@@ -107,7 +107,7 @@ export async function promptInitCollection(name: string): Promise<boolean> {
     defaultId: 1,
     cancelId: 0,
     title: 'Initialize Collection',
-    message: `"${name}" is not yet initialized as a Markdown VDB collection.`,
+    message: `"${name}" is not yet initialized as a collection.`,
     detail: 'Would you like to initialize it? This will create a .markdownvdb configuration directory.'
   })
 

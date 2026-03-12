@@ -61,7 +61,7 @@ function createWindow(): BrowserWindow {
 }
 
 app.whenReady().then(() => {
-  electronApp.setAppUserModelId('com.mdvdb.app')
+  electronApp.setAppUserModelId('com.tesseragt.app')
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
