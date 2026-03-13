@@ -26,12 +26,18 @@ import {
   graphSelectedNode,
   graphColoringMode,
   graphHighlightedFolder,
+  graphEdgeFilter,
+  graphSemanticEdgesEnabled,
+  graphEdgeWeakThreshold,
   loadGraphData,
   toggleGraphView,
   selectGraphNode,
   resetGraphState,
   cycleColoringMode,
   setGraphHighlightedFolder,
+  toggleEdgeClusterFilter,
+  clearEdgeFilter,
+  toggleSemanticEdges,
 } from '../../src/renderer/stores/graph'
 import type { GraphColoringMode } from '../../src/renderer/stores/graph'
 
@@ -45,6 +51,9 @@ function resetStores() {
   graphSelectedNode.set(null)
   graphColoringMode.set('cluster')
   graphHighlightedFolder.set(null)
+  graphEdgeFilter.set(new Set())
+  graphSemanticEdgesEnabled.set(true)
+  graphEdgeWeakThreshold.set(0.3)
   collections.set([])
   activeCollectionId.set(null)
 }
@@ -187,6 +196,9 @@ describe('graph store', () => {
       expect(get(graphSelectedNode)).toBeNull()
       expect(get(graphColoringMode)).toBe('cluster')
       expect(get(graphHighlightedFolder)).toBeNull()
+      expect(get(graphEdgeFilter).size).toBe(0)
+      expect(get(graphSemanticEdgesEnabled)).toBe(true)
+      expect(get(graphEdgeWeakThreshold)).toBe(0.3)
     })
   })
 
@@ -233,6 +245,81 @@ describe('graph store', () => {
 
       setGraphHighlightedFolder(null)
       expect(get(graphHighlightedFolder)).toBeNull()
+    })
+  })
+
+  describe('toggleEdgeClusterFilter', () => {
+    it('adds cluster ID to empty filter set', () => {
+      toggleEdgeClusterFilter(0)
+      expect(get(graphEdgeFilter)).toEqual(new Set([0]))
+    })
+
+    it('adds multiple cluster IDs', () => {
+      toggleEdgeClusterFilter(0)
+      toggleEdgeClusterFilter(2)
+      expect(get(graphEdgeFilter)).toEqual(new Set([0, 2]))
+    })
+
+    it('removes cluster ID if already present', () => {
+      toggleEdgeClusterFilter(0)
+      toggleEdgeClusterFilter(1)
+      toggleEdgeClusterFilter(0)
+      expect(get(graphEdgeFilter)).toEqual(new Set([1]))
+    })
+
+    it('results in empty set when all removed', () => {
+      toggleEdgeClusterFilter(0)
+      toggleEdgeClusterFilter(0)
+      expect(get(graphEdgeFilter).size).toBe(0)
+    })
+  })
+
+  describe('clearEdgeFilter', () => {
+    it('clears all edge cluster filters', () => {
+      toggleEdgeClusterFilter(0)
+      toggleEdgeClusterFilter(1)
+      toggleEdgeClusterFilter(2)
+
+      clearEdgeFilter()
+
+      expect(get(graphEdgeFilter).size).toBe(0)
+    })
+
+    it('is a no-op when already empty', () => {
+      clearEdgeFilter()
+      expect(get(graphEdgeFilter).size).toBe(0)
+    })
+  })
+
+  describe('toggleSemanticEdges', () => {
+    it('disables semantic edges when enabled', () => {
+      expect(get(graphSemanticEdgesEnabled)).toBe(true)
+      toggleSemanticEdges()
+      expect(get(graphSemanticEdgesEnabled)).toBe(false)
+    })
+
+    it('enables semantic edges when disabled', () => {
+      graphSemanticEdgesEnabled.set(false)
+      toggleSemanticEdges()
+      expect(get(graphSemanticEdgesEnabled)).toBe(true)
+    })
+
+    it('toggles back and forth', () => {
+      toggleSemanticEdges()
+      expect(get(graphSemanticEdgesEnabled)).toBe(false)
+      toggleSemanticEdges()
+      expect(get(graphSemanticEdgesEnabled)).toBe(true)
+    })
+  })
+
+  describe('graphEdgeWeakThreshold', () => {
+    it('defaults to 0.3', () => {
+      expect(get(graphEdgeWeakThreshold)).toBe(0.3)
+    })
+
+    it('can be set to a custom value', () => {
+      graphEdgeWeakThreshold.set(0.5)
+      expect(get(graphEdgeWeakThreshold)).toBe(0.5)
     })
   })
 })
