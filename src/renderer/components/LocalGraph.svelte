@@ -116,6 +116,32 @@
     return Math.min(MAX_RADIUS, MIN_RADIUS + Math.sqrt(degree) * 0.8);
   }
 
+  /** Map edge strength (0–1) to stroke-width. Default strength assumed 0.5. */
+  function getEdgeStrokeWidth(edge: LocalEdge, isHovered: boolean, isDepth2: boolean): number {
+    if (isHovered) return 1.5;
+    if (isDepth2) return 0.3;
+    const s = edge.strength ?? 0.5;
+    // Scale from 0.4 (weakest) to 1.4 (strongest)
+    return 0.4 + s * 1.0;
+  }
+
+  /** Weak edges (strength < 0.3) get dashed rendering. */
+  function getEdgeDashArray(edge: LocalEdge, isDepth2: boolean): string | undefined {
+    if (isDepth2) return undefined;
+    const s = edge.strength ?? 0.5;
+    return s < 0.3 ? '2,2' : undefined;
+  }
+
+  /** Build tooltip text from edge semantic fields. */
+  function getEdgeTooltip(edge: LocalEdge): string {
+    const parts: string[] = [];
+    if (edge.relationship_type) parts.push(edge.relationship_type);
+    if (edge.strength != null) parts.push(`strength: ${Math.round(edge.strength * 100)}%`);
+    if (edge.context_text) parts.push(edge.context_text);
+    if (edge.bidirectional) parts.push('(bidirectional)');
+    return parts.length > 0 ? parts.join(' — ') : '';
+  }
+
   function runSimulation(graph: LocalGraphData) {
     if (simulation) simulation.stop();
     lastGraphData = graph;
@@ -308,6 +334,9 @@
           {@const sy = getNodeY(src)}
           {@const tx = getNodeX(tgt)}
           {@const ty = getNodeY(tgt)}
+          {@const edgeStrokeWidth = getEdgeStrokeWidth(edge, isHovered, isDepth2Edge)}
+          {@const edgeDashArray = getEdgeDashArray(edge, isDepth2Edge)}
+          {@const edgeTooltip = getEdgeTooltip(edge)}
           <line
             class="graph-edge"
             class:edge-bidi={isBidi && !isDepth2Edge && !isHovered}
@@ -322,9 +351,13 @@
             y1={sy}
             x2={tx}
             y2={ty}
+            style:stroke-width={edgeStrokeWidth}
+            stroke-dasharray={edgeDashArray}
             marker-end={isHovered ? (isBidi ? 'url(#arrow-hover-bidi)' : isCenterIn ? 'url(#arrow-hover-in)' : 'url(#arrow-hover-out)') : ''}
             marker-start={isHovered && isBidi ? 'url(#arrow-hover-bidi)' : ''}
-          />
+          >
+            {#if edgeTooltip}<title>{edgeTooltip}</title>{/if}
+          </line>
         {/each}
 
         <!-- Nodes -->
@@ -535,53 +568,44 @@
 
   .graph-edge {
     stroke: rgba(255, 255, 255, 0.15);
-    stroke-width: 0.5;
   }
 
   .graph-edge.edge-out {
     stroke: var(--color-primary, #00E5FF);
-    stroke-width: 0.8;
     opacity: 0.6;
   }
 
   .graph-edge.edge-in {
     stroke: var(--color-edge-in, #FF6B6B);
-    stroke-width: 0.8;
     opacity: 0.6;
   }
 
   .graph-edge.edge-depth2 {
     stroke: rgba(255, 255, 255, 0.08);
-    stroke-width: 0.3;
   }
 
   .graph-edge.edge-hovered {
     stroke: var(--color-primary, #00E5FF);
-    stroke-width: 1.5;
     opacity: 1;
   }
 
   .graph-edge.edge-hovered-out {
     stroke: var(--color-primary, #00E5FF);
-    stroke-width: 1.5;
     opacity: 1;
   }
 
   .graph-edge.edge-hovered-in {
     stroke: var(--color-edge-in, #FF6B6B);
-    stroke-width: 1.5;
     opacity: 1;
   }
 
   .graph-edge.edge-bidi {
     stroke: var(--color-edge-bidi, #51CF66);
-    stroke-width: 0.8;
     opacity: 0.6;
   }
 
   .graph-edge.edge-hovered-bidi {
     stroke: var(--color-edge-bidi, #51CF66);
-    stroke-width: 1.5;
     opacity: 1;
   }
 
