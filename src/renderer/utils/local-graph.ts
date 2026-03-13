@@ -15,6 +15,14 @@ export interface LocalEdge extends SimulationLinkDatum<LocalNode> {
   target: LocalNode | string
   /** true if there's also a link in the reverse direction */
   bidirectional: boolean
+  /** Semantic relationship type label (e.g. "references", "extends"). */
+  relationship_type?: string | null
+  /** Semantic strength score in [0, 1]. */
+  strength?: number | null
+  /** Context text excerpt describing the relationship. */
+  context_text?: string | null
+  /** ID of the edge cluster this edge belongs to. */
+  edge_cluster_id?: number | null
 }
 
 export interface LocalGraphData {

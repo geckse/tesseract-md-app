@@ -214,6 +214,21 @@ export interface GraphEdge {
   source: string;
   target: string;
   weight: number | null;
+  /** Semantic relationship type label (e.g. "references", "extends"). */
+  relationship_type?: string | null;
+  /** Semantic strength score in [0, 1]. */
+  strength?: number | null;
+  /** Context text excerpt describing the relationship. */
+  context_text?: string | null;
+  /** ID of the edge cluster this edge belongs to. */
+  edge_cluster_id?: number | null;
+}
+
+/** A cluster of semantically similar edges. */
+export interface GraphEdgeCluster {
+  id: number;
+  label: string;
+  count: number;
 }
 
 /** A cluster summary for graph visualization. */
@@ -230,6 +245,8 @@ export interface GraphData {
   edges: GraphEdge[];
   clusters: GraphCluster[];
   level: GraphLevel;
+  /** Edge clusters discovered by semantic analysis. */
+  edge_clusters?: GraphEdgeCluster[];
 }
 
 // ─── File Tree ───────────────────────────────────────────────────────
