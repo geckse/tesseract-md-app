@@ -123,6 +123,25 @@ export async function cancelIngest(): Promise<void> {
   }
 }
 
+/** Reset the index (delete corrupt files) and re-ingest from scratch. */
+export async function rebuildIndex(): Promise<void> {
+  const collection = get(activeCollection)
+  if (!collection) return
+  if (get(ingestRunning)) return
+
+  // Reset the index files first
+  try {
+    await window.api.resetIndex(collection.path)
+  } catch (err) {
+    ingestError.set(err instanceof Error ? err.message : String(err))
+    ingestState.set('error')
+    return
+  }
+
+  // Now run a full ingest
+  await runIngest(true)
+}
+
 /** Close the modal (only when not running). */
 export function closeIngestModal(): void {
   if (get(ingestRunning)) return

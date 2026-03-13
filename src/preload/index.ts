@@ -46,6 +46,7 @@ const api: MdvdbApi = {
   config: (root) => invoke('cli:config', root),
   doctor: (root) => invoke('cli:doctor', root),
   init: (root) => invoke('cli:init', root),
+  resetIndex: (root) => invoke('cli:reset-index', root),
 
   // Collection management
   listCollections: () => invoke('collections:list'),

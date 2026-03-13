@@ -98,6 +98,7 @@ export interface MdvdbApi {
   config(root: string): Promise<Config>
   doctor(root: string): Promise<DoctorResult>
   init(root: string): Promise<void>
+  resetIndex(root: string): Promise<void>
 
   // Collection management
   listCollections(): Promise<Collection[]>

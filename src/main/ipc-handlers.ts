@@ -283,6 +283,17 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
     wrapHandler(() => execRaw('init', [], root))
   )
 
+  // Reset index (delete .markdownvdb/index and .markdownvdb/fts/ to recover from corruption)
+  ipcMain.handle('cli:reset-index', (_event, root: string) =>
+    wrapHandler(async () => {
+      const path = await import('node:path')
+      const indexFile = path.join(root, '.markdownvdb', 'index')
+      const ftsDir = path.join(root, '.markdownvdb', 'fts')
+      await fs.rm(indexFile, { force: true })
+      await fs.rm(ftsDir, { recursive: true, force: true })
+    })
+  )
+
   // Collection management
   ipcMain.handle('collections:list', () =>
     wrapHandler(async () => getCollections())

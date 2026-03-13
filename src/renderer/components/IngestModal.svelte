@@ -11,6 +11,7 @@
     ingestState,
     closeIngestModal,
     cancelIngest,
+    rebuildIndex,
   } from '../stores/ingest'
   import type { IngestResult, IngestPreview } from '../types/cli'
   import type { IngestState } from '../stores/ingest'
@@ -38,6 +39,14 @@
   let hasErrors = $derived(
     currentResult !== null && currentResult.errors.length > 0
   )
+
+  let isCorrupted = $derived(
+    currentError !== null && currentError.toLowerCase().includes('index corrupted')
+  )
+
+  function handleRebuild() {
+    rebuildIndex()
+  }
 
   function formatElapsed(secs: number): string {
     if (secs < 60) return `${secs}s`
@@ -171,6 +180,19 @@
         </div>
         <div class="modal-footer">
           <button class="modal-btn modal-btn-cancel" onclick={handleCancel}>Cancel</button>
+        </div>
+
+      {:else if currentError && isCorrupted}
+        <div class="modal-header">
+          <span class="material-symbols-outlined modal-icon warning-icon">warning</span>
+          <h2 class="modal-title">Index Corrupted</h2>
+        </div>
+        <div class="modal-body">
+          <p class="corrupted-description">The index file is incompatible or corrupted. This can happen after an update. Rebuilding will delete the old index and re-ingest all files.</p>
+        </div>
+        <div class="modal-footer">
+          <button class="modal-btn modal-btn-cancel" onclick={closeIngestModal}>Cancel</button>
+          <button class="modal-btn modal-btn-rebuild" onclick={handleRebuild}>Rebuild Index</button>
         </div>
 
       {:else if currentError}
@@ -457,6 +479,7 @@
   .modal-footer {
     display: flex;
     justify-content: flex-end;
+    gap: 8px;
     padding: 12px 24px 20px;
   }
 
@@ -488,6 +511,23 @@
 
   .modal-btn-cancel:hover {
     background: rgba(239, 68, 68, 0.25);
+  }
+
+  .modal-btn-rebuild {
+    background: #eab308;
+    color: #0a0a0a;
+    font-weight: 700;
+  }
+
+  .modal-btn-rebuild:hover {
+    background: #ca9a06;
+  }
+
+  .corrupted-description {
+    font-size: 13px;
+    color: var(--color-text-dim, #71717a);
+    line-height: 1.5;
+    margin: 0;
   }
 
   /* Preview table styles */
