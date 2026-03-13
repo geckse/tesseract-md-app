@@ -1306,6 +1306,38 @@
     }
     return items.sort((a, b) => a.folder.localeCompare(b.folder));
   }
+
+  /** Get unique edge clusters present in the current edges for legend display. */
+  function getEdgeClusters(): { id: number; color: string; label: string; count: number }[] {
+    const counts = new Map<number, { label: string; count: number }>();
+    for (const edge of simEdges) {
+      const e = edge as SimEdge;
+      if (e.edge_cluster_id == null) continue;
+      const existing = counts.get(e.edge_cluster_id);
+      if (existing) {
+        existing.count++;
+      } else {
+        counts.set(e.edge_cluster_id, {
+          label: e.relationship_type ?? `Type ${e.edge_cluster_id}`,
+          count: 1,
+        });
+      }
+    }
+    return Array.from(counts.entries())
+      .map(([id, info]) => ({
+        id,
+        color: edgeClusterColor(id),
+        label: info.label,
+        count: info.count,
+      }))
+      .sort((a, b) => a.id - b.id);
+  }
+
+  /** Check if a given edge cluster is currently filtered out. */
+  function isEdgeClusterFiltered(clusterId: number): boolean {
+    if (currentEdgeFilter.size === 0) return false;
+    return !currentEdgeFilter.has(clusterId);
+  }
 </script>
 
 <div class="graph-view" bind:this={containerEl}>
@@ -1454,6 +1486,29 @@
                   <span class="legend-label">{item.folder}</span>
                   <span class="legend-count">{item.count}</span>
                 </div>
+              {/each}
+            {/if}
+            {#if getEdgeClusters().length > 0}
+              <div class="legend-separator"></div>
+              <div class="legend-section-title">
+                <span>Edge Types</span>
+                {#if currentEdgeFilter.size > 0}
+                  <button class="legend-clear-filter" onclick={clearEdgeFilter} title="Show all edges">
+                    <span class="material-symbols-outlined">filter_alt_off</span>
+                  </button>
+                {/if}
+              </div>
+              {#each getEdgeClusters() as ec}
+                <button
+                  class="legend-item legend-item-clickable"
+                  class:legend-item-muted={isEdgeClusterFiltered(ec.id)}
+                  onclick={() => toggleEdgeClusterFilter(ec.id)}
+                  title={isEdgeClusterFiltered(ec.id) ? `Show ${ec.label} edges` : `Hide ${ec.label} edges`}
+                >
+                  <span class="legend-line" style="background: {ec.color}"></span>
+                  <span class="legend-label">{ec.label}</span>
+                  <span class="legend-count">{ec.count}</span>
+                </button>
               {/each}
             {/if}
           </div>
@@ -1747,6 +1802,70 @@
 
   .legend-count {
     color: var(--color-text-dim, #71717a);
+    flex-shrink: 0;
+  }
+
+  .legend-separator {
+    height: 1px;
+    background: var(--color-border, #27272a);
+    margin: var(--space-2, 0.5rem) 0;
+  }
+
+  .legend-section-title {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 0.5rem);
+    font-family: var(--font-display, 'Space Grotesk', sans-serif);
+    font-size: var(--text-xs, 0.625rem);
+    font-weight: var(--weight-medium, 500);
+    color: var(--color-text-dim, #71717a);
+    margin-bottom: var(--space-1, 0.25rem);
+  }
+
+  .legend-section-title span {
+    flex: 1;
+  }
+
+  .legend-clear-filter {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    color: var(--color-text-dim, #71717a);
+    display: flex;
+    align-items: center;
+  }
+
+  .legend-clear-filter .material-symbols-outlined {
+    font-size: 14px;
+  }
+
+  .legend-clear-filter:hover {
+    color: var(--color-text, #e4e4e7);
+  }
+
+  .legend-item-clickable {
+    background: none;
+    border: none;
+    padding: var(--space-1, 0.25rem) 0;
+    cursor: pointer;
+    width: 100%;
+    text-align: left;
+    transition: opacity var(--transition-fast, 150ms ease);
+  }
+
+  .legend-item-clickable:hover {
+    opacity: 0.8;
+  }
+
+  .legend-item-muted {
+    opacity: 0.35;
+  }
+
+  .legend-line {
+    width: 12px;
+    height: 3px;
+    border-radius: 1.5px;
     flex-shrink: 0;
   }
 
