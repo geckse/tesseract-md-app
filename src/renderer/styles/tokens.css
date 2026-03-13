@@ -36,6 +36,16 @@
   --color-edge-in: #FF6B6B;
   --color-edge-bidi: #51CF66;
 
+  /* --- Colors: Edge clusters (pastel) --- */
+  --color-edge-cluster-0: #A78BFA;
+  --color-edge-cluster-1: #67E8F9;
+  --color-edge-cluster-2: #FCA5A1;
+  --color-edge-cluster-3: #86EFAC;
+  --color-edge-cluster-4: #FDE68A;
+  --color-edge-cluster-5: #F9A8D4;
+  --color-edge-cluster-6: #FDBA74;
+  --color-edge-cluster-7: #93C5FD;
+
   /* --- Fonts --- */
   --font-display: 'Space Grotesk', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
