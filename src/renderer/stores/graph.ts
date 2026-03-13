@@ -35,6 +35,15 @@ export const graphLevel = writable<GraphLevel>('document')
 /** Optional path filter to scope graph to a subdirectory. */
 export const graphPathFilter = writable<string | null>(null)
 
+/** Set of edge cluster IDs to filter (show only these). Empty set means show all. */
+export const graphEdgeFilter = writable<Set<number>>(new Set())
+
+/** Whether semantic edge styling (thickness, color, dash) is enabled. */
+export const graphSemanticEdgesEnabled = writable<boolean>(true)
+
+/** Strength threshold below which edges are considered "weak" (rendered dashed). */
+export const graphEdgeWeakThreshold = writable<number>(0.3)
+
 /** Generation counter to discard stale async results. */
 let loadGeneration = 0
 
@@ -128,6 +137,28 @@ export function setGraphHighlightedFolder(path: string | null): void {
   graphHighlightedFolder.set(current === path ? null : path)
 }
 
+/** Toggle an edge cluster ID in the filter set. If present, remove it; if absent, add it. */
+export function toggleEdgeClusterFilter(clusterId: number): void {
+  const current = get(graphEdgeFilter)
+  const next = new Set(current)
+  if (next.has(clusterId)) {
+    next.delete(clusterId)
+  } else {
+    next.add(clusterId)
+  }
+  graphEdgeFilter.set(next)
+}
+
+/** Clear all edge cluster filters (show all edges). */
+export function clearEdgeFilter(): void {
+  graphEdgeFilter.set(new Set())
+}
+
+/** Toggle semantic edge styling on/off. */
+export function toggleSemanticEdges(): void {
+  graphSemanticEdgesEnabled.set(!get(graphSemanticEdgesEnabled))
+}
+
 /** Open graph view with neighborhood data converted to GraphData. */
 export function openGraphWithNeighborhood(filePath: string, neighborhood: NeighborhoodResult): void {
   const nodes = new Map<string, GraphNode>()
@@ -183,4 +214,7 @@ export function resetGraphState(): void {
   graphHoveredFilePath.set(null)
   graphLevel.set('document')
   graphPathFilter.set(null)
+  graphEdgeFilter.set(new Set())
+  graphSemanticEdgesEnabled.set(true)
+  graphEdgeWeakThreshold.set(0.3)
 }
