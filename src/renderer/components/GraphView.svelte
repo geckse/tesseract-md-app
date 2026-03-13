@@ -18,12 +18,18 @@
     setGraphLevel,
     setGraphPathFilter,
     setGraphHighlightedFolder,
+    graphEdgeFilter,
+    graphSemanticEdgesEnabled,
+    graphEdgeWeakThreshold,
+    toggleEdgeClusterFilter,
+    clearEdgeFilter,
   } from '../stores/graph';
   import type { GraphColoringMode } from '../stores/graph';
   import type { GraphLevel } from '../types/cli';
   import type { GraphNode, GraphEdge, GraphData } from '../types/cli';
   import { selectedFilePath } from '../stores/files';
   import { convexHull, padHull, centroid, polygonArea, hexToRgb } from '../lib/convex-hull';
+  import { edgeClusterColor, isEdgeVisible, edgeLineWidth, isWeakEdge, pointToSegmentDist } from '../lib/edge-utils';
 
   /** Cluster color palette (12 colors, cycling). */
   const CLUSTER_COLORS = [
@@ -49,6 +55,14 @@
     source: SimNode | string;
     target: SimNode | string;
     weight: number | null;
+    /** Semantic relationship type (e.g. "related", "references"). */
+    relationship_type?: string | null;
+    /** Semantic strength score [0, 1]. */
+    strength?: number | null;
+    /** Context text excerpt describing the relationship. */
+    context_text?: string | null;
+    /** Edge cluster ID for color grouping. */
+    edge_cluster_id?: number | null;
   }
 
   interface ClusterHull {
@@ -107,6 +121,9 @@
   let unsubPathFilter: (() => void) | null = null;
   let unsubHighlightedFolder: (() => void) | null = null;
   let unsubHoveredFilePath: (() => void) | null = null;
+  let unsubEdgeFilter: (() => void) | null = null;
+  let unsubSemanticEdges: (() => void) | null = null;
+  let unsubEdgeWeakThreshold: (() => void) | null = null;
 
   // Reactive local copies for template use
   let currentData: GraphData | null = $state(null);
@@ -119,6 +136,9 @@
   let currentPathFilter: string | null = $state(null);
   let currentHighlightedFolder: string | null = $state(null);
   let currentHoveredFilePath: string | null = $state(null);
+  let currentEdgeFilter: Set<number> = $state(new Set());
+  let currentSemanticEdgesEnabled: boolean = $state(true);
+  let currentEdgeWeakThreshold: number = $state(0.3);
 
   /** Hash a string to a stable index for color assignment. */
   function fileColor(path: string): string {
@@ -259,6 +279,18 @@
       currentHoveredFilePath = p;
       dirty = true;
     });
+    unsubEdgeFilter = graphEdgeFilter.subscribe((f) => {
+      currentEdgeFilter = f;
+      dirty = true;
+    });
+    unsubSemanticEdges = graphSemanticEdgesEnabled.subscribe((v) => {
+      currentSemanticEdgesEnabled = v;
+      dirty = true;
+    });
+    unsubEdgeWeakThreshold = graphEdgeWeakThreshold.subscribe((v) => {
+      currentEdgeWeakThreshold = v;
+      dirty = true;
+    });
     graphLoading.subscribe((v) => { currentLoading = v; });
     graphError.subscribe((v) => { currentError = v; });
     graphLevel.subscribe((v) => {
@@ -293,6 +325,9 @@
     unsubPathFilter?.();
     unsubHighlightedFolder?.();
     unsubHoveredFilePath?.();
+    unsubEdgeFilter?.();
+    unsubSemanticEdges?.();
+    unsubEdgeWeakThreshold?.();
   });
 
   function resizeCanvas() {
@@ -370,7 +405,15 @@
     const nodeMap = new Map(simNodes.map((n) => [n.id, n]));
     simEdges = data.edges
       .filter((e) => nodeMap.has(e.source) && nodeMap.has(e.target))
-      .map((e) => ({ source: e.source, target: e.target, weight: e.weight }));
+      .map((e) => ({
+        source: e.source,
+        target: e.target,
+        weight: e.weight,
+        relationship_type: e.relationship_type ?? null,
+        strength: e.strength ?? null,
+        context_text: e.context_text ?? null,
+        edge_cluster_id: e.edge_cluster_id ?? null,
+      }));
 
     const isLarge = simNodes.length > 300;
 
