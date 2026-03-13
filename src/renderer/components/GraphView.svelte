@@ -103,6 +103,7 @@
 
   // Hover state
   let hoveredNode: SimNode | null = null;
+  let hoveredEdge: SimEdge | null = null;
   let tooltipX = 0;
   let tooltipY = 0;
 
@@ -1142,6 +1143,27 @@
     return simulation.find(gx, gy, hitRadius) ?? null;
   }
 
+  /** Find the nearest edge within 6 screen-pixels of the given screen coordinates. */
+  function findEdgeAt(sx: number, sy: number): SimEdge | null {
+    if (isChunkMode()) return null;
+    const [gx, gy] = screenToGraph(sx, sy);
+    const hitDist = 6 / zoom;
+    let closest: SimEdge | null = null;
+    let closestDist = hitDist;
+    for (const edge of simEdges) {
+      const s = edge.source as SimNode;
+      const t = edge.target as SimNode;
+      if (s.x == null || t.x == null) continue;
+      if (!isEdgeVisible(edge, currentEdgeFilter.size > 0 ? currentEdgeFilter : null)) continue;
+      const dist = pointToSegmentDist(gx, gy, s.x, s.y, t.x, t.y);
+      if (dist < closestDist) {
+        closestDist = dist;
+        closest = edge;
+      }
+    }
+    return closest;
+  }
+
   function handleMouseDown(e: MouseEvent) {
     if (e.button !== 0) return;
     const rect = canvasEl!.getBoundingClientRect();
@@ -1190,8 +1212,22 @@
     }
 
     const node = findNodeAt(sx, sy);
-    if (node !== hoveredNode) {
-      hoveredNode = node;
+    if (node) {
+      if (node !== hoveredNode) {
+        hoveredNode = node;
+        hoveredEdge = null;
+        tooltipX = e.clientX;
+        tooltipY = e.clientY;
+        dirty = true;
+      }
+      return;
+    }
+
+    // No node hovered — check for edge hover
+    const edge = findEdgeAt(sx, sy);
+    if (edge !== hoveredEdge || hoveredNode) {
+      hoveredNode = null;
+      hoveredEdge = edge;
       tooltipX = e.clientX;
       tooltipY = e.clientY;
       dirty = true;
@@ -1237,6 +1273,7 @@
       selectGraphNode(null);
       setGraphHighlightedFolder(null);
       hoveredNode = null;
+      hoveredEdge = null;
       dirty = true;
     }
   }
@@ -1296,7 +1333,7 @@
       onmouseup={handleMouseUp}
       onmouseleave={handleMouseUp}
       onwheel={handleWheel}
-      style="cursor: {draggedNode ? 'grabbing' : isPanning ? 'grabbing' : hoveredNode ? 'pointer' : 'grab'}"
+      style="cursor: {draggedNode ? 'grabbing' : isPanning ? 'grabbing' : hoveredNode || hoveredEdge ? 'pointer' : 'grab'}"
     ></canvas>
 
     <!-- Level tab switcher -->
@@ -1348,6 +1385,36 @@
           {#if cluster}
             <div class="tooltip-cluster">{cluster.label}</div>
           {/if}
+        {/if}
+      </div>
+    {/if}
+
+    <!-- Edge tooltip -->
+    {#if hoveredEdge && !hoveredNode}
+      {@const edgeSrc = hoveredEdge.source as SimNode}
+      {@const edgeTgt = hoveredEdge.target as SimNode}
+      <div
+        class="graph-tooltip edge-tooltip"
+        style="left: {tooltipX + 12}px; top: {tooltipY - 30}px"
+      >
+        {#if hoveredEdge.relationship_type}
+          <div class="edge-tooltip-type">
+            <span class="edge-tooltip-dot" style="background: {hoveredEdge.edge_cluster_id != null ? edgeClusterColor(hoveredEdge.edge_cluster_id) : 'rgba(255,255,255,0.5)'}"></span>
+            {hoveredEdge.relationship_type}
+          </div>
+        {/if}
+        <div class="edge-tooltip-nodes">{edgeSrc.path} → {edgeTgt.path}</div>
+        {#if hoveredEdge.strength != null}
+          <div class="edge-tooltip-strength">
+            <span class="edge-tooltip-strength-label">Strength</span>
+            <div class="edge-tooltip-bar">
+              <div class="edge-tooltip-bar-fill" style="width: {Math.round(hoveredEdge.strength * 100)}%"></div>
+            </div>
+            <span class="edge-tooltip-strength-value">{Math.round(hoveredEdge.strength * 100)}%</span>
+          </div>
+        {/if}
+        {#if hoveredEdge.context_text}
+          <div class="edge-tooltip-context">{hoveredEdge.context_text.length > 120 ? hoveredEdge.context_text.slice(0, 120) + '…' : hoveredEdge.context_text}</div>
         {/if}
       </div>
     {/if}
@@ -1511,6 +1578,81 @@
     font-family: var(--font-display, 'Space Grotesk', sans-serif);
     font-size: var(--text-xs, 0.625rem);
     margin-top: var(--space-1, 0.25rem);
+  }
+
+  .edge-tooltip {
+    max-width: 320px;
+  }
+
+  .edge-tooltip-type {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 0.5rem);
+    color: var(--color-text, #e4e4e7);
+    font-family: var(--font-display, 'Space Grotesk', sans-serif);
+    font-size: var(--text-sm, 0.75rem);
+    font-weight: var(--weight-medium, 500);
+  }
+
+  .edge-tooltip-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: var(--radius-full, 9999px);
+    flex-shrink: 0;
+  }
+
+  .edge-tooltip-nodes {
+    color: var(--color-text-dim, #71717a);
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-size: var(--text-xs, 0.625rem);
+    margin-top: var(--space-1, 0.25rem);
+    word-break: break-all;
+  }
+
+  .edge-tooltip-strength {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 0.5rem);
+    margin-top: var(--space-2, 0.5rem);
+    font-family: var(--font-display, 'Space Grotesk', sans-serif);
+    font-size: var(--text-xs, 0.625rem);
+  }
+
+  .edge-tooltip-strength-label {
+    color: var(--color-text-dim, #71717a);
+    flex-shrink: 0;
+  }
+
+  .edge-tooltip-bar {
+    flex: 1;
+    height: 4px;
+    background: var(--color-border, #27272a);
+    border-radius: 2px;
+    overflow: hidden;
+    min-width: 60px;
+  }
+
+  .edge-tooltip-bar-fill {
+    height: 100%;
+    background: var(--color-primary, #00E5FF);
+    border-radius: 2px;
+    transition: width var(--transition-fast, 150ms ease);
+  }
+
+  .edge-tooltip-strength-value {
+    color: var(--color-text, #e4e4e7);
+    flex-shrink: 0;
+    min-width: 30px;
+    text-align: right;
+  }
+
+  .edge-tooltip-context {
+    color: var(--color-text-dim, #71717a);
+    font-family: var(--font-display, 'Space Grotesk', sans-serif);
+    font-size: var(--text-xs, 0.625rem);
+    margin-top: var(--space-2, 0.5rem);
+    line-height: 1.4;
+    font-style: italic;
   }
 
   .graph-legend-collapsed {
