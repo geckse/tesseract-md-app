@@ -119,14 +119,14 @@ const api: MdvdbApi = {
   checkLatestCliVersion: () => invoke('cli:check-latest-version'),
 
   // User-level config (~/.mdvdb/config)
-  getUserConfig: () => invoke('config:get-user'),
-  setUserConfig: (key, value) => invoke('config:set-user', key, value),
-  deleteUserConfig: (key) => invoke('config:delete-user', key),
+  getUserConfig: () => invoke('settings:get-user-config'),
+  setUserConfig: (key, value) => invoke('settings:set-user-config', key, value),
+  deleteUserConfig: (key) => invoke('settings:delete-user-config', key),
 
   // Collection-level config (.markdownvdb/.config)
-  getCollectionConfig: (root) => invoke('config:get-collection', root),
-  setCollectionConfig: (root, key, value) => invoke('config:set-collection', root, key, value),
-  deleteCollectionConfig: (root, key) => invoke('config:delete-collection', root, key),
+  getCollectionConfig: (root) => invoke('settings:get-collection-config', root),
+  setCollectionConfig: (root, key, value) => invoke('settings:set-collection-config', root, key, value),
+  deleteCollectionConfig: (root, key) => invoke('settings:delete-collection-config', root, key),
 
   // Onboarding state
   getOnboardingComplete: () => invoke('store:get-onboarding-complete'),

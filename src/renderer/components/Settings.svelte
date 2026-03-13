@@ -3,14 +3,21 @@
   import {
     userConfig,
     collectionConfig,
+    userDraft,
+    collectionDraft,
+    collectionDeletions,
     configLoading,
+    isDirty,
     activeSection,
     settingsTarget,
+    saveStatus,
     loadUserConfig,
     loadCollectionConfig,
-    saveUserConfig,
-    saveCollectionConfig,
-    deleteCollectionConfigKey,
+    stageUserConfig,
+    stageCollectionConfig,
+    stageCollectionDelete,
+    saveAllSettings,
+    discardDraft,
   } from '../stores/settings'
   import { settingsOpen } from '../stores/ui'
   import { collections, activeCollection } from '../stores/collections'
@@ -70,12 +77,25 @@
   // API key visibility
   let showApiKey = $state(false)
 
+  // Save feedback
+  let currentSaveStatus: 'saved' | 'error' | null = $state(null)
+  let currentIsDirty = $state(false)
+  let currentUserDraft: Record<string, string> = $state({})
+  let currentCollectionDraft: Record<string, string> = $state({})
+  let currentCollectionDeletions: Set<string> = $state(new Set())
+  let saving = $state(false)
+
   activeSection.subscribe((v) => (currentSection = v as Section))
   settingsTarget.subscribe((v) => (currentTarget = v))
   userConfig.subscribe((v) => (currentUserConfig = v))
   collectionConfig.subscribe((v) => (currentCollectionConfig = v))
   configLoading.subscribe((v) => (currentLoading = v))
   collections.subscribe((v) => (allCollections = v))
+  saveStatus.subscribe((v) => (currentSaveStatus = v))
+  isDirty.subscribe((v) => (currentIsDirty = v))
+  userDraft.subscribe((v) => (currentUserDraft = v))
+  collectionDraft.subscribe((v) => (currentCollectionDraft = v))
+  collectionDeletions.subscribe((v) => (currentCollectionDeletions = v))
 
   let isGlobal = $derived(currentTarget === 'global')
   let availableSections = $derived(isGlobal ? globalSections : collectionSections)
@@ -83,17 +103,25 @@
     isGlobal ? null : allCollections.find((c) => c.id === currentTarget) ?? null
   )
 
-  // Resolve effective config value: collection override > user > empty
+  // Resolve effective config value: draft > collection override > user draft > user saved > empty
   function getConfigValue(key: string): string {
-    if (!isGlobal && currentCollectionConfig[key] !== undefined) {
-      return currentCollectionConfig[key]
+    if (!isGlobal) {
+      // Check collection draft first
+      if (currentCollectionDraft[key] !== undefined) return currentCollectionDraft[key]
+      // If scheduled for deletion, fall through to user level
+      if (!currentCollectionDeletions.has(key) && currentCollectionConfig[key] !== undefined) {
+        return currentCollectionConfig[key]
+      }
     }
+    // User draft then user saved
+    if (currentUserDraft[key] !== undefined) return currentUserDraft[key]
     return currentUserConfig[key] ?? ''
   }
 
-  // Check if collection overrides a key
+  // Check if collection overrides a key (including draft overrides, excluding deletions)
   function isCollectionOverride(key: string): boolean {
-    return currentCollectionConfig[key] !== undefined
+    if (currentCollectionDeletions.has(key)) return false
+    return currentCollectionDraft[key] !== undefined || currentCollectionConfig[key] !== undefined
   }
 
   // Get annotation for a config value
@@ -103,21 +131,35 @@
     return '(inherited from global)'
   }
 
-  function handleSave(key: string, value: string) {
+  function handleChange(key: string, value: string) {
     if (!isGlobal && targetCollection) {
-      saveCollectionConfig(targetCollection.path, key, value)
+      stageCollectionConfig(key, value)
     } else {
-      saveUserConfig(key, value)
+      stageUserConfig(key, value)
     }
   }
 
   function handleResetToInherited(key: string) {
-    if (!isGlobal && targetCollection) {
-      deleteCollectionConfigKey(targetCollection.path, key)
+    if (!isGlobal) {
+      stageCollectionDelete(key)
     }
   }
 
+  async function handleSaveAll() {
+    saving = true
+    try {
+      await saveAllSettings(targetCollection?.path)
+    } finally {
+      saving = false
+    }
+  }
+
+  function handleDiscard() {
+    discardDraft()
+  }
+
   function selectTarget(target: string) {
+    discardDraft()
     settingsTarget.set(target)
     if (target === 'global') {
       activeSection.set('cli')
@@ -177,6 +219,7 @@
   }
 
   function handleClose() {
+    discardDraft()
     settingsTarget.set('global')
     activeSection.set('cli')
     settingsOpen.set(false)
@@ -186,6 +229,10 @@
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape' && !shortcutsOpen) {
       handleClose()
+    }
+    if (e.key === 's' && (e.metaKey || e.ctrlKey) && currentIsDirty) {
+      e.preventDefault()
+      handleSaveAll()
     }
   }
 
@@ -292,7 +339,7 @@
               <select
                 class="field-select"
                 value={getConfigValue('MDVDB_EMBEDDING_PROVIDER')}
-                onchange={(e) => handleSave('MDVDB_EMBEDDING_PROVIDER', (e.target as HTMLSelectElement).value)}
+                onchange={(e) => handleChange('MDVDB_EMBEDDING_PROVIDER', (e.target as HTMLSelectElement).value)}
               >
                 <option value="">— Select —</option>
                 <option value="openai">OpenAI</option>
@@ -317,7 +364,7 @@
                 type="text"
                 value={getConfigValue('MDVDB_EMBEDDING_MODEL')}
                 placeholder="text-embedding-3-small"
-                oninput={(e) => handleSave('MDVDB_EMBEDDING_MODEL', (e.target as HTMLInputElement).value)}
+                oninput={(e) => handleChange('MDVDB_EMBEDDING_MODEL', (e.target as HTMLInputElement).value)}
               />
               {#if !isGlobal && isCollectionOverride('MDVDB_EMBEDDING_MODEL')}
                 <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_EMBEDDING_MODEL')}>
@@ -337,7 +384,7 @@
                 type={showApiKey ? 'text' : 'password'}
                 value={getConfigValue('OPENAI_API_KEY')}
                 placeholder="sk-..."
-                oninput={(e) => handleSave('OPENAI_API_KEY', (e.target as HTMLInputElement).value)}
+                oninput={(e) => handleChange('OPENAI_API_KEY', (e.target as HTMLInputElement).value)}
               />
               <button class="icon-btn" onclick={() => (showApiKey = !showApiKey)} title={showApiKey ? 'Hide' : 'Show'}>
                 <span class="material-symbols-outlined">{showApiKey ? 'visibility_off' : 'visibility'}</span>
@@ -360,7 +407,7 @@
                 type="number"
                 value={getConfigValue('MDVDB_EMBEDDING_DIMENSIONS')}
                 placeholder="1536"
-                oninput={(e) => handleSave('MDVDB_EMBEDDING_DIMENSIONS', (e.target as HTMLInputElement).value)}
+                oninput={(e) => handleChange('MDVDB_EMBEDDING_DIMENSIONS', (e.target as HTMLInputElement).value)}
               />
               {#if !isGlobal && isCollectionOverride('MDVDB_EMBEDDING_DIMENSIONS')}
                 <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_EMBEDDING_DIMENSIONS')}>
@@ -381,7 +428,7 @@
                   type="text"
                   value={getConfigValue('OLLAMA_HOST')}
                   placeholder="http://localhost:11434"
-                  oninput={(e) => handleSave('OLLAMA_HOST', (e.target as HTMLInputElement).value)}
+                  oninput={(e) => handleChange('OLLAMA_HOST', (e.target as HTMLInputElement).value)}
                 />
                 {#if !isGlobal && isCollectionOverride('OLLAMA_HOST')}
                   <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('OLLAMA_HOST')}>
@@ -406,7 +453,7 @@
               <select
                 class="field-select"
                 value={getConfigValue('MDVDB_SEARCH_MODE')}
-                onchange={(e) => handleSave('MDVDB_SEARCH_MODE', (e.target as HTMLSelectElement).value)}
+                onchange={(e) => handleChange('MDVDB_SEARCH_MODE', (e.target as HTMLSelectElement).value)}
               >
                 <option value="">— Default —</option>
                 <option value="hybrid">Hybrid</option>
@@ -431,7 +478,7 @@
                 type="number"
                 value={getConfigValue('MDVDB_SEARCH_DEFAULT_LIMIT')}
                 placeholder="10"
-                oninput={(e) => handleSave('MDVDB_SEARCH_DEFAULT_LIMIT', (e.target as HTMLInputElement).value)}
+                oninput={(e) => handleChange('MDVDB_SEARCH_DEFAULT_LIMIT', (e.target as HTMLInputElement).value)}
               />
               {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_DEFAULT_LIMIT')}
                 <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_SEARCH_DEFAULT_LIMIT')}>
@@ -452,7 +499,7 @@
                 step="0.01"
                 value={getConfigValue('MDVDB_SEARCH_MIN_SCORE')}
                 placeholder="0.0"
-                oninput={(e) => handleSave('MDVDB_SEARCH_MIN_SCORE', (e.target as HTMLInputElement).value)}
+                oninput={(e) => handleChange('MDVDB_SEARCH_MIN_SCORE', (e.target as HTMLInputElement).value)}
               />
               {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_MIN_SCORE')}
                 <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_SEARCH_MIN_SCORE')}>
@@ -471,7 +518,7 @@
                 <input
                   type="checkbox"
                   checked={getConfigValue('MDVDB_SEARCH_BOOST_LINKS') === 'true'}
-                  onchange={(e) => handleSave('MDVDB_SEARCH_BOOST_LINKS', (e.target as HTMLInputElement).checked ? 'true' : 'false')}
+                  onchange={(e) => handleChange('MDVDB_SEARCH_BOOST_LINKS', (e.target as HTMLInputElement).checked ? 'true' : 'false')}
                 />
                 Boost results linked to top matches
               </label>
@@ -496,7 +543,7 @@
                   max="3"
                   value={getConfigValue('MDVDB_SEARCH_BOOST_HOPS')}
                   placeholder="1"
-                  oninput={(e) => handleSave('MDVDB_SEARCH_BOOST_HOPS', (e.target as HTMLInputElement).value)}
+                  oninput={(e) => handleChange('MDVDB_SEARCH_BOOST_HOPS', (e.target as HTMLInputElement).value)}
                 />
                 {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_BOOST_HOPS')}
                   <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_SEARCH_BOOST_HOPS')}>
@@ -520,7 +567,7 @@
                 max="3"
                 value={getConfigValue('MDVDB_SEARCH_EXPAND_GRAPH')}
                 placeholder="0"
-                oninput={(e) => handleSave('MDVDB_SEARCH_EXPAND_GRAPH', (e.target as HTMLInputElement).value)}
+                oninput={(e) => handleChange('MDVDB_SEARCH_EXPAND_GRAPH', (e.target as HTMLInputElement).value)}
               />
               {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_EXPAND_GRAPH')}
                 <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_SEARCH_EXPAND_GRAPH')}>
@@ -544,7 +591,7 @@
                   max="10"
                   value={getConfigValue('MDVDB_SEARCH_EXPAND_LIMIT')}
                   placeholder="3"
-                  oninput={(e) => handleSave('MDVDB_SEARCH_EXPAND_LIMIT', (e.target as HTMLInputElement).value)}
+                  oninput={(e) => handleChange('MDVDB_SEARCH_EXPAND_LIMIT', (e.target as HTMLInputElement).value)}
                 />
                 {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_EXPAND_LIMIT')}
                   <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_SEARCH_EXPAND_LIMIT')}>
@@ -565,7 +612,7 @@
                 <input
                   type="checkbox"
                   checked={getConfigValue('MDVDB_SEARCH_DECAY') === 'true'}
-                  onchange={(e) => handleSave('MDVDB_SEARCH_DECAY', (e.target as HTMLInputElement).checked ? 'true' : 'false')}
+                  onchange={(e) => handleChange('MDVDB_SEARCH_DECAY', (e.target as HTMLInputElement).checked ? 'true' : 'false')}
                 />
                 Enable time decay
               </label>
@@ -588,7 +635,7 @@
                   type="number"
                   value={getConfigValue('MDVDB_SEARCH_DECAY_HALF_LIFE')}
                   placeholder="90"
-                  oninput={(e) => handleSave('MDVDB_SEARCH_DECAY_HALF_LIFE', (e.target as HTMLInputElement).value)}
+                  oninput={(e) => handleChange('MDVDB_SEARCH_DECAY_HALF_LIFE', (e.target as HTMLInputElement).value)}
                 />
                 {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_DECAY_HALF_LIFE')}
                   <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_SEARCH_DECAY_HALF_LIFE')}>
@@ -608,7 +655,7 @@
                   type="text"
                   value={getConfigValue('MDVDB_SEARCH_DECAY_EXCLUDE')}
                   placeholder="docs/reference,wiki/glossary"
-                  oninput={(e) => handleSave('MDVDB_SEARCH_DECAY_EXCLUDE', (e.target as HTMLInputElement).value)}
+                  oninput={(e) => handleChange('MDVDB_SEARCH_DECAY_EXCLUDE', (e.target as HTMLInputElement).value)}
                 />
                 {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_DECAY_EXCLUDE')}
                   <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_SEARCH_DECAY_EXCLUDE')}>
@@ -629,7 +676,7 @@
                   type="text"
                   value={getConfigValue('MDVDB_SEARCH_DECAY_INCLUDE')}
                   placeholder="journal,daily"
-                  oninput={(e) => handleSave('MDVDB_SEARCH_DECAY_INCLUDE', (e.target as HTMLInputElement).value)}
+                  oninput={(e) => handleChange('MDVDB_SEARCH_DECAY_INCLUDE', (e.target as HTMLInputElement).value)}
                 />
                 {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_DECAY_INCLUDE')}
                   <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_SEARCH_DECAY_INCLUDE')}>
@@ -657,7 +704,7 @@
                 type="number"
                 value={getConfigValue('MDVDB_CHUNK_MAX_TOKENS')}
                 placeholder="512"
-                oninput={(e) => handleSave('MDVDB_CHUNK_MAX_TOKENS', (e.target as HTMLInputElement).value)}
+                oninput={(e) => handleChange('MDVDB_CHUNK_MAX_TOKENS', (e.target as HTMLInputElement).value)}
               />
               {#if !isGlobal && isCollectionOverride('MDVDB_CHUNK_MAX_TOKENS')}
                 <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_CHUNK_MAX_TOKENS')}>
@@ -677,7 +724,7 @@
                 type="number"
                 value={getConfigValue('MDVDB_CHUNK_OVERLAP_TOKENS')}
                 placeholder="50"
-                oninput={(e) => handleSave('MDVDB_CHUNK_OVERLAP_TOKENS', (e.target as HTMLInputElement).value)}
+                oninput={(e) => handleChange('MDVDB_CHUNK_OVERLAP_TOKENS', (e.target as HTMLInputElement).value)}
               />
               {#if !isGlobal && isCollectionOverride('MDVDB_CHUNK_OVERLAP_TOKENS')}
                 <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_CHUNK_OVERLAP_TOKENS')}>
@@ -730,6 +777,30 @@
           </div>
         </div>
       {/if}
+
+      {#if currentIsDirty || currentSaveStatus}
+        <div class="settings-action-bar" aria-live="polite">
+          {#if currentSaveStatus}
+            <div class="save-toast" class:error={currentSaveStatus === 'error'}>
+              <span class="material-symbols-outlined save-toast-icon">
+                {currentSaveStatus === 'saved' ? 'check_circle' : 'error'}
+              </span>
+              {currentSaveStatus === 'saved' ? 'Settings saved' : 'Failed to save'}
+            </div>
+          {/if}
+          {#if currentIsDirty}
+            <div class="action-bar-buttons">
+              <button class="discard-btn" onclick={handleDiscard} disabled={saving}>
+                Discard
+              </button>
+              <button class="save-btn" onclick={handleSaveAll} disabled={saving}>
+                <span class="material-symbols-outlined save-btn-icon">save</span>
+                {saving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          {/if}
+        </div>
+      {/if}
     </div>
   </div>
 </div>
@@ -759,6 +830,120 @@
     text-transform: uppercase;
     letter-spacing: 0.05em;
     margin: 0;
+  }
+
+  .settings-action-bar {
+    position: sticky;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 0;
+    margin-top: 24px;
+    border-top: 1px solid var(--color-border, #27272a);
+    background: var(--color-bg, #09090b);
+    animation: bar-in 150ms ease-out;
+  }
+
+  .action-bar-buttons {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+  }
+
+  .save-toast {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--text-xs, 10px);
+    font-weight: var(--weight-bold, 700);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #22c55e;
+    animation: toast-in 150ms ease-out;
+  }
+
+  .save-toast.error {
+    color: #ef4444;
+  }
+
+  .save-toast-icon {
+    font-size: 16px;
+  }
+
+  @keyframes bar-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes toast-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .settings-action-bar,
+    .save-toast {
+      animation: none;
+    }
+  }
+
+  .save-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 16px;
+    background: var(--color-primary, #00E5FF);
+    border: none;
+    border-radius: var(--radius-sm, 2px);
+    color: #000;
+    font-family: inherit;
+    font-size: var(--text-xs, 10px);
+    font-weight: var(--weight-bold, 700);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    transition: opacity var(--transition-fast, 150ms ease);
+  }
+
+  .save-btn:hover:not(:disabled) {
+    opacity: 0.85;
+  }
+
+  .save-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .save-btn-icon {
+    font-size: 14px;
+  }
+
+  .discard-btn {
+    padding: 6px 14px;
+    background: none;
+    border: 1px solid var(--color-border, #27272a);
+    border-radius: var(--radius-sm, 2px);
+    color: var(--color-text-dim, #71717a);
+    font-family: inherit;
+    font-size: var(--text-xs, 10px);
+    font-weight: var(--weight-bold, 700);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    transition: color var(--transition-fast, 150ms ease), border-color var(--transition-fast, 150ms ease);
+  }
+
+  .discard-btn:hover:not(:disabled) {
+    color: var(--color-text, #e4e4e7);
+    border-color: var(--color-border-hover, #3f3f46);
+  }
+
+  .discard-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   .close-btn {
