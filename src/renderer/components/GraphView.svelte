@@ -764,35 +764,83 @@
 
     // --- Edges ---
     // 1. Draw non-highlighted edges first (dimmed when there's a selection or any highlight)
-    ctx.lineWidth = 1 / zoom;
+    // Collect edges into solid and dashed batches for performance
+    const dimFactor = hasSelection || hasHoverHighlight || hasFileHighlight || hasFolderHighlight;
+    const solidEdges: { s: SimNode; t: SimNode; color: string; width: number }[] = [];
+    const dashedEdges: { s: SimNode; t: SimNode; color: string; width: number }[] = [];
+
     for (const edge of simEdges) {
       if (outEdges.has(edge) || inEdges.has(edge)) continue;
-      // Skip hover-highlighted edges; drawn later
       if (hasHoverHighlight && hoverEdges.has(edge)) continue;
-      // Skip file-highlighted edges here; they're drawn later with brighter style
       if (hasFileHighlight && fileEdges.has(edge)) continue;
-      // Skip folder-highlighted edges here; they're drawn later with cyan style
       if (hasFolderHighlight && folderEdges.has(edge)) continue;
+
+      // Apply edge cluster visibility filter
+      const edgeFilterSet = currentEdgeFilter.size > 0 ? currentEdgeFilter : null;
+      if (!isEdgeVisible(edge, edgeFilterSet)) continue;
+
       const s = edge.source as SimNode;
       const t = edge.target as SimNode;
       if (s.x == null || t.x == null) continue;
 
-      const dimFactor = hasSelection || hasHoverHighlight || hasFileHighlight || hasFolderHighlight;
-      // In chunk mode, edge opacity is proportional to weight
-      if (chunk && edge.weight != null) {
+      // Determine if this is a semantic edge (has strength and/or edge_cluster_id)
+      const isSemantic = currentSemanticEdgesEnabled && (edge.strength != null || edge.edge_cluster_id != null);
+
+      if (isSemantic && edge.strength != null) {
+        // Semantic edge: variable thickness by strength, color by cluster
+        const lw = edgeLineWidth(edge.strength, zoom);
+        const baseAlpha = dimFactor ? 0.3 : 0.7;
+        const alpha = baseAlpha * Math.max(0.2, edge.strength);
+        let color: string;
+        if (edge.edge_cluster_id != null) {
+          const hex = edgeClusterColor(edge.edge_cluster_id);
+          const { r, g, b } = hexToRgb(hex);
+          color = `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        } else {
+          color = `rgba(255, 255, 255, ${alpha})`;
+        }
+
+        if (isWeakEdge(edge.strength, currentEdgeWeakThreshold)) {
+          dashedEdges.push({ s, t, color, width: lw });
+        } else {
+          solidEdges.push({ s, t, color, width: lw });
+        }
+      } else if (chunk && edge.weight != null) {
+        // Chunk mode: edge opacity proportional to weight
         const alpha = dimFactor ? (0.05 + edge.weight * 0.2) * 0.3 : 0.05 + edge.weight * 0.2;
-        ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
-        ctx.beginPath();
-        ctx.moveTo(s.x, s.y);
-        ctx.lineTo(t.x, t.y);
-        ctx.stroke();
+        solidEdges.push({ s, t, color: `rgba(255, 255, 255, ${alpha})`, width: 1 / zoom });
       } else {
-        ctx.strokeStyle = dimFactor ? 'rgba(255, 255, 255, 0.03)' : 'rgba(255, 255, 255, 0.08)';
+        // Default edge style
+        const color = dimFactor ? 'rgba(255, 255, 255, 0.03)' : 'rgba(255, 255, 255, 0.08)';
+        solidEdges.push({ s, t, color, width: 1 / zoom });
+      }
+    }
+
+    // Batch render: solid edges first
+    ctx.setLineDash([]);
+    for (const { s, t, color, width: lw } of solidEdges) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = lw;
+      ctx.beginPath();
+      ctx.moveTo(s.x, s.y);
+      ctx.lineTo(t.x, t.y);
+      ctx.stroke();
+    }
+
+    // Batch render: dashed edges (weak semantic edges)
+    if (dashedEdges.length > 0) {
+      const dashLen = 4 / zoom;
+      const gapLen = 3 / zoom;
+      ctx.setLineDash([dashLen, gapLen]);
+      for (const { s, t, color, width: lw } of dashedEdges) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = lw;
         ctx.beginPath();
         ctx.moveTo(s.x, s.y);
         ctx.lineTo(t.x, t.y);
         ctx.stroke();
       }
+      ctx.setLineDash([]);
     }
 
     // 1b. Draw hover-highlighted edges (search result hover)
