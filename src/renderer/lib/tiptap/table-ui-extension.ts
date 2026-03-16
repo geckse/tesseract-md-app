@@ -87,9 +87,16 @@ export const TableUIExtension = Extension.create({
 
   addProseMirrorPlugins() {
     const editor = this.editor
+
+    // Context menu state
     let popup: HTMLDivElement | null = null
     let component: Record<string, unknown> | null = null
     let outsideClickHandler: ((ev: MouseEvent) => void) | null = null
+
+    // Toolbar state (separate from context menu)
+    let toolbarPopup: HTMLDivElement | null = null
+    let toolbarComponent: Record<string, unknown> | null = null
+    let activeTablePos = -1
 
     function closeMenu() {
       if (component) {
@@ -104,6 +111,51 @@ export const TableUIExtension = Extension.create({
         document.removeEventListener('mousedown', outsideClickHandler)
         outsideClickHandler = null
       }
+    }
+
+    function closeToolbar() {
+      if (toolbarComponent) {
+        unmount(toolbarComponent)
+        toolbarComponent = null
+      }
+      if (toolbarPopup) {
+        toolbarPopup.remove()
+        toolbarPopup = null
+      }
+      activeTablePos = -1
+    }
+
+    function showToolbar(view: EditorView, cellInfo: CellInfo, tableEl: Element) {
+      closeToolbar()
+      activeTablePos = cellInfo.tablePos
+
+      toolbarPopup = document.createElement('div')
+      toolbarPopup.classList.add('table-toolbar-popup')
+      document.body.appendChild(toolbarPopup)
+
+      // Dynamic import allows graceful failure if the component doesn't exist yet.
+      import('../../components/wysiwyg/TableToolbar.svelte')
+        .then((module) => {
+          if (!toolbarPopup) return // closed before import resolved
+          const TableToolbar = module.default
+
+          toolbarComponent = mount(TableToolbar, {
+            target: toolbarPopup!,
+            props: {
+              tableEl,
+              cellInfo,
+              editor,
+              onClose: closeToolbar,
+            },
+          })
+        })
+        .catch(() => {
+          // TableToolbar.svelte doesn't exist yet - clean up
+          if (toolbarPopup && !toolbarPopup.hasChildNodes()) {
+            toolbarPopup.remove()
+            toolbarPopup = null
+          }
+        })
     }
 
     function showContextMenu(
@@ -160,8 +212,40 @@ export const TableUIExtension = Extension.create({
         key: tableUIPluginKey,
         view() {
           return {
+            update(view: EditorView) {
+              const { state } = view
+              const { selection } = state
+              const { from } = selection
+
+              const $pos = state.doc.resolve(from)
+              const cellInfo = resolveCellInfo($pos)
+
+              if (!cellInfo) {
+                closeToolbar()
+                return
+              }
+
+              // Don't re-mount if same table
+              if (cellInfo.tablePos === activeTablePos) return
+
+              // Find the <table> DOM element via view.domAtPos()
+              const domAtPos = view.domAtPos(cellInfo.tablePos + 1)
+              const domNode = domAtPos.node
+              const tableEl =
+                domNode instanceof Element
+                  ? domNode.closest('table') || domNode
+                  : domNode.parentElement?.closest('table') || domNode.parentElement
+
+              if (!tableEl) {
+                closeToolbar()
+                return
+              }
+
+              showToolbar(view, cellInfo, tableEl)
+            },
             destroy() {
               closeMenu()
+              closeToolbar()
             },
           }
         },
