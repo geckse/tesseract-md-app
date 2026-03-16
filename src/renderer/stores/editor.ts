@@ -52,6 +52,16 @@ export function requestSave(): void {
   saveRequested.update((n) => n + 1)
 }
 
+/** Reset all editor state to defaults. */
+export function resetEditorState(): void {
+  isDirty.set(false)
+  wordCount.set(0)
+  tokenCount.set(0)
+  scrollToLine.set(null)
+  activeHeadingIndex.set(-1)
+  editorMode.set('preview')
+}
+
 /** Count words in a text string. */
 export function countWords(text: string): number {
   const trimmed = text.trim()

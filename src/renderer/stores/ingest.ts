@@ -142,6 +142,21 @@ export async function rebuildIndex(): Promise<void> {
   await runIngest(true)
 }
 
+/** Reset ingest state (e.g. on collection switch). Does not cancel a running ingest. */
+export function resetIngestState(): void {
+  if (get(ingestRunning)) return
+  stopTimer()
+  ingestState.set('idle')
+  ingestRunning.set(false)
+  ingestIsReindex.set(false)
+  ingestElapsed.set(0)
+  ingestResult.set(null)
+  ingestError.set(null)
+  ingestModalOpen.set(false)
+  ingestPreviewResult.set(null)
+  ingestPreviewLoading.set(false)
+}
+
 /** Close the modal (only when not running). */
 export function closeIngestModal(): void {
   if (get(ingestRunning)) return

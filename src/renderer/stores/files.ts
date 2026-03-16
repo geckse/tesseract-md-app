@@ -50,6 +50,20 @@ export const flatFileList = derived(fileTree, ($fileTree) => {
   return files
 })
 
+/** Reset all file-related state (e.g. on collection switch). */
+export function resetFileState(): void {
+  selectGeneration++
+  selectedFilePath.set(null)
+  fileContent.set(null)
+  fileContentLoading.set(false)
+  fileContentError.set(null)
+  fileTree.set(null)
+  fileTreeLoading.set(false)
+  fileTreeError.set(null)
+  expandedPaths.set(new Set())
+  clearProperties()
+}
+
 /** Load the file tree for the active collection. */
 export async function loadFileTree(subPath?: string): Promise<void> {
   const collection = get(activeCollection)
