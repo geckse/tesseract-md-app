@@ -82,6 +82,35 @@ export const slashCommandItems: SlashCommandItem[] = [
     label: 'Table',
     icon: 'table',
     command: (editor, range) => {
+      // If cursor is inside a table, move after the table first to avoid nesting
+      const { $from } = editor.state.selection
+      let insideTable = false
+      for (let d = $from.depth; d > 0; d--) {
+        if ($from.node(d).type.name === 'table') {
+          insideTable = true
+          break
+        }
+      }
+
+      if (insideTable) {
+        // Delete the slash text, then move cursor after the table and insert
+        editor.chain().focus().deleteRange(range).run()
+        // Find the table node and move cursor after it
+        const { $from: $pos } = editor.state.selection
+        for (let d = $pos.depth; d > 0; d--) {
+          if ($pos.node(d).type.name === 'table') {
+            const afterTable = $pos.after(d)
+            editor
+              .chain()
+              .focus()
+              .setTextSelection(afterTable)
+              .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
+              .run()
+            return
+          }
+        }
+      }
+
       editor
         .chain()
         .focus()

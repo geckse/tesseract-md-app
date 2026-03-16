@@ -131,7 +131,13 @@ export const TableUIExtension = Extension.create({
 
       toolbarPopup = document.createElement('div')
       toolbarPopup.classList.add('table-toolbar-popup')
-      document.body.appendChild(toolbarPopup)
+      // Append to the editor's scroll container so toolbar scrolls with content
+      const scrollParent = view.dom.parentElement
+      if (scrollParent) {
+        scrollParent.appendChild(toolbarPopup)
+      } else {
+        document.body.appendChild(toolbarPopup)
+      }
 
       // Dynamic import allows graceful failure if the component doesn't exist yet.
       import('../../components/wysiwyg/TableToolbar.svelte')
@@ -159,7 +165,7 @@ export const TableUIExtension = Extension.create({
     }
 
     function showContextMenu(
-      _view: EditorView,
+      view: EditorView,
       cellInfo: CellInfo,
       clientX: number,
       clientY: number
@@ -168,7 +174,17 @@ export const TableUIExtension = Extension.create({
 
       popup = document.createElement('div')
       popup.classList.add('table-context-menu-popup')
-      document.body.appendChild(popup)
+      // Append to editor scroll container so it scrolls with content
+      const scrollParent = view.dom.parentElement
+      if (scrollParent) {
+        scrollParent.appendChild(popup)
+        // Convert viewport coords to scroll-container-relative coords
+        const rect = scrollParent.getBoundingClientRect()
+        clientX = clientX - rect.left + scrollParent.scrollLeft
+        clientY = clientY - rect.top + scrollParent.scrollTop
+      } else {
+        document.body.appendChild(popup)
+      }
 
       // Mount the TableContextMenu Svelte component (created in a later subtask).
       // Dynamic import allows graceful failure if the component doesn't exist yet.

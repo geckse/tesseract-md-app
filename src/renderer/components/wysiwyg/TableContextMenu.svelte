@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte'
-  import { computePosition, flip, shift, offset } from '@floating-ui/dom'
   import type { Editor } from '@tiptap/core'
   import type { CellInfo } from '../../lib/tiptap/table-ui-extension'
 
@@ -182,30 +181,9 @@
 
   function positionMenu() {
     if (!menuEl) return
-
-    const virtualEl = {
-      getBoundingClientRect: () => ({
-        x: clientX,
-        y: clientY,
-        width: 0,
-        height: 0,
-        top: clientY,
-        left: clientX,
-        right: clientX,
-        bottom: clientY,
-        toJSON() { return this },
-      }),
-    }
-
-    computePosition(virtualEl as Element, menuEl, {
-      placement: 'bottom-start',
-      middleware: [offset(4), flip(), shift({ padding: 8 })],
-    }).then(({ x, y }) => {
-      if (menuEl) {
-        menuEl.style.left = `${x}px`
-        menuEl.style.top = `${y}px`
-      }
-    })
+    // clientX/clientY are already scroll-container-relative (converted in the extension)
+    menuEl.style.left = `${clientX}px`
+    menuEl.style.top = `${clientY}px`
   }
 
   onMount(() => {
@@ -267,7 +245,7 @@
 
 <style>
   .table-context-menu {
-    position: fixed;
+    position: absolute;
     z-index: var(--z-overlay, 40);
     min-width: 200px;
     max-height: 400px;

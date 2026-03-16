@@ -324,21 +324,36 @@
 /* -------------------------------------------------------------------------- */
 
 .ProseMirror table {
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   width: 100%;
   margin: 1rem 0;
   font-size: 14px;
   border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .ProseMirror th,
 .ProseMirror td {
   border: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: none;
+  border-left: none;
   padding: 0.6rem 1rem;
   text-align: left;
   vertical-align: top;
+}
+
+/* Remove right border on last column to avoid double border with table */
+.ProseMirror th:last-child,
+.ProseMirror td:last-child {
+  border-right: none;
+}
+
+/* Remove bottom border on last row to avoid double border with table */
+.ProseMirror tr:last-child th,
+.ProseMirror tr:last-child td {
+  border-bottom: none;
 }
 
 .ProseMirror th {
@@ -865,15 +880,20 @@
 /* -------------------------------------------------------------------------- */
 
 /* -------------------------------------------------------------------------- */
-/*  Table UI — z-index coordination for context menu / toolbar                */
+/*  Table UI — toolbar / context menu popup wrappers                          */
 /* -------------------------------------------------------------------------- */
 
-.ProseMirror .table-context-menu {
-  z-index: 50;
+.table-toolbar-popup,
+.table-context-menu-popup {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
 }
 
-.ProseMirror .table-toolbar {
-  z-index: 40;
+.table-toolbar-popup > *,
+.table-context-menu-popup > * {
+  pointer-events: auto;
 }
 
 @media (prefers-reduced-motion: reduce) {
