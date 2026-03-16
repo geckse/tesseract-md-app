@@ -39,7 +39,7 @@ import {
   clearEdgeFilter,
   toggleSemanticEdges,
 } from '../../src/renderer/stores/graph'
-import type { GraphColoringMode } from '../../src/renderer/stores/graph'
+
 
 import { collections, activeCollectionId } from '../../src/renderer/stores/collections'
 

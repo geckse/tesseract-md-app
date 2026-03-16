@@ -7,8 +7,6 @@ import {
   getItemIndexAtY,
   scrollToIndex,
   type VirtualListConfig,
-  type VisibleRange,
-  type VirtualListState
 } from '@renderer/lib/virtual-list'
 
 describe('calculateVisibleRange', () => {
