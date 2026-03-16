@@ -4,7 +4,7 @@ import type { Shortcut } from '@renderer/lib/shortcuts'
 
 describe('detectPlatform', () => {
   const originalNavigator = global.navigator
-  const originalUserAgent = global.navigator.userAgent
+  const _originalUserAgent = global.navigator.userAgent
 
   afterEach(() => {
     Object.defineProperty(global, 'navigator', {

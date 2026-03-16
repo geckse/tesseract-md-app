@@ -103,7 +103,7 @@ describe('settings store', () => {
       mockApi.setUserConfig.mockResolvedValue(undefined)
 
       // First call — will be superseded
-      const p1 = saveUserConfig('K', 'v1')
+      const _p1 = saveUserConfig('K', 'v1')
       vi.advanceTimersByTime(100)
 
       // Second call resets the timer
