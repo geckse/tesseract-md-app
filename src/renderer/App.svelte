@@ -16,14 +16,14 @@
   import Settings from './components/Settings.svelte';
   import UpdateNotification from './components/UpdateNotification.svelte';
   import { loadCollections, setActiveCollection, activeCollectionId } from './stores/collections';
-  import { selectFile, fileContentLoading, selectedFilePath } from './stores/files';
+  import { selectFile, fileContentLoading, selectedFilePath, resetFileState } from './stores/files';
   import { searchOpen, clearSearch } from './stores/search';
-  import { scrollToLine, editorMode, toggleEditorMode, requestSave, isDirty } from './stores/editor';
+  import { scrollToLine, editorMode, toggleEditorMode, requestSave, isDirty, resetEditorState } from './stores/editor';
   import { loadFavorites } from './stores/favorites';
   import { openQuickOpen } from './stores/quickopen';
   import { shortcutManager } from './lib/shortcuts';
-  import { setupWatcherListener, teardownWatcherListener, fetchWatcherStatus } from './stores/watcher';
-  import { graphViewActive, graphSelectedNode, toggleGraphView, selectGraphNode, loadGraphData } from './stores/graph';
+  import { setupWatcherListener, teardownWatcherListener, fetchWatcherStatus, clearWatcherEvents } from './stores/watcher';
+  import { graphViewActive, graphSelectedNode, toggleGraphView, selectGraphNode, loadGraphData, resetGraphState } from './stores/graph';
   import { goBack, goForward, setNavigating, clearNavigation } from './stores/navigation';
   import { settingsOpen, onboardingComplete, loadOnboardingState, editorFontSize, loadEditorFontSize } from './stores/ui';
   import { setupUpdateListener, teardownUpdateListener } from './stores/updater';
@@ -223,11 +223,25 @@
 
     document.addEventListener('mousedown', handleClickAway);
 
-    // Clear search, navigation history, and reload graph when active collection changes
+    // Reset all collection-dependent state when switching collections
+    let firstRun = true;
     const unsub = activeCollectionId.subscribe(() => {
+      // Skip the initial subscription fire — state is already clean on mount
+      if (firstRun) {
+        firstRun = false;
+        return;
+      }
+      // Clear file selection, tree, properties, and editor state FIRST
+      // to prevent stale paths from being used in CLI calls
+      resetFileState();
+      resetEditorState();
       clearSearch();
       clearNavigation();
-      if (get(graphViewActive)) {
+      clearWatcherEvents();
+      // Reset graph state (clears old data immediately) then reload if active
+      const wasGraphActive = get(graphViewActive);
+      resetGraphState();
+      if (wasGraphActive) {
         loadGraphData();
       }
     });

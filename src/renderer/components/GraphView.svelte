@@ -93,6 +93,7 @@
   let panY = 0;
   let zoom = 1;
   let isPanning = false;
+  let didPan = false;
   let panStartX = 0;
   let panStartY = 0;
   let panStartPanX = 0;
@@ -379,18 +380,33 @@
       degreeMap.set(e.target, (degreeMap.get(e.target) ?? 0) + 1);
     }
 
-    simNodes = data.nodes.map((n) => ({
-      id: n.id,
-      path: n.path,
-      label: n.label,
-      cluster_id: n.cluster_id,
-      chunk_index: n.chunk_index,
-      x: Math.random() * width,
-      y: Math.random() * height,
-      baseRadius: chunk
-        ? Math.min(5, 1.5 + Math.sqrt((sizeMap.get(n.id) ?? 0) / 200) * 1.2)
-        : Math.min(7, 2 + Math.sqrt(degreeMap.get(n.id) ?? 0) * 1.5),
-    }));
+    // Compute max degree/size for relative scaling
+    const maxDegree = Math.max(1, ...degreeMap.values());
+    const maxSize = Math.max(1, ...sizeMap.values());
+
+    simNodes = data.nodes.map((n) => {
+      let baseRadius: number;
+      if (chunk) {
+        // Chunk mode: size-based, normalized to max
+        const ratio = (sizeMap.get(n.id) ?? 0) / maxSize;
+        baseRadius = 1.5 + ratio * 8.5; // range: 1.5 – 10
+      } else {
+        // Document mode: degree-based, normalized to max degree
+        const degree = degreeMap.get(n.id) ?? 0;
+        const ratio = degree / maxDegree;
+        baseRadius = 2 + ratio * ratio * 14; // quadratic: range 2 – 16, isolated = 2
+      }
+      return {
+        id: n.id,
+        path: n.path,
+        label: n.label,
+        cluster_id: n.cluster_id,
+        chunk_index: n.chunk_index,
+        x: Math.random() * width,
+        y: Math.random() * height,
+        baseRadius,
+      };
+    });
 
     // Rebuild folder color map
     const folders = new Set<string>();
@@ -435,7 +451,7 @@
             .distanceMax(isLarge ? 200 : 400),
         )
         .force('center', forceCenter(width / 2, height / 2))
-        .force('collide', forceCollide<SimNode>(10))
+        .force('collide', forceCollide<SimNode>().radius((d) => d.baseRadius + 2))
         .alphaDecay(isLarge ? 0.04 : 0.02)
         .velocityDecay(0.3)
         .on('tick', () => { dirty = true; hullsDirty = true; });
@@ -458,7 +474,7 @@
             .distanceMax(isLarge ? 200 : 400),
         )
         .force('center', forceCenter(width / 2, height / 2))
-        .force('collide', forceCollide<SimNode>(16))
+        .force('collide', forceCollide<SimNode>().radius((d) => d.baseRadius + 2))
         .alphaDecay(isLarge ? 0.04 : 0.02)
         .velocityDecay(0.3)
         .on('tick', () => { dirty = true; hullsDirty = true; });
@@ -555,7 +571,10 @@
 
     const prefix = folderPath;
     for (const node of simNodes) {
-      if (node.path.startsWith(prefix + '/') || node.path === prefix) {
+      if (prefix === '(root)') {
+        // Root files have no directory separator
+        if (!node.path.includes('/')) folderNodeIds.add(node.id);
+      } else if (node.path.startsWith(prefix + '/') || node.path === prefix) {
         folderNodeIds.add(node.id);
       }
     }
@@ -592,27 +611,31 @@
   let EDGE_COLOR_BIDI = '#51CF66';
   const ARROW_SIZE = 12;             // arrowhead length in graph-space pixels
 
-  /** Draw an arrowhead at the target end of an edge, stopping at the node radius. */
-  function drawArrow(
-    ctx: CanvasRenderingContext2D,
-    sx: number, sy: number,
-    tx: number, ty: number,
-    nodeRadius: number,
-  ) {
+  /** Compute the clipped start/end points of an edge, stopping at node boundaries. */
+  function clipEdge(
+    sx: number, sy: number, sRadius: number,
+    tx: number, ty: number, tRadius: number,
+  ): { x1: number; y1: number; x2: number; y2: number } | null {
     const dx = tx - sx;
     const dy = ty - sy;
     const len = Math.sqrt(dx * dx + dy * dy);
-    if (len < 1) return;
-
-    // Unit vector from source to target
+    if (len < 1) return null;
     const ux = dx / len;
     const uy = dy / len;
+    return {
+      x1: sx + ux * sRadius,
+      y1: sy + uy * sRadius,
+      x2: tx - ux * tRadius,
+      y2: ty - uy * tRadius,
+    };
+  }
 
-    // Arrow tip stops at the target node's edge
-    const tipX = tx - ux * nodeRadius;
-    const tipY = ty - uy * nodeRadius;
-
-    // Two wing points
+  /** Draw an arrowhead at the target end of a clipped edge. */
+  function drawArrow(
+    ctx: CanvasRenderingContext2D,
+    tipX: number, tipY: number,
+    ux: number, uy: number,
+  ) {
     const size = ARROW_SIZE / zoom;
     const wingAngle = Math.PI / 7; // ~25 degrees
     const cos = Math.cos(wingAngle);
@@ -926,6 +949,13 @@
       }
     } else {
       // Document mode: directional edges with arrows
+      // Helper: visual radius including interaction bonus for edge clipping
+      const nodeVisualRadius = (n: SimNode): number => {
+        if (n.id === selectedId) return n.baseRadius + 3;
+        if (neighbors.has(n.id)) return n.baseRadius + 1;
+        return n.baseRadius;
+      };
+
       // 2. Incoming edges (one-way only)
       if (inEdges.size > 0) {
         ctx.strokeStyle = EDGE_COLOR_IN;
@@ -936,11 +966,15 @@
           const s = edge.source as SimNode;
           const t = edge.target as SimNode;
           if (s.x == null || t.x == null) continue;
+          const c = clipEdge(s.x, s.y, nodeVisualRadius(s), t.x, t.y, nodeVisualRadius(t));
+          if (!c) continue;
+          const dx = c.x2 - c.x1, dy = c.y2 - c.y1, len = Math.sqrt(dx * dx + dy * dy);
+          if (len < 1) continue;
           ctx.beginPath();
-          ctx.moveTo(s.x, s.y);
-          ctx.lineTo(t.x, t.y);
+          ctx.moveTo(c.x1, c.y1);
+          ctx.lineTo(c.x2, c.y2);
           ctx.stroke();
-          drawArrow(ctx, s.x, s.y, t.x, t.y, 8);
+          drawArrow(ctx, c.x2, c.y2, dx / len, dy / len);
         }
       }
 
@@ -954,11 +988,15 @@
           const s = edge.source as SimNode;
           const t = edge.target as SimNode;
           if (s.x == null || t.x == null) continue;
+          const c = clipEdge(s.x, s.y, nodeVisualRadius(s), t.x, t.y, nodeVisualRadius(t));
+          if (!c) continue;
+          const dx = c.x2 - c.x1, dy = c.y2 - c.y1, len = Math.sqrt(dx * dx + dy * dy);
+          if (len < 1) continue;
           ctx.beginPath();
-          ctx.moveTo(s.x, s.y);
-          ctx.lineTo(t.x, t.y);
+          ctx.moveTo(c.x1, c.y1);
+          ctx.lineTo(c.x2, c.y2);
           ctx.stroke();
-          drawArrow(ctx, s.x, s.y, t.x, t.y, 6);
+          drawArrow(ctx, c.x2, c.y2, dx / len, dy / len);
         }
       }
 
@@ -971,12 +1009,16 @@
           const s = edge.source as SimNode;
           const t = edge.target as SimNode;
           if (s.x == null || t.x == null) continue;
+          const c = clipEdge(s.x, s.y, nodeVisualRadius(s), t.x, t.y, nodeVisualRadius(t));
+          if (!c) continue;
+          const dx = c.x2 - c.x1, dy = c.y2 - c.y1, len = Math.sqrt(dx * dx + dy * dy);
+          if (len < 1) continue;
           ctx.beginPath();
-          ctx.moveTo(s.x, s.y);
-          ctx.lineTo(t.x, t.y);
+          ctx.moveTo(c.x1, c.y1);
+          ctx.lineTo(c.x2, c.y2);
           ctx.stroke();
-          drawArrow(ctx, s.x, s.y, t.x, t.y, 8);
-          drawArrow(ctx, t.x, t.y, s.x, s.y, 8);
+          drawArrow(ctx, c.x2, c.y2, dx / len, dy / len);
+          drawArrow(ctx, c.x1, c.y1, -dx / len, -dy / len);
         }
       }
     }
@@ -1138,9 +1180,18 @@
 
   function findNodeAt(sx: number, sy: number): SimNode | null {
     const [gx, gy] = screenToGraph(sx, sy);
-    const hitRadius = 12 / zoom;
     if (!simulation) return null;
-    return simulation.find(gx, gy, hitRadius) ?? null;
+    // Use the largest possible node radius + interaction bonus as the search radius,
+    // then verify the hit is actually within the specific node's radius
+    const maxHitRadius = 22 / zoom; // 18 max base + 3 select bonus + 1 buffer
+    const candidate = simulation.find(gx, gy, maxHitRadius) ?? null;
+    if (!candidate) return null;
+    const dx = gx - (candidate.x ?? 0);
+    const dy = gy - (candidate.y ?? 0);
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    // Allow clicking within the node's actual radius + a small buffer for usability
+    const nodeHitRadius = candidate.baseRadius + 2;
+    return dist <= nodeHitRadius ? candidate : null;
   }
 
   /** Find the nearest edge within 6 screen-pixels of the given screen coordinates. */
@@ -1188,6 +1239,7 @@
     panStartY = e.clientY;
     panStartPanX = panX;
     panStartPanY = panY;
+    didPan = false;
   }
 
   function handleMouseMove(e: MouseEvent) {
@@ -1207,6 +1259,7 @@
     if (isPanning) {
       panX = panStartPanX + (e.clientX - panStartX);
       panY = panStartPanY + (e.clientY - panStartY);
+      didPan = true;
       dirty = true;
       return;
     }
@@ -1241,8 +1294,12 @@
       draggedNode.fy = undefined;
       draggedNode = null;
       simulation?.alphaTarget(0);
+    } else if (isPanning && !didPan) {
+      // Clicked on empty space without dragging — deselect
+      selectGraphNode(null);
     }
     isPanning = false;
+    didPan = false;
   }
 
   function handleWheel(e: WheelEvent) {
@@ -1481,12 +1538,23 @@
               {/each}
             {:else if currentColoringMode === 'folder'}
               {#each getFolderLegendItems() as item}
-                <div class="legend-item">
+                <button
+                  class="legend-item legend-item-clickable"
+                  class:legend-item-active={currentHighlightedFolder === item.folder}
+                  onclick={() => setGraphHighlightedFolder(item.folder)}
+                  title={currentHighlightedFolder === item.folder ? `Clear ${item.folder} highlight` : `Highlight ${item.folder}`}
+                >
                   <span class="legend-dot" style="background: {item.color}"></span>
                   <span class="legend-label">{item.folder}</span>
                   <span class="legend-count">{item.count}</span>
-                </div>
+                </button>
               {/each}
+              {#if currentHighlightedFolder}
+                <button class="legend-clear-filter" onclick={() => setGraphHighlightedFolder(null)} title="Clear folder highlight" style="margin-top: 4px; width: 100%;">
+                  <span class="material-symbols-outlined" style="font-size: 14px;">filter_alt_off</span>
+                  <span style="font-size: 10px;">Clear</span>
+                </button>
+              {/if}
             {/if}
             {#if getEdgeClusters().length > 0}
               <div class="legend-separator"></div>
@@ -1860,6 +1928,11 @@
 
   .legend-item-muted {
     opacity: 0.35;
+  }
+
+  .legend-item-active {
+    background: rgba(0, 229, 255, 0.1);
+    border-radius: 4px;
   }
 
   .legend-line {

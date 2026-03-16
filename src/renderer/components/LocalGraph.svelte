@@ -20,9 +20,9 @@
 
   const WIDTH = 250;
   const HEIGHT = 200;
-  const CENTER_RADIUS = 7;
-  const MIN_RADIUS = 3;
-  const MAX_RADIUS = 6;
+  const CENTER_RADIUS = 8;
+  const MIN_RADIUS = 2.5;
+  const MAX_RADIUS = 8;
   const MIN_ZOOM = 0.3;
   const MAX_ZOOM = 3;
   const ZOOM_STEP = 0.25;
@@ -112,8 +112,10 @@
 
   function getNodeRadius(node: LocalNode): number {
     if (node.isCenter) return CENTER_RADIUS;
-    const degree = degreeMap.get(node.path) ?? 1;
-    return Math.min(MAX_RADIUS, MIN_RADIUS + Math.sqrt(degree) * 0.8);
+    const degree = degreeMap.get(node.path) ?? 0;
+    const maxDeg = Math.max(1, ...degreeMap.values());
+    const ratio = degree / maxDeg;
+    return MIN_RADIUS + ratio * ratio * (MAX_RADIUS - MIN_RADIUS);
   }
 
   /** Map edge strength (0–1) to stroke-width. Default strength assumed 0.5. */
@@ -175,7 +177,7 @@
       )
       .force('charge', forceManyBody<LocalNode>().strength(-80).distanceMax(150))
       .force('center', forceCenter(WIDTH / 2, HEIGHT / 2))
-      .force('collide', forceCollide<LocalNode>(12))
+      .force('collide', forceCollide<LocalNode>().radius((d) => (getNodeRadius(d as LocalNode) + 2)))
       .alphaDecay(0.05)
       .velocityDecay(0.4);
 
