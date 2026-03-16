@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte'
   import { computePosition, flip, shift, offset } from '@floating-ui/dom'
   import type { Editor } from '@tiptap/core'
 
@@ -18,10 +17,12 @@
     _tick++
   }
 
-  editor.on('transaction', handleTransaction)
-
-  onDestroy(() => {
-    editor.off('transaction', handleTransaction)
+  $effect(() => {
+    const ed = editor
+    ed.on('transaction', handleTransaction)
+    return () => {
+      ed.off('transaction', handleTransaction)
+    }
   })
 
   function positionToolbar() {
