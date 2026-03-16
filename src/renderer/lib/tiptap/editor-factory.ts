@@ -14,6 +14,7 @@ import { LinkAutocompleteExtension } from './link-autocomplete-extension'
 import { BlockDragExtension } from './block-drag-extension'
 import { MermaidBlockExtension } from './mermaid-block-extension'
 import { LinkBubbleExtension } from './link-bubble-extension'
+import { TableUIExtension } from './table-ui-extension'
 
 const lowlight = createLowlight(commonGrammars)
 
@@ -81,6 +82,7 @@ export function createWysiwygEditor(
         allowBase64: true
       }),
       TableKit,
+      TableUIExtension,
       MermaidBlockExtension,
       CodeBlockLowlight.configure({ lowlight }),
       TaskList,

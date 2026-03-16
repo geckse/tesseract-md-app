@@ -864,6 +864,18 @@
 /*  Reduced Motion                                                            */
 /* -------------------------------------------------------------------------- */
 
+/* -------------------------------------------------------------------------- */
+/*  Table UI — z-index coordination for context menu / toolbar                */
+/* -------------------------------------------------------------------------- */
+
+.ProseMirror .table-context-menu {
+  z-index: 50;
+}
+
+.ProseMirror .table-toolbar {
+  z-index: 40;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ProseMirror a,
   .ProseMirror * {
