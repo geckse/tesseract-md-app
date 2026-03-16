@@ -70,7 +70,8 @@ export async function renderMermaidDiagram(
       try {
         await initMermaid()
         const { svg } = await mermaidModule!.default.render(id, code)
-        resolve({ svg })
+        // Strip fixed width/height so SVG scales as vector via viewBox
+        resolve({ svg: makeScalableSvg(svg) })
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         resolve({ error: message })
@@ -79,6 +80,39 @@ export async function renderMermaidDiagram(
   })
 
   return result
+}
+
+/**
+ * Make a Mermaid SVG scalable by ensuring viewBox is set and removing
+ * fixed width/height attributes. This prevents pixelation when zooming
+ * because the browser re-rasterizes the vector at any scale.
+ */
+function makeScalableSvg(svg: string): string {
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(svg, 'image/svg+xml')
+  const svgEl = doc.querySelector('svg')
+  if (!svgEl) return svg
+
+  const w = svgEl.getAttribute('width')
+  const h = svgEl.getAttribute('height')
+
+  // Ensure viewBox exists so the SVG knows its intrinsic coordinate space
+  if (!svgEl.getAttribute('viewBox') && w && h) {
+    const width = parseFloat(w)
+    const height = parseFloat(h)
+    if (!isNaN(width) && !isNaN(height)) {
+      svgEl.setAttribute('viewBox', `0 0 ${width} ${height}`)
+    }
+  }
+
+  // Remove fixed dimensions — let CSS control the rendered size
+  svgEl.removeAttribute('width')
+  svgEl.removeAttribute('height')
+  // Make it fill its container
+  svgEl.style.width = '100%'
+  svgEl.style.height = '100%'
+
+  return svgEl.outerHTML
 }
 
 /**

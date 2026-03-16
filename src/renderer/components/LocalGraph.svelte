@@ -40,7 +40,6 @@
   let zoom: number = $state(1);
   let panX: number = $state(0);
   let panY: number = $state(0);
-  let panMode: boolean = $state(false);
   let isPanning: boolean = $state(false);
   let panStartX = 0;
   let panStartY = 0;
@@ -69,8 +68,11 @@
     zoom = Math.max(MIN_ZOOM, zoom - ZOOM_STEP);
   }
 
-  function togglePanMode() {
-    panMode = !panMode;
+  function handleWheel(e: WheelEvent) {
+    if (!e.ctrlKey && !e.metaKey) return;
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+    zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom * factor));
   }
 
   function spreadOut() {
@@ -84,7 +86,9 @@
   }
 
   function handlePointerDown(e: PointerEvent) {
-    if (!panMode) return;
+    // Only pan on background drag (not node clicks)
+    const target = e.target as Element;
+    if (target.closest('.graph-node')) return;
     isPanning = true;
     panStartX = e.clientX;
     panStartY = e.clientY;
@@ -196,7 +200,6 @@
     zoom = 1;
     panX = 0;
     panY = 0;
-    panMode = false;
     spread = 60;
   });
 
@@ -231,7 +234,6 @@
   });
 
   function handleNodeClick(path: string) {
-    if (panMode) return; // don't select nodes while panning
     onfileselect?.({ path });
   }
 
@@ -264,6 +266,7 @@
   );
 
   let hasLinks = $derived(simNodes.length > 1);
+
 </script>
 
 <div class="local-graph">
@@ -297,7 +300,6 @@
       <svg
         bind:this={svgEl}
         class="local-graph-svg"
-        class:pan-cursor={panMode}
         class:grabbing-cursor={isPanning}
         viewBox={viewBox()}
         xmlns="http://www.w3.org/2000/svg"
@@ -305,6 +307,7 @@
         onpointermove={handlePointerMove}
         onpointerup={handlePointerUp}
         onpointercancel={handlePointerUp}
+        onwheel={handleWheel}
       >
         <!-- Arrow markers (only shown on hover) -->
         <defs>
@@ -416,14 +419,6 @@
 
       <!-- Controls overlay — left -->
       <div class="graph-controls graph-controls-left">
-        <button
-          class="control-btn"
-          class:control-active={panMode}
-          title="Pan mode"
-          onclick={togglePanMode}
-        >
-          <span class="material-symbols-outlined">pan_tool</span>
-        </button>
         <button class="control-btn" title="Zoom in" onclick={zoomIn}>
           <span class="material-symbols-outlined">add</span>
         </button>
@@ -513,9 +508,6 @@
     width: 100%;
     height: 200px;
     display: block;
-  }
-
-  .local-graph-svg.pan-cursor {
     cursor: grab;
   }
 
@@ -557,11 +549,6 @@
   .control-btn:hover {
     color: #00e5ff;
     background: rgba(0, 229, 255, 0.12);
-  }
-
-  .control-btn.control-active {
-    color: #00e5ff;
-    background: rgba(0, 229, 255, 0.15);
   }
 
   .control-btn .material-symbols-outlined {

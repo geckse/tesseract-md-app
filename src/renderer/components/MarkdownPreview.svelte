@@ -85,7 +85,8 @@
           )
           if (gen !== renderGeneration) return
           if ('svg' in result) {
-            block.innerHTML = result.svg
+            block.innerHTML = `<div class="mermaid-pan-target">${result.svg}</div>`
+            attachZoomPan(block as HTMLElement)
           } else {
             block.innerHTML = `<div class="mermaid-error"><span class="material-symbols-outlined">error</span><pre>${escapeHtml(result.error)}</pre></div>`
           }
@@ -93,6 +94,70 @@
       })()
     })
   })
+
+  /** Attach zoom (Ctrl+scroll) and drag-to-pan to a mermaid preview block. */
+  function attachZoomPan(wrapper: HTMLElement) {
+    const inner = wrapper.querySelector('.mermaid-pan-target') as HTMLElement
+    if (!inner) return
+
+    let scale = 1
+    let tx = 0
+    let ty = 0
+
+    function apply() {
+      inner.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`
+    }
+
+    // Ctrl/Cmd + scroll to zoom
+    wrapper.addEventListener('wheel', (e) => {
+      if (!e.ctrlKey && !e.metaKey) return
+      e.preventDefault()
+      const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1
+      const next = Math.min(5, Math.max(0.2, scale * factor))
+      if (next === scale) return
+      const rect = wrapper.getBoundingClientRect()
+      const cx = e.clientX - rect.left
+      const cy = e.clientY - rect.top
+      const ratio = next / scale
+      tx = cx - ratio * (cx - tx)
+      ty = cy - ratio * (cy - ty)
+      scale = next
+      apply()
+    }, { passive: false })
+
+    // Drag to pan
+    let panning = false
+    let startX = 0
+    let startY = 0
+    let startTx = 0
+    let startTy = 0
+
+    wrapper.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return
+      panning = true
+      startX = e.clientX
+      startY = e.clientY
+      startTx = tx
+      startTy = ty
+      wrapper.style.cursor = 'grabbing'
+      e.preventDefault()
+    })
+
+    const onMove = (e: MouseEvent) => {
+      if (!panning) return
+      tx = startTx + (e.clientX - startX)
+      ty = startTy + (e.clientY - startY)
+      apply()
+    }
+    const onUp = () => {
+      if (!panning) return
+      panning = false
+      wrapper.style.cursor = ''
+    }
+
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }
 
   function escapeHtml(s: string): string {
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -382,11 +447,17 @@
     background: var(--color-surface, #161617);
     border: 1px solid var(--color-border, #27272a);
     border-radius: var(--radius-md, 6px);
-    padding: var(--space-4, 16px);
     margin: 1em 0;
+    overflow: hidden;
+    cursor: grab;
+  }
+
+  .markdown-body :global(.mermaid-pan-target) {
     display: flex;
     justify-content: center;
-    overflow-x: auto;
+    padding: var(--space-4, 16px);
+    transform-origin: 0 0;
+    pointer-events: none;
   }
 
   .markdown-body :global(.mermaid-preview svg) {
