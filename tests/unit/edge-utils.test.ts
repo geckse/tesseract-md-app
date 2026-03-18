@@ -4,7 +4,8 @@ import {
   isEdgeVisible,
   edgeLineWidth,
   isWeakEdge,
-  pointToSegmentDist,
+  edgeLinkWidth,
+  edgeLinkColor,
 } from '@renderer/lib/edge-utils'
 
 describe('edgeClusterColor', () => {
@@ -115,38 +116,86 @@ describe('isWeakEdge', () => {
   })
 })
 
-describe('pointToSegmentDist', () => {
-  it('returns 0 when point is on the segment endpoint', () => {
-    expect(pointToSegmentDist(0, 0, 0, 0, 4, 0)).toBeCloseTo(0)
-    expect(pointToSegmentDist(4, 0, 0, 0, 4, 0)).toBeCloseTo(0)
+describe('edgeLinkWidth', () => {
+  it('returns 0.5 for strength 0', () => {
+    expect(edgeLinkWidth(0)).toBeCloseTo(0.5)
   })
 
-  it('returns 0 when point is on the segment midpoint', () => {
-    expect(pointToSegmentDist(2, 0, 0, 0, 4, 0)).toBeCloseTo(0)
+  it('returns 3.0 for strength 1', () => {
+    expect(edgeLinkWidth(1)).toBeCloseTo(3.0)
   })
 
-  it('returns perpendicular distance for point above segment', () => {
-    expect(pointToSegmentDist(2, 3, 0, 0, 4, 0)).toBeCloseTo(3)
+  it('maps strength 0.5 to 1.75', () => {
+    expect(edgeLinkWidth(0.5)).toBeCloseTo(1.75)
   })
 
-  it('returns distance to nearest endpoint when projection falls outside', () => {
-    // Point is beyond the right end of a horizontal segment
-    expect(pointToSegmentDist(6, 0, 0, 0, 4, 0)).toBeCloseTo(2)
-    // Point is beyond the left end
-    expect(pointToSegmentDist(-3, 0, 0, 0, 4, 0)).toBeCloseTo(3)
+  it('clamps strength below 0', () => {
+    expect(edgeLinkWidth(-1)).toBeCloseTo(0.5)
   })
 
-  it('handles zero-length segment (degenerate case)', () => {
-    expect(pointToSegmentDist(3, 4, 0, 0, 0, 0)).toBeCloseTo(5)
+  it('clamps strength above 1', () => {
+    expect(edgeLinkWidth(2)).toBeCloseTo(3.0)
   })
 
-  it('handles diagonal segments', () => {
-    // Segment from (0,0) to (4,4), point at (0,4) — distance is 2*sqrt(2)
-    expect(pointToSegmentDist(0, 4, 0, 0, 4, 4)).toBeCloseTo(Math.sqrt(8))
+  it('does not divide by zoom (unlike edgeLineWidth)', () => {
+    // edgeLinkWidth has no zoom parameter — returns absolute width
+    const w = edgeLinkWidth(0.5)
+    expect(w).toBeCloseTo(1.75)
   })
 
-  it('handles negative coordinates', () => {
-    expect(pointToSegmentDist(-1, -1, -1, -1, -1, -1)).toBeCloseTo(0)
-    expect(pointToSegmentDist(0, 0, -3, 0, -1, 0)).toBeCloseTo(1)
+  it('returns monotonically increasing values for increasing strength', () => {
+    const w0 = edgeLinkWidth(0)
+    const w25 = edgeLinkWidth(0.25)
+    const w50 = edgeLinkWidth(0.5)
+    const w75 = edgeLinkWidth(0.75)
+    const w100 = edgeLinkWidth(1)
+    expect(w25).toBeGreaterThan(w0)
+    expect(w50).toBeGreaterThan(w25)
+    expect(w75).toBeGreaterThan(w50)
+    expect(w100).toBeGreaterThan(w75)
+  })
+})
+
+describe('edgeLinkColor', () => {
+  it('returns edge cluster color for valid cluster ID', () => {
+    expect(edgeLinkColor(0, 0.8, 0.3)).toBe('#A78BFA')
+    expect(edgeLinkColor(1, 0.8, 0.3)).toBe('#67E8F9')
+  })
+
+  it('returns fallback color #93C5FD for null cluster ID', () => {
+    expect(edgeLinkColor(null, 0.8, 0.3)).toBe('#93C5FD')
+  })
+
+  it('returns fallback color #93C5FD for undefined cluster ID', () => {
+    expect(edgeLinkColor(undefined, 0.8, 0.3)).toBe('#93C5FD')
+  })
+
+  it('appends hex alpha 40 for weak edges', () => {
+    // strength 0.2 < threshold 0.5 → weak
+    expect(edgeLinkColor(0, 0.2, 0.5)).toBe('#A78BFA40')
+  })
+
+  it('does not append alpha for strong edges', () => {
+    // strength 0.7 >= threshold 0.5 → not weak
+    expect(edgeLinkColor(0, 0.7, 0.5)).toBe('#A78BFA')
+  })
+
+  it('does not append alpha when strength equals threshold', () => {
+    // strength 0.5 is NOT < threshold 0.5 → not weak
+    expect(edgeLinkColor(0, 0.5, 0.5)).toBe('#A78BFA')
+  })
+
+  it('appends alpha for null cluster ID weak edges', () => {
+    expect(edgeLinkColor(null, 0.1, 0.5)).toBe('#93C5FD40')
+  })
+
+  it('handles zero threshold (only negative strength is weak)', () => {
+    expect(edgeLinkColor(0, 0, 0)).toBe('#A78BFA')
+    expect(edgeLinkColor(0, -0.1, 0)).toBe('#A78BFA40')
+  })
+
+  it('cycles cluster colors via modulo for high cluster IDs', () => {
+    expect(edgeLinkColor(8, 0.8, 0.3)).toBe(edgeLinkColor(0, 0.8, 0.3))
+    expect(edgeLinkColor(16, 0.8, 0.3)).toBe(edgeLinkColor(0, 0.8, 0.3))
   })
 })
