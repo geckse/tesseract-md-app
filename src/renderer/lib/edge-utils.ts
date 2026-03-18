@@ -80,8 +80,9 @@ export function edgeLinkWidth(strength: number): number {
  *
  * Returns the edge cluster palette color from `edgeClusterColor()`.
  * For edges with no cluster ID, returns the last palette color (#93C5FD).
- * For weak edges (strength below threshold), appends hex alpha `40` (~25% opacity)
- * to visually de-emphasize them in the 3D scene.
+ * For weak edges (strength below threshold), returns an rgba() string at ~25% opacity
+ * to visually de-emphasize them. Uses rgba() because THREE.Color does not support
+ * 8-digit hex (e.g. #RRGGBBAA).
  */
 export function edgeLinkColor(
   edgeClusterId: number | null | undefined,
@@ -91,7 +92,11 @@ export function edgeLinkColor(
   const baseColor = edgeClusterId != null ? edgeClusterColor(edgeClusterId) : '#93C5FD'
 
   if (strength < weakThreshold) {
-    return baseColor + '40'
+    // Convert hex to rgba with 25% opacity (THREE.Color doesn't support #RRGGBBAA)
+    const r = parseInt(baseColor.slice(1, 3), 16)
+    const g = parseInt(baseColor.slice(3, 5), 16)
+    const b = parseInt(baseColor.slice(5, 7), 16)
+    return `rgba(${r}, ${g}, ${b}, 0.25)`
   }
 
   return baseColor

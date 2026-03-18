@@ -3,6 +3,7 @@
   import type { ForceGraph3DInstance } from '3d-force-graph'
   import type { NodeObject, LinkObject } from 'three-forcegraph'
   import * as THREE from 'three'
+  import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js'
   import {
     graphData,
     graphLoading,
@@ -148,6 +149,9 @@
   let tooltipX = $state(0)
   let tooltipY = $state(0)
 
+  // Proximity labels: visible node labels when camera is close enough (document mode)
+  let visibleLabels: { id: string; label: string; x: number; y: number }[] = $state([])
+
   /** Last known mouse client X coordinate for tooltip positioning. */
   let lastMouseX = 0
   /** Last known mouse client Y coordinate for tooltip positioning. */
@@ -158,6 +162,79 @@
 
   // Node count for performance warnings
   let nodeCount = $state(0)
+
+  // Label update animation frame
+  let labelFrameId: number | null = null
+  let labelFrameCount = 0
+
+  /**
+   * Update proximity labels: project node positions to screen,
+   * show labels only for nodes within a distance threshold from camera.
+   * Runs every frame via requestAnimationFrame for smooth tracking during orbit.
+   */
+  function updateProximityLabels() {
+    labelFrameCount++
+
+    if (!graph || isChunkMode()) {
+      if (visibleLabels.length > 0) visibleLabels = []
+      // Still update cluster labels every frame for smooth tracking
+      updateClusterLabelPositions()
+      labelFrameId = requestAnimationFrame(updateProximityLabels)
+      return
+    }
+
+    // Throttle DOM updates to ~20fps (every 3rd frame) — CSS transitions smooth the gaps
+    if (labelFrameCount % 3 !== 0) {
+      // Still update cluster labels every frame
+      updateClusterLabelPositions()
+      labelFrameId = requestAnimationFrame(updateProximityLabels)
+      return
+    }
+
+    const camera = graph.camera()
+    if (!camera) {
+      labelFrameId = requestAnimationFrame(updateProximityLabels)
+      return
+    }
+
+    const camPos = camera.position
+    const graphData = graph.graphData()
+    const nodes = graphData.nodes as ForceNode[]
+
+    // Distance threshold: labels visible within this range from camera
+    const maxDist = 350
+    const labels: typeof visibleLabels = []
+
+    for (const node of nodes) {
+      const nx = node.x ?? 0
+      const ny = node.y ?? 0
+      const nz = node.z ?? 0
+
+      const dx = camPos.x - nx
+      const dy = camPos.y - ny
+      const dz = camPos.z - nz
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
+
+      if (dist > maxDist) continue
+
+      const screenCoords = graph.graph2ScreenCoords(nx, ny, nz)
+      if (!screenCoords) continue
+
+      // Extract filename from path
+      const fileName = node.path?.split('/').pop() ?? node.id
+
+      labels.push({
+        id: node.id,
+        label: fileName,
+        x: screenCoords.x,
+        y: screenCoords.y
+      })
+    }
+
+    visibleLabels = labels
+    updateClusterLabelPositions()
+    labelFrameId = requestAnimationFrame(updateProximityLabels)
+  }
 
   /** Whether WebGL is supported by the browser. Checked in onMount before graph init. */
   let webglSupported = $state(true)
@@ -280,16 +357,22 @@
 
   /**
    * Get the directional arrow/particle color for a link.
-   * Delegates to edgeArrowColor from graph-3d-bridge, which returns:
-   * - cyan for outgoing edges from selected node
-   * - red for incoming edges to selected node
-   * - green for bidirectional edges with selected node
-   * - gray for non-neighbor or no selection
+   * When a node is selected: directional coloring (cyan out, red in, green bidi).
+   * When no selection: use the link's own color so arrows match their edge.
    */
   function getLinkArrowColor(link: ForceLink): string {
     const srcId = linkNodeId(link.source)
     const tgtId = linkNodeId(link.target)
     const selectedId = currentSelected?.id ?? null
+
+    // No selection → arrow matches the edge color (visible on dark background)
+    if (!selectedId) return link.color || '#aaaaaa'
+
+    // Not a neighbor of selected node → match edge color
+    const isNeighbor = srcId === selectedId || tgtId === selectedId
+    if (!isNeighbor) return link.color || '#aaaaaa'
+
+    // Neighbor edge → directional coloring
     const isBidi = bidirectionalPairs.has(`${srcId}->${tgtId}`)
     return edgeArrowColor(srcId, tgtId, selectedId, isBidi)
   }
@@ -323,32 +406,38 @@
   }
 
   /**
-   * Create a hub node THREE.Group with a sphere mesh and PointLight glow.
-   * Hub nodes (degree >= 5) get a visible glow effect via a colored point light.
+   * Create a hub node THREE.Group with a sphere mesh and emissive glow halo.
+   * Hub nodes (degree >= 5) get a visible glow effect via emissive material + outer halo.
    */
   function createHubNodeObject(node: ForceNode, opacity: number): THREE.Group {
     const color = getNodeColor(node)
     const threeColor = new THREE.Color(color)
-    const radius = Math.cbrt(node.val) * 4 // Match 3d-force-graph default sizing (nodeRelSize=4)
+    const radius = Math.cbrt(node.val) * 2 // Match nodeRelSize=2
 
     const group = new THREE.Group()
 
+    // Inner sphere: emissive glow instead of PointLight (PointLights exceed WebGL uniform
+    // limits when many hub nodes exist, causing shader compilation failures)
     const geometry = new THREE.SphereGeometry(radius, 12, 8)
-    const material = new THREE.MeshLambertMaterial({
+    const material = new THREE.MeshPhongMaterial({
       color: threeColor,
+      emissive: threeColor,
+      emissiveIntensity: opacity > 0.5 ? 0.4 : 0.1,
       transparent: true,
       opacity
     })
     const mesh = new THREE.Mesh(geometry, material)
     group.add(mesh)
 
-    // PointLight creates a glow effect around the hub node
-    const light = new THREE.PointLight(
-      threeColor,
-      opacity > 0.5 ? 0.5 : 0.1, // Dim glow for dimmed hubs
-      radius * 5
-    )
-    group.add(light)
+    // Outer glow halo: slightly larger transparent sphere for visual glow effect
+    const glowGeometry = new THREE.SphereGeometry(radius * 1.4, 10, 6)
+    const glowMaterial = new THREE.MeshBasicMaterial({
+      color: threeColor,
+      transparent: true,
+      opacity: opacity > 0.5 ? 0.12 : 0.03,
+      depthWrite: false
+    })
+    group.add(new THREE.Mesh(glowGeometry, glowMaterial))
 
     return group
   }
@@ -372,9 +461,36 @@
     if (!graph) return
 
     if (currentSelected && neighborSet.size > 0) {
-      // Dim all default spheres and links
+      // Dim non-neighbor nodes
       graph.nodeOpacity(0.15)
-      graph.linkOpacity(0.05)
+
+      // Keep linkOpacity high so arrows are visible — dim via linkColor instead
+      graph.linkOpacity(0.8)
+      graph.linkColor((link: ForceLink) => {
+        const srcId = linkNodeId(link.source)
+        const tgtId = linkNodeId(link.target)
+        if (srcId === currentSelected!.id || tgtId === currentSelected!.id) {
+          return getLinkArrowColor(link) // Bright directional color for neighbor edges
+        }
+        return 'rgba(80, 80, 80, 0.04)' // Nearly invisible for non-neighbor edges
+      })
+
+      // Arrows: only on neighbor edges, bright directional color
+      graph.linkDirectionalArrowLength((link: ForceLink) => {
+        if (isChunkMode()) return 0
+        const srcId = linkNodeId(link.source)
+        const tgtId = linkNodeId(link.target)
+        if (srcId === currentSelected!.id || tgtId === currentSelected!.id) return 6
+        return 0
+      })
+      graph.linkDirectionalArrowColor((link: ForceLink) => getLinkArrowColor(link))
+
+      // Particles: on neighbor edges
+      graph.linkDirectionalParticles((link: ForceLink) => {
+        const srcId = linkNodeId(link.source)
+        const tgtId = linkNodeId(link.target)
+        return srcId === currentSelected!.id || tgtId === currentSelected!.id ? 3 : 0
+      })
 
       // Override nodeThreeObject: neighbor + hub nodes get custom objects at full opacity
       graph.nodeThreeObject(((node: ForceNode) => {
@@ -393,7 +509,7 @@
         // Non-hub neighbor: create sphere at full opacity
         const color = getNodeColor(node)
         const threeColor = new THREE.Color(color)
-        const radius = Math.cbrt(node.val) * 4
+        const radius = Math.cbrt(node.val) * 2
 
         const group = new THREE.Group()
         const geometry = new THREE.SphereGeometry(radius, 12, 8)
@@ -407,29 +523,33 @@
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       }) as any)
 
-      // Override linkMaterial: neighbor links get full opacity material
-      graph.linkMaterial((link: ForceLink) => {
-        const srcId = linkNodeId(link.source)
-        const tgtId = linkNodeId(link.target)
-        if (srcId === currentSelected!.id || tgtId === currentSelected!.id) {
-          return new THREE.LineBasicMaterial({
-            color: new THREE.Color(link.color || '#555555'),
-            transparent: true,
-            opacity: 0.6
-          })
-        }
-        return null // Use default at linkOpacity 0.05
-      })
+      // Clear linkMaterial — dimming handled via linkColor + linkOpacity
+      graph.linkMaterial(null)
     } else {
       // No selection: restore default state
-      graph.nodeOpacity(0.9)
-      graph.linkOpacity(0.4)
+      graph.nodeOpacity(0.85)
+      graph.linkOpacity(isChunkMode() ? 0.08 : 0.15)
+
+      // Restore link color to pre-computed values
+      graph.linkColor((link: ForceLink) => link.color)
+
+      // Restore arrows on all edges (document mode)
+      graph.linkDirectionalArrowLength((_link: ForceLink) => (isChunkMode() ? 0 : 6))
+      graph.linkDirectionalArrowColor((link: ForceLink) => getLinkArrowColor(link))
+
+      // Restore particle accessor (active only when selected)
+      graph.linkDirectionalParticles((link: ForceLink) => {
+        if (!currentSelected) return 0
+        const srcId = linkNodeId(link.source)
+        const tgtId = linkNodeId(link.target)
+        return srcId === currentSelected.id || tgtId === currentSelected.id ? 3 : 0
+      })
 
       // Restore nodeThreeObject to hub-only mode
       graph.nodeThreeObject(((node: ForceNode) => {
         const degree = degreeMap.get(node.id) ?? 0
         if (degree < 5) return false
-        return createHubNodeObject(node, 0.9)
+        return createHubNodeObject(node, 0.85)
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       }) as any)
 
@@ -482,39 +602,54 @@
     // Remove forceCenter — it fights cluster separation
     graph.d3Force('center', null)
 
-    // Link force: intra-cluster links shorter, inter-cluster links longer
+    // Link force: cluster-aware distances
+    // Same cluster → tight, different clusters → push far apart
     const linkForce = graph.d3Force('link')
     if (linkForce) {
       linkForce.distance((link: ForceLink) => {
         const s = typeof link.source === 'object' ? link.source : null
         const t = typeof link.target === 'object' ? link.target : null
-        if (
-          s &&
-          t &&
-          s.cluster_id != null &&
-          t.cluster_id != null &&
-          s.cluster_id === t.cluster_id
-        ) {
-          return isDocument ? 40 : 30
+        const sameCluster =
+          s && t && s.cluster_id != null && t.cluster_id != null && s.cluster_id === t.cluster_id
+        if (isDocument) {
+          return sameCluster ? 30 : 120
         }
-        return isDocument ? 100 : 60
+        // Chunk mode
+        return sameCluster ? 20 : 150
       })
-      linkForce.strength(0.4)
+      // Weaker link strength so cluster force dominates over edge pull
+      linkForce.strength(isDocument ? 0.2 : 0.15)
     }
 
-    // Charge force: degree-dependent repulsion
+    // Charge force: repulsion pushes nodes apart
     const chargeForce = graph.d3Force('charge')
     if (chargeForce) {
-      chargeForce.strength((node: ForceNode) => {
-        const degree = degreeMap.get(node.id) ?? 0
-        return isDocument ? -80 - degree * 10 : -60
-      })
-      chargeForce.distanceMax(400)
+      if (isDocument) {
+        // Degree-dependent: hubs push harder
+        chargeForce.strength((node: ForceNode) => {
+          const degree = degreeMap.get(node.id) ?? 0
+          return -100 - degree * 10
+        })
+        chargeForce.distanceMax(400)
+      } else {
+        // Chunk mode: uniform repulsion
+        chargeForce.strength(-100)
+        chargeForce.distanceMax(400)
+      }
     }
 
-    // Cluster attraction force
+    // Cluster attraction: pulls nodes toward their cluster centroid
+    // Strong enough that clusters form tight groups despite repulsion
+    const clusterStrength = isDocument ? 0.15 : 0.25
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    graph.d3Force('cluster', createClusterForce(0.05) as any)
+    graph.d3Force('cluster', createClusterForce(clusterStrength) as any)
+
+    // Edge opacity: subtle hairlines. Chunk mode even more subtle.
+    if (!isDocument) {
+      graph.linkOpacity(0.08)
+    } else {
+      graph.linkOpacity(0.15)
+    }
   }
 
   // ─── Performance Safeguards ─────────────────────────────────────────
@@ -532,30 +667,26 @@
   function applyPerformanceSafeguards() {
     if (!graph) return
 
+    // All modes use hairline links (linkWidth=0 set at init)
     if (nodeCount > 2000) {
       // Very large graph: minimal rendering for WebGL performance
-      graph.nodeResolution(6)
+      graph.nodeResolution(4)
       graph.cooldownTime(3000)
-      graph.linkWidth(0) // Thin hairline links
-      graph.nodeOpacity(0.7) // Reduced opacity
-      graph.linkDirectionalParticles(0) // No particles
-      graph.linkLabel(() => '') // Disable edge labels on hover
+      graph.nodeOpacity(0.6)
+      graph.linkDirectionalParticles(0)
+      graph.linkLabel(() => '')
     } else if (nodeCount > 500) {
       // Large graph: reduced quality
       graph.nodeResolution(6)
       graph.cooldownTime(3000)
-      graph.linkDirectionalParticles(0) // No particles (performance)
-      // Restore normal link width and opacity
-      graph.linkWidth((link: ForceLink) => link.width)
-      graph.nodeOpacity(0.9)
-      // Keep edge labels
+      graph.linkDirectionalParticles(0)
+      graph.nodeOpacity(0.85)
       graph.linkLabel((link: ForceLink) => edgeTooltipHtml(link as unknown as Graph3DLink))
     } else {
       // Normal graph: full quality settings
-      graph.nodeResolution(12)
+      graph.nodeResolution(8)
       graph.cooldownTime(5000)
-      graph.nodeOpacity(0.9)
-      graph.linkWidth((link: ForceLink) => link.width)
+      graph.nodeOpacity(0.85)
       // Restore particle accessor (active on selected node edges)
       graph.linkDirectionalParticles((link: ForceLink) => {
         if (!currentSelected) return 0
@@ -617,7 +748,8 @@
     computeBidirectionalPairs(graph3DData.links)
 
     // Seed cluster positions using Fibonacci sphere distribution
-    seedClusterPositions(graph3DData.nodes, data.clusters)
+    const spreadRadius = currentLevel === 'chunk' ? 300 : 200
+    seedClusterPositions(graph3DData.nodes, data.clusters, spreadRadius)
 
     // Compute cluster centroids from seeded positions
     computeClusterCentroids(graph3DData.nodes)
@@ -638,11 +770,18 @@
     // Configure forces before feeding data
     configureForces(currentLevel)
 
+    // Pause animation during data swap to prevent OrbitControls/DragControls
+    // pointer race conditions (accessing stale node positions during graphData update)
+    graph.pauseAnimation()
+
     // Feed data to 3d-force-graph
     graph.graphData({
       nodes: graph3DData.nodes as ForceNode[],
       links: graph3DData.links as ForceLink[]
     })
+
+    // Resume after data is set
+    graph.resumeAnimation()
 
     // Zoom to fit after layout settles
     setTimeout(() => {
@@ -791,32 +930,80 @@
       const radius = Math.max(maxDist + 20, 10)
 
       const clusterColor = new THREE.Color(CLUSTER_COLORS[clusterId % CLUSTER_COLORS.length])
+      const center = new THREE.Vector3(cx, cy, cz)
 
-      // Transparent fill sphere (BackSide so we see inside it)
-      const fillGeo = new THREE.SphereGeometry(radius, 24, 16)
-      const fillMat = new THREE.MeshLambertMaterial({
+      // ── Volumetric convex hull: shape-conforming multi-shell + Fresnel ──
+      // Uses 3D convex hull of actual node positions (not a sphere) so the
+      // enclosure follows elongated, flat, or irregular cluster shapes.
+
+      // Collect node positions as Vector3
+      const nodePoints = cnodes.map(
+        (n) => new THREE.Vector3(n.x ?? 0, n.y ?? 0, n.z ?? 0)
+      )
+
+      // Helper: push each point outward from centroid by (scale * distance + fixedPad)
+      function padPoints(pts: THREE.Vector3[], scale: number, fixedPad: number): THREE.Vector3[] {
+        return pts.map((p) => {
+          const dir = p.clone().sub(center)
+          const len = dir.length()
+          if (len < 0.01) return p.clone().add(new THREE.Vector3(fixedPad, 0, 0))
+          dir.normalize()
+          return center.clone().add(dir.multiplyScalar(len * scale + fixedPad))
+        })
+      }
+
+      // For clusters with < 4 nodes, ConvexGeometry can't form a 3D hull.
+      // Fall back to a small sphere at the centroid for those.
+      const canHull = nodePoints.length >= 4
+
+      // Shell 1: dense inner core (40% scale from centroid)
+      const coreGeo = canHull
+        ? new ConvexGeometry(padPoints(nodePoints, 0.5, 5))
+        : new THREE.SphereGeometry(radius * 0.4, 16, 12)
+      const coreMat = new THREE.MeshBasicMaterial({
         color: clusterColor,
         transparent: true,
-        opacity: 0.06,
+        opacity: 0.07,
         side: THREE.BackSide,
         depthWrite: false
       })
-      const fillMesh = new THREE.Mesh(fillGeo, fillMat)
-      fillMesh.position.set(cx, cy, cz)
-      clusterMeshGroup.add(fillMesh)
+      const coreMesh = new THREE.Mesh(coreGeo, coreMat)
+      if (!canHull) coreMesh.position.set(cx, cy, cz)
+      clusterMeshGroup.add(coreMesh)
 
-      // Wireframe outline sphere
-      const wireGeo = new THREE.SphereGeometry(radius, 24, 16)
-      const wireMat = new THREE.MeshBasicMaterial({
+      // Shell 2: mid-density layer (80% scale + padding)
+      const midGeo = canHull
+        ? new ConvexGeometry(padPoints(nodePoints, 0.9, 10))
+        : new THREE.SphereGeometry(radius * 0.7, 16, 12)
+      const midMat = new THREE.MeshBasicMaterial({
         color: clusterColor,
-        wireframe: true,
         transparent: true,
-        opacity: 0.12,
+        opacity: 0.045,
+        side: THREE.BackSide,
         depthWrite: false
       })
-      const wireMesh = new THREE.Mesh(wireGeo, wireMat)
-      wireMesh.position.set(cx, cy, cz)
-      clusterMeshGroup.add(wireMesh)
+      const midMesh = new THREE.Mesh(midGeo, midMat)
+      if (!canHull) midMesh.position.set(cx, cy, cz)
+      clusterMeshGroup.add(midMesh)
+
+      // Shell 3: outer boundary (full extent + generous padding)
+      const outerPadded = padPoints(nodePoints, 1.0, 25)
+      const outerGeo = canHull
+        ? new ConvexGeometry(outerPadded)
+        : new THREE.SphereGeometry(radius, 16, 12)
+      const outerMat = new THREE.MeshBasicMaterial({
+        color: clusterColor,
+        transparent: true,
+        opacity: 0.025,
+        side: THREE.BackSide,
+        depthWrite: false
+      })
+      const outerMesh = new THREE.Mesh(outerGeo, outerMat)
+      if (!canHull) outerMesh.position.set(cx, cy, cz)
+      clusterMeshGroup.add(outerMesh)
+
+      // No Fresnel rim — all shells use flat MeshBasicMaterial for uniform
+      // appearance from every camera angle (no lighting, no view-dependent shading).
 
       // Compute screen position for the cluster label
       const labelPos = projectToScreen(cx, cy, cz)
@@ -1045,15 +1232,15 @@
     unsubData = graphData.subscribe(async (d) => {
       currentData = d
       if (d && d.nodes.length > 0 && !graph && webglSupported) {
-        // Graph not yet initialized — wait for Svelte to re-render the template
-        // so graphContainerEl gets bound via bind:this in the {:else} block
+        // graphContainerEl is always mounted, but may need a tick for bind:this
         await tick()
         if (graphContainerEl && !graph) {
           await initializeGraph()
-          // Feed the data that triggered initialization
+          syncGraphSize()
           feedData(d)
         }
       } else if (d && graph) {
+        syncGraphSize()
         feedData(d)
       }
     })
@@ -1131,9 +1318,19 @@
       if (currentData && graph) feedData(currentData)
     })
 
-    // Loading and error states
-    unsubLoading = graphLoading.subscribe((v) => {
+    // Loading state → when loading clears with data ready, initialize graph
+    unsubLoading = graphLoading.subscribe(async (v) => {
       currentLoading = v
+      // When loading finishes and data is available but graph isn't initialized yet,
+      // wait for Svelte to render the {:else} block then initialize
+      if (!v && currentData && currentData.nodes.length > 0 && !graph && webglSupported) {
+        await tick()
+        if (graphContainerEl && !graph) {
+          await initializeGraph()
+          syncGraphSize()
+          feedData(currentData)
+        }
+      }
     })
     unsubError = graphError.subscribe((v) => {
       currentError = v
@@ -1157,23 +1354,28 @@
 
   // ─── Resize Handling ────────────────────────────────────────────────
 
+  /**
+   * Sync the graph's width/height to match the outer container.
+   * Called after graph init and on resize to ensure the WebGL viewport
+   * and camera aspect ratio match the actual DOM layout.
+   */
+  function syncGraphSize() {
+    if (!containerEl || !graph) return
+    const rect = containerEl.getBoundingClientRect()
+    if (rect.width > 0 && rect.height > 0) {
+      graph.width(rect.width)
+      graph.height(rect.height)
+    }
+  }
+
   function setupResizeObserver() {
     if (!containerEl) return
 
-    function handleResize() {
-      if (!containerEl || !graph) return
-      const rect = containerEl.getBoundingClientRect()
-      if (rect.width > 0 && rect.height > 0) {
-        graph.width(rect.width)
-        graph.height(rect.height)
-      }
-    }
-
-    resizeObs = new ResizeObserver(() => handleResize())
+    resizeObs = new ResizeObserver(() => syncGraphSize())
     resizeObs.observe(containerEl)
 
     // Initial sizing
-    handleResize()
+    syncGraphSize()
   }
 
   // ─── Interaction Handlers ───────────────────────────────────────────
@@ -1325,30 +1527,41 @@
     const ForceGraph3DModule = await import('3d-force-graph')
     const ForceGraph3D = ForceGraph3DModule.default
 
+    // Get container dimensions before init (3d-force-graph defaults to window size)
+    const rect = containerEl?.getBoundingClientRect()
+    const initWidth = rect?.width || graphContainerEl.clientWidth || 800
+    const initHeight = rect?.height || graphContainerEl.clientHeight || 600
+
     // Initialize 3d-force-graph with PRD configuration values
     graph = new ForceGraph3D(graphContainerEl, {
       controlType: 'orbit'
     })
+      .width(initWidth)
+      .height(initHeight)
       .backgroundColor('#0a0a0b')
       .showNavInfo(false)
-      .nodeOpacity(0.9)
-      .linkOpacity(0.4)
+      .nodeOpacity(0.85)
+      .linkOpacity(0.15)
       .warmupTicks(100)
       .cooldownTime(5000)
       .d3AlphaDecay(0.02)
       .d3VelocityDecay(0.4)
-      .nodeResolution(12)
+      // Small dot-like nodes: nodeRelSize controls px³ per val unit
+      // Low value = tiny particle-like dots (Cosmograph style)
+      .nodeRelSize(2)
+      .nodeResolution(8)
       // Node sizing: val field drives sphere volume
       .nodeVal((node: ForceNode) => node.val)
       // Node color: dynamic accessor reads current coloring mode on each render
       .nodeColor((node: ForceNode) => getNodeColor(node))
       // Link color: pre-computed by buildGraph3DData (edge cluster palette, weak edges at low opacity)
       .linkColor((link: ForceLink) => link.color)
-      // Link width: pre-computed by buildGraph3DData (strength-mapped [0.5, 3.0])
-      .linkWidth((link: ForceLink) => link.width)
+      // Link width: 0 = ThreeJS Line (constant 1px hairline, very fast)
+      .linkWidth(0)
       // Directional arrows: visible in document mode, hidden in chunk mode (symmetric similarity)
-      .linkDirectionalArrowLength((_link: ForceLink) => (isChunkMode() ? 0 : 4))
-      .linkDirectionalArrowRelPos(0.85)
+      .linkDirectionalArrowLength((_link: ForceLink) => (isChunkMode() ? 0 : 6))
+      .linkDirectionalArrowRelPos(1)
+      .linkDirectionalArrowResolution(4)
       .linkDirectionalArrowColor((link: ForceLink) => getLinkArrowColor(link))
       // Directional particles: animate on selected node's neighbor edges
       .linkDirectionalParticles((link: ForceLink) => {
@@ -1357,10 +1570,23 @@
         const tgtId = linkNodeId(link.target)
         return srcId === currentSelected.id || tgtId === currentSelected.id ? 2 : 0
       })
-      .linkDirectionalParticleSpeed(0.005)
-      .linkDirectionalParticleWidth(1.5)
-      .linkDirectionalParticleColor((link: ForceLink) => getLinkArrowColor(link))
-      // Hub node glow: custom THREE.Group with sphere + PointLight for high-degree nodes (degree >= 5)
+      .linkDirectionalParticleSpeed(0.006)
+      .linkDirectionalParticleWidth(1)
+      .linkDirectionalParticleResolution(6)
+      .linkDirectionalParticleColor(() => '#ffffff')
+      // Custom particle object: additive-blended sphere that glows like light
+      .linkDirectionalParticleThreeObject(() => {
+        const geo = new THREE.SphereGeometry(0.2, 6, 4)
+        const mat = new THREE.MeshBasicMaterial({
+          color: 0xffffff,
+          transparent: true,
+          opacity: 1,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false
+        })
+        return new THREE.Mesh(geo, mat)
+      })
+      // Hub node glow: custom THREE.Group with emissive sphere + halo for high-degree nodes (degree >= 5)
       // Returns false for low-degree nodes to use default sphere rendering.
       .nodeThreeObject(((node: ForceNode) => {
         const degree = degreeMap.get(node.id) ?? 0
@@ -1368,18 +1594,9 @@
         return createHubNodeObject(node, 0.9)
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       }) as any)
-      // Node labels on hover: HTML tooltip with path, cluster label, and heading (chunk mode)
-      .nodeLabel((node: ForceNode) => {
-        const clusterLabel =
-          node.cluster_id != null
-            ? (currentData?.clusters.find((c) => c.id === node.cluster_id)?.label ?? null)
-            : null
-        return nodeTooltipHtml(node, clusterLabel)
-      })
-      // Edge labels on hover: HTML tooltip with relationship type, strength bar, context excerpt
-      .linkLabel((link: ForceLink) => {
-        return edgeTooltipHtml(link as unknown as Graph3DLink)
-      }) as GraphInstance
+      // Disable built-in tooltips — we use custom HTML overlays instead
+      .nodeLabel(() => '')
+      .linkLabel(() => '') as GraphInstance
 
     // ─── Event Handlers ──────────────────────────────────────────────
 
@@ -1442,6 +1659,11 @@
 
     // Configure cluster-aware forces
     configureForces(currentLevel)
+
+    // Start proximity label update loop
+    if (labelFrameId === null) {
+      labelFrameId = requestAnimationFrame(updateProximityLabels)
+    }
   }
 
   // ─── Lifecycle ──────────────────────────────────────────────────────
@@ -1468,6 +1690,12 @@
   })
 
   onDestroy(() => {
+    // Stop label update loop
+    if (labelFrameId !== null) {
+      cancelAnimationFrame(labelFrameId)
+      labelFrameId = null
+    }
+
     // Clean up cluster sphere meshes before disposing graph
     clearClusterMeshes()
 
@@ -1504,7 +1732,17 @@
 </script>
 
 <div class="graph-view" bind:this={containerEl}>
-  {#if currentLoading}
+  <!-- 3d-force-graph container: ALWAYS mounted so WebGL context survives tab switches.
+       Hidden until data is available via CSS visibility. -->
+  <div
+    bind:this={graphContainerEl}
+    class="graph-3d-container"
+    style:visibility={currentData && currentData.nodes.length > 0 && !currentError && webglSupported ? 'visible' : 'hidden'}
+  ></div>
+
+  {#if currentLoading && !graph}
+    <!-- Only show full loading overlay on first load (no graph yet).
+         Tab switches keep the graph visible while new data loads. -->
     <div class="graph-empty">
       <span class="material-symbols-outlined spinning">progress_activity</span>
       <p>Loading graph data…</p>
@@ -1529,10 +1767,18 @@
       <span class="material-symbols-outlined">hub</span>
       <p>No files indexed. Run ingest to build the graph.</p>
     </div>
-  {:else}
-    <!-- 3d-force-graph mounts its WebGL canvas inside this container -->
-    <div bind:this={graphContainerEl} class="graph-3d-container"></div>
+  {/if}
 
+  <!-- Proximity node labels (document mode only, distance-based) -->
+  {#if visibleLabels.length > 0}
+    <div class="proximity-labels">
+      {#each visibleLabels as lbl (lbl.id)}
+        <span class="proximity-label" style="left: {lbl.x}px; top: {lbl.y}px">{lbl.label}</span>
+      {/each}
+    </div>
+  {/if}
+
+  {#if currentData && currentData.nodes.length > 0 && !currentError && webglSupported}
     <!-- Level tab switcher -->
     <div class="graph-level-switcher" role="tablist">
       <button
@@ -1812,16 +2058,40 @@
     min-height: 0;
   }
 
+  .proximity-labels {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 1;
+    overflow: hidden;
+  }
+
+  .proximity-label {
+    position: absolute;
+    transform: translate(-50%, -100%) translateY(-6px);
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-size: 12px;
+    color: rgba(228, 228, 231, 0.7);
+    white-space: nowrap;
+    text-shadow: 0 0 4px rgba(0, 0, 0, 0.9), 0 0 8px rgba(0, 0, 0, 0.6);
+    transition: left 60ms linear, top 60ms linear, opacity 200ms ease;
+  }
+
   .graph-3d-container {
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
   }
 
-  /* Make the 3d-force-graph canvas fill the container */
+  /*
+   * 3d-force-graph sets canvas pixel dimensions via graph.width()/graph.height().
+   * Do NOT override with CSS width/height: 100% — that stretches the pixel buffer
+   * and causes blurriness or sizing mismatches. Only set display: block to remove
+   * the inline-block baseline gap.
+   */
   .graph-3d-container :global(canvas) {
     display: block;
-    width: 100%;
-    height: 100%;
   }
 
   /* Style 3d-force-graph's built-in tooltip container */
@@ -1869,14 +2139,15 @@
     position: absolute;
     transform: translate(-50%, -50%);
     font-family: var(--font-display, 'Space Grotesk', sans-serif);
-    font-size: var(--text-xs, 0.625rem);
-    font-weight: var(--weight-medium, 500);
+    font-size: 14px;
+    font-weight: 600;
     pointer-events: none;
     white-space: nowrap;
     text-shadow:
-      0 0 4px rgba(0, 0, 0, 0.8),
-      0 0 8px rgba(0, 0, 0, 0.5);
-    opacity: 0.7;
+      0 0 6px rgba(0, 0, 0, 0.9),
+      0 0 12px rgba(0, 0, 0, 0.6);
+    opacity: 0.85;
+    transition: left 60ms linear, top 60ms linear;
     z-index: 5;
   }
 
