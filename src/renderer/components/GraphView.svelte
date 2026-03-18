@@ -36,6 +36,8 @@
     seedClusterPositions,
     computeDegreeMap,
     edgeArrowColor,
+    nodeTooltipHtml,
+    edgeTooltipHtml,
     type Graph3DNode,
     type Graph3DLink,
     type Graph3DData,
@@ -88,6 +90,9 @@
 
   /** Set of bidirectional edge pair keys ("srcId->tgtId") for arrow color logic. */
   let bidirectionalPairs: Set<string> = new Set();
+
+  /** Set of node IDs neighboring the selected node (includes the selected node itself). */
+  let neighborSet: Set<string> = new Set();
 
   // Store subscriptions
   let unsubData: (() => void) | null = null;
@@ -249,6 +254,150 @@
     const selectedId = currentSelected?.id ?? null;
     const isBidi = bidirectionalPairs.has(`${srcId}->${tgtId}`);
     return edgeArrowColor(srcId, tgtId, selectedId, isBidi);
+  }
+
+  // ─── Selection Dimming & Hub Glow ──────────────────────────────────
+
+  /**
+   * Compute the set of node IDs that are neighbors of the currently selected node.
+   * Includes the selected node itself. Used by selection dimming logic.
+   * When no node is selected, the set is empty (no dimming applied).
+   */
+  function computeNeighborSet() {
+    neighborSet = new Set();
+    if (!currentSelected || !graph) return;
+
+    const graphD = graph.graphData();
+    const links = graphD.links as ForceLink[];
+    const selectedId = currentSelected.id;
+
+    neighborSet.add(selectedId);
+
+    for (const link of links) {
+      const srcId = linkNodeId(link.source);
+      const tgtId = linkNodeId(link.target);
+      if (srcId === selectedId) {
+        neighborSet.add(tgtId);
+      } else if (tgtId === selectedId) {
+        neighborSet.add(srcId);
+      }
+    }
+  }
+
+  /**
+   * Create a hub node THREE.Group with a sphere mesh and PointLight glow.
+   * Hub nodes (degree >= 5) get a visible glow effect via a colored point light.
+   */
+  function createHubNodeObject(node: ForceNode, opacity: number): THREE.Group {
+    const color = getNodeColor(node);
+    const threeColor = new THREE.Color(color);
+    const radius = Math.cbrt(node.val) * 4; // Match 3d-force-graph default sizing (nodeRelSize=4)
+
+    const group = new THREE.Group();
+
+    const geometry = new THREE.SphereGeometry(radius, 12, 8);
+    const material = new THREE.MeshLambertMaterial({
+      color: threeColor,
+      transparent: true,
+      opacity,
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    group.add(mesh);
+
+    // PointLight creates a glow effect around the hub node
+    const light = new THREE.PointLight(
+      threeColor,
+      opacity > 0.5 ? 0.5 : 0.1, // Dim glow for dimmed hubs
+      radius * 5,
+    );
+    group.add(light);
+
+    return group;
+  }
+
+  /**
+   * Apply selection dimming to the graph.
+   *
+   * When a node is selected:
+   *   - Set global nodeOpacity to 0.15 (dims all default-sphere nodes)
+   *   - Set global linkOpacity to 0.05 (dims all links)
+   *   - Use nodeThreeObject to render selected+neighbor nodes at full opacity
+   *   - Use linkMaterial to render neighbor links at full opacity
+   *
+   * When no node is selected:
+   *   - Restore global nodeOpacity to 0.9
+   *   - Restore global linkOpacity to 0.4
+   *   - Use nodeThreeObject only for hub node glow (degree >= 5)
+   *   - Clear linkMaterial override
+   */
+  function applySelectionDimming() {
+    if (!graph) return;
+
+    if (currentSelected && neighborSet.size > 0) {
+      // Dim all default spheres and links
+      graph.nodeOpacity(0.15);
+      graph.linkOpacity(0.05);
+
+      // Override nodeThreeObject: neighbor + hub nodes get custom objects at full opacity
+      graph.nodeThreeObject(((node: ForceNode) => {
+        const degree = degreeMap.get(node.id) ?? 0;
+        const isNeighbor = neighborSet.has(node.id);
+        const isHub = degree >= 5;
+
+        if (!isNeighbor && !isHub) return false; // Use default sphere at 0.15 opacity
+
+        const targetOpacity = isNeighbor ? 0.9 : 0.15;
+
+        if (isHub) {
+          return createHubNodeObject(node, targetOpacity);
+        }
+
+        // Non-hub neighbor: create sphere at full opacity
+        const color = getNodeColor(node);
+        const threeColor = new THREE.Color(color);
+        const radius = Math.cbrt(node.val) * 4;
+
+        const group = new THREE.Group();
+        const geometry = new THREE.SphereGeometry(radius, 12, 8);
+        const material = new THREE.MeshLambertMaterial({
+          color: threeColor,
+          transparent: true,
+          opacity: targetOpacity,
+        });
+        group.add(new THREE.Mesh(geometry, material));
+        return group;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any);
+
+      // Override linkMaterial: neighbor links get full opacity material
+      graph.linkMaterial((link: ForceLink) => {
+        const srcId = linkNodeId(link.source);
+        const tgtId = linkNodeId(link.target);
+        if (srcId === currentSelected!.id || tgtId === currentSelected!.id) {
+          return new THREE.LineBasicMaterial({
+            color: new THREE.Color(link.color || '#555555'),
+            transparent: true,
+            opacity: 0.6,
+          });
+        }
+        return null; // Use default at linkOpacity 0.05
+      });
+    } else {
+      // No selection: restore default state
+      graph.nodeOpacity(0.9);
+      graph.linkOpacity(0.4);
+
+      // Restore nodeThreeObject to hub-only mode
+      graph.nodeThreeObject(((node: ForceNode) => {
+        const degree = degreeMap.get(node.id) ?? 0;
+        if (degree < 5) return false;
+        return createHubNodeObject(node, 0.9);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any);
+
+      // Clear linkMaterial override
+      graph.linkMaterial(null);
+    }
   }
 
   // ─── Force Configuration ────────────────────────────────────────────
@@ -789,10 +938,11 @@
       }
     });
 
-    // Selection state → refresh graph so accessors re-evaluate
-    // (dimming and arrow coloring accessors are added in subtask 3-3)
+    // Selection state → compute neighbor set, apply dimming, refresh accessors
     unsubSelected = graphSelectedNode.subscribe((n) => {
       currentSelected = n;
+      computeNeighborSet();
+      applySelectionDimming();
       if (graph) graph.refresh();
     });
 
@@ -1052,7 +1202,26 @@
       })
       .linkDirectionalParticleSpeed(0.005)
       .linkDirectionalParticleWidth(1.5)
-      .linkDirectionalParticleColor((link: ForceLink) => getLinkArrowColor(link)) as GraphInstance;
+      .linkDirectionalParticleColor((link: ForceLink) => getLinkArrowColor(link))
+      // Hub node glow: custom THREE.Group with sphere + PointLight for high-degree nodes (degree >= 5)
+      // Returns false for low-degree nodes to use default sphere rendering.
+      .nodeThreeObject(((node: ForceNode) => {
+        const degree = degreeMap.get(node.id) ?? 0;
+        if (degree < 5) return false;
+        return createHubNodeObject(node, 0.9);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any)
+      // Node labels on hover: HTML tooltip with path, cluster label, and heading (chunk mode)
+      .nodeLabel((node: ForceNode) => {
+        const clusterLabel = node.cluster_id != null
+          ? currentData?.clusters.find(c => c.id === node.cluster_id)?.label ?? null
+          : null;
+        return nodeTooltipHtml(node, clusterLabel);
+      })
+      // Edge labels on hover: HTML tooltip with relationship type, strength bar, context excerpt
+      .linkLabel((link: ForceLink) => {
+        return edgeTooltipHtml(link as unknown as Graph3DLink);
+      }) as GraphInstance;
 
     // ─── Event Handlers ──────────────────────────────────────────────
 
