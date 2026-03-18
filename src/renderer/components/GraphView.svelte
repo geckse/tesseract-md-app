@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import type { ForceGraph3DInstance } from '3d-force-graph';
   import type { NodeObject, LinkObject } from 'three-forcegraph';
+  import * as THREE from 'three';
   import {
     graphData,
     graphLoading,
@@ -135,6 +136,17 @@
 
   // Node count for performance warnings
   let nodeCount = $state(0);
+
+  // ─── Cluster Enclosure Sphere State ─────────────────────────────────
+
+  /** THREE.js Group containing all cluster sphere + wireframe meshes. */
+  let clusterMeshGroup: THREE.Group | null = null;
+
+  /** Tick counter for throttled cluster sphere updates during simulation. */
+  let engineTickCount = 0;
+
+  /** Cluster labels computed for the HTML overlay. */
+  let clusterLabels: { id: number; label: string; screenX: number; screenY: number; visible: boolean }[] = $state([]);
 
   // ─── Helper Functions ───────────────────────────────────────────────
 
@@ -360,6 +372,340 @@
     }
   }
 
+  // ─── Cluster Enclosure Spheres ──────────────────────────────────────
+
+  /**
+   * Remove all existing cluster sphere meshes and labels from the scene.
+   * Called before recomputing spheres or when switching away from cluster mode.
+   */
+  function clearClusterMeshes() {
+    if (clusterMeshGroup && graph) {
+      // Dispose all geometries and materials in the group
+      clusterMeshGroup.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          child.geometry.dispose();
+          if (Array.isArray(child.material)) {
+            child.material.forEach((m) => m.dispose());
+          } else {
+            child.material.dispose();
+          }
+        }
+      });
+      graph.scene().remove(clusterMeshGroup);
+      clusterMeshGroup = null;
+    }
+    clusterLabels = [];
+  }
+
+  /**
+   * Compute an enclosing sphere for each cluster from current node positions,
+   * then add transparent sphere + wireframe outline meshes to the scene.
+   * Also computes screen-projected cluster label positions for the HTML overlay.
+   *
+   * Only adds spheres when in cluster coloring mode.
+   */
+  function updateClusterSpheres() {
+    if (!graph) return;
+
+    // Remove previous meshes
+    clearClusterMeshes();
+
+    // Only show spheres in cluster coloring mode
+    if (currentColoringMode !== 'cluster') return;
+
+    const graphData = graph.graphData();
+    const nodes = graphData.nodes as ForceNode[];
+    if (nodes.length === 0) return;
+
+    // Group nodes by cluster_id
+    const clusterNodes = new Map<number, ForceNode[]>();
+    for (const node of nodes) {
+      if (node.cluster_id == null) continue;
+      const existing = clusterNodes.get(node.cluster_id);
+      if (existing) {
+        existing.push(node);
+      } else {
+        clusterNodes.set(node.cluster_id, [node]);
+      }
+    }
+
+    if (clusterNodes.size === 0) return;
+
+    // Create a group to hold all cluster meshes
+    clusterMeshGroup = new THREE.Group();
+    clusterMeshGroup.name = 'clusterEnclosures';
+
+    const newLabels: typeof clusterLabels = [];
+
+    for (const [clusterId, cnodes] of clusterNodes) {
+      // Compute centroid
+      let cx = 0, cy = 0, cz = 0;
+      for (const n of cnodes) {
+        cx += n.x ?? 0;
+        cy += n.y ?? 0;
+        cz += n.z ?? 0;
+      }
+      cx /= cnodes.length;
+      cy /= cnodes.length;
+      cz /= cnodes.length;
+
+      // Compute max distance from centroid to any node in this cluster
+      let maxDist = 0;
+      for (const n of cnodes) {
+        const dx = (n.x ?? 0) - cx;
+        const dy = (n.y ?? 0) - cy;
+        const dz = (n.z ?? 0) - cz;
+        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (dist > maxDist) maxDist = dist;
+      }
+
+      // Add padding (minimum sphere radius of 10 for single-node clusters)
+      const radius = Math.max(maxDist + 20, 10);
+
+      const clusterColor = new THREE.Color(CLUSTER_COLORS[clusterId % CLUSTER_COLORS.length]);
+
+      // Transparent fill sphere (BackSide so we see inside it)
+      const fillGeo = new THREE.SphereGeometry(radius, 24, 16);
+      const fillMat = new THREE.MeshLambertMaterial({
+        color: clusterColor,
+        transparent: true,
+        opacity: 0.06,
+        side: THREE.BackSide,
+        depthWrite: false,
+      });
+      const fillMesh = new THREE.Mesh(fillGeo, fillMat);
+      fillMesh.position.set(cx, cy, cz);
+      clusterMeshGroup.add(fillMesh);
+
+      // Wireframe outline sphere
+      const wireGeo = new THREE.SphereGeometry(radius, 24, 16);
+      const wireMat = new THREE.MeshBasicMaterial({
+        color: clusterColor,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.12,
+        depthWrite: false,
+      });
+      const wireMesh = new THREE.Mesh(wireGeo, wireMat);
+      wireMesh.position.set(cx, cy, cz);
+      clusterMeshGroup.add(wireMesh);
+
+      // Compute screen position for the cluster label
+      const labelPos = projectToScreen(cx, cy, cz);
+
+      // Find cluster label from current data
+      const clusterInfo = currentData?.clusters.find((c) => c.id === clusterId);
+      newLabels.push({
+        id: clusterId,
+        label: clusterInfo?.label ?? `Cluster ${clusterId}`,
+        screenX: labelPos.x,
+        screenY: labelPos.y,
+        visible: labelPos.visible,
+      });
+    }
+
+    graph.scene().add(clusterMeshGroup);
+    clusterLabels = newLabels;
+
+    // Also recompute cluster centroids for the attraction force
+    recomputeLiveCentroids(nodes);
+  }
+
+  /**
+   * Project a 3D world position to 2D screen coordinates.
+   * Returns { x, y, visible } where visible indicates if the point is in front of the camera.
+   */
+  function projectToScreen(wx: number, wy: number, wz: number): { x: number; y: number; visible: boolean } {
+    if (!graph || !containerEl) return { x: 0, y: 0, visible: false };
+
+    const camera = graph.camera();
+    const renderer = graph.renderer();
+    const vec = new THREE.Vector3(wx, wy, wz);
+
+    // Project to normalized device coordinates
+    vec.project(camera);
+
+    // Check if behind camera
+    if (vec.z > 1) return { x: 0, y: 0, visible: false };
+
+    // Convert NDC to screen pixel coordinates
+    const domEl = renderer.domElement;
+    const x = (vec.x * 0.5 + 0.5) * domEl.clientWidth;
+    const y = (-vec.y * 0.5 + 0.5) * domEl.clientHeight;
+
+    return { x, y, visible: true };
+  }
+
+  /**
+   * Update cluster label screen positions without recreating meshes.
+   * Called during camera movement or simulation ticks.
+   */
+  function updateClusterLabelPositions() {
+    if (!graph || currentColoringMode !== 'cluster' || !clusterMeshGroup) return;
+
+    const graphData = graph.graphData();
+    const nodes = graphData.nodes as ForceNode[];
+
+    // Recompute centroids from current positions
+    const centroids = new Map<number, { x: number; y: number; z: number; count: number }>();
+    for (const node of nodes) {
+      if (node.cluster_id == null) continue;
+      const existing = centroids.get(node.cluster_id);
+      if (existing) {
+        existing.x += node.x ?? 0;
+        existing.y += node.y ?? 0;
+        existing.z += node.z ?? 0;
+        existing.count++;
+      } else {
+        centroids.set(node.cluster_id, {
+          x: node.x ?? 0,
+          y: node.y ?? 0,
+          z: node.z ?? 0,
+          count: 1,
+        });
+      }
+    }
+
+    const updatedLabels: typeof clusterLabels = [];
+    for (const [clusterId, sum] of centroids) {
+      const cx = sum.x / sum.count;
+      const cy = sum.y / sum.count;
+      const cz = sum.z / sum.count;
+      const pos = projectToScreen(cx, cy, cz);
+      const clusterInfo = currentData?.clusters.find((c) => c.id === clusterId);
+      updatedLabels.push({
+        id: clusterId,
+        label: clusterInfo?.label ?? `Cluster ${clusterId}`,
+        screenX: pos.x,
+        screenY: pos.y,
+        visible: pos.visible,
+      });
+    }
+    clusterLabels = updatedLabels;
+  }
+
+  /**
+   * Recompute live cluster centroids from current node positions.
+   * Updates the clusterCentroids map used by the cluster attraction force,
+   * so that the force targets track the actual cluster centers during simulation.
+   */
+  function recomputeLiveCentroids(nodes: ForceNode[]) {
+    const sums = new Map<number, { x: number; y: number; z: number; count: number }>();
+    for (const node of nodes) {
+      if (node.cluster_id == null) continue;
+      const existing = sums.get(node.cluster_id);
+      if (existing) {
+        existing.x += node.x ?? 0;
+        existing.y += node.y ?? 0;
+        existing.z += node.z ?? 0;
+        existing.count++;
+      } else {
+        sums.set(node.cluster_id, {
+          x: node.x ?? 0,
+          y: node.y ?? 0,
+          z: node.z ?? 0,
+          count: 1,
+        });
+      }
+    }
+
+    for (const [id, sum] of sums) {
+      clusterCentroids.set(id, {
+        x: sum.x / sum.count,
+        y: sum.y / sum.count,
+        z: sum.z / sum.count,
+      });
+    }
+  }
+
+  /**
+   * Handle engine tick: throttled cluster sphere + centroid updates.
+   * Called on every simulation tick; only updates every ~30 ticks for performance.
+   */
+  function handleEngineTick() {
+    engineTickCount++;
+    if (engineTickCount % 30 !== 0) return;
+    if (currentColoringMode !== 'cluster') return;
+    if (!graph) return;
+
+    const graphData = graph.graphData();
+    const nodes = graphData.nodes as ForceNode[];
+
+    // Recompute live centroids for the attraction force
+    recomputeLiveCentroids(nodes);
+
+    // Update sphere positions + sizes
+    updateClusterSphereMeshPositions(nodes);
+
+    // Update label screen positions
+    updateClusterLabelPositions();
+  }
+
+  /**
+   * Handle engine stop: final cluster sphere update when simulation completes.
+   */
+  function handleEngineStop() {
+    if (currentColoringMode === 'cluster' && graph) {
+      updateClusterSpheres();
+    }
+  }
+
+  /**
+   * Update existing cluster sphere mesh positions and sizes based on current node positions.
+   * Avoids recreating meshes on every tick — just repositions and rescales them.
+   */
+  function updateClusterSphereMeshPositions(nodes: ForceNode[]) {
+    if (!clusterMeshGroup) return;
+
+    // Group nodes by cluster_id to compute current centroids and radii
+    const clusterData = new Map<number, { cx: number; cy: number; cz: number; maxDist: number }>();
+    const clusterSums = new Map<number, { x: number; y: number; z: number; count: number }>();
+
+    for (const node of nodes) {
+      if (node.cluster_id == null) continue;
+      const existing = clusterSums.get(node.cluster_id);
+      if (existing) {
+        existing.x += node.x ?? 0;
+        existing.y += node.y ?? 0;
+        existing.z += node.z ?? 0;
+        existing.count++;
+      } else {
+        clusterSums.set(node.cluster_id, {
+          x: node.x ?? 0,
+          y: node.y ?? 0,
+          z: node.z ?? 0,
+          count: 1,
+        });
+      }
+    }
+
+    for (const [id, sum] of clusterSums) {
+      const cx = sum.x / sum.count;
+      const cy = sum.y / sum.count;
+      const cz = sum.z / sum.count;
+      clusterData.set(id, { cx, cy, cz, maxDist: 0 });
+    }
+
+    // Compute max distances
+    for (const node of nodes) {
+      if (node.cluster_id == null) continue;
+      const data = clusterData.get(node.cluster_id);
+      if (!data) continue;
+      const dx = (node.x ?? 0) - data.cx;
+      const dy = (node.y ?? 0) - data.cy;
+      const dz = (node.z ?? 0) - data.cz;
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (dist > data.maxDist) data.maxDist = dist;
+    }
+
+    // The mesh group has pairs of meshes: [fill, wire] for each cluster
+    // They're in the same order as the iteration over clusterNodes in updateClusterSpheres
+    // Instead of tracking order, we use mesh userData to match cluster IDs.
+    // For now, just do a full rebuild since it's only every ~30 ticks.
+    // This is simpler and avoids ordering issues.
+    updateClusterSpheres();
+  }
+
   // ─── Store Subscriptions ────────────────────────────────────────────
 
   function setupStoreSubscriptions() {
@@ -369,7 +715,7 @@
       if (d && graph) feedData(d);
     });
 
-    // Coloring mode → refresh graph to re-evaluate nodeColor accessor
+    // Coloring mode → refresh graph to re-evaluate nodeColor accessor + toggle cluster spheres
     unsubColoring = graphColoringMode.subscribe((v) => {
       currentColoringMode = v;
       // Ensure folder color map is current when switching to folder mode
@@ -379,6 +725,13 @@
       // nodeColor accessor reads currentColoringMode dynamically,
       // so a refresh is enough — no full data rebuild needed
       if (graph) graph.refresh();
+
+      // Show cluster enclosure spheres only in cluster mode
+      if (v === 'cluster') {
+        updateClusterSpheres();
+      } else {
+        clearClusterMeshes();
+      }
     });
 
     // Selection state → refresh graph so accessors re-evaluate
@@ -685,6 +1038,12 @@
       node.fz = undefined;
     });
 
+    // Engine tick: throttled cluster sphere + centroid updates during simulation
+    graph.onEngineTick(handleEngineTick);
+
+    // Engine stop: final cluster sphere update when simulation completes
+    graph.onEngineStop(handleEngineStop);
+
     // Configure cluster-aware forces
     configureForces(currentLevel);
 
@@ -702,6 +1061,9 @@
   });
 
   onDestroy(() => {
+    // Clean up cluster sphere meshes before disposing graph
+    clearClusterMeshes();
+
     // Dispose 3d-force-graph (cleans up ThreeJS renderer, scene, controls)
     if (graph) {
       graph._destructor();
@@ -776,6 +1138,18 @@
         <span class="folder-badge-text">{currentHighlightedFolder}</span>
         <button class="folder-badge-close" onclick={() => setGraphHighlightedFolder(null)} title="Clear folder highlight">×</button>
       </div>
+    {/if}
+
+    <!-- Cluster enclosure labels (screen-projected from 3D centroids) -->
+    {#if currentColoringMode === 'cluster' && clusterLabels.length > 0}
+      {#each clusterLabels as label}
+        {#if label.visible}
+          <div
+            class="cluster-label"
+            style="left: {label.screenX}px; top: {label.screenY}px; color: {CLUSTER_COLORS[label.id % CLUSTER_COLORS.length]}"
+          >{label.label}</div>
+        {/if}
+      {/each}
     {/if}
 
     {#if currentData.edges.length === 0 && currentLevel !== 'chunk'}
@@ -952,6 +1326,19 @@
     display: block;
     width: 100%;
     height: 100%;
+  }
+
+  .cluster-label {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    font-family: var(--font-display, 'Space Grotesk', sans-serif);
+    font-size: var(--text-xs, 0.625rem);
+    font-weight: var(--weight-medium, 500);
+    pointer-events: none;
+    white-space: nowrap;
+    text-shadow: 0 0 4px rgba(0, 0, 0, 0.8), 0 0 8px rgba(0, 0, 0, 0.5);
+    opacity: 0.7;
+    z-index: 5;
   }
 
   .graph-empty {
