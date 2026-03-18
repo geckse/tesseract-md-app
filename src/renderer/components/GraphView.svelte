@@ -122,6 +122,11 @@
   let tooltipX = $state(0);
   let tooltipY = $state(0);
 
+  /** Last known mouse client X coordinate for tooltip positioning. */
+  let lastMouseX = 0;
+  /** Last known mouse client Y coordinate for tooltip positioning. */
+  let lastMouseY = 0;
+
   // Resize observer
   let resizeObs: ResizeObserver | null = null;
 
@@ -329,10 +334,11 @@
       if (currentData && graph) feedData(currentData);
     });
 
-    // Selection state
+    // Selection state → refresh graph so accessors re-evaluate
+    // (dimming and arrow coloring accessors are added in subtask 3-3)
     unsubSelected = graphSelectedNode.subscribe((n) => {
       currentSelected = n;
-      // Selection dimming and arrow coloring handled in subtask 3-3
+      if (graph) graph.refresh();
     });
 
     // Editor file path highlight
@@ -409,6 +415,32 @@
   }
 
   // ─── Interaction Handlers ───────────────────────────────────────────
+
+  /**
+   * Track mouse position on the container for tooltip positioning.
+   * Also updates tooltip coordinates while a node or edge is hovered.
+   */
+  function handleMouseMove(e: MouseEvent) {
+    lastMouseX = e.clientX;
+    lastMouseY = e.clientY;
+    if (hoveredNode || hoveredEdge) {
+      tooltipX = e.clientX;
+      tooltipY = e.clientY;
+    }
+  }
+
+  /**
+   * Convert a ForceNode to a GraphNode for store operations.
+   */
+  function toGraphNode(node: ForceNode): GraphNode {
+    return {
+      id: node.id,
+      path: node.path,
+      label: node.label,
+      cluster_id: node.cluster_id,
+      chunk_index: node.chunk_index,
+    };
+  }
 
   function handleKeyDown(e: KeyboardEvent) {
     if (e.key === 'Escape') {
@@ -548,6 +580,59 @@
       // Link width: pre-computed by buildGraph3DData
       .linkWidth((link: ForceLink) => link.width) as GraphInstance;
 
+    // ─── Event Handlers ──────────────────────────────────────────────
+
+    // Node click: first click selects, second click on same node opens in side panel
+    graph.onNodeClick((node: ForceNode, _event: MouseEvent) => {
+      const graphNode = toGraphNode(node);
+      if (currentSelected && currentSelected.id === node.id) {
+        openGraphNode(graphNode);
+      } else {
+        selectGraphNode(graphNode);
+      }
+      // Close context menu if open
+      contextMenuNode = null;
+    });
+
+    // Background click: clear selection and context menu
+    graph.onBackgroundClick((_event: MouseEvent) => {
+      selectGraphNode(null);
+      contextMenuNode = null;
+    });
+
+    // Right-click on node: show context menu at click position
+    graph.onNodeRightClick((node: ForceNode, event: MouseEvent) => {
+      event.preventDefault();
+      contextMenuNode = node;
+      contextMenuX = event.clientX;
+      contextMenuY = event.clientY;
+    });
+
+    // Node hover: update hovered node state for tooltip display
+    graph.onNodeHover((node: ForceNode | null) => {
+      hoveredNode = node;
+      if (node) {
+        tooltipX = lastMouseX;
+        tooltipY = lastMouseY;
+      }
+    });
+
+    // Link hover: update hovered edge state for edge tooltip display
+    graph.onLinkHover((link: ForceLink | null) => {
+      hoveredEdge = link;
+      if (link) {
+        tooltipX = lastMouseX;
+        tooltipY = lastMouseY;
+      }
+    });
+
+    // Node drag end: unpin node so simulation can reposition it
+    graph.onNodeDragEnd((node: ForceNode) => {
+      node.fx = undefined;
+      node.fy = undefined;
+      node.fz = undefined;
+    });
+
     // Configure cluster-aware forces
     configureForces(currentLevel);
 
@@ -559,6 +644,9 @@
 
     // Listen for keyboard events
     window.addEventListener('keydown', handleKeyDown);
+
+    // Track mouse position for tooltip positioning
+    containerEl?.addEventListener('mousemove', handleMouseMove);
   });
 
   onDestroy(() => {
@@ -570,6 +658,9 @@
 
     // Remove keyboard listener
     window.removeEventListener('keydown', handleKeyDown);
+
+    // Remove mouse tracking listener
+    containerEl?.removeEventListener('mousemove', handleMouseMove);
 
     // Disconnect resize observer
     resizeObs?.disconnect();
