@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte'
+  import { onMount, onDestroy, tick } from 'svelte'
   import type { ForceGraph3DInstance } from '3d-force-graph'
   import type { NodeObject, LinkObject } from 'three-forcegraph'
   import * as THREE from 'three'
@@ -115,6 +115,9 @@
   let unsubEdgeFilter: (() => void) | null = null
   let unsubSemanticEdges: (() => void) | null = null
   let unsubEdgeWeakThreshold: (() => void) | null = null
+  let unsubLoading: (() => void) | null = null
+  let unsubError: (() => void) | null = null
+  let unsubLevel: (() => void) | null = null
 
   // Reactive local copies for template use
   let currentData: GraphData | null = $state(null)
@@ -1038,10 +1041,21 @@
   // ─── Store Subscriptions ────────────────────────────────────────────
 
   function setupStoreSubscriptions() {
-    // Data changes → rebuild graph
-    unsubData = graphData.subscribe((d) => {
+    // Data changes → rebuild graph (or lazily initialize if graph doesn't exist yet)
+    unsubData = graphData.subscribe(async (d) => {
       currentData = d
-      if (d && graph) feedData(d)
+      if (d && d.nodes.length > 0 && !graph && webglSupported) {
+        // Graph not yet initialized — wait for Svelte to re-render the template
+        // so graphContainerEl gets bound via bind:this in the {:else} block
+        await tick()
+        if (graphContainerEl && !graph) {
+          await initializeGraph()
+          // Feed the data that triggered initialization
+          feedData(d)
+        }
+      } else if (d && graph) {
+        feedData(d)
+      }
     })
 
     // Coloring mode → refresh graph to re-evaluate nodeColor accessor + toggle cluster spheres
@@ -1118,10 +1132,10 @@
     })
 
     // Loading and error states
-    graphLoading.subscribe((v) => {
+    unsubLoading = graphLoading.subscribe((v) => {
       currentLoading = v
     })
-    graphError.subscribe((v) => {
+    unsubError = graphError.subscribe((v) => {
       currentError = v
     })
 
@@ -1130,7 +1144,7 @@
     // → feedData() rebuilds graph data with level-appropriate sizing and forces.
     // Document mode: degree-based node sizing, wider link distances, arrows (subtask 3-2)
     // Chunk mode: size-based node sizing, tighter link distances, no arrows
-    graphLevel.subscribe((v) => {
+    unsubLevel = graphLevel.subscribe((v) => {
       const prevLevel = currentLevel
       currentLevel = v
       if (prevLevel !== v && graph) {
@@ -1297,16 +1311,15 @@
     return !currentEdgeFilter.has(clusterId)
   }
 
-  // ─── Lifecycle ──────────────────────────────────────────────────────
+  // ─── Graph Initialization ────────────────────────────────────────────
 
-  onMount(async () => {
-    if (!graphContainerEl) return
-
-    // Check WebGL support before attempting to initialize 3d-force-graph
-    if (!checkWebGLSupport()) {
-      webglSupported = false
-      return
-    }
+  /**
+   * Initialize the 3d-force-graph instance.
+   * Called lazily when graphContainerEl becomes available (after data loads
+   * and Svelte renders the {:else} block with the container div).
+   */
+  async function initializeGraph() {
+    if (!graphContainerEl || graph) return
 
     // Dynamic import for Electron compatibility (avoids SSR/Node.js issues)
     const ForceGraph3DModule = await import('3d-force-graph')
@@ -1429,17 +1442,28 @@
 
     // Configure cluster-aware forces
     configureForces(currentLevel)
+  }
 
-    // Set up store subscriptions
+  // ─── Lifecycle ──────────────────────────────────────────────────────
+
+  onMount(() => {
+    // Check WebGL support before anything else
+    if (!checkWebGLSupport()) {
+      webglSupported = false
+    }
+
+    // 1. Set up store subscriptions FIRST (unconditionally).
+    //    This populates currentData, currentLoading, currentError which drive
+    //    the conditional template rendering. When graphData arrives and the
+    //    {:else} block renders graphContainerEl, the subscription lazily
+    //    initializes the graph via initializeGraph().
     setupStoreSubscriptions()
 
-    // Set up resize observer
+    // 2. Set up resize observer on the outer container (always rendered)
     setupResizeObserver()
 
-    // Listen for keyboard events
+    // 3. Add keyboard and mouse listeners
     window.addEventListener('keydown', handleKeyDown)
-
-    // Track mouse position for tooltip positioning
     containerEl?.addEventListener('mousemove', handleMouseMove)
   })
 
@@ -1473,6 +1497,9 @@
     unsubEdgeFilter?.()
     unsubSemanticEdges?.()
     unsubEdgeWeakThreshold?.()
+    unsubLoading?.()
+    unsubError?.()
+    unsubLevel?.()
   })
 </script>
 
