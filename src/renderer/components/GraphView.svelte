@@ -35,6 +35,7 @@
     buildGraph3DData,
     seedClusterPositions,
     computeDegreeMap,
+    edgeArrowColor,
     type Graph3DNode,
     type Graph3DLink,
     type Graph3DData,
@@ -84,6 +85,9 @@
 
   /** Map from top-level folder name to assigned color. */
   let folderColorMap: Map<string, string> = new Map();
+
+  /** Set of bidirectional edge pair keys ("srcId->tgtId") for arrow color logic. */
+  let bidirectionalPairs: Set<string> = new Set();
 
   // Store subscriptions
   let unsubData: (() => void) | null = null;
@@ -199,6 +203,54 @@
     return fileHashColor(node.path);
   }
 
+  /**
+   * Extract the node ID from a link endpoint.
+   * Handles both the initial string ID and resolved ForceNode object
+   * (3d-force-graph replaces string IDs with node object references).
+   */
+  function linkNodeId(endpoint: unknown): string {
+    if (typeof endpoint === 'object' && endpoint != null && 'id' in endpoint) {
+      return String((endpoint as { id: string }).id);
+    }
+    return String(endpoint ?? '');
+  }
+
+  /**
+   * Compute the set of bidirectional edge pairs from the current links.
+   * An edge A→B is bidirectional if B→A also exists.
+   * Stores keys as "srcId->tgtId" for O(1) lookup in arrow color accessors.
+   */
+  function computeBidirectionalPairs(links: Graph3DLink[]) {
+    const edgeSet = new Set<string>();
+    for (const link of links) {
+      edgeSet.add(`${link.source}->${link.target}`);
+    }
+    const bidi = new Set<string>();
+    for (const link of links) {
+      if (edgeSet.has(`${link.target}->${link.source}`)) {
+        bidi.add(`${link.source}->${link.target}`);
+        bidi.add(`${link.target}->${link.source}`);
+      }
+    }
+    bidirectionalPairs = bidi;
+  }
+
+  /**
+   * Get the directional arrow/particle color for a link.
+   * Delegates to edgeArrowColor from graph-3d-bridge, which returns:
+   * - cyan for outgoing edges from selected node
+   * - red for incoming edges to selected node
+   * - green for bidirectional edges with selected node
+   * - gray for non-neighbor or no selection
+   */
+  function getLinkArrowColor(link: ForceLink): string {
+    const srcId = linkNodeId(link.source);
+    const tgtId = linkNodeId(link.target);
+    const selectedId = currentSelected?.id ?? null;
+    const isBidi = bidirectionalPairs.has(`${srcId}->${tgtId}`);
+    return edgeArrowColor(srcId, tgtId, selectedId, isBidi);
+  }
+
   // ─── Force Configuration ────────────────────────────────────────────
 
   /**
@@ -292,6 +344,9 @@
     };
 
     const graph3DData = buildGraph3DData(data, options);
+
+    // Compute bidirectional edge pairs for arrow/particle color logic
+    computeBidirectionalPairs(graph3DData.links);
 
     // Seed cluster positions using Fibonacci sphere distribution
     seedClusterPositions(graph3DData.nodes, data.clusters);
@@ -980,10 +1035,24 @@
       .nodeVal((node: ForceNode) => node.val)
       // Node color: dynamic accessor reads current coloring mode on each render
       .nodeColor((node: ForceNode) => getNodeColor(node))
-      // Link color: pre-computed by buildGraph3DData
+      // Link color: pre-computed by buildGraph3DData (edge cluster palette, weak edges at low opacity)
       .linkColor((link: ForceLink) => link.color)
-      // Link width: pre-computed by buildGraph3DData
-      .linkWidth((link: ForceLink) => link.width) as GraphInstance;
+      // Link width: pre-computed by buildGraph3DData (strength-mapped [0.5, 3.0])
+      .linkWidth((link: ForceLink) => link.width)
+      // Directional arrows: visible in document mode, hidden in chunk mode (symmetric similarity)
+      .linkDirectionalArrowLength((link: ForceLink) => isChunkMode() ? 0 : 4)
+      .linkDirectionalArrowRelPos(0.85)
+      .linkDirectionalArrowColor((link: ForceLink) => getLinkArrowColor(link))
+      // Directional particles: animate on selected node's neighbor edges
+      .linkDirectionalParticles((link: ForceLink) => {
+        if (!currentSelected) return 0;
+        const srcId = linkNodeId(link.source);
+        const tgtId = linkNodeId(link.target);
+        return (srcId === currentSelected.id || tgtId === currentSelected.id) ? 2 : 0;
+      })
+      .linkDirectionalParticleSpeed(0.005)
+      .linkDirectionalParticleWidth(1.5)
+      .linkDirectionalParticleColor((link: ForceLink) => getLinkArrowColor(link)) as GraphInstance;
 
     // ─── Event Handlers ──────────────────────────────────────────────
 
