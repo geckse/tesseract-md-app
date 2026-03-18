@@ -65,35 +65,35 @@ export function isWeakEdge(strength: number, threshold: number): boolean {
 }
 
 /**
- * Compute the shortest distance from a point (px, py) to the line segment (ax, ay)–(bx, by).
+ * Compute the 3D link width for an edge based on its strength.
  *
- * Handles degenerate case where the segment has zero length (returns distance to the point).
+ * Maps strength [0, 1] → line width [0.5, 3.0]. No zoom adjustment needed
+ * in 3D since the camera handles perspective scaling. Clamps strength to [0, 1].
  */
-export function pointToSegmentDist(
-  px: number,
-  py: number,
-  ax: number,
-  ay: number,
-  bx: number,
-  by: number
-): number {
-  const dx = bx - ax
-  const dy = by - ay
-  const lenSq = dx * dx + dy * dy
+export function edgeLinkWidth(strength: number): number {
+  const clamped = Math.max(0, Math.min(1, strength))
+  return 0.5 + clamped * 2.5
+}
 
-  if (lenSq === 0) {
-    // Zero-length segment — distance to the single point
-    const ex = px - ax
-    const ey = py - ay
-    return Math.sqrt(ex * ex + ey * ey)
+/**
+ * Compute the 3D link color for an edge based on its cluster ID and weakness.
+ *
+ * Returns the edge cluster palette color from `edgeClusterColor()`.
+ * For edges with no cluster ID, returns the last palette color (#93C5FD).
+ * For weak edges (strength below threshold), appends hex alpha `40` (~25% opacity)
+ * to visually de-emphasize them in the 3D scene.
+ */
+export function edgeLinkColor(
+  edgeClusterId: number | null | undefined,
+  strength: number,
+  weakThreshold: number
+): string {
+  const baseColor =
+    edgeClusterId != null ? edgeClusterColor(edgeClusterId) : '#93C5FD'
+
+  if (strength < weakThreshold) {
+    return baseColor + '40'
   }
 
-  // Project point onto the line, clamped to [0, 1]
-  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq))
-
-  const closestX = ax + t * dx
-  const closestY = ay + t * dy
-  const ex = px - closestX
-  const ey = py - closestY
-  return Math.sqrt(ex * ex + ey * ey)
+  return baseColor
 }
