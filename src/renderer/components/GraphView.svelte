@@ -146,6 +146,9 @@
   // Node count for performance warnings
   let nodeCount = $state(0);
 
+  /** Whether WebGL is supported by the browser. Checked in onMount before graph init. */
+  let webglSupported = $state(true);
+
   // ─── Cluster Enclosure Sphere State ─────────────────────────────────
 
   /** THREE.js Group containing all cluster sphere + wireframe meshes. */
@@ -206,6 +209,22 @@
 
     // 'none' mode: per-file hash color
     return fileHashColor(node.path);
+  }
+
+  // ─── WebGL Detection ──────────────────────────────────────────────
+
+  /**
+   * Check whether the browser/renderer supports WebGL.
+   * Attempts to create both WebGL2 and WebGL1 contexts.
+   * Returns false if neither is available (e.g., software rendering disabled).
+   */
+  function checkWebGLSupport(): boolean {
+    try {
+      const canvas = document.createElement('canvas');
+      return !!(canvas.getContext('webgl2') || canvas.getContext('webgl'));
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -476,6 +495,86 @@
     graph.d3Force('cluster', createClusterForce(0.05) as any);
   }
 
+  // ─── Performance Safeguards ─────────────────────────────────────────
+
+  /**
+   * Apply performance safeguards based on current graph size.
+   *
+   * - Normal (≤500 nodes): full quality (nodeResolution 12, particles enabled, full edge labels)
+   * - Large (>500 nodes): reduced quality (nodeResolution 6, particles disabled, cooldownTime 3000ms)
+   * - Very large (>2000 nodes): minimal rendering (linkWidth 0 for thin lines, reduced nodeOpacity,
+   *   edge labels disabled on hover)
+   *
+   * Called in feedData() after computing nodeCount, before feeding data to the graph.
+   */
+  function applyPerformanceSafeguards() {
+    if (!graph) return;
+
+    if (nodeCount > 2000) {
+      // Very large graph: minimal rendering for WebGL performance
+      graph.nodeResolution(6);
+      graph.cooldownTime(3000);
+      graph.linkWidth(0); // Thin hairline links
+      graph.nodeOpacity(0.7); // Reduced opacity
+      graph.linkDirectionalParticles(0); // No particles
+      graph.linkLabel(() => ''); // Disable edge labels on hover
+    } else if (nodeCount > 500) {
+      // Large graph: reduced quality
+      graph.nodeResolution(6);
+      graph.cooldownTime(3000);
+      graph.linkDirectionalParticles(0); // No particles (performance)
+      // Restore normal link width and opacity
+      graph.linkWidth((link: ForceLink) => link.width);
+      graph.nodeOpacity(0.9);
+      // Keep edge labels
+      graph.linkLabel((link: ForceLink) => edgeTooltipHtml(link as unknown as Graph3DLink));
+    } else {
+      // Normal graph: full quality settings
+      graph.nodeResolution(12);
+      graph.cooldownTime(5000);
+      graph.nodeOpacity(0.9);
+      graph.linkWidth((link: ForceLink) => link.width);
+      // Restore particle accessor (active on selected node edges)
+      graph.linkDirectionalParticles((link: ForceLink) => {
+        if (!currentSelected) return 0;
+        const srcId = linkNodeId(link.source);
+        const tgtId = linkNodeId(link.target);
+        return (srcId === currentSelected.id || tgtId === currentSelected.id) ? 2 : 0;
+      });
+      // Restore edge labels
+      graph.linkLabel((link: ForceLink) => edgeTooltipHtml(link as unknown as Graph3DLink));
+    }
+  }
+
+  // ─── Camera Utilities ─────────────────────────────────────────────
+
+  /**
+   * Animate the camera to focus on a specific node with a smooth transition.
+   * Positions the camera at a distance proportional to the node's distance from origin,
+   * looking at the node's position. Uses 1000ms transition duration.
+   */
+  function focusCameraOnNode(node: ForceNode) {
+    if (!graph) return;
+    const nx = node.x ?? 0;
+    const ny = node.y ?? 0;
+    const nz = node.z ?? 0;
+
+    // Position camera at a fixed distance from the node
+    const distance = 120;
+    const nodeDistFromOrigin = Math.hypot(nx, ny, nz);
+
+    // Scale factor to place camera behind/above the node relative to origin
+    const distRatio = nodeDistFromOrigin > 0
+      ? 1 + distance / nodeDistFromOrigin
+      : distance; // Fallback for node at origin
+
+    graph.cameraPosition(
+      { x: nx * distRatio, y: ny * distRatio, z: nz * distRatio }, // Camera position
+      { x: nx, y: ny, z: nz }, // Look-at target
+      1000, // 1000ms transition duration
+    );
+  }
+
   // ─── Data Feeding ───────────────────────────────────────────────────
 
   /**
@@ -512,6 +611,9 @@
     // Store reference
     currentGraph3DData = graph3DData;
     nodeCount = graph3DData.nodes.length;
+
+    // Apply performance safeguards before feeding data (adjusts resolution, particles, etc.)
+    applyPerformanceSafeguards();
 
     // Configure forces before feeding data
     configureForces(currentLevel);
@@ -938,12 +1040,21 @@
       }
     });
 
-    // Selection state → compute neighbor set, apply dimming, refresh accessors
+    // Selection state → compute neighbor set, apply dimming, refresh accessors, camera focus
     unsubSelected = graphSelectedNode.subscribe((n) => {
       currentSelected = n;
       computeNeighborSet();
       applySelectionDimming();
       if (graph) graph.refresh();
+
+      // Optional camera focus animation on node select
+      if (n && graph) {
+        const gd = graph.graphData();
+        const forceNode = (gd.nodes as ForceNode[]).find((nd) => nd.id === n.id);
+        if (forceNode && forceNode.x != null) {
+          focusCameraOnNode(forceNode);
+        }
+      }
     });
 
     // Editor file path highlight
@@ -1164,6 +1275,12 @@
   onMount(async () => {
     if (!graphContainerEl) return;
 
+    // Check WebGL support before attempting to initialize 3d-force-graph
+    if (!checkWebGLSupport()) {
+      webglSupported = false;
+      return;
+    }
+
     // Dynamic import for Electron compatibility (avoids SSR/Node.js issues)
     const ForceGraph3DModule = await import('3d-force-graph');
     const ForceGraph3D = ForceGraph3DModule.default;
@@ -1343,6 +1460,12 @@
       <p>{currentError}</p>
       <button class="retry-btn" onclick={handleRetry}>Retry</button>
     </div>
+  {:else if !webglSupported}
+    <div class="graph-empty">
+      <span class="material-symbols-outlined error-icon">warning</span>
+      <p>WebGL is not supported</p>
+      <p class="graph-empty-hint">3D graph visualization requires WebGL support. Please use a browser or environment with WebGL enabled.</p>
+    </div>
   {:else if !currentData || currentData.nodes.length === 0}
     <div class="graph-empty">
       <span class="material-symbols-outlined">hub</span>
@@ -1394,8 +1517,10 @@
       <div class="graph-notice">No link connections found.</div>
     {/if}
 
-    {#if nodeCount > 1000}
-      <div class="graph-notice warning">Large graph ({nodeCount} nodes). Performance may be reduced.</div>
+    {#if nodeCount > 2000}
+      <div class="graph-notice warning">Very large graph ({nodeCount} nodes). Visual quality reduced for performance.</div>
+    {:else if nodeCount > 500}
+      <div class="graph-notice warning">Large graph ({nodeCount} nodes). Some effects disabled for performance.</div>
     {/if}
 
     <!-- Node tooltip (populated by hover handler in subtask 2-2) -->
@@ -1600,6 +1725,14 @@
   .graph-empty .error-icon {
     color: var(--color-error, #ef4444);
     opacity: 0.8;
+  }
+
+  .graph-empty-hint {
+    color: var(--color-text-dim, #71717a);
+    font-size: var(--text-sm, 0.75rem);
+    max-width: 320px;
+    text-align: center;
+    line-height: 1.5;
   }
 
   .spinning {
