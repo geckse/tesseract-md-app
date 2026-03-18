@@ -15,6 +15,7 @@
     graphHoveredFilePath,
     loadGraphData,
     selectGraphNode,
+    openGraphNode,
     setGraphLevel,
     setGraphPathFilter,
     setGraphHighlightedFolder,
@@ -101,12 +102,18 @@
 
   // Drag state
   let draggedNode: SimNode | null = null;
+  let didDragNode = false;
 
   // Hover state
   let hoveredNode: SimNode | null = null;
   let hoveredEdge: SimEdge | null = null;
   let tooltipX = 0;
   let tooltipY = 0;
+
+  // Context menu state
+  let contextMenuNode: SimNode | null = $state(null);
+  let contextMenuX = $state(0);
+  let contextMenuY = $state(0);
 
   // Legend visibility
   let legendVisible = $state(true);
@@ -1223,13 +1230,10 @@
 
     const node = findNodeAt(sx, sy);
     if (node) {
-      // Start dragging the node
+      // Start potential drag — don't pin or reheat yet (only on actual move)
       draggedNode = node;
-      node.fx = node.x;
-      node.fy = node.y;
-      // Reheat simulation so other nodes react
-      simulation?.alphaTarget(0.3).restart();
-      selectGraphNode({ id: node.id, path: node.path, label: node.label, cluster_id: node.cluster_id, chunk_index: node.chunk_index });
+      didDragNode = false;
+      contextMenuNode = null;
       return;
     }
 
@@ -1250,6 +1254,13 @@
 
     if (draggedNode) {
       const [gx, gy] = screenToGraph(sx, sy);
+      if (!didDragNode) {
+        // First movement — pin node and reheat simulation
+        draggedNode.fx = draggedNode.x;
+        draggedNode.fy = draggedNode.y;
+        simulation?.alphaTarget(0.3).restart();
+        didDragNode = true;
+      }
       draggedNode.fx = gx;
       draggedNode.fy = gy;
       dirty = true;
@@ -1289,11 +1300,27 @@
 
   function handleMouseUp() {
     if (draggedNode) {
-      // Release the node — unpin it so simulation can move it again
-      draggedNode.fx = undefined;
-      draggedNode.fy = undefined;
+      const node = draggedNode;
+      if (didDragNode) {
+        // Release the node — unpin it so simulation can move it again
+        draggedNode.fx = undefined;
+        draggedNode.fy = undefined;
+        simulation?.alphaTarget(0);
+      }
       draggedNode = null;
-      simulation?.alphaTarget(0);
+      // If the node wasn't dragged (pure click), handle select/open
+      if (!didDragNode) {
+        const nodeData = { id: node.id, path: node.path, label: node.label, cluster_id: node.cluster_id, chunk_index: node.chunk_index };
+        const alreadySelected = currentSelected?.path === node.path;
+        if (alreadySelected) {
+          // Second click on selected node — open in side panel
+          openGraphNode(nodeData);
+        } else {
+          // First click — select only (highlight, no side panel)
+          selectGraphNode(nodeData);
+        }
+      }
+      didDragNode = false;
     } else if (isPanning && !didPan) {
       // Clicked on empty space without dragging — deselect
       selectGraphNode(null);
@@ -1327,12 +1354,46 @@
 
   function handleKeyDown(e: KeyboardEvent) {
     if (e.key === 'Escape') {
+      if (contextMenuNode) {
+        contextMenuNode = null;
+        return;
+      }
       selectGraphNode(null);
       setGraphHighlightedFolder(null);
       hoveredNode = null;
       hoveredEdge = null;
       dirty = true;
     }
+  }
+
+  function handleContextMenu(e: MouseEvent) {
+    e.preventDefault();
+    if (!canvasEl) return;
+    const rect = canvasEl.getBoundingClientRect();
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+    const node = findNodeAt(sx, sy);
+    if (node) {
+      contextMenuNode = node;
+      contextMenuX = e.clientX;
+      contextMenuY = e.clientY;
+    } else {
+      contextMenuNode = null;
+    }
+  }
+
+  function handleContextMenuOpen() {
+    if (!contextMenuNode) return;
+    const node = contextMenuNode;
+    openGraphNode({ id: node.id, path: node.path, label: node.label, cluster_id: node.cluster_id, chunk_index: node.chunk_index });
+    contextMenuNode = null;
+  }
+
+  function handleContextMenuSelect() {
+    if (!contextMenuNode) return;
+    const node = contextMenuNode;
+    selectGraphNode({ id: node.id, path: node.path, label: node.label, cluster_id: node.cluster_id, chunk_index: node.chunk_index });
+    contextMenuNode = null;
   }
 
   function handleRetry() {
@@ -1417,11 +1478,12 @@
   {:else}
     <canvas
       bind:this={canvasEl}
-      onmousedown={handleMouseDown}
+      onmousedown={(e) => { contextMenuNode = null; handleMouseDown(e); }}
       onmousemove={handleMouseMove}
       onmouseup={handleMouseUp}
       onmouseleave={handleMouseUp}
       onwheel={handleWheel}
+      oncontextmenu={handleContextMenu}
       style="cursor: {draggedNode ? 'grabbing' : isPanning ? 'grabbing' : hoveredNode || hoveredEdge ? 'pointer' : 'grab'}"
     ></canvas>
 
@@ -1505,6 +1567,23 @@
         {#if hoveredEdge.context_text}
           <div class="edge-tooltip-context">{hoveredEdge.context_text.length > 120 ? hoveredEdge.context_text.slice(0, 120) + '…' : hoveredEdge.context_text}</div>
         {/if}
+      </div>
+    {/if}
+
+    <!-- Context menu -->
+    {#if contextMenuNode}
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="context-menu-backdrop" onclick={() => (contextMenuNode = null)} oncontextmenu={(e) => { e.preventDefault(); contextMenuNode = null; }}></div>
+      <div class="context-menu" style="left: {contextMenuX}px; top: {contextMenuY}px">
+        <div class="context-menu-header">{contextMenuNode.path.split('/').pop()}</div>
+        <button class="context-menu-item" onclick={handleContextMenuOpen}>
+          <span class="material-symbols-outlined">preview</span>
+          Open in side panel
+        </button>
+        <button class="context-menu-item" onclick={handleContextMenuSelect}>
+          <span class="material-symbols-outlined">radio_button_checked</span>
+          Select node
+        </button>
       </div>
     {/if}
 
@@ -1776,6 +1855,60 @@
     margin-top: var(--space-2, 0.5rem);
     line-height: 1.4;
     font-style: italic;
+  }
+
+  /* Context menu */
+  .context-menu-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 49;
+  }
+
+  .context-menu {
+    position: fixed;
+    z-index: 50;
+    min-width: 180px;
+    background: var(--color-surface, #161617);
+    border: 1px solid var(--color-border, #27272a);
+    border-radius: var(--radius-md, 6px);
+    padding: 4px 0;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  }
+
+  .context-menu-header {
+    padding: 6px 12px;
+    font-size: 11px;
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    color: var(--color-text-dim, #71717a);
+    border-bottom: 1px solid var(--color-border, #27272a);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .context-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 12px;
+    border: none;
+    background: none;
+    color: var(--color-text-main, #e4e4e7);
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.1s;
+  }
+
+  .context-menu-item:hover {
+    background: rgba(0, 229, 255, 0.08);
+    color: var(--color-primary, #00E5FF);
+  }
+
+  .context-menu-item .material-symbols-outlined {
+    font-size: 16px;
   }
 
   .graph-legend-collapsed {

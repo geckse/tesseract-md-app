@@ -60,8 +60,8 @@
     if (saveCounter > 0) handleSave();
   });
 
-  // Focus editor when switching from preview to editor mode
-  let currentEditorMode = $state<EditorMode>('preview');
+  // Focus editor when switching to editor mode
+  let currentEditorMode = $state<EditorMode>('wysiwyg');
   const unsubEditorMode = editorMode.subscribe((v) => (currentEditorMode = v));
   $effect(() => {
     if (currentEditorMode === 'editor' && view) {

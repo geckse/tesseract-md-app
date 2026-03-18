@@ -18,7 +18,7 @@
   let rows = $state<FrontmatterRow[]>([])
   let nextId = 0
   let newTagInputs = $state<Record<number, string>>({})
-  let collapsed = $state(false)
+  let collapsed = $state(true)
 
   // Sync rows from frontmatterYaml prop
   $effect(() => {

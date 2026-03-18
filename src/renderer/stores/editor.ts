@@ -24,19 +24,15 @@ export const scrollToLine = writable<number | null>(null)
 /** Currently active heading index in the outline (based on editor scroll position). */
 export const activeHeadingIndex = writable<number>(-1)
 
-/** Current editor mode: 'preview' (rendered HTML), 'wysiwyg' (Tiptap), or 'editor' (CodeMirror). */
-export type EditorMode = 'preview' | 'wysiwyg' | 'editor'
+/** Current editor mode: 'wysiwyg' (Tiptap) or 'editor' (CodeMirror). */
+export type EditorMode = 'wysiwyg' | 'editor'
 
-/** Current editor/preview mode. Defaults to preview. */
-export const editorMode = writable<EditorMode>('preview')
+/** Current editor mode. Defaults to wysiwyg. */
+export const editorMode = writable<EditorMode>('wysiwyg')
 
-/** Cycle through editor modes: preview → wysiwyg → editor → preview. */
+/** Toggle between editor modes: wysiwyg ↔ editor. */
 export function toggleEditorMode(): void {
-  editorMode.update((m) => {
-    if (m === 'preview') return 'wysiwyg'
-    if (m === 'wysiwyg') return 'editor'
-    return 'preview'
-  })
+  editorMode.update((m) => (m === 'wysiwyg' ? 'editor' : 'wysiwyg'))
 }
 
 /** Set editor mode explicitly. */
@@ -59,7 +55,7 @@ export function resetEditorState(): void {
   tokenCount.set(0)
   scrollToLine.set(null)
   activeHeadingIndex.set(-1)
-  editorMode.set('preview')
+  editorMode.set('wysiwyg')
 }
 
 /** Count words in a text string. */

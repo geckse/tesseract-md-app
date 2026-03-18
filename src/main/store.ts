@@ -48,6 +48,7 @@ export interface AppStore {
   cliVersion: string | null
   onboardingComplete: boolean
   editorFontSize: number
+  zoomLevel: number
   updateChannel: UpdateChannel
   lastUpdateCheck: number | null
   skipVersion: string | null
@@ -133,6 +134,10 @@ const schema = {
   editorFontSize: {
     type: 'number' as const,
     default: 17
+  },
+  zoomLevel: {
+    type: 'number' as const,
+    default: 1.0
   },
   updateChannel: {
     type: 'string' as const,
@@ -254,6 +259,18 @@ export function getEditorFontSize(): number {
 export function setEditorFontSize(value: number): void {
   const s = initStore()
   s.set('editorFontSize', value)
+}
+
+/** Get the UI zoom level */
+export function getZoomLevel(): number {
+  const s = initStore()
+  return s.get('zoomLevel', 1.0)
+}
+
+/** Set the UI zoom level */
+export function setZoomLevel(value: number): void {
+  const s = initStore()
+  s.set('zoomLevel', value)
 }
 
 /** Get CLI path and version info */

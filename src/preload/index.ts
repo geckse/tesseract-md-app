@@ -137,6 +137,10 @@ const api: MdvdbApi = {
   getEditorFontSize: () => invoke('store:get-editor-font-size'),
   setEditorFontSize: (value) => invoke('store:set-editor-font-size', value),
 
+  // Zoom
+  getZoomLevel: () => invoke('store:get-zoom-level'),
+  setZoomLevel: (value) => invoke('store:set-zoom-level', value),
+
   // Auto-updater
   checkForUpdates: () => invoke('updater:check'),
   downloadUpdate: () => invoke('updater:download'),

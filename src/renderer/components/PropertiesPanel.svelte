@@ -17,7 +17,7 @@
   import { selectedFilePath } from '../stores/files'
   import { scrollToLine, activeHeadingIndex, isDirty } from '../stores/editor'
   import { isFavorited, toggleFavorite } from '../stores/favorites'
-  import { graphViewActive, graphSelectedNode, openGraphWithNeighborhood, loadGraphData } from '../stores/graph'
+  import { graphViewActive, graphSelectedNode, graphOpenedNode, openGraphWithNeighborhood, loadGraphData } from '../stores/graph'
   import type { DocumentInfo, BacklinksOutput, LinksOutput, NeighborhoodResult, NeighborhoodNode, JsonValue } from '../types/cli'
   import type { OutlineHeading } from '../stores/properties'
 
@@ -124,7 +124,9 @@
       // No local neighborhood — open full graph with this file selected
       graphViewActive.set(true)
       loadGraphData()
-      graphSelectedNode.set({ path: currentFilePath, cluster_id: null })
+      const node = { id: currentFilePath, path: currentFilePath, label: null, cluster_id: null, chunk_index: null }
+      graphSelectedNode.set(node)
+      graphOpenedNode.set(node)
     }
   }
 

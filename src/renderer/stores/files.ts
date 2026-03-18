@@ -101,8 +101,8 @@ export async function selectFile(path: string | null): Promise<void> {
     return
   }
 
-  // Reset to preview mode when opening a new file
-  editorMode.set('preview')
+  // Reset to wysiwyg mode when opening a new file
+  editorMode.set('wysiwyg')
 
   const collection = get(activeCollection)
   if (!collection) return

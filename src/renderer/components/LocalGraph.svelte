@@ -47,6 +47,15 @@
   let panStartPanY = 0;
   let svgEl: SVGSVGElement | undefined = $state(undefined);
 
+  // Node drag state
+  let draggedNodePath: string | null = $state(null);
+  let didDragNode = false;
+
+  // Context menu state
+  let contextMenuPath: string | null = $state(null);
+  let contextMenuX = $state(0);
+  let contextMenuY = $state(0);
+
   // Spread (link distance) state
   let spread: number = $state(60);
   let lastGraphData: LocalGraphData | null = null;
@@ -233,8 +242,40 @@
     if (simulation) simulation.stop();
   });
 
-  function handleNodeClick(path: string) {
-    onfileselect?.({ path });
+  function handleNodePointerDown(path: string, e: PointerEvent) {
+    if (e.button !== 0) return; // Only handle primary (left) button
+    draggedNodePath = path;
+    didDragNode = false;
+    (e.currentTarget as Element)?.setPointerCapture(e.pointerId);
+    e.stopPropagation();
+  }
+
+  function handleNodePointerMove(e: PointerEvent) {
+    if (!draggedNodePath) return;
+    didDragNode = true;
+  }
+
+  function handleNodePointerUp() {
+    if (draggedNodePath && !didDragNode) {
+      onfileselect?.({ path: draggedNodePath });
+    }
+    draggedNodePath = null;
+    didDragNode = false;
+  }
+
+  function handleNodeContextMenu(path: string, e: MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    contextMenuPath = path;
+    contextMenuX = e.clientX;
+    contextMenuY = e.clientY;
+  }
+
+  function handleContextMenuOpen() {
+    if (contextMenuPath) {
+      onfileselect?.({ path: contextMenuPath });
+    }
+    contextMenuPath = null;
   }
 
   function getNodeX(node: LocalNode): number {
@@ -382,8 +423,12 @@
             aria-label={getFileName(node.path)}
             onmouseenter={() => (hoveredPath = node.path)}
             onmouseleave={() => (hoveredPath = null)}
-            onclick={() => handleNodeClick(node.path)}
-            onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') handleNodeClick(node.path); }}
+            onpointerdown={(e: PointerEvent) => handleNodePointerDown(node.path, e)}
+            onpointermove={handleNodePointerMove}
+            onpointerup={handleNodePointerUp}
+            onpointercancel={() => { draggedNodePath = null; didDragNode = false; }}
+            oncontextmenu={(e: MouseEvent) => handleNodeContextMenu(node.path, e)}
+            onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') onfileselect?.({ path: node.path }); }}
           >
             <circle
               cx={nx}
@@ -436,6 +481,19 @@
           <span class="material-symbols-outlined">close_fullscreen</span>
         </button>
       </div>
+    </div>
+  {/if}
+
+  <!-- Context menu -->
+  {#if contextMenuPath}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="context-menu-backdrop" onclick={() => (contextMenuPath = null)} oncontextmenu={(e) => { e.preventDefault(); contextMenuPath = null; }}></div>
+    <div class="context-menu" style="left: {contextMenuX}px; top: {contextMenuY}px">
+      <div class="context-menu-header">{contextMenuPath.split('/').pop()}</div>
+      <button class="context-menu-item" onclick={handleContextMenuOpen}>
+        <span class="material-symbols-outlined">open_in_new</span>
+        Open file
+      </button>
     </div>
   {/if}
 </div>
@@ -642,5 +700,59 @@
 
   .spinning {
     animation: spin 1.5s linear infinite;
+  }
+
+  /* Context menu */
+  .context-menu-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 49;
+  }
+
+  .context-menu {
+    position: fixed;
+    z-index: 50;
+    min-width: 160px;
+    background: var(--color-surface, #161617);
+    border: 1px solid var(--color-border, #27272a);
+    border-radius: 6px;
+    padding: 4px 0;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  }
+
+  .context-menu-header {
+    padding: 6px 12px;
+    font-size: 11px;
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    color: rgba(228, 228, 231, 0.5);
+    border-bottom: 1px solid var(--color-border, #27272a);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .context-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 12px;
+    border: none;
+    background: none;
+    color: #e4e4e7;
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.1s;
+  }
+
+  .context-menu-item:hover {
+    background: rgba(0, 229, 255, 0.08);
+    color: #00e5ff;
+  }
+
+  .context-menu-item .material-symbols-outlined {
+    font-size: 16px;
   }
 </style>

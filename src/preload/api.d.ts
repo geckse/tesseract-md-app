@@ -177,6 +177,10 @@ export interface MdvdbApi {
   getEditorFontSize(): Promise<number>
   setEditorFontSize(value: number): Promise<void>
 
+  // Zoom
+  getZoomLevel(): Promise<number>
+  setZoomLevel(value: number): Promise<void>
+
   // Auto-updater
   checkForUpdates(): Promise<UpdateCheckResult>
   downloadUpdate(): Promise<void>

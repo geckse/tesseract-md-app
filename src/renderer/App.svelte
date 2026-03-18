@@ -6,7 +6,6 @@
   import StatusBar from './components/StatusBar.svelte';
   import Editor from './components/Editor.svelte';
   import WysiwygEditor from './components/WysiwygEditor.svelte';
-  import MarkdownPreview from './components/MarkdownPreview.svelte';
   import PropertiesPanel from './components/PropertiesPanel.svelte';
   import GraphView from './components/GraphView.svelte';
   import GraphPreview from './components/GraphPreview.svelte';
@@ -24,7 +23,7 @@
   import { openQuickOpen } from './stores/quickopen';
   import { shortcutManager } from './lib/shortcuts';
   import { setupWatcherListener, teardownWatcherListener, fetchWatcherStatus, clearWatcherEvents } from './stores/watcher';
-  import { graphViewActive, graphSelectedNode, toggleGraphView, selectGraphNode, loadGraphData, resetGraphState } from './stores/graph';
+  import { graphViewActive, graphSelectedNode, graphOpenedNode, toggleGraphView, selectGraphNode, loadGraphData, resetGraphState } from './stores/graph';
   import { goBack, goForward, setNavigating, clearNavigation } from './stores/navigation';
   import { settingsOpen, onboardingComplete, loadOnboardingState, editorFontSize, loadEditorFontSize } from './stores/ui';
   import { setupUpdateListener, teardownUpdateListener } from './stores/updater';
@@ -157,13 +156,13 @@
         },
       }),
 
-      // Cmd+S / Ctrl+S: Global save (works in preview and wysiwyg mode too)
+      // Cmd+S / Ctrl+S: Global save (works in wysiwyg mode too)
       shortcutManager.register({
         key: 's',
         meta: true,
         handler: () => {
           const mode = get(editorMode);
-          if (mode === 'preview' || mode === 'wysiwyg') {
+          if (mode === 'wysiwyg') {
             requestSave();
           }
           // In editor mode, CodeMirror's own keymap handles Cmd+S
@@ -402,7 +401,7 @@
           <div id="main-content" class="graph-region" tabindex="-1" role="main" aria-label="Graph view">
             <GraphView />
           </div>
-          {#if $graphSelectedNode}
+          {#if $graphOpenedNode}
             <div class="preview-region" role="complementary" aria-label="File preview">
               <GraphPreview />
             </div>
@@ -419,21 +418,12 @@
                 <div class="mode-toggle" role="tablist" aria-label="Editor mode">
                   <button
                     class="mode-tab"
-                    class:active={$editorMode === 'preview'}
-                    role="tab"
-                    aria-selected={$editorMode === 'preview'}
-                    onclick={() => editorMode.set('preview')}
-                  >
-                    Preview
-                  </button>
-                  <button
-                    class="mode-tab"
                     class:active={$editorMode === 'wysiwyg'}
                     role="tab"
                     aria-selected={$editorMode === 'wysiwyg'}
                     onclick={() => editorMode.set('wysiwyg')}
                   >
-                    WYSIWYG
+                    Editor
                   </button>
                   <button
                     class="mode-tab"
@@ -442,7 +432,7 @@
                     aria-selected={$editorMode === 'editor'}
                     onclick={() => editorMode.set('editor')}
                   >
-                    Source
+                    Raw
                   </button>
                 </div>
                 <div class="mode-toggle-spacer">
@@ -498,24 +488,20 @@
                 bind:this={editorEl}
                 tabindex="-1"
                 role="main"
-                aria-label="Source editor"
+                aria-label="Raw editor"
               >
                 <Editor />
               </div>
-            {:else if $editorMode === 'wysiwyg'}
+            {:else}
               <div
                 id="main-content"
                 class="editor-region"
                 bind:this={editorEl}
                 tabindex="-1"
                 role="main"
-                aria-label="WYSIWYG editor"
+                aria-label="Editor"
               >
                 <WysiwygEditor />
-              </div>
-            {:else}
-              <div class="preview-content-region" role="main" aria-label="Preview">
-                <MarkdownPreview />
               </div>
             {/if}
           </div>
@@ -655,14 +641,6 @@
     display: flex;
     flex-direction: column;
     height: 100%;
-  }
-
-  .preview-content-region {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    overflow: hidden;
   }
 
   /* ── Editor with mode tabs ─────────────────────── */

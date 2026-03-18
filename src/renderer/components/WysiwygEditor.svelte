@@ -12,6 +12,7 @@
   import ConflictNotification from './ConflictNotification.svelte';
   import FrontmatterEditor from './wysiwyg/FrontmatterEditor.svelte';
   import { showConflict, dismissConflict } from '../stores/conflict';
+  import { handleLinkClick } from '../lib/link-navigation';
 
   let editorEl: HTMLDivElement | undefined = $state(undefined);
   let wysiwygEditor: WysiwygEditorInstance | null = null;
@@ -53,7 +54,7 @@
   });
 
   // Focus editor when switching to wysiwyg mode
-  let currentEditorMode = $state<EditorMode>('preview');
+  let currentEditorMode = $state<EditorMode>('wysiwyg');
   const unsubEditorMode = editorMode.subscribe((v) => (currentEditorMode = v));
   $effect(() => {
     if (currentEditorMode === 'wysiwyg' && wysiwygEditor) {
@@ -342,6 +343,7 @@
     <div
       class="wysiwyg-content"
       bind:this={editorEl}
+      onclick={handleLinkClick}
     ></div>
   </div>
 {:else}

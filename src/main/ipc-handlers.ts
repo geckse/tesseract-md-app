@@ -15,6 +15,8 @@ import {
   setOnboardingComplete,
   getEditorFontSize,
   setEditorFontSize,
+  getZoomLevel,
+  setZoomLevel,
   setCliInfo
 } from './store'
 import { WatcherManager, type WatcherState } from './watcher'
@@ -645,6 +647,20 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   ipcMain.handle('store:set-editor-font-size', (_event, value: number) =>
     wrapHandler(async () => {
       setEditorFontSize(value)
+    })
+  )
+
+  ipcMain.handle('store:get-zoom-level', () =>
+    wrapHandler(async () => getZoomLevel())
+  )
+
+  ipcMain.handle('store:set-zoom-level', (_event, value: number) =>
+    wrapHandler(async () => {
+      setZoomLevel(value)
+      // Apply zoom to the webContents immediately
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.setZoomFactor(value)
+      }
     })
   )
 

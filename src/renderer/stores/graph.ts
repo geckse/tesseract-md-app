@@ -14,8 +14,11 @@ export const graphLoading = writable<boolean>(false)
 /** Error message if graph data loading failed. */
 export const graphError = writable<string | null>(null)
 
-/** Currently selected node in the graph. */
+/** Currently selected node in the graph (highlighted, no side panel). */
 export const graphSelectedNode = writable<GraphNode | null>(null)
+
+/** Currently opened node in the graph (shown in side panel preview). */
+export const graphOpenedNode = writable<GraphNode | null>(null)
 
 /** Graph coloring mode: cluster-based, folder-based, or none. */
 export type GraphColoringMode = 'cluster' | 'folder' | 'none'
@@ -87,6 +90,7 @@ export function toggleGraphView(): void {
   if (isActive) {
     graphViewActive.set(false)
     graphSelectedNode.set(null)
+    graphOpenedNode.set(null)
   } else {
     graphViewActive.set(true)
     loadGraphData()
@@ -97,6 +101,7 @@ export function toggleGraphView(): void {
 export function setGraphLevel(level: GraphLevel): void {
   graphLevel.set(level)
   graphSelectedNode.set(null)
+  graphOpenedNode.set(null)
   if (get(graphViewActive)) {
     loadGraphData()
   }
@@ -106,6 +111,7 @@ export function setGraphLevel(level: GraphLevel): void {
 export function setGraphPathFilter(path: string | null): void {
   graphPathFilter.set(path)
   graphSelectedNode.set(null)
+  graphOpenedNode.set(null)
   if (get(graphViewActive)) {
     loadGraphData()
   }
@@ -114,6 +120,13 @@ export function setGraphPathFilter(path: string | null): void {
 /** Select a node in the graph, or clear selection with null. */
 export function selectGraphNode(node: GraphNode | null): void {
   graphSelectedNode.set(node)
+  if (!node) graphOpenedNode.set(null)
+}
+
+/** Open a node in the side panel preview (must already be selected). */
+export function openGraphNode(node: GraphNode): void {
+  graphSelectedNode.set(node)
+  graphOpenedNode.set(node)
 }
 
 /** Cycle graph coloring mode: cluster → folder → none → cluster. */
@@ -195,7 +208,9 @@ export function openGraphWithNeighborhood(filePath: string, neighborhood: Neighb
 
   loadGeneration++
   graphData.set(data)
-  graphSelectedNode.set({ path: filePath, cluster_id: null })
+  const nodeData: GraphNode = { id: filePath, path: filePath, label: null, cluster_id: null, chunk_index: null }
+  graphSelectedNode.set(nodeData)
+  graphOpenedNode.set(nodeData)
   graphViewActive.set(true)
   graphError.set(null)
   graphLoading.set(false)
@@ -209,6 +224,7 @@ export function resetGraphState(): void {
   graphLoading.set(false)
   graphError.set(null)
   graphSelectedNode.set(null)
+  graphOpenedNode.set(null)
   graphColoringMode.set('cluster')
   graphHighlightedFolder.set(null)
   graphHoveredFilePath.set(null)

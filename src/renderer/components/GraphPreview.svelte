@@ -2,7 +2,7 @@
   import { onDestroy } from 'svelte'
   import Badge from './ui/Badge.svelte'
   import ResizeHandle from './ResizeHandle.svelte'
-  import { graphSelectedNode, graphViewActive } from '../stores/graph'
+  import { graphOpenedNode, graphViewActive, graphSelectedNode } from '../stores/graph'
   import { selectFile } from '../stores/files'
   import { activeCollection } from '../stores/collections'
   import { renderMarkdown, formatFrontmatterValue } from '../lib/markdown-render'
@@ -37,7 +37,7 @@
   let currentCollectionPath: string | null = $state(null)
 
   const unsubs = [
-    graphSelectedNode.subscribe((v) => (currentNode = v)),
+    graphOpenedNode.subscribe((v) => (currentNode = v)),
     activeCollection.subscribe((v) => (currentCollectionPath = v?.path ?? null)),
   ]
 
@@ -116,6 +116,7 @@
     if (!currentNode) return
     graphViewActive.set(false)
     graphSelectedNode.set(null)
+    graphOpenedNode.set(null)
     selectFile(currentNode.path)
   }
 </script>

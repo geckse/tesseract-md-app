@@ -5,6 +5,7 @@
   import { fileContent } from '../stores/files'
   import { renderMarkdown, formatFrontmatterValue } from '../lib/markdown-render'
   import { renderMermaidDiagram } from '../lib/mermaid-renderer'
+  import { handleLinkClick } from '../lib/link-navigation'
   import type { JsonValue } from '../types/cli'
 
   // Store subscriptions
@@ -164,7 +165,7 @@
   }
 </script>
 
-<div class="preview-container" bind:this={previewContainer}>
+<div class="preview-container" bind:this={previewContainer} onclick={handleLinkClick}>
   <!-- Frontmatter accordion -->
   {#if currentFrontmatter && frontmatterEntries.length > 0}
     <div class="frontmatter-card">
