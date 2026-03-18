@@ -1691,6 +1691,47 @@
     height: 100%;
   }
 
+  /* Style 3d-force-graph's built-in tooltip container */
+  .graph-3d-container :global(.float-tooltip-kap) {
+    background: var(--color-surface, #161617) !important;
+    border: 1px solid var(--color-border, #27272a) !important;
+    border-radius: var(--radius-md, 0.375rem) !important;
+    padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem) !important;
+    font-family: var(--font-display, 'Space Grotesk', sans-serif) !important;
+    font-size: var(--text-sm, 0.75rem) !important;
+    color: var(--color-text, #e4e4e7) !important;
+    max-width: 320px !important;
+    z-index: var(--z-overlay, 40);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  }
+
+  /* Tooltip title: file path or relationship type */
+  .graph-3d-container :global(.graph-tooltip-title) {
+    color: var(--color-text, #e4e4e7);
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-size: var(--text-sm, 0.75rem);
+    font-weight: var(--weight-medium, 500);
+    word-break: break-all;
+  }
+
+  /* Tooltip metadata: cluster label, chunk heading, strength */
+  .graph-3d-container :global(.graph-tooltip-meta) {
+    color: var(--color-text-dim, #71717a);
+    font-family: var(--font-display, 'Space Grotesk', sans-serif);
+    font-size: var(--text-xs, 0.625rem);
+    margin-top: var(--space-1, 0.25rem);
+  }
+
+  /* Tooltip context text: italic excerpt */
+  .graph-3d-container :global(.graph-tooltip-context) {
+    color: var(--color-text-dim, #71717a);
+    font-family: var(--font-display, 'Space Grotesk', sans-serif);
+    font-size: var(--text-xs, 0.625rem);
+    margin-top: var(--space-2, 0.5rem);
+    line-height: 1.4;
+    font-style: italic;
+  }
+
   .cluster-label {
     position: absolute;
     transform: translate(-50%, -50%);
