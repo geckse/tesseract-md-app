@@ -5,7 +5,7 @@ import {
   edgeLineWidth,
   isWeakEdge,
   edgeLinkWidth,
-  edgeLinkColor,
+  edgeLinkColor
 } from '@renderer/lib/edge-utils'
 
 describe('edgeClusterColor', () => {
@@ -15,8 +15,14 @@ describe('edgeClusterColor', () => {
 
   it('returns correct color for each index 0-7', () => {
     const expected = [
-      '#A78BFA', '#67E8F9', '#FCA5A1', '#86EFAC',
-      '#FDE68A', '#F9A8D4', '#FDBA74', '#93C5FD',
+      '#A78BFA',
+      '#67E8F9',
+      '#FCA5A1',
+      '#86EFAC',
+      '#FDE68A',
+      '#F9A8D4',
+      '#FDBA74',
+      '#93C5FD'
     ]
     for (let i = 0; i < 8; i++) {
       expect(edgeClusterColor(i)).toBe(expected[i])

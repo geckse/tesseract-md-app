@@ -15,7 +15,7 @@ const EDGE_CLUSTER_COLORS: string[] = [
   '#FDE68A',
   '#F9A8D4',
   '#FDBA74',
-  '#93C5FD',
+  '#93C5FD'
 ]
 
 /**
@@ -88,8 +88,7 @@ export function edgeLinkColor(
   strength: number,
   weakThreshold: number
 ): string {
-  const baseColor =
-    edgeClusterId != null ? edgeClusterColor(edgeClusterId) : '#93C5FD'
+  const baseColor = edgeClusterId != null ? edgeClusterColor(edgeClusterId) : '#93C5FD'
 
   if (strength < weakThreshold) {
     return baseColor + '40'

@@ -6,13 +6,9 @@ import {
   nodeTooltipHtml,
   edgeTooltipHtml,
   edgeArrowColor,
-  computeDegreeMap,
+  computeDegreeMap
 } from '@renderer/lib/graph-3d-bridge'
-import type {
-  Graph3DNode,
-  Graph3DLink,
-  BuildGraph3DOptions,
-} from '@renderer/lib/graph-3d-bridge'
+import type { Graph3DNode, Graph3DLink, BuildGraph3DOptions } from '@renderer/lib/graph-3d-bridge'
 import type { GraphData, GraphNode, GraphEdge, GraphCluster } from '@renderer/types/cli'
 
 // ─── Test Helpers ───────────────────────────────────────────────────
@@ -24,7 +20,7 @@ function makeNode(overrides: Partial<GraphNode> = {}): GraphNode {
     label: null,
     cluster_id: null,
     chunk_index: null,
-    ...overrides,
+    ...overrides
   }
 }
 
@@ -33,7 +29,7 @@ function makeEdge(overrides: Partial<GraphEdge> = {}): GraphEdge {
     source: 'node-1',
     target: 'node-2',
     weight: 1,
-    ...overrides,
+    ...overrides
   }
 }
 
@@ -43,7 +39,7 @@ function makeCluster(overrides: Partial<GraphCluster> = {}): GraphCluster {
     label: 'Cluster 0',
     keywords: ['test'],
     member_count: 3,
-    ...overrides,
+    ...overrides
   }
 }
 
@@ -53,7 +49,7 @@ function makeGraphData(overrides: Partial<GraphData> = {}): GraphData {
     edges: [],
     clusters: [],
     level: 'document',
-    ...overrides,
+    ...overrides
   }
 }
 
@@ -63,7 +59,7 @@ function defaultOptions(overrides: Partial<BuildGraph3DOptions> = {}): BuildGrap
     edgeFilter: null,
     weakThreshold: 0.3,
     level: 'document',
-    ...overrides,
+    ...overrides
   }
 }
 
@@ -85,7 +81,7 @@ describe('computeDegreeMap', () => {
     const edges = [
       makeEdge({ source: 'a', target: 'b' }),
       makeEdge({ source: 'a', target: 'c' }),
-      makeEdge({ source: 'b', target: 'c' }),
+      makeEdge({ source: 'b', target: 'c' })
     ]
     const map = computeDegreeMap(edges)
     expect(map.get('a')).toBe(2)
@@ -104,7 +100,7 @@ describe('computeDegreeMap', () => {
       makeEdge({ source: 'hub', target: 'b' }),
       makeEdge({ source: 'hub', target: 'c' }),
       makeEdge({ source: 'hub', target: 'd' }),
-      makeEdge({ source: 'hub', target: 'e' }),
+      makeEdge({ source: 'hub', target: 'e' })
     ]
     const map = computeDegreeMap(edges)
     expect(map.get('hub')).toBe(5)
@@ -156,8 +152,14 @@ describe('nodeSizeValue', () => {
 describe('nodeTooltipHtml', () => {
   it('contains the file path', () => {
     const node: Graph3DNode = {
-      id: 'n1', path: 'docs/readme.md', label: null,
-      cluster_id: null, chunk_index: null, size: null, val: 1, color: '#fff',
+      id: 'n1',
+      path: 'docs/readme.md',
+      label: null,
+      cluster_id: null,
+      chunk_index: null,
+      size: null,
+      val: 1,
+      color: '#fff'
     }
     const html = nodeTooltipHtml(node)
     expect(html).toContain('docs/readme.md')
@@ -166,8 +168,14 @@ describe('nodeTooltipHtml', () => {
 
   it('includes cluster label when provided', () => {
     const node: Graph3DNode = {
-      id: 'n1', path: 'docs/readme.md', label: null,
-      cluster_id: 0, chunk_index: null, size: null, val: 1, color: '#fff',
+      id: 'n1',
+      path: 'docs/readme.md',
+      label: null,
+      cluster_id: 0,
+      chunk_index: null,
+      size: null,
+      val: 1,
+      color: '#fff'
     }
     const html = nodeTooltipHtml(node, 'Architecture')
     expect(html).toContain('Cluster: Architecture')
@@ -176,8 +184,14 @@ describe('nodeTooltipHtml', () => {
 
   it('omits cluster label when null', () => {
     const node: Graph3DNode = {
-      id: 'n1', path: 'docs/readme.md', label: null,
-      cluster_id: null, chunk_index: null, size: null, val: 1, color: '#fff',
+      id: 'n1',
+      path: 'docs/readme.md',
+      label: null,
+      cluster_id: null,
+      chunk_index: null,
+      size: null,
+      val: 1,
+      color: '#fff'
     }
     const html = nodeTooltipHtml(node, null)
     expect(html).not.toContain('Cluster:')
@@ -185,8 +199,14 @@ describe('nodeTooltipHtml', () => {
 
   it('omits cluster label when undefined', () => {
     const node: Graph3DNode = {
-      id: 'n1', path: 'docs/readme.md', label: null,
-      cluster_id: null, chunk_index: null, size: null, val: 1, color: '#fff',
+      id: 'n1',
+      path: 'docs/readme.md',
+      label: null,
+      cluster_id: null,
+      chunk_index: null,
+      size: null,
+      val: 1,
+      color: '#fff'
     }
     const html = nodeTooltipHtml(node)
     expect(html).not.toContain('Cluster:')
@@ -194,8 +214,14 @@ describe('nodeTooltipHtml', () => {
 
   it('includes chunk heading when chunk_index and label are present', () => {
     const node: Graph3DNode = {
-      id: 'c1', path: 'docs/readme.md', label: '## Getting Started',
-      cluster_id: null, chunk_index: 2, size: 100, val: 3, color: '#fff',
+      id: 'c1',
+      path: 'docs/readme.md',
+      label: '## Getting Started',
+      cluster_id: null,
+      chunk_index: 2,
+      size: 100,
+      val: 3,
+      color: '#fff'
     }
     const html = nodeTooltipHtml(node)
     expect(html).toContain('## Getting Started')
@@ -203,8 +229,14 @@ describe('nodeTooltipHtml', () => {
 
   it('omits chunk heading when chunk_index is null', () => {
     const node: Graph3DNode = {
-      id: 'n1', path: 'docs/readme.md', label: 'Some Label',
-      cluster_id: null, chunk_index: null, size: null, val: 1, color: '#fff',
+      id: 'n1',
+      path: 'docs/readme.md',
+      label: 'Some Label',
+      cluster_id: null,
+      chunk_index: null,
+      size: null,
+      val: 1,
+      color: '#fff'
     }
     const html = nodeTooltipHtml(node)
     // label should not appear as a chunk heading line
@@ -214,8 +246,14 @@ describe('nodeTooltipHtml', () => {
 
   it('omits chunk heading when label is null', () => {
     const node: Graph3DNode = {
-      id: 'c1', path: 'docs/readme.md', label: null,
-      cluster_id: null, chunk_index: 0, size: 50, val: 1, color: '#fff',
+      id: 'c1',
+      path: 'docs/readme.md',
+      label: null,
+      cluster_id: null,
+      chunk_index: 0,
+      size: 50,
+      val: 1,
+      color: '#fff'
     }
     const html = nodeTooltipHtml(node)
     expect(html).not.toContain('graph-tooltip-meta')
@@ -223,8 +261,14 @@ describe('nodeTooltipHtml', () => {
 
   it('escapes HTML special characters in path', () => {
     const node: Graph3DNode = {
-      id: 'n1', path: 'docs/<script>.md', label: null,
-      cluster_id: null, chunk_index: null, size: null, val: 1, color: '#fff',
+      id: 'n1',
+      path: 'docs/<script>.md',
+      label: null,
+      cluster_id: null,
+      chunk_index: null,
+      size: null,
+      val: 1,
+      color: '#fff'
     }
     const html = nodeTooltipHtml(node)
     expect(html).toContain('&lt;script&gt;')
@@ -233,8 +277,14 @@ describe('nodeTooltipHtml', () => {
 
   it('escapes HTML special characters in cluster label', () => {
     const node: Graph3DNode = {
-      id: 'n1', path: 'test.md', label: null,
-      cluster_id: 0, chunk_index: null, size: null, val: 1, color: '#fff',
+      id: 'n1',
+      path: 'test.md',
+      label: null,
+      cluster_id: 0,
+      chunk_index: null,
+      size: null,
+      val: 1,
+      color: '#fff'
     }
     const html = nodeTooltipHtml(node, 'A & B <bold>')
     expect(html).toContain('A &amp; B &lt;bold&gt;')
@@ -246,9 +296,14 @@ describe('nodeTooltipHtml', () => {
 describe('edgeTooltipHtml', () => {
   it('includes relationship type when present', () => {
     const link: Graph3DLink = {
-      source: 'a', target: 'b', relationship_type: 'references',
-      strength: 0.8, context_text: null, edge_cluster_id: null,
-      color: '#fff', width: 1,
+      source: 'a',
+      target: 'b',
+      relationship_type: 'references',
+      strength: 0.8,
+      context_text: null,
+      edge_cluster_id: null,
+      color: '#fff',
+      width: 1
     }
     const html = edgeTooltipHtml(link)
     expect(html).toContain('references')
@@ -257,9 +312,14 @@ describe('edgeTooltipHtml', () => {
 
   it('omits relationship type when null', () => {
     const link: Graph3DLink = {
-      source: 'a', target: 'b', relationship_type: null,
-      strength: 0.5, context_text: null, edge_cluster_id: null,
-      color: '#fff', width: 1,
+      source: 'a',
+      target: 'b',
+      relationship_type: null,
+      strength: 0.5,
+      context_text: null,
+      edge_cluster_id: null,
+      color: '#fff',
+      width: 1
     }
     const html = edgeTooltipHtml(link)
     expect(html).not.toContain('graph-tooltip-title')
@@ -267,9 +327,14 @@ describe('edgeTooltipHtml', () => {
 
   it('includes strength as percentage', () => {
     const link: Graph3DLink = {
-      source: 'a', target: 'b', relationship_type: null,
-      strength: 0.75, context_text: null, edge_cluster_id: null,
-      color: '#fff', width: 1,
+      source: 'a',
+      target: 'b',
+      relationship_type: null,
+      strength: 0.75,
+      context_text: null,
+      edge_cluster_id: null,
+      color: '#fff',
+      width: 1
     }
     const html = edgeTooltipHtml(link)
     expect(html).toContain('Strength: 75%')
@@ -277,9 +342,14 @@ describe('edgeTooltipHtml', () => {
 
   it('omits strength when null', () => {
     const link: Graph3DLink = {
-      source: 'a', target: 'b', relationship_type: null,
-      strength: null, context_text: null, edge_cluster_id: null,
-      color: '#fff', width: 1,
+      source: 'a',
+      target: 'b',
+      relationship_type: null,
+      strength: null,
+      context_text: null,
+      edge_cluster_id: null,
+      color: '#fff',
+      width: 1
     }
     const html = edgeTooltipHtml(link)
     expect(html).not.toContain('Strength')
@@ -287,9 +357,14 @@ describe('edgeTooltipHtml', () => {
 
   it('includes context text when present', () => {
     const link: Graph3DLink = {
-      source: 'a', target: 'b', relationship_type: null,
-      strength: null, context_text: 'Related to architecture decisions',
-      edge_cluster_id: null, color: '#fff', width: 1,
+      source: 'a',
+      target: 'b',
+      relationship_type: null,
+      strength: null,
+      context_text: 'Related to architecture decisions',
+      edge_cluster_id: null,
+      color: '#fff',
+      width: 1
     }
     const html = edgeTooltipHtml(link)
     expect(html).toContain('Related to architecture decisions')
@@ -299,9 +374,14 @@ describe('edgeTooltipHtml', () => {
   it('truncates context text longer than 120 characters', () => {
     const longText = 'A'.repeat(150)
     const link: Graph3DLink = {
-      source: 'a', target: 'b', relationship_type: null,
-      strength: null, context_text: longText,
-      edge_cluster_id: null, color: '#fff', width: 1,
+      source: 'a',
+      target: 'b',
+      relationship_type: null,
+      strength: null,
+      context_text: longText,
+      edge_cluster_id: null,
+      color: '#fff',
+      width: 1
     }
     const html = edgeTooltipHtml(link)
     expect(html).toContain('A'.repeat(120))
@@ -312,9 +392,14 @@ describe('edgeTooltipHtml', () => {
   it('does not truncate context text at exactly 120 characters', () => {
     const exactText = 'B'.repeat(120)
     const link: Graph3DLink = {
-      source: 'a', target: 'b', relationship_type: null,
-      strength: null, context_text: exactText,
-      edge_cluster_id: null, color: '#fff', width: 1,
+      source: 'a',
+      target: 'b',
+      relationship_type: null,
+      strength: null,
+      context_text: exactText,
+      edge_cluster_id: null,
+      color: '#fff',
+      width: 1
     }
     const html = edgeTooltipHtml(link)
     expect(html).toContain('B'.repeat(120))
@@ -323,9 +408,14 @@ describe('edgeTooltipHtml', () => {
 
   it('returns empty string when all fields are null', () => {
     const link: Graph3DLink = {
-      source: 'a', target: 'b', relationship_type: null,
-      strength: null, context_text: null, edge_cluster_id: null,
-      color: '#fff', width: 1,
+      source: 'a',
+      target: 'b',
+      relationship_type: null,
+      strength: null,
+      context_text: null,
+      edge_cluster_id: null,
+      color: '#fff',
+      width: 1
     }
     const html = edgeTooltipHtml(link)
     expect(html).toBe('')
@@ -333,9 +423,14 @@ describe('edgeTooltipHtml', () => {
 
   it('escapes HTML special characters in relationship type', () => {
     const link: Graph3DLink = {
-      source: 'a', target: 'b', relationship_type: '<script>alert("xss")</script>',
-      strength: null, context_text: null, edge_cluster_id: null,
-      color: '#fff', width: 1,
+      source: 'a',
+      target: 'b',
+      relationship_type: '<script>alert("xss")</script>',
+      strength: null,
+      context_text: null,
+      edge_cluster_id: null,
+      color: '#fff',
+      width: 1
     }
     const html = edgeTooltipHtml(link)
     expect(html).toContain('&lt;script&gt;')
@@ -344,9 +439,14 @@ describe('edgeTooltipHtml', () => {
 
   it('escapes HTML special characters in context text', () => {
     const link: Graph3DLink = {
-      source: 'a', target: 'b', relationship_type: null,
-      strength: null, context_text: 'A & B "quoted"',
-      edge_cluster_id: null, color: '#fff', width: 1,
+      source: 'a',
+      target: 'b',
+      relationship_type: null,
+      strength: null,
+      context_text: 'A & B "quoted"',
+      edge_cluster_id: null,
+      color: '#fff',
+      width: 1
     }
     const html = edgeTooltipHtml(link)
     expect(html).toContain('A &amp; B &quot;quoted&quot;')
@@ -354,9 +454,14 @@ describe('edgeTooltipHtml', () => {
 
   it('includes all fields together', () => {
     const link: Graph3DLink = {
-      source: 'a', target: 'b', relationship_type: 'extends',
-      strength: 0.9, context_text: 'Module extends the base class',
-      edge_cluster_id: 1, color: '#fff', width: 2,
+      source: 'a',
+      target: 'b',
+      relationship_type: 'extends',
+      strength: 0.9,
+      context_text: 'Module extends the base class',
+      edge_cluster_id: 1,
+      color: '#fff',
+      width: 2
     }
     const html = edgeTooltipHtml(link)
     expect(html).toContain('extends')
@@ -414,8 +519,26 @@ describe('seedClusterPositions', () => {
 
   it('places unclustered nodes near origin with jitter', () => {
     const nodes: Graph3DNode[] = [
-      { id: 'n1', path: 'a.md', label: null, cluster_id: null, chunk_index: null, size: null, val: 1, color: '#fff' },
-      { id: 'n2', path: 'b.md', label: null, cluster_id: null, chunk_index: null, size: null, val: 1, color: '#fff' },
+      {
+        id: 'n1',
+        path: 'a.md',
+        label: null,
+        cluster_id: null,
+        chunk_index: null,
+        size: null,
+        val: 1,
+        color: '#fff'
+      },
+      {
+        id: 'n2',
+        path: 'b.md',
+        label: null,
+        cluster_id: null,
+        chunk_index: null,
+        size: null,
+        val: 1,
+        color: '#fff'
+      }
     ]
     seedClusterPositions(nodes, [])
 
@@ -431,21 +554,48 @@ describe('seedClusterPositions', () => {
 
   it('places clustered nodes near their cluster centroids', () => {
     const nodes: Graph3DNode[] = [
-      { id: 'n1', path: 'a.md', label: null, cluster_id: 0, chunk_index: null, size: null, val: 1, color: '#fff' },
-      { id: 'n2', path: 'b.md', label: null, cluster_id: 0, chunk_index: null, size: null, val: 1, color: '#fff' },
-      { id: 'n3', path: 'c.md', label: null, cluster_id: 1, chunk_index: null, size: null, val: 1, color: '#fff' },
+      {
+        id: 'n1',
+        path: 'a.md',
+        label: null,
+        cluster_id: 0,
+        chunk_index: null,
+        size: null,
+        val: 1,
+        color: '#fff'
+      },
+      {
+        id: 'n2',
+        path: 'b.md',
+        label: null,
+        cluster_id: 0,
+        chunk_index: null,
+        size: null,
+        val: 1,
+        color: '#fff'
+      },
+      {
+        id: 'n3',
+        path: 'c.md',
+        label: null,
+        cluster_id: 1,
+        chunk_index: null,
+        size: null,
+        val: 1,
+        color: '#fff'
+      }
     ]
     const clusters: GraphCluster[] = [
       makeCluster({ id: 0, label: 'Cluster A' }),
-      makeCluster({ id: 1, label: 'Cluster B' }),
+      makeCluster({ id: 1, label: 'Cluster B' })
     ]
     seedClusterPositions(nodes, clusters, 200)
 
     // Nodes in the same cluster should be near each other
     const dist01 = Math.sqrt(
       (nodes[0].x! - nodes[1].x!) ** 2 +
-      (nodes[0].y! - nodes[1].y!) ** 2 +
-      (nodes[0].z! - nodes[1].z!) ** 2,
+        (nodes[0].y! - nodes[1].y!) ** 2 +
+        (nodes[0].z! - nodes[1].z!) ** 2
     )
     // Jitter is ±15 each axis, so max dist between same-cluster nodes ≈ 30*sqrt(3) ≈ 52
     expect(dist01).toBeLessThan(55)
@@ -460,14 +610,41 @@ describe('seedClusterPositions', () => {
 
   it('distributes cluster centroids at spreadRadius distance from origin', () => {
     const nodes: Graph3DNode[] = [
-      { id: 'n1', path: 'a.md', label: null, cluster_id: 0, chunk_index: null, size: null, val: 1, color: '#fff' },
-      { id: 'n2', path: 'b.md', label: null, cluster_id: 1, chunk_index: null, size: null, val: 1, color: '#fff' },
-      { id: 'n3', path: 'c.md', label: null, cluster_id: 2, chunk_index: null, size: null, val: 1, color: '#fff' },
+      {
+        id: 'n1',
+        path: 'a.md',
+        label: null,
+        cluster_id: 0,
+        chunk_index: null,
+        size: null,
+        val: 1,
+        color: '#fff'
+      },
+      {
+        id: 'n2',
+        path: 'b.md',
+        label: null,
+        cluster_id: 1,
+        chunk_index: null,
+        size: null,
+        val: 1,
+        color: '#fff'
+      },
+      {
+        id: 'n3',
+        path: 'c.md',
+        label: null,
+        cluster_id: 2,
+        chunk_index: null,
+        size: null,
+        val: 1,
+        color: '#fff'
+      }
     ]
     const clusters: GraphCluster[] = [
       makeCluster({ id: 0 }),
       makeCluster({ id: 1 }),
-      makeCluster({ id: 2 }),
+      makeCluster({ id: 2 })
     ]
     const spreadRadius = 300
     seedClusterPositions(nodes, clusters, spreadRadius)
@@ -483,8 +660,26 @@ describe('seedClusterPositions', () => {
 
   it('handles single cluster correctly', () => {
     const nodes: Graph3DNode[] = [
-      { id: 'n1', path: 'a.md', label: null, cluster_id: 0, chunk_index: null, size: null, val: 1, color: '#fff' },
-      { id: 'n2', path: 'b.md', label: null, cluster_id: 0, chunk_index: null, size: null, val: 1, color: '#fff' },
+      {
+        id: 'n1',
+        path: 'a.md',
+        label: null,
+        cluster_id: 0,
+        chunk_index: null,
+        size: null,
+        val: 1,
+        color: '#fff'
+      },
+      {
+        id: 'n2',
+        path: 'b.md',
+        label: null,
+        cluster_id: 0,
+        chunk_index: null,
+        size: null,
+        val: 1,
+        color: '#fff'
+      }
     ]
     const clusters = [makeCluster({ id: 0 })]
     seedClusterPositions(nodes, clusters, 200)
@@ -500,12 +695,24 @@ describe('seedClusterPositions', () => {
   it('separates different clusters in space', () => {
     // Create many nodes per cluster to get average positions
     const nodesA: Graph3DNode[] = Array.from({ length: 20 }, (_, i) => ({
-      id: `a${i}`, path: `a${i}.md`, label: null, cluster_id: 0,
-      chunk_index: null, size: null, val: 1, color: '#fff',
+      id: `a${i}`,
+      path: `a${i}.md`,
+      label: null,
+      cluster_id: 0,
+      chunk_index: null,
+      size: null,
+      val: 1,
+      color: '#fff'
     }))
     const nodesB: Graph3DNode[] = Array.from({ length: 20 }, (_, i) => ({
-      id: `b${i}`, path: `b${i}.md`, label: null, cluster_id: 1,
-      chunk_index: null, size: null, val: 1, color: '#fff',
+      id: `b${i}`,
+      path: `b${i}.md`,
+      label: null,
+      cluster_id: 1,
+      chunk_index: null,
+      size: null,
+      val: 1,
+      color: '#fff'
     }))
     const allNodes = [...nodesA, ...nodesB]
     const clusters = [makeCluster({ id: 0 }), makeCluster({ id: 1 })]
@@ -513,24 +720,42 @@ describe('seedClusterPositions', () => {
 
     // Compute average position for each cluster
     const avgA = { x: 0, y: 0, z: 0 }
-    for (const n of nodesA) { avgA.x += n.x!; avgA.y += n.y!; avgA.z += n.z! }
-    avgA.x /= nodesA.length; avgA.y /= nodesA.length; avgA.z /= nodesA.length
+    for (const n of nodesA) {
+      avgA.x += n.x!
+      avgA.y += n.y!
+      avgA.z += n.z!
+    }
+    avgA.x /= nodesA.length
+    avgA.y /= nodesA.length
+    avgA.z /= nodesA.length
 
     const avgB = { x: 0, y: 0, z: 0 }
-    for (const n of nodesB) { avgB.x += n.x!; avgB.y += n.y!; avgB.z += n.z! }
-    avgB.x /= nodesB.length; avgB.y /= nodesB.length; avgB.z /= nodesB.length
+    for (const n of nodesB) {
+      avgB.x += n.x!
+      avgB.y += n.y!
+      avgB.z += n.z!
+    }
+    avgB.x /= nodesB.length
+    avgB.y /= nodesB.length
+    avgB.z /= nodesB.length
 
     // Clusters should be well-separated
     const interClusterDist = Math.sqrt(
-      (avgA.x - avgB.x) ** 2 + (avgA.y - avgB.y) ** 2 + (avgA.z - avgB.z) ** 2,
+      (avgA.x - avgB.x) ** 2 + (avgA.y - avgB.y) ** 2 + (avgA.z - avgB.z) ** 2
     )
     expect(interClusterDist).toBeGreaterThan(100)
   })
 
   it('mutates nodes in place', () => {
     const node: Graph3DNode = {
-      id: 'n1', path: 'a.md', label: null, cluster_id: null,
-      chunk_index: null, size: null, val: 1, color: '#fff',
+      id: 'n1',
+      path: 'a.md',
+      label: null,
+      cluster_id: null,
+      chunk_index: null,
+      size: null,
+      val: 1,
+      color: '#fff'
     }
     expect(node.x).toBeUndefined()
     seedClusterPositions([node], [])
@@ -541,7 +766,16 @@ describe('seedClusterPositions', () => {
 
   it('uses default spreadRadius of 200', () => {
     const nodes: Graph3DNode[] = [
-      { id: 'n1', path: 'a.md', label: null, cluster_id: 0, chunk_index: null, size: null, val: 1, color: '#fff' },
+      {
+        id: 'n1',
+        path: 'a.md',
+        label: null,
+        cluster_id: 0,
+        chunk_index: null,
+        size: null,
+        val: 1,
+        color: '#fff'
+      }
     ]
     const clusters = [makeCluster({ id: 0 })]
     seedClusterPositions(nodes, clusters)
@@ -565,8 +799,16 @@ describe('buildGraph3DData', () => {
 
   it('maps node fields correctly', () => {
     const data = makeGraphData({
-      nodes: [makeNode({ id: 'n1', path: 'docs/api.md', label: 'API Reference', cluster_id: 2, chunk_index: null })],
-      edges: [],
+      nodes: [
+        makeNode({
+          id: 'n1',
+          path: 'docs/api.md',
+          label: 'API Reference',
+          cluster_id: 2,
+          chunk_index: null
+        })
+      ],
+      edges: []
     })
     const result = buildGraph3DData(data, defaultOptions())
     expect(result.nodes).toHaveLength(1)
@@ -583,15 +825,17 @@ describe('buildGraph3DData', () => {
 
   it('maps edge fields correctly', () => {
     const data = makeGraphData({
-      nodes: [
-        makeNode({ id: 'a', path: 'a.md' }),
-        makeNode({ id: 'b', path: 'b.md' }),
-      ],
-      edges: [makeEdge({
-        source: 'a', target: 'b',
-        relationship_type: 'references', strength: 0.8,
-        context_text: 'See also', edge_cluster_id: 1,
-      })],
+      nodes: [makeNode({ id: 'a', path: 'a.md' }), makeNode({ id: 'b', path: 'b.md' })],
+      edges: [
+        makeEdge({
+          source: 'a',
+          target: 'b',
+          relationship_type: 'references',
+          strength: 0.8,
+          context_text: 'See also',
+          edge_cluster_id: 1
+        })
+      ]
     })
     const result = buildGraph3DData(data, defaultOptions())
     expect(result.links).toHaveLength(1)
@@ -612,13 +856,13 @@ describe('buildGraph3DData', () => {
       nodes: [
         makeNode({ id: 'a', path: 'a.md' }),
         makeNode({ id: 'b', path: 'b.md' }),
-        makeNode({ id: 'c', path: 'c.md' }),
+        makeNode({ id: 'c', path: 'c.md' })
       ],
       edges: [
         makeEdge({ source: 'a', target: 'b', edge_cluster_id: 0 }),
         makeEdge({ source: 'b', target: 'c', edge_cluster_id: 1 }),
-        makeEdge({ source: 'a', target: 'c', edge_cluster_id: 2 }),
-      ],
+        makeEdge({ source: 'a', target: 'c', edge_cluster_id: 2 })
+      ]
     })
 
     // Only show edge cluster 0 and 2
@@ -629,14 +873,11 @@ describe('buildGraph3DData', () => {
 
   it('includes all edges when filter is null', () => {
     const data = makeGraphData({
-      nodes: [
-        makeNode({ id: 'a', path: 'a.md' }),
-        makeNode({ id: 'b', path: 'b.md' }),
-      ],
+      nodes: [makeNode({ id: 'a', path: 'a.md' }), makeNode({ id: 'b', path: 'b.md' })],
       edges: [
         makeEdge({ source: 'a', target: 'b', edge_cluster_id: 0 }),
-        makeEdge({ source: 'b', target: 'a', edge_cluster_id: 1 }),
-      ],
+        makeEdge({ source: 'b', target: 'a', edge_cluster_id: 1 })
+      ]
     })
     const result = buildGraph3DData(data, defaultOptions({ edgeFilter: null }))
     expect(result.links).toHaveLength(2)
@@ -648,13 +889,13 @@ describe('buildGraph3DData', () => {
         makeNode({ id: 'hub', path: 'hub.md' }),
         makeNode({ id: 'a', path: 'a.md' }),
         makeNode({ id: 'b', path: 'b.md' }),
-        makeNode({ id: 'leaf', path: 'leaf.md' }),
+        makeNode({ id: 'leaf', path: 'leaf.md' })
       ],
       edges: [
         makeEdge({ source: 'hub', target: 'a' }),
         makeEdge({ source: 'hub', target: 'b' }),
-        makeEdge({ source: 'hub', target: 'leaf' }),
-      ],
+        makeEdge({ source: 'hub', target: 'leaf' })
+      ]
     })
     const result = buildGraph3DData(data, defaultOptions({ level: 'document' }))
 
@@ -672,9 +913,9 @@ describe('buildGraph3DData', () => {
       nodes: [
         makeNode({ id: 'big', path: 'big.md', size: 1000 }),
         makeNode({ id: 'small', path: 'small.md', size: 100 }),
-        makeNode({ id: 'zero', path: 'zero.md', size: 0 }),
+        makeNode({ id: 'zero', path: 'zero.md', size: 0 })
       ],
-      edges: [],
+      edges: []
     })
     const result = buildGraph3DData(data, defaultOptions({ level: 'chunk' }))
 
@@ -695,9 +936,9 @@ describe('buildGraph3DData', () => {
       nodes: [
         makeNode({ id: 'n0', path: 'a.md', cluster_id: 0 }),
         makeNode({ id: 'n1', path: 'b.md', cluster_id: 1 }),
-        makeNode({ id: 'nu', path: 'c.md', cluster_id: null }),
+        makeNode({ id: 'nu', path: 'c.md', cluster_id: null })
       ],
-      edges: [],
+      edges: []
     })
     const result = buildGraph3DData(data, defaultOptions({ coloringMode: 'cluster' }))
 
@@ -715,9 +956,9 @@ describe('buildGraph3DData', () => {
       nodes: [
         makeNode({ id: 'n1', path: 'docs/readme.md' }),
         makeNode({ id: 'n2', path: 'docs/guide.md' }),
-        makeNode({ id: 'n3', path: 'src/main.md' }),
+        makeNode({ id: 'n3', path: 'src/main.md' })
       ],
-      edges: [],
+      edges: []
     })
     const result = buildGraph3DData(data, defaultOptions({ coloringMode: 'folder' }))
 
@@ -733,15 +974,17 @@ describe('buildGraph3DData', () => {
 
   it('handles edges with null optional fields', () => {
     const data = makeGraphData({
-      nodes: [
-        makeNode({ id: 'a', path: 'a.md' }),
-        makeNode({ id: 'b', path: 'b.md' }),
-      ],
-      edges: [makeEdge({
-        source: 'a', target: 'b',
-        relationship_type: undefined, strength: undefined,
-        context_text: undefined, edge_cluster_id: undefined,
-      })],
+      nodes: [makeNode({ id: 'a', path: 'a.md' }), makeNode({ id: 'b', path: 'b.md' })],
+      edges: [
+        makeEdge({
+          source: 'a',
+          target: 'b',
+          relationship_type: undefined,
+          strength: undefined,
+          context_text: undefined,
+          edge_cluster_id: undefined
+        })
+      ]
     })
     const result = buildGraph3DData(data, defaultOptions())
     expect(result.links).toHaveLength(1)
@@ -755,14 +998,11 @@ describe('buildGraph3DData', () => {
 
   it('computes edge width from strength', () => {
     const data = makeGraphData({
-      nodes: [
-        makeNode({ id: 'a', path: 'a.md' }),
-        makeNode({ id: 'b', path: 'b.md' }),
-      ],
+      nodes: [makeNode({ id: 'a', path: 'a.md' }), makeNode({ id: 'b', path: 'b.md' })],
       edges: [
         makeEdge({ source: 'a', target: 'b', strength: 0 }),
-        makeEdge({ source: 'b', target: 'a', strength: 1 }),
-      ],
+        makeEdge({ source: 'b', target: 'a', strength: 1 })
+      ]
     })
     const result = buildGraph3DData(data, defaultOptions())
 
@@ -778,9 +1018,9 @@ describe('buildGraph3DData', () => {
       nodes: [
         makeNode({ id: 'orphan', path: 'orphan.md' }),
         makeNode({ id: 'a', path: 'a.md' }),
-        makeNode({ id: 'b', path: 'b.md' }),
+        makeNode({ id: 'b', path: 'b.md' })
       ],
-      edges: [makeEdge({ source: 'a', target: 'b' })],
+      edges: [makeEdge({ source: 'a', target: 'b' })]
     })
     const result = buildGraph3DData(data, defaultOptions())
     expect(result.nodes).toHaveLength(3)
@@ -790,7 +1030,7 @@ describe('buildGraph3DData', () => {
   it('handles node with null size in chunk mode', () => {
     const data = makeGraphData({
       nodes: [makeNode({ id: 'n1', path: 'a.md', size: undefined })],
-      edges: [],
+      edges: []
     })
     const result = buildGraph3DData(data, defaultOptions({ level: 'chunk' }))
     expect(result.nodes[0].val).toBeGreaterThanOrEqual(1)

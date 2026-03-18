@@ -21,7 +21,7 @@ const CLUSTER_COLORS: string[] = [
   '#339AF0',
   '#B2F2BB',
   '#D0BFFF',
-  '#FFC078',
+  '#FFC078'
 ]
 
 /** Default node color for unclustered nodes or 'none' document mode. */
@@ -124,7 +124,7 @@ function nodeColor(
   node: GraphNode,
   mode: ColoringMode,
   folderColorMap: Map<string, string> | null,
-  isChunk: boolean,
+  isChunk: boolean
 ): string {
   if (mode === 'cluster') {
     if (node.cluster_id != null) {
@@ -181,7 +181,7 @@ export function nodeSizeValue(
   level: GraphLevel,
   degree: number,
   size: number,
-  maxSize: number,
+  maxSize: number
 ): number {
   if (level === 'document') {
     return 1 + degree * 2
@@ -197,10 +197,7 @@ export function nodeSizeValue(
  * Displays: file path (always), cluster label (if present),
  * and chunk heading (for chunk-level nodes with a label).
  */
-export function nodeTooltipHtml(
-  node: Graph3DNode,
-  clusterLabel?: string | null,
-): string {
+export function nodeTooltipHtml(node: Graph3DNode, clusterLabel?: string | null): string {
   let html = `<div class="graph-tooltip-title">${escapeHtml(node.path)}</div>`
 
   if (clusterLabel) {
@@ -257,7 +254,7 @@ export function edgeArrowColor(
   sourceId: string,
   targetId: string,
   selectedNodeId: string | null,
-  isBidirectional: boolean,
+  isBidirectional: boolean
 ): string {
   if (selectedNodeId == null) return ARROW_GRAY
 
@@ -284,7 +281,7 @@ export function edgeArrowColor(
 export function seedClusterPositions(
   nodes: Graph3DNode[],
   clusters: GraphCluster[],
-  spreadRadius: number = 200,
+  spreadRadius: number = 200
 ): void {
   if (nodes.length === 0) return
 
@@ -302,7 +299,7 @@ export function seedClusterPositions(
       clusterCentroids.set(clusters[i].id, {
         x: Math.cos(theta) * Math.sin(phi) * spreadRadius,
         y: Math.sin(theta) * Math.sin(phi) * spreadRadius,
-        z: Math.cos(phi) * spreadRadius,
+        z: Math.cos(phi) * spreadRadius
       })
     }
   }
@@ -311,8 +308,7 @@ export function seedClusterPositions(
   const jitterScale = spreadRadius * 0.15
 
   for (const node of nodes) {
-    const centroid =
-      node.cluster_id != null ? clusterCentroids.get(node.cluster_id) : undefined
+    const centroid = node.cluster_id != null ? clusterCentroids.get(node.cluster_id) : undefined
 
     if (centroid) {
       node.x = centroid.x + (Math.random() - 0.5) * jitterScale
@@ -338,10 +334,7 @@ export function seedClusterPositions(
  * - Node color based on coloring mode (cluster / folder / none)
  * - Edge color and width based on cluster palette and strength
  */
-export function buildGraph3DData(
-  data: GraphData,
-  options: BuildGraph3DOptions,
-): Graph3DData {
+export function buildGraph3DData(data: GraphData, options: BuildGraph3DOptions): Graph3DData {
   if (data.nodes.length === 0) {
     return { nodes: [], links: [] }
   }
@@ -383,7 +376,7 @@ export function buildGraph3DData(
       chunk_index: node.chunk_index,
       size: node.size ?? null,
       val,
-      color,
+      color
     }
   })
 
@@ -396,7 +389,7 @@ export function buildGraph3DData(
     context_text: edge.context_text ?? null,
     edge_cluster_id: edge.edge_cluster_id ?? null,
     color: edgeLinkColor(edge.edge_cluster_id, edge.strength ?? 0.5, options.weakThreshold),
-    width: edgeLinkWidth(edge.strength ?? 0.5),
+    width: edgeLinkWidth(edge.strength ?? 0.5)
   }))
 
   return { nodes, links }
