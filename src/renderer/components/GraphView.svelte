@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide } from 'd3-force';
-  import type { Simulation, SimulationNodeDatum, SimulationLinkDatum } from 'd3-force';
+  import type { ForceGraph3DInstance } from '3d-force-graph';
+  import type { NodeObject, LinkObject } from 'three-forcegraph';
   import {
     graphData,
     graphLoading,
@@ -27,10 +27,19 @@
   } from '../stores/graph';
   import type { GraphColoringMode } from '../stores/graph';
   import type { GraphLevel } from '../types/cli';
-  import type { GraphNode, GraphEdge, GraphData } from '../types/cli';
+  import type { GraphNode, GraphData } from '../types/cli';
   import { selectedFilePath } from '../stores/files';
-  import { convexHull, padHull, centroid, polygonArea, hexToRgb } from '../lib/convex-hull';
-  import { edgeClusterColor, isEdgeVisible, edgeLineWidth, isWeakEdge, pointToSegmentDist } from '../lib/edge-utils';
+  import { edgeClusterColor } from '../lib/edge-utils';
+  import {
+    buildGraph3DData,
+    seedClusterPositions,
+    computeDegreeMap,
+    type Graph3DNode,
+    type Graph3DLink,
+    type Graph3DData,
+  } from '../lib/graph-3d-bridge';
+
+  // ─── Constants ───────────────────────────────────────────────────────
 
   /** Cluster color palette (12 colors, cycling). */
   const CLUSTER_COLORS = [
@@ -38,89 +47,39 @@
     '#20C997', '#F06595', '#339AF0', '#B2F2BB', '#D0BFFF', '#FFC078',
   ];
 
-  const DEFAULT_NODE_COLOR = 'rgba(228, 228, 231, 0.6)';
+  // ─── 3D Graph Types ─────────────────────────────────────────────────
 
-  interface SimNode extends SimulationNodeDatum {
-    id: string;
-    path: string;
-    label: string | null;
-    cluster_id: number | null;
-    chunk_index: number | null;
-    x: number;
-    y: number;
-    /** Data-driven base radius (computed from degree or content size). */
-    baseRadius: number;
-  }
+  /** Node type with Graph3DNode fields plus NodeObject simulation fields. */
+  type ForceNode = Graph3DNode & NodeObject;
 
-  interface SimEdge extends SimulationLinkDatum<SimNode> {
-    source: SimNode | string;
-    target: SimNode | string;
-    weight: number | null;
-    /** Semantic relationship type (e.g. "related", "references"). */
-    relationship_type?: string | null;
-    /** Semantic strength score [0, 1]. */
-    strength?: number | null;
-    /** Context text excerpt describing the relationship. */
-    context_text?: string | null;
-    /** Edge cluster ID for color grouping. */
-    edge_cluster_id?: number | null;
-  }
+  /** Link type with Graph3DLink fields plus LinkObject simulation fields. */
+  type ForceLink = Graph3DLink & LinkObject<ForceNode>;
 
-  interface ClusterHull {
-    clusterId: number;
-    color: string;
-    label: string;
-    rawHull: [number, number][];
-    centroid: { x: number; y: number };
-    area: number;
-    nodeCount: number;
-  }
+  /** Typed ForceGraph3D instance using our node/link types. */
+  type GraphInstance = ForceGraph3DInstance<ForceNode, ForceLink>;
 
-  let canvasEl: HTMLCanvasElement | undefined = $state(undefined);
+  // ─── State ──────────────────────────────────────────────────────────
+
+  /** The 3d-force-graph instance. Created in onMount via dynamic import. */
+  let graph: GraphInstance | null = null;
+
+  /** Outer container div (used for ResizeObserver and overlay positioning). */
   let containerEl: HTMLDivElement | undefined = $state(undefined);
-  let simulation: Simulation<SimNode, SimEdge> | null = null;
-  let simNodes: SimNode[] = [];
-  let simEdges: SimEdge[] = [];
-  let animFrameId: number | null = null;
-  let dirty = true;
-  let pendingData: GraphData | null = null;
 
-  // Cluster hull state
-  let cachedHulls: ClusterHull[] = [];
-  let hullsDirty = true;
+  /** Inner container div where 3d-force-graph mounts the WebGL canvas. */
+  let graphContainerEl: HTMLDivElement | undefined = $state(undefined);
 
-  // Pan/zoom state
-  let panX = 0;
-  let panY = 0;
-  let zoom = 1;
-  let isPanning = false;
-  let didPan = false;
-  let panStartX = 0;
-  let panStartY = 0;
-  let panStartPanX = 0;
-  let panStartPanY = 0;
+  /** Current 3D graph data fed to the graph instance. */
+  let currentGraph3DData: Graph3DData | null = null;
 
-  // Drag state
-  let draggedNode: SimNode | null = null;
-  let didDragNode = false;
+  /** Degree map computed from current edges (used for force configuration). */
+  let degreeMap: Map<string, number> = new Map();
 
-  // Hover state
-  let hoveredNode: SimNode | null = null;
-  let hoveredEdge: SimEdge | null = null;
-  let tooltipX = 0;
-  let tooltipY = 0;
+  /** Cluster centroids computed from seeded positions (used by cluster force). */
+  let clusterCentroids: Map<number, { x: number; y: number; z: number }> = new Map();
 
-  // Context menu state
-  let contextMenuNode: SimNode | null = $state(null);
-  let contextMenuX = $state(0);
-  let contextMenuY = $state(0);
-
-  // Legend visibility
-  let legendVisible = $state(true);
-
-  // Canvas dimensions
-  let width = $state(0);
-  let height = $state(0);
+  /** Map from top-level folder name to assigned color. */
+  let folderColorMap: Map<string, string> = new Map();
 
   // Store subscriptions
   let unsubData: (() => void) | null = null;
@@ -149,14 +108,27 @@
   let currentSemanticEdgesEnabled: boolean = $state(true);
   let currentEdgeWeakThreshold: number = $state(0.3);
 
-  /** Hash a string to a stable index for color assignment. */
-  function fileColor(path: string): string {
-    let hash = 0;
-    for (let i = 0; i < path.length; i++) {
-      hash = ((hash << 5) - hash + path.charCodeAt(i)) | 0;
-    }
-    return CLUSTER_COLORS[Math.abs(hash) % CLUSTER_COLORS.length];
-  }
+  // Context menu state
+  let contextMenuNode: ForceNode | null = $state(null);
+  let contextMenuX = $state(0);
+  let contextMenuY = $state(0);
+
+  // Legend visibility
+  let legendVisible = $state(true);
+
+  // Hover state (populated by interaction handlers in subtask 2-2)
+  let hoveredNode: ForceNode | null = $state(null);
+  let hoveredEdge: ForceLink | null = $state(null);
+  let tooltipX = $state(0);
+  let tooltipY = $state(0);
+
+  // Resize observer
+  let resizeObs: ResizeObserver | null = null;
+
+  // Node count for performance warnings
+  let nodeCount = $state(0);
+
+  // ─── Helper Functions ───────────────────────────────────────────────
 
   /** Extract the top-level folder from a path, or '(root)' if no folder. */
   function getTopLevelFolder(path: string): string {
@@ -164,1193 +136,279 @@
     return idx >= 0 ? path.substring(0, idx) : '(root)';
   }
 
-  /** Map from top-level folder name to assigned color. */
-  let folderColorMap: Map<string, string> = new Map();
-
   /** Whether we're currently in chunk mode. */
   function isChunkMode(): boolean {
     return currentLevel === 'chunk';
   }
 
-  /** Compute convex hull data for each cluster from current simulation nodes. */
-  function computeClusterHulls(): void {
-    if (!currentData) {
-      cachedHulls = [];
-      return;
-    }
+  // ─── Force Configuration ────────────────────────────────────────────
 
-    // Group simNodes by cluster_id (skip null)
-    const groups = new Map<number, [number, number][]>();
-    for (const node of simNodes) {
-      if (node.cluster_id == null) continue;
-      let pts = groups.get(node.cluster_id);
-      if (!pts) {
-        pts = [];
-        groups.set(node.cluster_id, pts);
-      }
-      pts.push([node.x, node.y]);
-    }
+  /**
+   * Create a custom d3-force-3d force that pulls nodes toward their cluster centroid.
+   * This replaces forceCenter, which fights cluster separation.
+   */
+  function createClusterForce(strength: number) {
+    let nodes: ForceNode[] = [];
 
-    // Build a lookup for cluster labels
-    const clusterLabelMap = new Map<number, string>();
-    for (const c of currentData.clusters) {
-      clusterLabelMap.set(c.id, c.label);
-    }
+    function force(alpha: number) {
+      for (const node of nodes) {
+        if (node.cluster_id == null) continue;
+        const centroid = clusterCentroids.get(node.cluster_id);
+        if (!centroid) continue;
 
-    const hulls: ClusterHull[] = [];
-    for (const [clusterId, points] of groups) {
-      const color = CLUSTER_COLORS[clusterId % CLUSTER_COLORS.length];
-      const label = clusterLabelMap.get(clusterId) ?? `Cluster ${clusterId}`;
-      const nodeCount = points.length;
-
-      if (nodeCount === 1) {
-        // Single node: store centroid, area=0
-        hulls.push({
-          clusterId,
-          color,
-          label,
-          rawHull: points,
-          centroid: { x: points[0][0], y: points[0][1] },
-          area: 0,
-          nodeCount,
-        });
-      } else if (nodeCount === 2) {
-        // Two nodes: store both points, area=0
-        const c = centroid(points);
-        hulls.push({
-          clusterId,
-          color,
-          label,
-          rawHull: points,
-          centroid: c,
-          area: 0,
-          nodeCount,
-        });
-      } else {
-        // 3+ nodes: full convex hull
-        const hull = convexHull(points);
-        const c = centroid(hull.length > 0 ? hull : points);
-        const area = polygonArea(hull);
-        hulls.push({
-          clusterId,
-          color,
-          label,
-          rawHull: hull,
-          centroid: c,
-          area,
-          nodeCount,
-        });
+        const k = strength * alpha;
+        node.vx = (node.vx ?? 0) + (centroid.x - (node.x ?? 0)) * k;
+        node.vy = (node.vy ?? 0) + (centroid.y - (node.y ?? 0)) * k;
+        node.vz = (node.vz ?? 0) + (centroid.z - (node.z ?? 0)) * k;
       }
     }
 
-    cachedHulls = hulls;
-    hullsDirty = false;
+    force.initialize = function (_nodes: ForceNode[]) {
+      nodes = _nodes;
+    };
+
+    return force;
   }
 
-  // When canvasEl becomes available (after {#if} renders it), sync its buffer size
-  $effect(() => {
-    if (canvasEl && width && height) {
-      canvasEl.width = width * devicePixelRatio;
-      canvasEl.height = height * devicePixelRatio;
-      dirty = true;
-    }
-  });
+  /**
+   * Configure cluster-aware forces on the 3d-force-graph instance.
+   * - Link distance varies by cluster membership
+   * - Charge is degree-dependent
+   * - Cluster attraction via custom forceX/Y/Z replacement
+   * - No forceCenter (fights cluster separation)
+   */
+  function configureForces(level: GraphLevel) {
+    if (!graph) return;
 
-  onMount(() => {
-    const colors = getEdgeColors();
-    EDGE_COLOR_OUT = colors.out;
-    EDGE_COLOR_IN = colors.in;
-    EDGE_COLOR_BIDI = colors.bidi;
+    const isDocument = level === 'document';
+
+    // Remove forceCenter — it fights cluster separation
+    graph.d3Force('center', null);
+
+    // Link force: intra-cluster links shorter, inter-cluster links longer
+    const linkForce = graph.d3Force('link');
+    if (linkForce) {
+      linkForce.distance((link: ForceLink) => {
+        const s = typeof link.source === 'object' ? link.source : null;
+        const t = typeof link.target === 'object' ? link.target : null;
+        if (
+          s && t &&
+          s.cluster_id != null && t.cluster_id != null &&
+          s.cluster_id === t.cluster_id
+        ) {
+          return isDocument ? 40 : 30;
+        }
+        return isDocument ? 100 : 60;
+      });
+      linkForce.strength(0.4);
+    }
+
+    // Charge force: degree-dependent repulsion
+    const chargeForce = graph.d3Force('charge');
+    if (chargeForce) {
+      chargeForce.strength((node: ForceNode) => {
+        const degree = degreeMap.get(node.id) ?? 0;
+        return isDocument ? -80 - degree * 10 : -60;
+      });
+      chargeForce.distanceMax(400);
+    }
+
+    // Cluster attraction force
+    graph.d3Force('cluster', createClusterForce(0.05) as any);
+  }
+
+  // ─── Data Feeding ───────────────────────────────────────────────────
+
+  /**
+   * Convert GraphData to 3d-force-graph format and feed it to the graph.
+   * Seeds cluster positions before rendering for spatial separation.
+   */
+  function feedData(data: GraphData) {
+    if (!graph) return;
+
+    const options = {
+      coloringMode: currentColoringMode,
+      edgeFilter: currentEdgeFilter.size > 0 ? currentEdgeFilter : null,
+      weakThreshold: currentEdgeWeakThreshold,
+      level: currentLevel,
+    };
+
+    const graph3DData = buildGraph3DData(data, options);
+
+    // Seed cluster positions using Fibonacci sphere distribution
+    seedClusterPositions(graph3DData.nodes, data.clusters);
+
+    // Compute cluster centroids from seeded positions
+    computeClusterCentroids(graph3DData.nodes);
+
+    // Compute degree map for force configuration
+    degreeMap = computeDegreeMap(data.edges);
+
+    // Build folder color map for legend
+    rebuildFolderColorMap(graph3DData.nodes);
+
+    // Store reference
+    currentGraph3DData = graph3DData;
+    nodeCount = graph3DData.nodes.length;
+
+    // Configure forces before feeding data
+    configureForces(currentLevel);
+
+    // Feed data to 3d-force-graph
+    graph.graphData({
+      nodes: graph3DData.nodes as ForceNode[],
+      links: graph3DData.links as ForceLink[],
+    });
+
+    // Zoom to fit after layout settles
+    setTimeout(() => {
+      graph?.zoomToFit(400, 50);
+    }, 600);
+  }
+
+  /**
+   * Compute cluster centroids from seeded node positions.
+   * Used by the cluster attraction force.
+   */
+  function computeClusterCentroids(nodes: Graph3DNode[]) {
+    const sums = new Map<number, { x: number; y: number; z: number; count: number }>();
+
+    for (const node of nodes) {
+      if (node.cluster_id == null) continue;
+      const existing = sums.get(node.cluster_id);
+      if (existing) {
+        existing.x += node.x ?? 0;
+        existing.y += node.y ?? 0;
+        existing.z += node.z ?? 0;
+        existing.count++;
+      } else {
+        sums.set(node.cluster_id, {
+          x: node.x ?? 0,
+          y: node.y ?? 0,
+          z: node.z ?? 0,
+          count: 1,
+        });
+      }
+    }
+
+    clusterCentroids = new Map();
+    for (const [id, sum] of sums) {
+      clusterCentroids.set(id, {
+        x: sum.x / sum.count,
+        y: sum.y / sum.count,
+        z: sum.z / sum.count,
+      });
+    }
+  }
+
+  /** Rebuild the folder→color map from current nodes. */
+  function rebuildFolderColorMap(nodes: Graph3DNode[]) {
+    const folders = new Set<string>();
+    for (const node of nodes) {
+      folders.add(getTopLevelFolder(node.path));
+    }
+    const sorted = [...folders].sort();
+    folderColorMap = new Map();
+    for (let i = 0; i < sorted.length; i++) {
+      folderColorMap.set(sorted[i], CLUSTER_COLORS[i % CLUSTER_COLORS.length]);
+    }
+  }
+
+  // ─── Store Subscriptions ────────────────────────────────────────────
+
+  function setupStoreSubscriptions() {
+    // Data changes → rebuild graph
     unsubData = graphData.subscribe((d) => {
       currentData = d;
-      if (d) buildSimulation(d);
+      if (d && graph) feedData(d);
     });
+
+    // Coloring mode → rebuild data with new colors
     unsubColoring = graphColoringMode.subscribe((v) => {
       currentColoringMode = v;
-      dirty = true;
+      if (currentData && graph) feedData(currentData);
     });
+
+    // Selection state
     unsubSelected = graphSelectedNode.subscribe((n) => {
       currentSelected = n;
-      dirty = true;
+      // Selection dimming and arrow coloring handled in subtask 3-3
     });
+
+    // Editor file path highlight
     unsubFilePath = selectedFilePath.subscribe((p) => {
       currentFilePath = p;
-      dirty = true;
     });
+
+    // Path filter
     unsubPathFilter = graphPathFilter.subscribe((p) => {
       currentPathFilter = p;
     });
+
+    // Folder highlight
     unsubHighlightedFolder = graphHighlightedFolder.subscribe((p) => {
       currentHighlightedFolder = p;
-      dirty = true;
     });
+
+    // Search result hover highlight
     unsubHoveredFilePath = graphHoveredFilePath.subscribe((p) => {
       currentHoveredFilePath = p;
-      dirty = true;
     });
+
+    // Edge filter → rebuild data (filters edges)
     unsubEdgeFilter = graphEdgeFilter.subscribe((f) => {
       currentEdgeFilter = f;
-      dirty = true;
+      if (currentData && graph) feedData(currentData);
     });
+
+    // Semantic edge toggle → rebuild data
     unsubSemanticEdges = graphSemanticEdgesEnabled.subscribe((v) => {
       currentSemanticEdgesEnabled = v;
-      dirty = true;
     });
+
+    // Weak edge threshold → rebuild data (affects edge colors)
     unsubEdgeWeakThreshold = graphEdgeWeakThreshold.subscribe((v) => {
       currentEdgeWeakThreshold = v;
-      dirty = true;
+      if (currentData && graph) feedData(currentData);
     });
+
+    // Loading and error states
     graphLoading.subscribe((v) => { currentLoading = v; });
     graphError.subscribe((v) => { currentError = v; });
+
+    // Level change → refetch data and reconfigure forces
     graphLevel.subscribe((v) => {
       const prevLevel = currentLevel;
       currentLevel = v;
-      // Destroy and rebuild simulation on mode switch
-      if (prevLevel !== v && currentData) {
-        buildSimulation(currentData);
+      if (prevLevel !== v && graph) {
+        configureForces(v);
+        // Data will be refetched by the store (setGraphLevel calls loadGraphData)
       }
     });
+  }
 
-    resizeCanvas();
-    window.addEventListener('resize', resizeCanvas);
-    window.addEventListener('keydown', handleKeyDown);
-    resizeObs = new ResizeObserver(() => resizeCanvas());
-    if (containerEl) resizeObs.observe(containerEl);
-    startRenderLoop();
-  });
+  // ─── Resize Handling ────────────────────────────────────────────────
 
-  let resizeObs: ResizeObserver | null = null;
-
-  onDestroy(() => {
-    if (animFrameId !== null) cancelAnimationFrame(animFrameId);
-    if (simulation) simulation.stop();
-    window.removeEventListener('resize', resizeCanvas);
-    window.removeEventListener('keydown', handleKeyDown);
-    resizeObs?.disconnect();
-    unsubData?.();
-    unsubColoring?.();
-    unsubSelected?.();
-    unsubFilePath?.();
-    unsubPathFilter?.();
-    unsubHighlightedFolder?.();
-    unsubHoveredFilePath?.();
-    unsubEdgeFilter?.();
-    unsubSemanticEdges?.();
-    unsubEdgeWeakThreshold?.();
-  });
-
-  function resizeCanvas() {
+  function setupResizeObserver() {
     if (!containerEl) return;
-    const rect = containerEl.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return;
-    width = rect.width;
-    height = rect.height;
-    if (canvasEl) {
-      canvasEl.width = width * devicePixelRatio;
-      canvasEl.height = height * devicePixelRatio;
-      dirty = true;
+
+    function handleResize() {
+      if (!containerEl || !graph) return;
+      const rect = containerEl.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        graph.width(rect.width);
+        graph.height(rect.height);
+      }
     }
 
-    // Flush deferred simulation build once we have real dimensions
-    if (pendingData) {
-      const data = pendingData;
-      pendingData = null;
-      buildSimulation(data);
-    }
+    resizeObs = new ResizeObserver(() => handleResize());
+    resizeObs.observe(containerEl);
+
+    // Initial sizing
+    handleResize();
   }
 
-  function buildSimulation(data: GraphData) {
-    // Defer if container hasn't been measured yet
-    if (!width || !height) {
-      pendingData = data;
-      return;
-    }
-
-    // Destroy previous simulation completely
-    if (simulation) {
-      simulation.stop();
-      simulation = null;
-    }
-
-    const chunk = isChunkMode();
-
-    // Build node-to-size map from backend data (chunk mode only)
-    const sizeMap = new Map<string, number>();
-    for (const n of data.nodes) {
-      if (n.size != null) sizeMap.set(n.id, n.size);
-    }
-
-    // Compute degree map from edges
-    const degreeMap = new Map<string, number>();
-    for (const e of data.edges) {
-      degreeMap.set(e.source, (degreeMap.get(e.source) ?? 0) + 1);
-      degreeMap.set(e.target, (degreeMap.get(e.target) ?? 0) + 1);
-    }
-
-    // Compute max degree/size for relative scaling
-    const maxDegree = Math.max(1, ...degreeMap.values());
-    const maxSize = Math.max(1, ...sizeMap.values());
-
-    simNodes = data.nodes.map((n) => {
-      let baseRadius: number;
-      if (chunk) {
-        // Chunk mode: size-based, normalized to max
-        const ratio = (sizeMap.get(n.id) ?? 0) / maxSize;
-        baseRadius = 1.5 + ratio * 8.5; // range: 1.5 – 10
-      } else {
-        // Document mode: degree-based, normalized to max degree
-        const degree = degreeMap.get(n.id) ?? 0;
-        const ratio = degree / maxDegree;
-        baseRadius = 2 + ratio * ratio * 14; // quadratic: range 2 – 16, isolated = 2
-      }
-      return {
-        id: n.id,
-        path: n.path,
-        label: n.label,
-        cluster_id: n.cluster_id,
-        chunk_index: n.chunk_index,
-        x: Math.random() * width,
-        y: Math.random() * height,
-        baseRadius,
-      };
-    });
-
-    // Rebuild folder color map
-    const folders = new Set<string>();
-    for (const node of simNodes) {
-      folders.add(getTopLevelFolder(node.path));
-    }
-    const sortedFolders = [...folders].sort();
-    folderColorMap = new Map();
-    for (let i = 0; i < sortedFolders.length; i++) {
-      folderColorMap.set(sortedFolders[i], CLUSTER_COLORS[i % CLUSTER_COLORS.length]);
-    }
-
-    const nodeMap = new Map(simNodes.map((n) => [n.id, n]));
-    simEdges = data.edges
-      .filter((e) => nodeMap.has(e.source) && nodeMap.has(e.target))
-      .map((e) => ({
-        source: e.source,
-        target: e.target,
-        weight: e.weight,
-        relationship_type: e.relationship_type ?? null,
-        strength: e.strength ?? null,
-        context_text: e.context_text ?? null,
-        edge_cluster_id: e.edge_cluster_id ?? null,
-      }));
-
-    const isLarge = simNodes.length > 300;
-
-    if (chunk) {
-      // Chunk mode: smaller, tighter forces
-      simulation = forceSimulation<SimNode>(simNodes)
-        .force(
-          'link',
-          forceLink<SimNode, SimEdge>(simEdges)
-            .id((d) => d.id)
-            .distance(60)
-            .strength(0.4),
-        )
-        .force(
-          'charge',
-          forceManyBody<SimNode>()
-            .strength(-80)
-            .distanceMax(isLarge ? 200 : 400),
-        )
-        .force('center', forceCenter(width / 2, height / 2))
-        .force('collide', forceCollide<SimNode>().radius((d) => d.baseRadius + 2))
-        .alphaDecay(isLarge ? 0.04 : 0.02)
-        .velocityDecay(0.3)
-        .on('tick', () => { dirty = true; hullsDirty = true; });
-
-      simulation.tick(200);
-    } else {
-      // Document mode: original forces
-      simulation = forceSimulation<SimNode>(simNodes)
-        .force(
-          'link',
-          forceLink<SimNode, SimEdge>(simEdges)
-            .id((d) => d.id)
-            .distance(80)
-            .strength(0.4),
-        )
-        .force(
-          'charge',
-          forceManyBody<SimNode>()
-            .strength(isLarge ? -60 : -120)
-            .distanceMax(isLarge ? 200 : 400),
-        )
-        .force('center', forceCenter(width / 2, height / 2))
-        .force('collide', forceCollide<SimNode>().radius((d) => d.baseRadius + 2))
-        .alphaDecay(isLarge ? 0.04 : 0.02)
-        .velocityDecay(0.3)
-        .on('tick', () => { dirty = true; hullsDirty = true; });
-
-      simulation.tick(300);
-    }
-
-    // Center the view
-    panX = 0;
-    panY = 0;
-    zoom = 1;
-    dirty = true;
-    hullsDirty = true;
-  }
-
-  function startRenderLoop() {
-    function frame() {
-      if (dirty) {
-        draw();
-        dirty = false;
-      }
-      animFrameId = requestAnimationFrame(frame);
-    }
-    animFrameId = requestAnimationFrame(frame);
-  }
-
-  /** Build neighbor sets for the selected node. */
-  function getSelectedNeighbors(selectedId: string | null): {
-    neighbors: Set<string>;
-    outEdges: Set<SimEdge>;
-    inEdges: Set<SimEdge>;
-  } {
-    const neighbors = new Set<string>();
-    const outEdges = new Set<SimEdge>();
-    const inEdges = new Set<SimEdge>();
-    if (!selectedId) return { neighbors, outEdges, inEdges };
-
-    for (const edge of simEdges) {
-      const s = (edge.source as SimNode).id;
-      const t = (edge.target as SimNode).id;
-      if (s === selectedId) {
-        neighbors.add(t);
-        outEdges.add(edge);
-      }
-      if (t === selectedId) {
-        neighbors.add(s);
-        inEdges.add(edge);
-      }
-    }
-    return { neighbors, outEdges, inEdges };
-  }
-
-  /** Build sets of node IDs and edges belonging to the selected file path. */
-  function getFileHighlight(filePath: string | null): {
-    fileNodeIds: Set<string>;
-    fileEdges: Set<SimEdge>;
-  } {
-    const fileNodeIds = new Set<string>();
-    const fileEdges = new Set<SimEdge>();
-    if (!filePath) return { fileNodeIds, fileEdges };
-
-    for (const node of simNodes) {
-      if (node.path === filePath) {
-        fileNodeIds.add(node.id);
-      }
-    }
-    if (fileNodeIds.size === 0) return { fileNodeIds, fileEdges };
-
-    const fileNeighborIds = new Set<string>();
-    for (const edge of simEdges) {
-      const s = (edge.source as SimNode).id;
-      const t = (edge.target as SimNode).id;
-      if (fileNodeIds.has(s)) {
-        fileEdges.add(edge);
-        fileNeighborIds.add(t);
-      } else if (fileNodeIds.has(t)) {
-        fileEdges.add(edge);
-        fileNeighborIds.add(s);
-      }
-    }
-    // Include neighbors so they aren't dimmed
-    for (const id of fileNeighborIds) fileNodeIds.add(id);
-    return { fileNodeIds, fileEdges };
-  }
-
-  /** Build sets of node IDs and edges belonging to the highlighted folder path. */
-  function getFolderHighlight(folderPath: string | null): {
-    folderNodeIds: Set<string>;
-    folderEdges: Set<SimEdge>;
-  } {
-    const folderNodeIds = new Set<string>();
-    const folderEdges = new Set<SimEdge>();
-    if (!folderPath) return { folderNodeIds, folderEdges };
-
-    const prefix = folderPath;
-    for (const node of simNodes) {
-      if (prefix === '(root)') {
-        // Root files have no directory separator
-        if (!node.path.includes('/')) folderNodeIds.add(node.id);
-      } else if (node.path.startsWith(prefix + '/') || node.path === prefix) {
-        folderNodeIds.add(node.id);
-      }
-    }
-    if (folderNodeIds.size === 0) return { folderNodeIds, folderEdges };
-
-    const folderNeighborIds = new Set<string>();
-    for (const edge of simEdges) {
-      const s = (edge.source as SimNode).id;
-      const t = (edge.target as SimNode).id;
-      if (folderNodeIds.has(s)) {
-        folderEdges.add(edge);
-        if (!folderNodeIds.has(t)) folderNeighborIds.add(t);
-      } else if (folderNodeIds.has(t)) {
-        folderEdges.add(edge);
-        if (!folderNodeIds.has(s)) folderNeighborIds.add(s);
-      }
-    }
-    // Include neighbors so they aren't dimmed
-    for (const id of folderNeighborIds) folderNodeIds.add(id);
-    return { folderNodeIds, folderEdges };
-  }
-
-  /** Read edge colors from CSS custom properties (design tokens). */
-  function getEdgeColors() {
-    const style = getComputedStyle(document.documentElement);
-    return {
-      out: style.getPropertyValue('--color-edge-out').trim() || '#00E5FF',
-      in: style.getPropertyValue('--color-edge-in').trim() || '#FF6B6B',
-      bidi: style.getPropertyValue('--color-edge-bidi').trim() || '#51CF66',
-    };
-  }
-  let EDGE_COLOR_OUT = '#00E5FF';
-  let EDGE_COLOR_IN = '#FF6B6B';
-  let EDGE_COLOR_BIDI = '#51CF66';
-  const ARROW_SIZE = 12;             // arrowhead length in graph-space pixels
-
-  /** Compute the clipped start/end points of an edge, stopping at node boundaries. */
-  function clipEdge(
-    sx: number, sy: number, sRadius: number,
-    tx: number, ty: number, tRadius: number,
-  ): { x1: number; y1: number; x2: number; y2: number } | null {
-    const dx = tx - sx;
-    const dy = ty - sy;
-    const len = Math.sqrt(dx * dx + dy * dy);
-    if (len < 1) return null;
-    const ux = dx / len;
-    const uy = dy / len;
-    return {
-      x1: sx + ux * sRadius,
-      y1: sy + uy * sRadius,
-      x2: tx - ux * tRadius,
-      y2: ty - uy * tRadius,
-    };
-  }
-
-  /** Draw an arrowhead at the target end of a clipped edge. */
-  function drawArrow(
-    ctx: CanvasRenderingContext2D,
-    tipX: number, tipY: number,
-    ux: number, uy: number,
-  ) {
-    const size = ARROW_SIZE / zoom;
-    const wingAngle = Math.PI / 7; // ~25 degrees
-    const cos = Math.cos(wingAngle);
-    const sin = Math.sin(wingAngle);
-
-    ctx.beginPath();
-    ctx.moveTo(tipX, tipY);
-    ctx.lineTo(tipX - size * (ux * cos + uy * sin), tipY - size * (uy * cos - ux * sin));
-    ctx.lineTo(tipX - size * (ux * cos - uy * sin), tipY - size * (uy * cos + ux * sin));
-    ctx.closePath();
-    ctx.fill();
-  }
-
-  /** Draw a smooth hull shape using quadratic curves through midpoints of edges. */
-  function drawSmoothHull(
-    ctx: CanvasRenderingContext2D,
-    points: [number, number][],
-    r: number, g: number, b: number,
-    fillAlpha: number,
-    strokeAlpha: number,
-  ): void {
-    if (points.length < 3) return;
-
-    const n = points.length;
-    // Start at the midpoint between the last and first point
-    const mx0 = (points[n - 1][0] + points[0][0]) / 2;
-    const my0 = (points[n - 1][1] + points[0][1]) / 2;
-
-    ctx.beginPath();
-    ctx.moveTo(mx0, my0);
-
-    for (let i = 0; i < n; i++) {
-      const next = (i + 1) % n;
-      const mx = (points[i][0] + points[next][0]) / 2;
-      const my = (points[i][1] + points[next][1]) / 2;
-      ctx.quadraticCurveTo(points[i][0], points[i][1], mx, my);
-    }
-
-    ctx.closePath();
-    ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${fillAlpha})`;
-    ctx.fill();
-    ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${strokeAlpha})`;
-    ctx.stroke();
-  }
-
-  /** Draw a capsule (rounded rectangle) between two points. */
-  function drawCapsule(
-    ctx: CanvasRenderingContext2D,
-    p1: [number, number],
-    p2: [number, number],
-    radius: number,
-    r: number, g: number, b: number,
-    fillAlpha: number,
-    strokeAlpha: number,
-  ): void {
-    const dx = p2[0] - p1[0];
-    const dy = p2[1] - p1[1];
-    const dist = Math.sqrt(dx * dx + dy * dy);
-
-    if (dist === 0) {
-      // Degenerate: draw a circle
-      ctx.beginPath();
-      ctx.arc(p1[0], p1[1], radius, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${fillAlpha})`;
-      ctx.fill();
-      ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${strokeAlpha})`;
-      ctx.stroke();
-      return;
-    }
-
-    // Normal perpendicular to the line
-    const nx = -dy / dist;
-    const ny = dx / dist;
-    const angle = Math.atan2(dy, dx);
-
-    ctx.beginPath();
-    // Top edge offset
-    ctx.moveTo(p1[0] + nx * radius, p1[1] + ny * radius);
-    ctx.lineTo(p2[0] + nx * radius, p2[1] + ny * radius);
-    // Arc around p2
-    ctx.arc(p2[0], p2[1], radius, angle - Math.PI / 2, angle + Math.PI / 2);
-    // Bottom edge offset
-    ctx.lineTo(p1[0] - nx * radius, p1[1] - ny * radius);
-    // Arc around p1
-    ctx.arc(p1[0], p1[1], radius, angle + Math.PI / 2, angle + Math.PI * 1.5);
-    ctx.closePath();
-
-    ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${fillAlpha})`;
-    ctx.fill();
-    ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${strokeAlpha})`;
-    ctx.stroke();
-  }
-
-  function draw() {
-    if (!canvasEl) return;
-    const ctx = canvasEl.getContext('2d');
-    if (!ctx) return;
-
-    const dpr = devicePixelRatio;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, width, height);
-    ctx.save();
-    ctx.translate(panX, panY);
-    ctx.scale(zoom, zoom);
-
-    // --- Cluster Hulls (rendered behind edges and nodes) ---
-    if (currentColoringMode === 'cluster') {
-      if (hullsDirty) {
-        computeClusterHulls();
-      }
-
-      ctx.lineWidth = 1.5 / zoom;
-      for (const hull of cachedHulls) {
-        const { r, g, b } = hexToRgb(hull.color);
-
-        if (hull.nodeCount === 1) {
-          // Single node: draw a circle
-          const radius = 30 / zoom;
-          ctx.beginPath();
-          ctx.arc(hull.centroid.x, hull.centroid.y, radius, 0, Math.PI * 2);
-          ctx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.10)`;
-          ctx.fill();
-          ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.25)`;
-          ctx.stroke();
-        } else if (hull.nodeCount === 2) {
-          // Two nodes: draw capsule
-          const capsuleRadius = 20 / zoom;
-          drawCapsule(ctx, hull.rawHull[0], hull.rawHull[1], capsuleRadius, r, g, b, 0.10, 0.25);
-        } else {
-          // 3+ nodes: padded smooth hull
-          const padded = padHull(hull.rawHull, 20 / zoom);
-          drawSmoothHull(ctx, padded, r, g, b, 0.10, 0.25);
-        }
-
-      }
-    }
-
-    const chunk = isChunkMode();
-    const selectedId = currentSelected?.id ?? null;
-    const { neighbors, outEdges, inEdges } = getSelectedNeighbors(selectedId);
-    const hasSelection = selectedId !== null;
-    // Hover highlight from search results (priority 2)
-    const { fileNodeIds: hoverNodeIds, fileEdges: hoverEdges } = getFileHighlight(currentHoveredFilePath);
-    const hasHoverHighlight = !hasSelection && hoverNodeIds.size > 0;
-    // Editor's open file highlight (priority 3)
-    const { fileNodeIds, fileEdges } = getFileHighlight(currentFilePath);
-    const hasFileHighlight = !hasSelection && !hasHoverHighlight && fileNodeIds.size > 0;
-    const { folderNodeIds, folderEdges } = getFolderHighlight(currentHighlightedFolder);
-    const hasFolderHighlight = !hasSelection && !hasHoverHighlight && !hasFileHighlight && folderNodeIds.size > 0;
-
-    // --- Edges ---
-    // 1. Draw non-highlighted edges first (dimmed when there's a selection or any highlight)
-    // Collect edges into solid and dashed batches for performance
-    const dimFactor = hasSelection || hasHoverHighlight || hasFileHighlight || hasFolderHighlight;
-    const solidEdges: { s: SimNode; t: SimNode; color: string; width: number }[] = [];
-    const dashedEdges: { s: SimNode; t: SimNode; color: string; width: number }[] = [];
-
-    for (const edge of simEdges) {
-      if (outEdges.has(edge) || inEdges.has(edge)) continue;
-      if (hasHoverHighlight && hoverEdges.has(edge)) continue;
-      if (hasFileHighlight && fileEdges.has(edge)) continue;
-      if (hasFolderHighlight && folderEdges.has(edge)) continue;
-
-      // Apply edge cluster visibility filter
-      const edgeFilterSet = currentEdgeFilter.size > 0 ? currentEdgeFilter : null;
-      if (!isEdgeVisible(edge, edgeFilterSet)) continue;
-
-      const s = edge.source as SimNode;
-      const t = edge.target as SimNode;
-      if (s.x == null || t.x == null) continue;
-
-      // Determine if this is a semantic edge (has strength and/or edge_cluster_id)
-      const isSemantic = currentSemanticEdgesEnabled && (edge.strength != null || edge.edge_cluster_id != null);
-
-      if (isSemantic && edge.strength != null) {
-        // Semantic edge: variable thickness by strength, color by cluster
-        const lw = edgeLineWidth(edge.strength, zoom);
-        const baseAlpha = dimFactor ? 0.3 : 0.7;
-        const alpha = baseAlpha * Math.max(0.2, edge.strength);
-        let color: string;
-        if (edge.edge_cluster_id != null) {
-          const hex = edgeClusterColor(edge.edge_cluster_id);
-          const { r, g, b } = hexToRgb(hex);
-          color = `rgba(${r}, ${g}, ${b}, ${alpha})`;
-        } else {
-          color = `rgba(255, 255, 255, ${alpha})`;
-        }
-
-        if (isWeakEdge(edge.strength, currentEdgeWeakThreshold)) {
-          dashedEdges.push({ s, t, color, width: lw });
-        } else {
-          solidEdges.push({ s, t, color, width: lw });
-        }
-      } else if (chunk && edge.weight != null) {
-        // Chunk mode: edge opacity proportional to weight
-        const alpha = dimFactor ? (0.05 + edge.weight * 0.2) * 0.3 : 0.05 + edge.weight * 0.2;
-        solidEdges.push({ s, t, color: `rgba(255, 255, 255, ${alpha})`, width: 1 / zoom });
-      } else {
-        // Default edge style
-        const color = dimFactor ? 'rgba(255, 255, 255, 0.03)' : 'rgba(255, 255, 255, 0.08)';
-        solidEdges.push({ s, t, color, width: 1 / zoom });
-      }
-    }
-
-    // Batch render: solid edges first
-    ctx.setLineDash([]);
-    for (const { s, t, color, width: lw } of solidEdges) {
-      ctx.strokeStyle = color;
-      ctx.lineWidth = lw;
-      ctx.beginPath();
-      ctx.moveTo(s.x, s.y);
-      ctx.lineTo(t.x, t.y);
-      ctx.stroke();
-    }
-
-    // Batch render: dashed edges (weak semantic edges)
-    if (dashedEdges.length > 0) {
-      const dashLen = 4 / zoom;
-      const gapLen = 3 / zoom;
-      ctx.setLineDash([dashLen, gapLen]);
-      for (const { s, t, color, width: lw } of dashedEdges) {
-        ctx.strokeStyle = color;
-        ctx.lineWidth = lw;
-        ctx.beginPath();
-        ctx.moveTo(s.x, s.y);
-        ctx.lineTo(t.x, t.y);
-        ctx.stroke();
-      }
-      ctx.setLineDash([]);
-    }
-
-    // 1b. Draw hover-highlighted edges (search result hover)
-    if (hasHoverHighlight && hoverEdges.size > 0) {
-      ctx.strokeStyle = '#00E5FF';
-      ctx.lineWidth = 1.5 / zoom;
-      for (const edge of hoverEdges) {
-        const s = edge.source as SimNode;
-        const t = edge.target as SimNode;
-        if (s.x == null || t.x == null) continue;
-        ctx.beginPath();
-        ctx.moveTo(s.x, s.y);
-        ctx.lineTo(t.x, t.y);
-        ctx.stroke();
-      }
-    }
-
-    // 1c. Draw file-highlighted edges (brighter)
-    if (hasFileHighlight && fileEdges.size > 0) {
-      ctx.strokeStyle = '#00E5FF';
-      ctx.lineWidth = 1.5 / zoom;
-      for (const edge of fileEdges) {
-        const s = edge.source as SimNode;
-        const t = edge.target as SimNode;
-        if (s.x == null || t.x == null) continue;
-        ctx.beginPath();
-        ctx.moveTo(s.x, s.y);
-        ctx.lineTo(t.x, t.y);
-        ctx.stroke();
-      }
-    }
-
-    // 1d. Draw folder-highlighted edges (cyan)
-    if (hasFolderHighlight && folderEdges.size > 0) {
-      ctx.strokeStyle = '#00E5FF';
-      ctx.lineWidth = 1.5 / zoom;
-      for (const edge of folderEdges) {
-        const s = edge.source as SimNode;
-        const t = edge.target as SimNode;
-        if (s.x == null || t.x == null) continue;
-        ctx.beginPath();
-        ctx.moveTo(s.x, s.y);
-        ctx.lineTo(t.x, t.y);
-        ctx.stroke();
-      }
-    }
-
-    // Detect bidirectional: find neighbor IDs that appear in both in and out sets
-    const outTargets = new Set<string>();
-    for (const edge of outEdges) outTargets.add((edge.target as SimNode).id);
-    const inSources = new Set<string>();
-    for (const edge of inEdges) inSources.add((edge.source as SimNode).id);
-    const bidiNeighbors = new Set<string>();
-    for (const id of outTargets) { if (inSources.has(id)) bidiNeighbors.add(id); }
-
-    const bidiOutEdges = new Set<SimEdge>();
-    const bidiInEdges = new Set<SimEdge>();
-    for (const edge of outEdges) {
-      if (bidiNeighbors.has((edge.target as SimNode).id)) bidiOutEdges.add(edge);
-    }
-    for (const edge of inEdges) {
-      if (bidiNeighbors.has((edge.source as SimNode).id)) bidiInEdges.add(edge);
-    }
-
-    // 2-4. Draw highlighted edges — chunk mode uses uniform cyan, no arrows (symmetric similarity);
-    //       document mode uses directional in/out/bidi with arrows.
-    if (chunk) {
-      // Chunk mode: all connected edges drawn as cyan lines, no arrows
-      const allHighlighted = new Set<SimEdge>([...outEdges, ...inEdges]);
-      if (allHighlighted.size > 0) {
-        ctx.strokeStyle = '#00E5FF';
-        ctx.lineWidth = 2 / zoom;
-        for (const edge of allHighlighted) {
-          const s = edge.source as SimNode;
-          const t = edge.target as SimNode;
-          if (s.x == null || t.x == null) continue;
-          ctx.beginPath();
-          ctx.moveTo(s.x, s.y);
-          ctx.lineTo(t.x, t.y);
-          ctx.stroke();
-        }
-      }
-    } else {
-      // Document mode: directional edges with arrows
-      // Helper: visual radius including interaction bonus for edge clipping
-      const nodeVisualRadius = (n: SimNode): number => {
-        if (n.id === selectedId) return n.baseRadius + 3;
-        if (neighbors.has(n.id)) return n.baseRadius + 1;
-        return n.baseRadius;
-      };
-
-      // 2. Incoming edges (one-way only)
-      if (inEdges.size > 0) {
-        ctx.strokeStyle = EDGE_COLOR_IN;
-        ctx.fillStyle = EDGE_COLOR_IN;
-        ctx.lineWidth = 2 / zoom;
-        for (const edge of inEdges) {
-          if (bidiInEdges.has(edge)) continue;
-          const s = edge.source as SimNode;
-          const t = edge.target as SimNode;
-          if (s.x == null || t.x == null) continue;
-          const c = clipEdge(s.x, s.y, nodeVisualRadius(s), t.x, t.y, nodeVisualRadius(t));
-          if (!c) continue;
-          const dx = c.x2 - c.x1, dy = c.y2 - c.y1, len = Math.sqrt(dx * dx + dy * dy);
-          if (len < 1) continue;
-          ctx.beginPath();
-          ctx.moveTo(c.x1, c.y1);
-          ctx.lineTo(c.x2, c.y2);
-          ctx.stroke();
-          drawArrow(ctx, c.x2, c.y2, dx / len, dy / len);
-        }
-      }
-
-      // 3. Outgoing edges (one-way only)
-      if (outEdges.size > 0) {
-        ctx.strokeStyle = EDGE_COLOR_OUT;
-        ctx.fillStyle = EDGE_COLOR_OUT;
-        ctx.lineWidth = 2 / zoom;
-        for (const edge of outEdges) {
-          if (bidiOutEdges.has(edge)) continue;
-          const s = edge.source as SimNode;
-          const t = edge.target as SimNode;
-          if (s.x == null || t.x == null) continue;
-          const c = clipEdge(s.x, s.y, nodeVisualRadius(s), t.x, t.y, nodeVisualRadius(t));
-          if (!c) continue;
-          const dx = c.x2 - c.x1, dy = c.y2 - c.y1, len = Math.sqrt(dx * dx + dy * dy);
-          if (len < 1) continue;
-          ctx.beginPath();
-          ctx.moveTo(c.x1, c.y1);
-          ctx.lineTo(c.x2, c.y2);
-          ctx.stroke();
-          drawArrow(ctx, c.x2, c.y2, dx / len, dy / len);
-        }
-      }
-
-      // 4. Bidirectional edges — single line, arrows on both ends
-      if (bidiOutEdges.size > 0) {
-        ctx.strokeStyle = EDGE_COLOR_BIDI;
-        ctx.fillStyle = EDGE_COLOR_BIDI;
-        ctx.lineWidth = 2 / zoom;
-        for (const edge of bidiOutEdges) {
-          const s = edge.source as SimNode;
-          const t = edge.target as SimNode;
-          if (s.x == null || t.x == null) continue;
-          const c = clipEdge(s.x, s.y, nodeVisualRadius(s), t.x, t.y, nodeVisualRadius(t));
-          if (!c) continue;
-          const dx = c.x2 - c.x1, dy = c.y2 - c.y1, len = Math.sqrt(dx * dx + dy * dy);
-          if (len < 1) continue;
-          ctx.beginPath();
-          ctx.moveTo(c.x1, c.y1);
-          ctx.lineTo(c.x2, c.y2);
-          ctx.stroke();
-          drawArrow(ctx, c.x2, c.y2, dx / len, dy / len);
-          drawArrow(ctx, c.x1, c.y1, -dx / len, -dy / len);
-        }
-      }
-    }
-
-    // --- Nodes ---
-    for (const node of simNodes) {
-      const isHovered = hoveredNode === node;
-      const isSelected = node.id === selectedId;
-      const isNeighbor = neighbors.has(node.id);
-      const isHoverNode = hasHoverHighlight && hoverNodeIds.has(node.id);
-      const isFileNode = hasFileHighlight && fileNodeIds.has(node.id);
-      const isFolderNode = hasFolderHighlight && folderNodeIds.has(node.id);
-      const dimmed = (hasSelection && !isSelected && !isNeighbor) ||
-                     (hasHoverHighlight && !isHoverNode) ||
-                     (hasFileHighlight && !isFileNode) ||
-                     (hasFolderHighlight && !isFolderNode);
-
-      // Data-driven base + interaction bonus
-      const bonus = isSelected ? 3 : isHovered ? 2 : (isNeighbor || isHoverNode || isFileNode || isFolderNode) ? 1 : 0;
-      const radius = node.baseRadius + bonus;
-
-      // Cyan glow effect for hover-highlighted nodes (search result hover)
-      if (isHoverNode) {
-        ctx.save();
-        ctx.shadowColor = '#00E5FF';
-        ctx.shadowBlur = 12;
-        ctx.beginPath();
-        ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
-        ctx.strokeStyle = '#00E5FF';
-        ctx.lineWidth = 1.5 / zoom;
-        ctx.stroke();
-        ctx.restore();
-      }
-
-      // Cyan glow effect for folder-highlighted nodes
-      if (isFolderNode) {
-        ctx.save();
-        ctx.shadowColor = '#00E5FF';
-        ctx.shadowBlur = 12;
-        ctx.beginPath();
-        ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
-        ctx.strokeStyle = '#00E5FF';
-        ctx.lineWidth = 1.5 / zoom;
-        ctx.stroke();
-        ctx.restore();
-      }
-
-      // Cyan glow effect for file-highlighted nodes
-      if (isFileNode) {
-        ctx.save();
-        ctx.shadowColor = '#00E5FF';
-        ctx.shadowBlur = 12;
-        ctx.beginPath();
-        ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
-        ctx.strokeStyle = '#00E5FF';
-        ctx.lineWidth = 1.5 / zoom;
-        ctx.stroke();
-        ctx.restore();
-      }
-
-      ctx.beginPath();
-      ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
-
-      // Fill color — three-way coloring mode: cluster, folder, none
-      if (dimmed) {
-        ctx.fillStyle = 'rgba(228, 228, 231, 0.15)';
-      } else if (currentColoringMode === 'cluster') {
-        if (node.cluster_id != null) {
-          ctx.fillStyle = CLUSTER_COLORS[node.cluster_id % CLUSTER_COLORS.length];
-        } else {
-          ctx.fillStyle = chunk ? fileColor(node.path) : DEFAULT_NODE_COLOR;
-        }
-      } else if (currentColoringMode === 'folder') {
-        ctx.fillStyle = folderColorMap.get(getTopLevelFolder(node.path)) ?? DEFAULT_NODE_COLOR;
-      } else {
-        // 'none' mode
-        ctx.fillStyle = chunk ? fileColor(node.path) : DEFAULT_NODE_COLOR;
-      }
-      ctx.fill();
-
-      // Selected ring
-      if (isSelected) {
-        ctx.strokeStyle = '#00E5FF';
-        ctx.lineWidth = 2 / zoom;
-        ctx.stroke();
-      }
-    }
-
-    // --- Cluster Labels (on top of edges and nodes, below node labels) ---
-    if (currentColoringMode === 'cluster' && cachedHulls.length > 0) {
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      for (const hull of cachedHulls) {
-        const { r, g, b } = hexToRgb(hull.color);
-        const fontSize = Math.min(16, Math.max(11, Math.sqrt(hull.area) * 0.05)) / zoom;
-        ctx.font = `bold ${fontSize}px 'Space Grotesk', sans-serif`;
-        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.75)`;
-        ctx.fillText(hull.label, hull.centroid.x, hull.centroid.y);
-      }
-    }
-
-    // --- Labels ---
-    // Dense graphs: only label interactive nodes; sparse graphs: label all
-    const nodeCount = simNodes.length;
-    const denseThreshold = 80;
-    const isDense = nodeCount > denseThreshold;
-    const labelZoomMin = isDense ? 1.5 : 0.8;
-    const showAllLabels = zoom > labelZoomMin;
-    const hasAnyHighlight = hasSelection || hasHoverHighlight || hasFileHighlight || hasFolderHighlight || hoveredNode;
-
-    if (showAllLabels || hasAnyHighlight) {
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'top';
-      for (const node of simNodes) {
-        const isHovered = hoveredNode === node;
-        const isSelected = node.id === selectedId;
-        const isNeighbor = neighbors.has(node.id);
-        const isHoverNode = hasHoverHighlight && hoverNodeIds.has(node.id);
-        const isFileNode = hasFileHighlight && fileNodeIds.has(node.id);
-        const isFolderNode = hasFolderHighlight && folderNodeIds.has(node.id);
-        const isImportant = isHovered || isSelected || isNeighbor || isHoverNode || isFileNode || isFolderNode;
-
-        // In dense mode without enough zoom, only show labels for interactive nodes
-        if (!showAllLabels && !isImportant) continue;
-
-        const dimmed = (hasSelection && !isSelected && !isNeighbor) ||
-                       (hasHoverHighlight && !isHoverNode) ||
-                       (hasFileHighlight && !isFileNode) ||
-                       (hasFolderHighlight && !isFolderNode);
-
-        ctx.fillStyle = dimmed
-          ? 'rgba(228, 228, 231, 0.15)'
-          : isSelected
-            ? '#00E5FF'
-            : isNeighbor
-              ? 'rgba(228, 228, 231, 1.0)'
-              : 'rgba(228, 228, 231, 0.8)';
-        ctx.font = `${(isSelected || isNeighbor ? 12 : 11) / zoom}px 'Space Grotesk', sans-serif`;
-
-        let label: string;
-        if (chunk && node.label) {
-          // Show deepest heading segment
-          label = node.label.split(' > ').pop() ?? node.label;
-        } else {
-          label = node.path.split('/').pop() ?? node.path;
-        }
-        ctx.fillText(label, node.x, node.y + (isHovered || isSelected ? 10 : 8));
-      }
-    }
-
-    ctx.restore();
-  }
-
-  // --- Interaction handlers ---
-
-  function screenToGraph(sx: number, sy: number): [number, number] {
-    return [(sx - panX) / zoom, (sy - panY) / zoom];
-  }
-
-  function findNodeAt(sx: number, sy: number): SimNode | null {
-    const [gx, gy] = screenToGraph(sx, sy);
-    if (!simulation) return null;
-    // Use the largest possible node radius + interaction bonus as the search radius,
-    // then verify the hit is actually within the specific node's radius
-    const maxHitRadius = 22 / zoom; // 18 max base + 3 select bonus + 1 buffer
-    const candidate = simulation.find(gx, gy, maxHitRadius) ?? null;
-    if (!candidate) return null;
-    const dx = gx - (candidate.x ?? 0);
-    const dy = gy - (candidate.y ?? 0);
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    // Allow clicking within the node's actual radius + a small buffer for usability
-    const nodeHitRadius = candidate.baseRadius + 2;
-    return dist <= nodeHitRadius ? candidate : null;
-  }
-
-  /** Find the nearest edge within 6 screen-pixels of the given screen coordinates. */
-  function findEdgeAt(sx: number, sy: number): SimEdge | null {
-    if (isChunkMode()) return null;
-    const [gx, gy] = screenToGraph(sx, sy);
-    const hitDist = 6 / zoom;
-    let closest: SimEdge | null = null;
-    let closestDist = hitDist;
-    for (const edge of simEdges) {
-      const s = edge.source as SimNode;
-      const t = edge.target as SimNode;
-      if (s.x == null || t.x == null) continue;
-      if (!isEdgeVisible(edge, currentEdgeFilter.size > 0 ? currentEdgeFilter : null)) continue;
-      const dist = pointToSegmentDist(gx, gy, s.x, s.y, t.x, t.y);
-      if (dist < closestDist) {
-        closestDist = dist;
-        closest = edge;
-      }
-    }
-    return closest;
-  }
-
-  function handleMouseDown(e: MouseEvent) {
-    if (e.button !== 0) return;
-    const rect = canvasEl!.getBoundingClientRect();
-    const sx = e.clientX - rect.left;
-    const sy = e.clientY - rect.top;
-
-    const node = findNodeAt(sx, sy);
-    if (node) {
-      // Start potential drag — don't pin or reheat yet (only on actual move)
-      draggedNode = node;
-      didDragNode = false;
-      contextMenuNode = null;
-      return;
-    }
-
-    // Start panning
-    isPanning = true;
-    panStartX = e.clientX;
-    panStartY = e.clientY;
-    panStartPanX = panX;
-    panStartPanY = panY;
-    didPan = false;
-  }
-
-  function handleMouseMove(e: MouseEvent) {
-    if (!canvasEl) return;
-    const rect = canvasEl.getBoundingClientRect();
-    const sx = e.clientX - rect.left;
-    const sy = e.clientY - rect.top;
-
-    if (draggedNode) {
-      const [gx, gy] = screenToGraph(sx, sy);
-      if (!didDragNode) {
-        // First movement — pin node and reheat simulation
-        draggedNode.fx = draggedNode.x;
-        draggedNode.fy = draggedNode.y;
-        simulation?.alphaTarget(0.3).restart();
-        didDragNode = true;
-      }
-      draggedNode.fx = gx;
-      draggedNode.fy = gy;
-      dirty = true;
-      return;
-    }
-
-    if (isPanning) {
-      panX = panStartPanX + (e.clientX - panStartX);
-      panY = panStartPanY + (e.clientY - panStartY);
-      didPan = true;
-      dirty = true;
-      return;
-    }
-
-    const node = findNodeAt(sx, sy);
-    if (node) {
-      if (node !== hoveredNode) {
-        hoveredNode = node;
-        hoveredEdge = null;
-        tooltipX = e.clientX;
-        tooltipY = e.clientY;
-        dirty = true;
-      }
-      return;
-    }
-
-    // No node hovered — check for edge hover
-    const edge = findEdgeAt(sx, sy);
-    if (edge !== hoveredEdge || hoveredNode) {
-      hoveredNode = null;
-      hoveredEdge = edge;
-      tooltipX = e.clientX;
-      tooltipY = e.clientY;
-      dirty = true;
-    }
-  }
-
-  function handleMouseUp() {
-    if (draggedNode) {
-      const node = draggedNode;
-      if (didDragNode) {
-        // Release the node — unpin it so simulation can move it again
-        draggedNode.fx = undefined;
-        draggedNode.fy = undefined;
-        simulation?.alphaTarget(0);
-      }
-      draggedNode = null;
-      // If the node wasn't dragged (pure click), handle select/open
-      if (!didDragNode) {
-        const nodeData = { id: node.id, path: node.path, label: node.label, cluster_id: node.cluster_id, chunk_index: node.chunk_index };
-        const alreadySelected = currentSelected?.path === node.path;
-        if (alreadySelected) {
-          // Second click on selected node — open in side panel
-          openGraphNode(nodeData);
-        } else {
-          // First click — select only (highlight, no side panel)
-          selectGraphNode(nodeData);
-        }
-      }
-      didDragNode = false;
-    } else if (isPanning && !didPan) {
-      // Clicked on empty space without dragging — deselect
-      selectGraphNode(null);
-    }
-    isPanning = false;
-    didPan = false;
-  }
-
-  function handleWheel(e: WheelEvent) {
-    e.preventDefault();
-    const rect = canvasEl!.getBoundingClientRect();
-    const sx = e.clientX - rect.left;
-    const sy = e.clientY - rect.top;
-
-    // Smooth zoom: scale factor proportional to deltaY magnitude
-    // Clamp individual step to avoid massive jumps from trackpad inertia
-    const delta = Math.max(-50, Math.min(50, e.deltaY));
-    const factor = 1 - delta * 0.003;
-    const newZoom = Math.max(0.1, Math.min(10, zoom * factor));
-
-    // Zoom toward cursor
-    panX = sx - (sx - panX) * (newZoom / zoom);
-    panY = sy - (sy - panY) * (newZoom / zoom);
-    zoom = newZoom;
-    dirty = true;
-  }
-
-  function toggleLegend() {
-    legendVisible = !legendVisible;
-  }
+  // ─── Interaction Handlers ───────────────────────────────────────────
 
   function handleKeyDown(e: KeyboardEvent) {
     if (e.key === 'Escape') {
@@ -1362,45 +420,46 @@
       setGraphHighlightedFolder(null);
       hoveredNode = null;
       hoveredEdge = null;
-      dirty = true;
     }
-  }
-
-  function handleContextMenu(e: MouseEvent) {
-    e.preventDefault();
-    if (!canvasEl) return;
-    const rect = canvasEl.getBoundingClientRect();
-    const sx = e.clientX - rect.left;
-    const sy = e.clientY - rect.top;
-    const node = findNodeAt(sx, sy);
-    if (node) {
-      contextMenuNode = node;
-      contextMenuX = e.clientX;
-      contextMenuY = e.clientY;
-    } else {
-      contextMenuNode = null;
-    }
-  }
-
-  function handleContextMenuOpen() {
-    if (!contextMenuNode) return;
-    const node = contextMenuNode;
-    openGraphNode({ id: node.id, path: node.path, label: node.label, cluster_id: node.cluster_id, chunk_index: node.chunk_index });
-    contextMenuNode = null;
-  }
-
-  function handleContextMenuSelect() {
-    if (!contextMenuNode) return;
-    const node = contextMenuNode;
-    selectGraphNode({ id: node.id, path: node.path, label: node.label, cluster_id: node.cluster_id, chunk_index: node.chunk_index });
-    contextMenuNode = null;
   }
 
   function handleRetry() {
     loadGraphData();
   }
 
-  // Derive cluster info for legend
+  function handleContextMenuOpen() {
+    if (!contextMenuNode) return;
+    const node = contextMenuNode;
+    openGraphNode({
+      id: node.id,
+      path: node.path,
+      label: node.label,
+      cluster_id: node.cluster_id,
+      chunk_index: node.chunk_index,
+    });
+    contextMenuNode = null;
+  }
+
+  function handleContextMenuSelect() {
+    if (!contextMenuNode) return;
+    const node = contextMenuNode;
+    selectGraphNode({
+      id: node.id,
+      path: node.path,
+      label: node.label,
+      cluster_id: node.cluster_id,
+      chunk_index: node.chunk_index,
+    });
+    contextMenuNode = null;
+  }
+
+  function toggleLegend() {
+    legendVisible = !legendVisible;
+  }
+
+  // ─── Legend Helpers ─────────────────────────────────────────────────
+
+  /** Get cluster items for legend display. */
   function getClusters(): { id: number; label: string; color: string; member_count: number }[] {
     if (!currentData) return [];
     return currentData.clusters.map((c) => ({
@@ -1413,8 +472,9 @@
 
   /** Get legend items for folder coloring mode. */
   function getFolderLegendItems(): { folder: string; color: string; count: number }[] {
+    if (!currentGraph3DData) return [];
     const counts = new Map<string, number>();
-    for (const node of simNodes) {
+    for (const node of currentGraph3DData.nodes) {
       const folder = getTopLevelFolder(node.path);
       counts.set(folder, (counts.get(folder) ?? 0) + 1);
     }
@@ -1427,16 +487,16 @@
 
   /** Get unique edge clusters present in the current edges for legend display. */
   function getEdgeClusters(): { id: number; color: string; label: string; count: number }[] {
+    if (!currentGraph3DData) return [];
     const counts = new Map<number, { label: string; count: number }>();
-    for (const edge of simEdges) {
-      const e = edge as SimEdge;
-      if (e.edge_cluster_id == null) continue;
-      const existing = counts.get(e.edge_cluster_id);
+    for (const link of currentGraph3DData.links) {
+      if (link.edge_cluster_id == null) continue;
+      const existing = counts.get(link.edge_cluster_id);
       if (existing) {
         existing.count++;
       } else {
-        counts.set(e.edge_cluster_id, {
-          label: e.relationship_type ?? `Type ${e.edge_cluster_id}`,
+        counts.set(link.edge_cluster_id, {
+          label: link.relationship_type ?? `Type ${link.edge_cluster_id}`,
           count: 1,
         });
       }
@@ -1456,6 +516,76 @@
     if (currentEdgeFilter.size === 0) return false;
     return !currentEdgeFilter.has(clusterId);
   }
+
+  // ─── Lifecycle ──────────────────────────────────────────────────────
+
+  onMount(async () => {
+    if (!graphContainerEl) return;
+
+    // Dynamic import for Electron compatibility (avoids SSR/Node.js issues)
+    const ForceGraph3DModule = await import('3d-force-graph');
+    const ForceGraph3D = ForceGraph3DModule.default;
+
+    // Initialize 3d-force-graph with PRD configuration values
+    graph = new ForceGraph3D(graphContainerEl, {
+      controlType: 'orbit',
+    })
+      .backgroundColor('#0a0a0b')
+      .showNavInfo(false)
+      .nodeOpacity(0.9)
+      .linkOpacity(0.4)
+      .warmupTicks(100)
+      .cooldownTime(5000)
+      .d3AlphaDecay(0.02)
+      .d3VelocityDecay(0.4)
+      .nodeResolution(12)
+      // Node sizing: val field drives sphere volume
+      .nodeVal((node: ForceNode) => node.val)
+      // Node color: pre-computed by buildGraph3DData
+      .nodeColor((node: ForceNode) => node.color)
+      // Link color: pre-computed by buildGraph3DData
+      .linkColor((link: ForceLink) => link.color)
+      // Link width: pre-computed by buildGraph3DData
+      .linkWidth((link: ForceLink) => link.width) as GraphInstance;
+
+    // Configure cluster-aware forces
+    configureForces(currentLevel);
+
+    // Set up store subscriptions
+    setupStoreSubscriptions();
+
+    // Set up resize observer
+    setupResizeObserver();
+
+    // Listen for keyboard events
+    window.addEventListener('keydown', handleKeyDown);
+  });
+
+  onDestroy(() => {
+    // Dispose 3d-force-graph (cleans up ThreeJS renderer, scene, controls)
+    if (graph) {
+      graph._destructor();
+      graph = null;
+    }
+
+    // Remove keyboard listener
+    window.removeEventListener('keydown', handleKeyDown);
+
+    // Disconnect resize observer
+    resizeObs?.disconnect();
+
+    // Unsubscribe from all stores
+    unsubData?.();
+    unsubColoring?.();
+    unsubSelected?.();
+    unsubFilePath?.();
+    unsubPathFilter?.();
+    unsubHighlightedFolder?.();
+    unsubHoveredFilePath?.();
+    unsubEdgeFilter?.();
+    unsubSemanticEdges?.();
+    unsubEdgeWeakThreshold?.();
+  });
 </script>
 
 <div class="graph-view" bind:this={containerEl}>
@@ -1476,16 +606,8 @@
       <p>No files indexed. Run ingest to build the graph.</p>
     </div>
   {:else}
-    <canvas
-      bind:this={canvasEl}
-      onmousedown={(e) => { contextMenuNode = null; handleMouseDown(e); }}
-      onmousemove={handleMouseMove}
-      onmouseup={handleMouseUp}
-      onmouseleave={handleMouseUp}
-      onwheel={handleWheel}
-      oncontextmenu={handleContextMenu}
-      style="cursor: {draggedNode ? 'grabbing' : isPanning ? 'grabbing' : hoveredNode || hoveredEdge ? 'pointer' : 'grab'}"
-    ></canvas>
+    <!-- 3d-force-graph mounts its WebGL canvas inside this container -->
+    <div bind:this={graphContainerEl} class="graph-3d-container"></div>
 
     <!-- Level tab switcher -->
     <div class="graph-level-switcher" role="tablist">
@@ -1517,11 +639,11 @@
       <div class="graph-notice">No link connections found.</div>
     {/if}
 
-    {#if simNodes.length > 1000}
-      <div class="graph-notice warning">Large graph ({simNodes.length} nodes). Performance may be reduced.</div>
+    {#if nodeCount > 1000}
+      <div class="graph-notice warning">Large graph ({nodeCount} nodes). Performance may be reduced.</div>
     {/if}
 
-    <!-- Tooltip -->
+    <!-- Node tooltip (populated by hover handler in subtask 2-2) -->
     {#if hoveredNode}
       <div
         class="graph-tooltip"
@@ -1540,10 +662,10 @@
       </div>
     {/if}
 
-    <!-- Edge tooltip -->
+    <!-- Edge tooltip (populated by hover handler in subtask 2-2) -->
     {#if hoveredEdge && !hoveredNode}
-      {@const edgeSrc = hoveredEdge.source as SimNode}
-      {@const edgeTgt = hoveredEdge.target as SimNode}
+      {@const edgeSrc = (hoveredEdge.source && typeof hoveredEdge.source === 'object') ? hoveredEdge.source as ForceNode : null}
+      {@const edgeTgt = (hoveredEdge.target && typeof hoveredEdge.target === 'object') ? hoveredEdge.target as ForceNode : null}
       <div
         class="graph-tooltip edge-tooltip"
         style="left: {tooltipX + 12}px; top: {tooltipY - 30}px"
@@ -1554,14 +676,16 @@
             {hoveredEdge.relationship_type}
           </div>
         {/if}
-        <div class="edge-tooltip-nodes">{edgeSrc.path} → {edgeTgt.path}</div>
+        {#if edgeSrc && edgeTgt}
+          <div class="edge-tooltip-nodes">{edgeSrc.path} → {edgeTgt.path}</div>
+        {/if}
         {#if hoveredEdge.strength != null}
           <div class="edge-tooltip-strength">
             <span class="edge-tooltip-strength-label">Strength</span>
             <div class="edge-tooltip-bar">
-              <div class="edge-tooltip-bar-fill" style="width: {Math.round(hoveredEdge.strength * 100)}%"></div>
+              <div class="edge-tooltip-bar-fill" style="width: {Math.round((hoveredEdge.strength ?? 0) * 100)}%"></div>
             </div>
-            <span class="edge-tooltip-strength-value">{Math.round(hoveredEdge.strength * 100)}%</span>
+            <span class="edge-tooltip-strength-value">{Math.round((hoveredEdge.strength ?? 0) * 100)}%</span>
           </div>
         {/if}
         {#if hoveredEdge.context_text}
@@ -1670,12 +794,18 @@
     flex: 1;
     position: relative;
     overflow: hidden;
-    background: var(--color-bg, #0f0f10);
+    background: #0a0a0b;
     min-width: 0;
     min-height: 0;
   }
 
-  canvas {
+  .graph-3d-container {
+    width: 100%;
+    height: 100%;
+  }
+
+  /* Make the 3d-force-graph canvas fill the container */
+  .graph-3d-container :global(canvas) {
     display: block;
     width: 100%;
     height: 100%;
