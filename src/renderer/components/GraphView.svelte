@@ -47,6 +47,9 @@
     '#20C997', '#F06595', '#339AF0', '#B2F2BB', '#D0BFFF', '#FFC078',
   ];
 
+  /** Default node color for unclustered or uncolored nodes. */
+  const DEFAULT_NODE_COLOR = '#E4E4E7';
+
   // ─── 3D Graph Types ─────────────────────────────────────────────────
 
   /** Node type with Graph3DNode fields plus NodeObject simulation fields. */
@@ -144,6 +147,44 @@
   /** Whether we're currently in chunk mode. */
   function isChunkMode(): boolean {
     return currentLevel === 'chunk';
+  }
+
+  /**
+   * Deterministic hash-based color for a file path.
+   * Maps any string to one of the 12 cluster palette colors via djb2 hash.
+   */
+  function fileHashColor(path: string): string {
+    let hash = 0;
+    for (let i = 0; i < path.length; i++) {
+      hash = ((hash << 5) - hash + path.charCodeAt(i)) | 0;
+    }
+    return CLUSTER_COLORS[Math.abs(hash) % CLUSTER_COLORS.length];
+  }
+
+  /**
+   * Compute node color dynamically based on the current coloring mode.
+   * Called by the nodeColor accessor on each render/refresh so that
+   * mode switches only require a graph.refresh() instead of full data rebuild.
+   *
+   * - cluster: 12-color CLUSTER_COLORS palette by cluster_id
+   * - folder: folderColorMap by top-level directory
+   * - none: per-file djb2 hash color
+   */
+  function getNodeColor(node: ForceNode): string {
+    if (currentColoringMode === 'cluster') {
+      if (node.cluster_id != null) {
+        return CLUSTER_COLORS[node.cluster_id % CLUSTER_COLORS.length];
+      }
+      // Unclustered: chunks get file hash color, documents get default
+      return isChunkMode() ? fileHashColor(node.path) : DEFAULT_NODE_COLOR;
+    }
+
+    if (currentColoringMode === 'folder') {
+      return folderColorMap.get(getTopLevelFolder(node.path)) ?? DEFAULT_NODE_COLOR;
+    }
+
+    // 'none' mode: per-file hash color
+    return fileHashColor(node.path);
   }
 
   // ─── Force Configuration ────────────────────────────────────────────
@@ -328,10 +369,16 @@
       if (d && graph) feedData(d);
     });
 
-    // Coloring mode → rebuild data with new colors
+    // Coloring mode → refresh graph to re-evaluate nodeColor accessor
     unsubColoring = graphColoringMode.subscribe((v) => {
       currentColoringMode = v;
-      if (currentData && graph) feedData(currentData);
+      // Ensure folder color map is current when switching to folder mode
+      if (v === 'folder' && currentGraph3DData) {
+        rebuildFolderColorMap(currentGraph3DData.nodes);
+      }
+      // nodeColor accessor reads currentColoringMode dynamically,
+      // so a refresh is enough — no full data rebuild needed
+      if (graph) graph.refresh();
     });
 
     // Selection state → refresh graph so accessors re-evaluate
@@ -382,13 +429,18 @@
     graphLoading.subscribe((v) => { currentLoading = v; });
     graphError.subscribe((v) => { currentError = v; });
 
-    // Level change → refetch data and reconfigure forces
+    // Level change → reconfigure forces for new level
+    // setGraphLevel() calls loadGraphData(), which triggers graphData subscription
+    // → feedData() rebuilds graph data with level-appropriate sizing and forces.
+    // Document mode: degree-based node sizing, wider link distances, arrows (subtask 3-2)
+    // Chunk mode: size-based node sizing, tighter link distances, no arrows
     graphLevel.subscribe((v) => {
       const prevLevel = currentLevel;
       currentLevel = v;
       if (prevLevel !== v && graph) {
+        // Pre-configure forces so any in-flight simulation uses correct params
+        // (feedData will reconfigure again when new data arrives)
         configureForces(v);
-        // Data will be refetched by the store (setGraphLevel calls loadGraphData)
       }
     });
   }
@@ -573,8 +625,8 @@
       .nodeResolution(12)
       // Node sizing: val field drives sphere volume
       .nodeVal((node: ForceNode) => node.val)
-      // Node color: pre-computed by buildGraph3DData
-      .nodeColor((node: ForceNode) => node.color)
+      // Node color: dynamic accessor reads current coloring mode on each render
+      .nodeColor((node: ForceNode) => getNodeColor(node))
       // Link color: pre-computed by buildGraph3DData
       .linkColor((link: ForceLink) => link.color)
       // Link width: pre-computed by buildGraph3DData
