@@ -733,6 +733,38 @@
               {/if}
             </div>
           </div>
+          <div class="field-group">
+            <label class="field-label">
+              Cluster Granularity
+              <span class="annotation">{getAnnotation('MDVDB_CLUSTER_GRANULARITY')}</span>
+            </label>
+            <div class="field-row slider-row">
+              <span class="slider-label">Coarse</span>
+              <input
+                class="field-slider"
+                type="range"
+                min="0.25"
+                max="4"
+                step="0.25"
+                value={getConfigValue('MDVDB_CLUSTER_GRANULARITY') || '1'}
+                oninput={(e) => handleChange('MDVDB_CLUSTER_GRANULARITY', (e.target as HTMLInputElement).value)}
+              />
+              <span class="slider-label">Fine</span>
+              <span class="slider-value">{getConfigValue('MDVDB_CLUSTER_GRANULARITY') || '1.0'}x</span>
+              {#if !isGlobal && isCollectionOverride('MDVDB_CLUSTER_GRANULARITY')}
+                <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_CLUSTER_GRANULARITY')}>
+                  <span class="material-symbols-outlined">undo</span>
+                </button>
+              {/if}
+            </div>
+            <div class="field-hint">Controls the number of topic clusters. Higher = more, finer-grained clusters.</div>
+            {#if !isGlobal && isCollectionOverride('MDVDB_CLUSTER_GRANULARITY')}
+              <div class="field-notice">
+                <span class="material-symbols-outlined notice-icon">info</span>
+                Changing this setting requires a full reindex of the collection to take effect.
+              </div>
+            {/if}
+          </div>
         </div>
 
       {:else if currentSection === 'appearance' && isGlobal}
@@ -1325,5 +1357,66 @@
 
   .link-btn .material-symbols-outlined {
     font-size: 16px;
+  }
+
+  .slider-row {
+    gap: 10px;
+  }
+
+  .field-slider {
+    flex: 1;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    background: var(--color-border, #27272a);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+  }
+
+  .field-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--color-primary, #00E5FF);
+    cursor: pointer;
+    border: none;
+  }
+
+  .field-slider:focus::-webkit-slider-thumb {
+    box-shadow: 0 0 0 3px rgba(0, 229, 255, 0.2);
+  }
+
+  .slider-label {
+    font-size: var(--text-xs, 10px);
+    color: var(--color-text-dim, #71717a);
+    white-space: nowrap;
+  }
+
+  .slider-value {
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-size: var(--text-sm, 12px);
+    color: var(--color-text-white, #fff);
+    min-width: 36px;
+    text-align: right;
+  }
+
+  .field-notice {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+    padding: 8px 12px;
+    background: rgba(234, 179, 8, 0.08);
+    border: 1px solid rgba(234, 179, 8, 0.25);
+    border-radius: var(--radius-sm, 2px);
+    font-size: var(--text-xs, 10px);
+    color: #eab308;
+  }
+
+  .notice-icon {
+    font-size: 14px;
   }
 </style>
