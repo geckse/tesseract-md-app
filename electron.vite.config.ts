@@ -40,7 +40,8 @@ export default defineConfig({
     resolve: {
       alias: {
         '@renderer': resolve(__dirname, 'src/renderer')
-      }
+      },
+      dedupe: ['three']
     }
   }
 })
