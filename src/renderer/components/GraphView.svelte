@@ -1544,7 +1544,40 @@
   }
 
   function handleKeyDown(e: KeyboardEvent) {
+    // Cmd/Ctrl+F: toggle graph search overlay
+    if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+      e.preventDefault()
+      graphSearchVisible = !graphSearchVisible
+      if (graphSearchVisible) {
+        tick().then(() => {
+          const input = containerEl?.querySelector('.graph-search-input') as HTMLInputElement | null
+          input?.focus()
+        })
+      }
+      return
+    }
+
+    // '/': open graph search (only when not typing in an input)
+    if (e.key === '/' && !graphSearchVisible) {
+      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase()
+      const isEditable = tag === 'input' || tag === 'textarea' || (e.target as HTMLElement)?.hasAttribute('contenteditable')
+      if (!isEditable) {
+        e.preventDefault()
+        graphSearchVisible = true
+        tick().then(() => {
+          const input = containerEl?.querySelector('.graph-search-input') as HTMLInputElement | null
+          input?.focus()
+        })
+        return
+      }
+    }
+
     if (e.key === 'Escape') {
+      if (graphSearchVisible) {
+        clearGraphSearch()
+        graphSearchVisible = false
+        return
+      }
       if (contextMenuNode) {
         contextMenuNode = null
         return
@@ -2080,6 +2113,11 @@
           placeholder="Search graph…"
           value={graphSearchQuery}
           oninput={(e) => onGraphSearchInput((e.currentTarget as HTMLInputElement).value)}
+          onkeydown={(e) => {
+            if (e.key !== 'Escape' && !((e.metaKey || e.ctrlKey) && e.key === 'f')) {
+              e.stopPropagation()
+            }
+          }}
         />
         {#if graphSearchQuery.length > 0}
           <button class="graph-search-clear" onclick={clearGraphSearch} title="Clear search">×</button>
