@@ -1,12 +1,16 @@
 import { writable, derived, get } from 'svelte/store'
+import type { Writable } from 'svelte/store'
 import type { FileTree, FileTreeNode, FileState } from '../types/cli'
 import { activeCollection } from './collections'
 import { loadProperties, clearProperties, propertiesFileContent } from './properties'
 import { editorMode } from './editor'
 import { recordNavigation } from './navigation'
+import { workspace } from './workspace.svelte'
 // Lazy import to avoid circular dependency (favorites.ts imports selectedFilePath from here)
 const lazyTrackRecent = (...args: Parameters<typeof import('./favorites').trackRecent>) =>
   import('./favorites').then((m) => m.trackRecent(...args))
+
+// ─── Tree-related stores (unchanged) ───────────────────────────────────
 
 /** The current file tree for the active collection. */
 export const fileTree = writable<FileTree | null>(null)
@@ -16,18 +20,6 @@ export const fileTreeLoading = writable<boolean>(false)
 
 /** Error message if file tree loading failed. */
 export const fileTreeError = writable<string | null>(null)
-
-/** Currently selected file path in the tree. */
-export const selectedFilePath = writable<string | null>(null)
-
-/** Content of the currently selected file. */
-export const fileContent = writable<string | null>(null)
-
-/** Whether file content is currently loading. */
-export const fileContentLoading = writable<boolean>(false)
-
-/** Error message if file content loading failed. */
-export const fileContentError = writable<string | null>(null)
 
 /** Set of expanded directory paths in the tree UI. */
 export const expandedPaths = writable<Set<string>>(new Set())
@@ -50,19 +42,207 @@ export const flatFileList = derived(fileTree, ($fileTree) => {
   return files
 })
 
+/** Count files by state in the current tree. */
+export const fileStateCounts = derived(fileTree, ($fileTree) => {
+  const counts: Record<FileState, number> = {
+    indexed: 0,
+    modified: 0,
+    new: 0,
+    deleted: 0,
+  }
+  if (!$fileTree) return counts
+  function walk(node: FileTreeNode): void {
+    if (!node.is_dir && node.state) {
+      counts[node.state]++
+    }
+    for (const child of node.children) {
+      walk(child)
+    }
+  }
+  walk($fileTree.root)
+  return counts
+})
+
+// ─── Workspace-derived file stores ─────────────────────────────────────
+//
+// These stores derive their values from the workspace's focused pane's
+// active document tab. They use a notification trigger (_workspaceSync)
+// rather than Svelte 5 rune reactivity so they work in plain .ts.
+//
+// Call syncFileStoresFromTab() after any workspace mutation that changes
+// the active tab (switchTab, closeTab, tab bar click, etc.).
+
+/**
+ * Internal notification trigger. Derived stores re-evaluate when this
+ * writable is bumped, pulling fresh values from workspace state.
+ */
+const _workspaceSync = writable(0)
+
+/**
+ * Notify backward-compat derived stores that the workspace focus has changed.
+ * Call this after any workspace mutation that changes the active tab
+ * (e.g., switchTab, closeTab, tab bar click). Also syncs the
+ * propertiesFileContent store with the focused tab's content.
+ */
+export function syncFileStoresFromTab(): void {
+  _workspaceSync.update((n) => n + 1)
+  // Keep propertiesFileContent in sync with the focused tab's content
+  const tab = workspace.focusedDocumentTab
+  propertiesFileContent.set(tab?.content ?? null)
+}
+
+/** Currently selected file path — derived from focused pane's active document tab. */
+export const selectedFilePath = derived(_workspaceSync, () => {
+  return workspace.focusedDocumentTab?.filePath ?? null
+})
+
+/**
+ * Content of the currently selected file — derived from focused tab.
+ * Retains .set()/.update() for backward compat (used by ConflictNotification).
+ * Calling .set() updates the workspace tab's content and notifies subscribers.
+ */
+export const fileContent: Writable<string | null> = {
+  subscribe: derived(_workspaceSync, () => {
+    return workspace.focusedDocumentTab?.content ?? null
+  }).subscribe,
+  set(value: string | null) {
+    const tab = workspace.focusedDocumentTab
+    if (tab) {
+      tab.content = value
+    }
+    _workspaceSync.update((n) => n + 1)
+  },
+  update(fn: (value: string | null) => string | null) {
+    const tab = workspace.focusedDocumentTab
+    const current = tab?.content ?? null
+    const newValue = fn(current)
+    if (tab) {
+      tab.content = newValue
+    }
+    _workspaceSync.update((n) => n + 1)
+  },
+}
+
+/** Whether file content is currently loading — derived from focused tab. */
+export const fileContentLoading = derived(_workspaceSync, () => {
+  return workspace.focusedDocumentTab?.contentLoading ?? false
+})
+
+/** Error message if file content loading failed — derived from focused tab. */
+export const fileContentError = derived(_workspaceSync, () => {
+  return workspace.focusedDocumentTab?.contentError ?? null
+})
+
+// ─── File selection ────────────────────────────────────────────────────
+
+/** Generation counter to discard stale async results. */
+let selectGeneration = 0
+
+/**
+ * Select a file path in the tree and load its content.
+ * Opens (or switches to) a workspace tab, loads content from disk if not
+ * already cached, and syncs backward-compat stores.
+ */
+export async function selectFile(path: string | null): Promise<void> {
+  const gen = ++selectGeneration
+  recordNavigation(path)
+
+  if (!path) {
+    // Deselect: set focused pane's active tab to null (no document selected)
+    const pane = workspace.focusedPane
+    if (pane) {
+      pane.activeTabId = null
+    }
+    syncFileStoresFromTab()
+    clearProperties()
+    return
+  }
+
+  // Open (or switch to) a tab in the workspace
+  const tabId = workspace.openTab(path)
+
+  const collection = get(activeCollection)
+  if (!collection) {
+    syncFileStoresFromTab()
+    return
+  }
+
+  // Track this file as recently opened
+  lazyTrackRecent(collection.id, path)
+
+  const tab = workspace.tabs[tabId]
+
+  // If the tab already has content loaded, just sync and return
+  if (tab && tab.kind === 'document' && tab.content !== null) {
+    propertiesFileContent.set(tab.content)
+    syncFileStoresFromTab()
+    loadProperties(path)
+    return
+  }
+
+  // Reset to wysiwyg mode when opening a new file
+  editorMode.set('wysiwyg')
+
+  // Mark tab as loading
+  if (tab && tab.kind === 'document') {
+    tab.contentLoading = true
+    tab.contentError = null
+  }
+  syncFileStoresFromTab()
+
+  const fullPath = `${collection.path}/${path}`
+  try {
+    const content = await window.api.readFile(fullPath)
+    // Discard if user already clicked a different file
+    if (gen !== selectGeneration) return
+
+    // Update workspace tab state
+    const currentTab = workspace.tabs[tabId]
+    if (currentTab && currentTab.kind === 'document') {
+      currentTab.content = content
+      currentTab.contentError = null
+    }
+    propertiesFileContent.set(content)
+  } catch (err) {
+    if (gen !== selectGeneration) return
+    const errorMsg = err instanceof Error ? err.message : String(err)
+
+    // Update workspace tab state
+    const currentTab = workspace.tabs[tabId]
+    if (currentTab && currentTab.kind === 'document') {
+      currentTab.contentError = errorMsg
+    }
+  } finally {
+    if (gen === selectGeneration) {
+      const currentTab = workspace.tabs[tabId]
+      if (currentTab && currentTab.kind === 'document') {
+        currentTab.contentLoading = false
+      }
+      syncFileStoresFromTab()
+    }
+  }
+
+  // Load properties panel data (document info + backlinks) in parallel
+  if (gen === selectGeneration) {
+    loadProperties(path)
+  }
+}
+
+// ─── State management ──────────────────────────────────────────────────
+
 /** Reset all file-related state (e.g. on collection switch). */
 export function resetFileState(): void {
   selectGeneration++
-  selectedFilePath.set(null)
-  fileContent.set(null)
-  fileContentLoading.set(false)
-  fileContentError.set(null)
+  workspace.reset()
   fileTree.set(null)
   fileTreeLoading.set(false)
   fileTreeError.set(null)
   expandedPaths.set(new Set())
   clearProperties()
+  syncFileStoresFromTab()
 }
+
+// ─── File tree operations (unchanged) ──────────────────────────────────
 
 /** Load the file tree for the active collection. */
 export async function loadFileTree(subPath?: string): Promise<void> {
@@ -82,54 +262,6 @@ export async function loadFileTree(subPath?: string): Promise<void> {
     fileTree.set(null)
   } finally {
     fileTreeLoading.set(false)
-  }
-}
-
-/** Generation counter to discard stale async results. */
-let selectGeneration = 0
-
-/** Select a file path in the tree and load its content. */
-export async function selectFile(path: string | null): Promise<void> {
-  const gen = ++selectGeneration
-  recordNavigation(path)
-  selectedFilePath.set(path)
-  fileContentError.set(null)
-
-  if (!path) {
-    fileContent.set(null)
-    clearProperties()
-    return
-  }
-
-  // Reset to wysiwyg mode when opening a new file
-  editorMode.set('wysiwyg')
-
-  const collection = get(activeCollection)
-  if (!collection) return
-
-  // Track this file as recently opened
-  lazyTrackRecent(collection.id, path)
-
-  const fullPath = `${collection.path}/${path}`
-  fileContentLoading.set(true)
-  try {
-    const content = await window.api.readFile(fullPath)
-    // Discard if user already clicked a different file
-    if (gen !== selectGeneration) return
-    fileContent.set(content)
-    propertiesFileContent.set(content)
-  } catch (err) {
-    if (gen !== selectGeneration) return
-    fileContentError.set(err instanceof Error ? err.message : String(err))
-  } finally {
-    if (gen === selectGeneration) {
-      fileContentLoading.set(false)
-    }
-  }
-
-  // Load properties panel data (document info + backlinks) in parallel
-  if (gen === selectGeneration) {
-    loadProperties(path)
   }
 }
 
@@ -167,24 +299,3 @@ export function expandAll(): void {
 export function collapseAll(): void {
   expandedPaths.set(new Set())
 }
-
-/** Count files by state in the current tree. */
-export const fileStateCounts = derived(fileTree, ($fileTree) => {
-  const counts: Record<FileState, number> = {
-    indexed: 0,
-    modified: 0,
-    new: 0,
-    deleted: 0,
-  }
-  if (!$fileTree) return counts
-  function walk(node: FileTreeNode): void {
-    if (!node.is_dir && node.state) {
-      counts[node.state]++
-    }
-    for (const child of node.children) {
-      walk(child)
-    }
-  }
-  walk($fileTree.root)
-  return counts
-})
