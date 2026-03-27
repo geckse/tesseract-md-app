@@ -31,7 +31,16 @@
   import type { GraphLevel } from '../types/cli'
   import type { GraphNode, GraphData } from '../types/cli'
   import { selectedFilePath } from '../stores/files'
+  import { activeCollection } from '../stores/collections'
+  import { get } from 'svelte/store'
   import { edgeClusterColor } from '../lib/edge-utils'
+  import {
+    buildSearchScoreMap,
+    buildGraphContextMap,
+    computeSearchNodeOpacity,
+    computeEdgeSearchAlpha,
+    getNodePath
+  } from '../lib/graph-search-utils'
   import {
     buildGraph3DData,
     seedClusterPositions,
@@ -166,6 +175,137 @@
   // Label update animation frame
   let labelFrameId: number | null = null
   let labelFrameCount = 0
+
+  // ─── Graph Search State ─────────────────────────────────────────────
+
+  /** Whether the graph search overlay panel is visible. */
+  let graphSearchVisible = $state(false)
+
+  /** Current graph search query text. */
+  let graphSearchQuery = $state('')
+
+  /** Whether a graph search is currently in progress. */
+  let graphSearchLoading = $state(false)
+
+  /** Error message if graph search failed. */
+  let graphSearchError: string | null = $state(null)
+
+  /** Map of file path → max search score for direct matches. */
+  let graphSearchScores: Map<string, number> = $state(new Map())
+
+  /** Map of file path → attenuated score for graph context matches. */
+  let graphSearchContextScores: Map<string, number> = $state(new Map())
+
+  /** Number of direct search results returned. */
+  let graphSearchResultCount = $state(0)
+
+  /** Search panel X position. */
+  let searchPanelX = $state(16)
+
+  /** Search panel Y position. */
+  let searchPanelY = $state(16)
+
+  /** Whether the search panel is currently being dragged. */
+  let isDraggingSearch = $state(false)
+
+  /** Generation counter to discard stale async search results. */
+  let graphSearchGeneration = 0
+
+  /** Debounce timer for graph search input. */
+  let graphSearchDebounceTimer: ReturnType<typeof setTimeout> | null = null
+
+  // ─── Graph Search Functions ─────────────────────────────────────────
+
+  /**
+   * Handle graph search input with 400ms debounce and 2-char minimum.
+   */
+  function onGraphSearchInput(query: string): void {
+    graphSearchQuery = query
+
+    if (graphSearchDebounceTimer !== null) {
+      clearTimeout(graphSearchDebounceTimer)
+      graphSearchDebounceTimer = null
+    }
+
+    if (query.length < 2) {
+      graphSearchScores = new Map()
+      graphSearchContextScores = new Map()
+      graphSearchResultCount = 0
+      graphSearchLoading = false
+      graphSearchError = null
+      return
+    }
+
+    graphSearchLoading = true
+    graphSearchDebounceTimer = setTimeout(() => {
+      graphSearchDebounceTimer = null
+      executeGraphSearch(query)
+    }, 400)
+  }
+
+  /**
+   * Execute graph search with generation counter for stale result handling.
+   */
+  async function executeGraphSearch(query: string): Promise<void> {
+    const collection = get(activeCollection)
+    if (!collection) {
+      graphSearchLoading = false
+      return
+    }
+
+    const generation = ++graphSearchGeneration
+
+    try {
+      const result = await window.api.search(collection.path, query, {
+        mode: 'hybrid',
+        boostLinks: true,
+        expand: 1,
+        limit: 50
+      })
+
+      // Ignore stale results
+      if (generation !== graphSearchGeneration) return
+
+      const directScores = buildSearchScoreMap(result.results ?? [])
+      const contextScores = buildGraphContextMap(result.graph_context ?? [], directScores)
+
+      graphSearchScores = directScores
+      graphSearchContextScores = contextScores
+      graphSearchResultCount = result.total_results ?? (result.results?.length ?? 0)
+      graphSearchError = null
+      applySearchDimming()
+    } catch (err) {
+      if (generation !== graphSearchGeneration) return
+      graphSearchError = err instanceof Error ? err.message : String(err)
+      graphSearchScores = new Map()
+      graphSearchContextScores = new Map()
+      graphSearchResultCount = 0
+    } finally {
+      if (generation === graphSearchGeneration) {
+        graphSearchLoading = false
+      }
+    }
+  }
+
+  /**
+   * Clear all graph search state and restore normal rendering.
+   */
+  function clearGraphSearch(): void {
+    if (graphSearchDebounceTimer !== null) {
+      clearTimeout(graphSearchDebounceTimer)
+      graphSearchDebounceTimer = null
+    }
+    graphSearchGeneration++
+    graphSearchQuery = ''
+    graphSearchScores = new Map()
+    graphSearchContextScores = new Map()
+    graphSearchResultCount = 0
+    graphSearchLoading = false
+    graphSearchError = null
+    graphSearchVisible = false
+    applySelectionDimming()
+    if (graph) graph.refresh()
+  }
 
   /**
    * Update proximity labels: project node positions to screen,
@@ -460,6 +600,9 @@
   function applySelectionDimming() {
     if (!graph) return
 
+    // During active search, search dimming takes priority
+    if (graphSearchScores.size > 0 || graphSearchContextScores.size > 0) return
+
     if (currentSelected && neighborSet.size > 0) {
       // Dim non-neighbor nodes
       graph.nodeOpacity(0.15)
@@ -556,6 +699,84 @@
       // Clear linkMaterial override
       graph.linkMaterial(null)
     }
+  }
+
+  /**
+   * Apply search-based dimming to the graph.
+   * Highlights matched nodes (direct + context) and dims everything else.
+   */
+  function applySearchDimming() {
+    if (!graph) return
+
+    // Combine both score maps for edge lookups
+    const allScores = new Map<string, number>([...graphSearchScores, ...graphSearchContextScores])
+
+    // Global dim for unmatched nodes
+    graph.nodeOpacity(0.05)
+
+    // Keep link colors visible
+    graph.linkOpacity(0.8)
+
+    // Custom node rendering based on search scores
+    graph.nodeThreeObject(((node: ForceNode) => {
+      const path = node.id
+      const score = graphSearchScores.get(path) ?? graphSearchContextScores.get(path)
+
+      if (score === undefined) return false // Default sphere at 0.05 opacity
+
+      const opacity = computeSearchNodeOpacity(score)
+      const degree = degreeMap.get(node.id) ?? 0
+
+      // Hub nodes with high scores get emissive glow
+      if (degree >= 5 && score > 0.7) {
+        return createHubNodeObject(node, opacity)
+      }
+
+      // Regular matched node
+      const color = getNodeColor(node)
+      const threeColor = new THREE.Color(color)
+      const radius = Math.cbrt(node.val) * 2
+
+      const group = new THREE.Group()
+      const geometry = new THREE.SphereGeometry(radius, 12, 8)
+      const material = new THREE.MeshLambertMaterial({
+        color: threeColor,
+        transparent: true,
+        opacity
+      })
+      group.add(new THREE.Mesh(geometry, material))
+      return group
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    }) as any)
+
+    // Edge coloring based on endpoint match status
+    graph.linkColor((link: ForceLink) => {
+      const srcPath = getNodePath(link.source)
+      const tgtPath = getNodePath(link.target)
+      const srcScore = allScores.get(srcPath)
+      const tgtScore = allScores.get(tgtPath)
+
+      const srcMatched = srcScore !== undefined
+      const tgtMatched = tgtScore !== undefined
+
+      if (srcMatched && tgtMatched) {
+        const alpha = computeEdgeSearchAlpha(srcScore, tgtScore)
+        return `rgba(0, 220, 255, ${alpha})`
+      }
+      if (srcMatched || tgtMatched) {
+        return 'rgba(0, 220, 255, 0.08)'
+      }
+      return 'rgba(80, 80, 80, 0.02)'
+    })
+
+    // Disable arrows and particles during search
+    graph.linkDirectionalArrowLength(0)
+    graph.linkDirectionalParticles(0)
+
+    // Clear linkMaterial override
+    graph.linkMaterial(null)
+
+    graph.refresh()
   }
 
   // ─── Force Configuration ────────────────────────────────────────────
@@ -1238,10 +1459,16 @@
           await initializeGraph()
           syncGraphSize()
           feedData(d)
+          if (graphSearchVisible && graphSearchQuery.length >= 2) {
+            executeGraphSearch(graphSearchQuery)
+          }
         }
       } else if (d && graph) {
         syncGraphSize()
         feedData(d)
+        if (graphSearchVisible && graphSearchQuery.length >= 2) {
+          executeGraphSearch(graphSearchQuery)
+        }
       }
     })
 
@@ -1348,6 +1575,9 @@
         // Pre-configure forces so any in-flight simulation uses correct params
         // (feedData will reconfigure again when new data arrives)
         configureForces(v)
+        if (graphSearchVisible && graphSearchQuery.length >= 2) {
+          executeGraphSearch(graphSearchQuery)
+        }
       }
     })
   }
@@ -1407,7 +1637,40 @@
   }
 
   function handleKeyDown(e: KeyboardEvent) {
+    // Cmd/Ctrl+F: toggle graph search overlay
+    if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+      e.preventDefault()
+      graphSearchVisible = !graphSearchVisible
+      if (graphSearchVisible) {
+        tick().then(() => {
+          const input = containerEl?.querySelector('.graph-search-input') as HTMLInputElement | null
+          input?.focus()
+        })
+      }
+      return
+    }
+
+    // '/': open graph search (only when not typing in an input)
+    if (e.key === '/' && !graphSearchVisible) {
+      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase()
+      const isEditable = tag === 'input' || tag === 'textarea' || (e.target as HTMLElement)?.hasAttribute('contenteditable')
+      if (!isEditable) {
+        e.preventDefault()
+        graphSearchVisible = true
+        tick().then(() => {
+          const input = containerEl?.querySelector('.graph-search-input') as HTMLInputElement | null
+          input?.focus()
+        })
+        return
+      }
+    }
+
     if (e.key === 'Escape') {
+      if (graphSearchVisible) {
+        clearGraphSearch()
+        graphSearchVisible = false
+        return
+      }
       if (contextMenuNode) {
         contextMenuNode = null
         return
@@ -1807,6 +2070,11 @@
   })
 
   onDestroy(() => {
+    // Clean up graph search debounce timer
+    if (graphSearchDebounceTimer) {
+      clearTimeout(graphSearchDebounceTimer)
+    }
+
     // Stop label update loop
     if (labelFrameId !== null) {
       cancelAnimationFrame(labelFrameId)
@@ -1909,6 +2177,62 @@
         onclick={() => setGraphLevel('chunk')}>Chunks</button
       >
     </div>
+
+    <!-- Graph search overlay -->
+    {#if graphSearchVisible}
+      <div
+        class="graph-search-overlay"
+        style="left: {searchPanelX}px; bottom: {searchPanelY}px;"
+      >
+        <span
+          class="graph-search-drag-handle"
+          class:grabbing={isDraggingSearch}
+          onpointerdown={(e) => {
+            isDraggingSearch = true
+            ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+          }}
+          onpointermove={(e) => {
+            if (!isDraggingSearch || !containerEl) return
+            const rect = containerEl.getBoundingClientRect()
+            searchPanelX = Math.max(0, Math.min(e.clientX - rect.left - 12, rect.width - 280))
+            searchPanelY = Math.max(0, Math.min(rect.bottom - e.clientY - 12, rect.height - 48))
+          }}
+          onpointerup={(e) => {
+            isDraggingSearch = false
+            ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
+          }}
+        >
+          <span class="material-symbols-outlined" style="font-size: 14px; opacity: 0.4;">drag_indicator</span>
+        </span>
+        <span class="material-symbols-outlined" style="font-size: 16px; opacity: 0.5;">search</span>
+        <input
+          type="text"
+          class="graph-search-input"
+          placeholder="Search graph…"
+          value={graphSearchQuery}
+          oninput={(e) => onGraphSearchInput((e.currentTarget as HTMLInputElement).value)}
+          onkeydown={(e) => {
+            if (e.key !== 'Escape' && !((e.metaKey || e.ctrlKey) && e.key === 'f')) {
+              e.stopPropagation()
+            }
+          }}
+        />
+        {#if graphSearchQuery.length > 0}
+          <button class="graph-search-clear" onclick={clearGraphSearch} title="Clear search">×</button>
+        {/if}
+        {#if graphSearchLoading}
+          <span class="material-symbols-outlined spinning" style="font-size: 16px; opacity: 0.5;">progress_activity</span>
+        {/if}
+        {#if graphSearchError}
+          <span class="material-symbols-outlined" style="font-size: 16px; color: var(--color-error, #ef4444);" title={graphSearchError}>error</span>
+        {/if}
+        {#if graphSearchQuery.length >= 2 && !graphSearchLoading && !graphSearchError}
+          <span class="graph-search-count">
+            {graphSearchResultCount > 0 ? `${graphSearchResultCount} file${graphSearchResultCount === 1 ? '' : 's'}` : 'No matches'}
+          </span>
+        {/if}
+      </div>
+    {/if}
 
     <!-- Path filter badge -->
     {#if currentPathFilter}
@@ -2810,5 +3134,84 @@
 
   .folder-badge-close:hover {
     color: var(--color-text, #e4e4e7);
+  }
+
+  /* ─── Graph Search Overlay ─────────────────────────────────────── */
+
+  .graph-search-overlay {
+    z-index: 15;
+    position: absolute;
+    background: var(--color-surface, #161617);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--color-border, #27272a);
+    border-radius: 0.375rem;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    min-width: 280px;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.375rem 0.5rem;
+  }
+
+  .graph-search-drag-handle {
+    cursor: grab;
+    touch-action: none;
+    display: flex;
+    align-items: center;
+  }
+
+  .graph-search-drag-handle.grabbing {
+    cursor: grabbing;
+  }
+
+  .graph-search-input {
+    flex: 1;
+    background: transparent;
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-size: var(--text-sm, 0.75rem);
+    color: var(--color-text, #e4e4e7);
+    outline: none;
+    border: none;
+    min-width: 0;
+  }
+
+  .graph-search-input::placeholder {
+    color: var(--color-text-dim, #71717a);
+  }
+
+  .graph-search-clear {
+    background: none;
+    border: none;
+    color: var(--color-text-dim, #71717a);
+    cursor: pointer;
+    font-size: 16px;
+    padding: 0 2px;
+    line-height: 1;
+  }
+
+  .graph-search-clear:hover {
+    color: var(--color-text, #e4e4e7);
+  }
+
+  .graph-search-count {
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-size: var(--text-xs, 0.625rem);
+    color: var(--color-text-dim, #71717a);
+    white-space: nowrap;
+  }
+
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+
+  .spinning {
+    animation: spin 1s linear infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .spinning {
+      animation: none;
+    }
   }
 </style>
