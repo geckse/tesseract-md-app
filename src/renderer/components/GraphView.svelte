@@ -1459,10 +1459,16 @@
           await initializeGraph()
           syncGraphSize()
           feedData(d)
+          if (graphSearchVisible && graphSearchQuery.length >= 2) {
+            executeGraphSearch(graphSearchQuery)
+          }
         }
       } else if (d && graph) {
         syncGraphSize()
         feedData(d)
+        if (graphSearchVisible && graphSearchQuery.length >= 2) {
+          executeGraphSearch(graphSearchQuery)
+        }
       }
     })
 
@@ -1569,6 +1575,9 @@
         // Pre-configure forces so any in-flight simulation uses correct params
         // (feedData will reconfigure again when new data arrives)
         configureForces(v)
+        if (graphSearchVisible && graphSearchQuery.length >= 2) {
+          executeGraphSearch(graphSearchQuery)
+        }
       }
     })
   }
@@ -2061,6 +2070,11 @@
   })
 
   onDestroy(() => {
+    // Clean up graph search debounce timer
+    if (graphSearchDebounceTimer) {
+      clearTimeout(graphSearchDebounceTimer)
+    }
+
     // Stop label update loop
     if (labelFrameId !== null) {
       cancelAnimationFrame(labelFrameId)
