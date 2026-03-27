@@ -4,6 +4,8 @@
 
 Add VS Code-style document tabs, split pane editing, and multi-window support to Tesseract. Users can open multiple markdown files in tabs, view two documents side-by-side in a split pane, and spawn additional Electron windows — each with their own tab bar and split layout. Tabs can be dragged between windows. The sidebar, properties panel, and status bar always reflect the currently focused tab.
 
+The 3D graph view becomes a special "Graph" tab type — always available as the rightmost tab, pinned and unclosable. This makes graph exploration a natural part of the tab workflow: users can split the view with the graph on one side and a document on the other, click a node in the graph to open it as a document tab, and seamlessly switch between graph and document contexts.
+
 ## Problem Statement
 
 Tesseract currently supports only a single document open at a time. Switching files replaces the editor content entirely — there's no way to keep multiple files open for reference, comparison, or concurrent editing. Knowledge work frequently requires viewing multiple documents simultaneously (e.g., comparing notes, referencing a source while writing, reviewing linked documents). The single-document model forces users into a disruptive open-read-close-open cycle.
@@ -18,6 +20,7 @@ Tesseract currently supports only a single document open at a time. Switching fi
 - Sidebar, properties panel, and status bar reflect the **focused** pane/tab at all times
 - Persist open tabs and split layout across app restarts
 - Standard keyboard shortcuts: `Cmd+T` (new tab), `Cmd+W` (close tab), `Cmd+1–9` (switch tab), `Cmd+\` (split), `Cmd+Shift+N` (new window)
+- 3D graph view lives as a permanent pinned tab (rightmost position) — clicking a graph node opens that document as a new tab, enabling fluid graph-to-document navigation
 
 ## Non-Goals
 
@@ -38,11 +41,19 @@ The core change is replacing the scattered singleton stores (`selectedFilePath`,
 
 #### TabState
 
-Each open tab holds its own isolated state:
+Tabs are polymorphic — a discriminated union on `kind`:
 
 ```typescript
-interface TabState {
+type TabKind = 'document' | 'graph'
+
+interface TabBase {
   id: string                        // Unique tab ID (crypto.randomUUID())
+  kind: TabKind                     // Discriminator
+  pinned: boolean                   // Pinned tabs can't be closed or reordered past
+}
+
+interface DocumentTab extends TabBase {
+  kind: 'document'
   filePath: string                  // Relative file path within collection
   content: string | null            // File content (null while loading)
   savedContent: string | null       // Last-saved content (for dirty detection)
@@ -57,7 +68,20 @@ interface TabState {
     forwardStack: string[]
   }
 }
+
+interface GraphTab extends TabBase {
+  kind: 'graph'
+  pinned: true                      // Always pinned
+  graphLevel: 'document' | 'chunk'  // Current graph level (Document/Chunk toggle)
+  cameraState: unknown | null       // Serialized 3d-force-graph camera position
+  pathFilter: string | null         // Active path filter on the graph
+  colorMode: 'cluster' | 'folder' | 'none'  // Graph coloring mode
+}
+
+type TabState = DocumentTab | GraphTab
 ```
+
+The graph tab is a singleton per pane — opening the graph in a pane that already has one just switches to it. It renders `GraphView.svelte` instead of an editor. Clicking a node in the graph calls `openTab(nodePath)` to create/switch to a document tab in the same pane.
 
 #### PaneState
 
@@ -101,15 +125,16 @@ Components that currently import from `stores/files.ts` or `stores/editor.ts` co
 
 ### Tab Bar UI
 
-A horizontal tab bar sits between the titlebar and editor area. Each pane has its own tab bar.
+A horizontal tab bar sits between the titlebar and the editor mode toggle (Editor/Raw). The tab bar is the outermost layer — it determines *which* content is shown. The mode toggle below it determines *how* that content renders (only visible for document tabs, hidden for graph tabs). Each pane has its own tab bar.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Titlebar (35px) — back/forward, search, graph toggle       │
+│  Titlebar (35px) — back/forward, search                     │
 ├─────────────────────────────────────────────────────────────┤
-│  TabBar: [file-a.md ×] [file-b.md ● ×] [+]                │
+│  TabBar: [file-a.md ×] [file-b.md ● ×] [+ ]    [🌐 Graph] │
+│  ModeBar: [Editor] [Raw]    (only for document tabs)        │
 ├──────────────────────────┬──────────────────────────────────┤
-│  Sidebar (256px)         │  Editor (focused tab content)    │
+│  Sidebar (256px)         │  Editor / Graph (active tab)     │
 │  • Collections           │                                  │
 │  • File tree             │                                  │
 │  • Favorites             │                                  │
@@ -118,16 +143,18 @@ A horizontal tab bar sits between the titlebar and editor area. Each pane has it
 └─────────────────────────────────────────────────────────────┘
 ```
 
+The graph tab sits at the rightmost position in the tab bar, visually separated by a subtle divider. It uses a globe/graph icon (`hub` Material Symbol) instead of a file icon, and has no close button (pinned).
+
+**Visual hierarchy:** TabBar (which document/view) → ModeBar (how to render it) → Content area. The existing Editor↔Raw toggle moves from the titlebar into a `ModeBar` component that sits just below the tab bar. When a graph tab is active, the ModeBar is hidden (graphs have no editor/raw distinction) — it shows the Document/Chunk level switcher instead.
+
 Tab anatomy:
-- File icon (Material Symbols `description`)
-- Filename (basename, dim directory prefix on hover if ambiguous)
-- Dirty indicator: filled circle `●` replaces close icon when dirty
-- Close button: `×` (or `●` if dirty), `Cmd+click` to close without prompt
+- **Document tab**: File icon (Material Symbols `description`) + filename (basename, dim directory prefix on hover if ambiguous) + dirty indicator (`●`) + close button (`×`)
+- **Graph tab**: Graph icon (`hub`) + "Graph" label. No close button (pinned). Always rightmost.
 - Active tab: bottom border `var(--color-primary)`, brighter text
 - Hover: `var(--color-surface-hover)` background
-- Drag handle: entire tab surface is draggable for reordering
+- Drag handle: entire tab surface is draggable for reordering (except graph tab — fixed position)
 
-Overflow behavior: When tabs exceed available width, the tab bar becomes horizontally scrollable. Scroll buttons appear at edges.
+Overflow behavior: When tabs exceed available width, the tab bar becomes horizontally scrollable (graph tab stays visible, pinned to the right edge). Scroll buttons appear at edges.
 
 ### Split Pane Layout
 
@@ -218,6 +245,7 @@ This happens automatically through the derived shims — no sidebar code changes
 | `Cmd+1` – `Cmd+9` | Switch to tab N (9 = last tab) |
 | `Cmd+Option+Left` | Switch to previous tab |
 | `Cmd+Option+Right` | Switch to next tab |
+| `Cmd+G` | Switch to graph tab in focused pane |
 | `Cmd+\` | Toggle split pane |
 | `Cmd+Option+1` / `Cmd+Option+2` | Focus pane 1 / pane 2 |
 | `Cmd+Shift+N` | New window |
@@ -233,10 +261,16 @@ Open tabs and split state are saved to `electron-store` per window on:
 Schema addition to `electron-store`:
 
 ```typescript
+interface PersistedTab {
+  kind: 'document' | 'graph'
+  filePath?: string             // Only for document tabs
+  graphLevel?: 'document' | 'chunk'  // Only for graph tabs
+}
+
 interface PersistedWindowState {
   panes: Array<{
-    tabPaths: string[]        // File paths of open tabs (in order)
-    activeTabPath: string | null
+    tabs: PersistedTab[]          // Open tabs in order
+    activeTabIndex: number | null // Which tab was active
   }>
   splitEnabled: boolean
   splitRatio: number
@@ -274,49 +308,53 @@ On app launch, restore each persisted window session. If a file no longer exists
 
 7. **Create `components/TabItem.svelte`** — Individual tab rendering. Props: `tab: TabState`, `isActive: boolean`, `paneId: string`. Handles drag start for reorder. Shows dirty dot, truncated filename, close button.
 
-8. **Create `components/TabPane.svelte`** — Container that combines a `TabBar` + editor area for a single pane. Props: `paneId: string`. Mounts the appropriate editor (CodeMirror or Tiptap) for the active tab. Handles focus tracking — clicking anywhere in the pane sets `activePaneId`.
+8. **Extract `components/ModeBar.svelte`** — Move the existing Editor↔Raw toggle out of `App.svelte`/`Titlebar.svelte` into a dedicated `ModeBar` component. For document tabs: shows Editor/Raw toggle. For graph tabs: shows Document/Chunk level switcher. Hidden when no tab is active.
 
-9. **Refactor `App.svelte` layout** — Replace the current single-editor area with `TabPane` component(s). In single-pane mode: one `TabPane`. In split mode: two `TabPane`s with a resize handle.
+9. **Create `components/TabPane.svelte`** — Container that combines a `TabBar` + `ModeBar` + content area for a single pane. Props: `paneId: string`. Renders the appropriate content based on `activeTab.kind`: `GraphView.svelte` for graph tabs, editor (CodeMirror or Tiptap) for document tabs. Handles focus tracking — clicking anywhere in the pane sets `activePaneId`.
 
-10. **Refactor `Editor.svelte` and `WysiwygEditor.svelte`** — Accept a `tabId` prop. Save/restore editor state (undo history, cursor position, scroll offset) when tabs switch. The CodeMirror `EditorState` must be serialized on tab deactivation and restored on activation. Tiptap editor JSON must be similarly cached.
+10. **Refactor `App.svelte` layout** — Replace the current single-editor area with `TabPane` component(s). In single-pane mode: one `TabPane`. In split mode: two `TabPane`s with a resize handle. Remove the graph toggle from the titlebar (graph is now a tab, not a modal overlay).
 
-11. **Update file opening paths** — `FileTree.svelte` click, search result click, favorite click, recent click, and `[[wikilink]]` click all call `openTab(filePath)` instead of `selectFile(path)`. If the file is already open in any tab, switch to that tab instead of opening a duplicate.
+11. **Refactor `Editor.svelte` and `WysiwygEditor.svelte`** — Accept a `tabId` prop. Save/restore editor state (undo history, cursor position, scroll offset) when tabs switch. The CodeMirror `EditorState` must be serialized on tab deactivation and restored on activation. Tiptap editor JSON must be similarly cached.
 
-12. **Register keyboard shortcuts** — Add `Cmd+T`, `Cmd+W`, `Cmd+1–9`, `Cmd+Option+Left/Right`, `Cmd+Shift+T` handlers in `App.svelte` or a dedicated `shortcuts.ts` module. Platform-aware: `Ctrl` on Windows/Linux.
+12. **Integrate `GraphView.svelte` as tab content** — When a graph tab is active, `TabPane` renders `GraphView.svelte` in the content area. Wire graph node clicks to `openTab(nodePath)` — clicking a node opens (or switches to) a document tab in the same pane. The graph tab's state (`graphLevel`, `cameraState`, `pathFilter`, `colorMode`) persists when switching away and back. Each pane can have its own graph tab with independent camera/filter state.
+
+13. **Update file opening paths** — `FileTree.svelte` click, search result click, favorite click, recent click, and `[[wikilink]]` click all call `openTab(filePath)` instead of `selectFile(path)`. If the file is already open in any tab, switch to that tab instead of opening a duplicate.
+
+14. **Register keyboard shortcuts** — Add `Cmd+T`, `Cmd+W`, `Cmd+1–9`, `Cmd+Option+Left/Right`, `Cmd+Shift+T`, `Cmd+G` (toggle graph tab) handlers in `App.svelte` or a dedicated `shortcuts.ts` module. Platform-aware: `Ctrl` on Windows/Linux.
 
 ### Phase C: Split Panes
 
-13. **Create `components/SplitPaneContainer.svelte`** — Renders 1 or 2 `TabPane`s based on `workspace.splitEnabled`. Contains the draggable resize handle between panes. Handles resize drag with min-width constraints (300px per pane). Stores ratio in workspace state.
+15. **Create `components/SplitPaneContainer.svelte`** — Renders 1 or 2 `TabPane`s based on `workspace.splitEnabled`. Contains the draggable resize handle between panes. Handles resize drag with min-width constraints (300px per pane). Stores ratio in workspace state.
 
-14. **Implement split actions** — `toggleSplit()`: if single pane, create a second pane (empty or with the same file). `closeSplit()`: merge second pane's tabs into first pane. `moveTabToOtherPane(tabId)`: move a tab from one pane to the other.
+16. **Implement split actions** — `toggleSplit()`: if single pane, create a second pane (empty or with the same file). `closeSplit()`: merge second pane's tabs into first pane. `moveTabToOtherPane(tabId)`: move a tab from one pane to the other.
 
-15. **Focus tracking** — Clicking in a pane sets `activePaneId`. Visual indicator: subtle `2px` left border with `var(--color-primary)` on the focused pane's tab bar. The sidebar, properties, and status bar derive from focused pane's active tab.
+17. **Focus tracking** — Clicking in a pane sets `activePaneId`. Visual indicator: subtle `2px` left border with `var(--color-primary)` on the focused pane's tab bar. The sidebar, properties, and status bar derive from focused pane's active tab.
 
-16. **Register split shortcuts** — `Cmd+\` to toggle, `Cmd+Option+1`/`2` to focus pane.
+18. **Register split shortcuts** — `Cmd+\` to toggle, `Cmd+Option+1`/`2` to focus pane.
 
 ### Phase D: Tab Persistence
 
-17. **Add `windowSessions` to electron-store schema** — Array of `PersistedWindowState` objects. Save on tab open/close/reorder, split toggle/resize, and graceful quit.
+19. **Add `windowSessions` to electron-store schema** — Array of `PersistedWindowState` objects. Save on tab open/close/reorder, split toggle/resize, and graceful quit.
 
-18. **Save logic** — Debounced (500ms) serialization of current workspace state to electron-store via IPC. Only save file paths and layout — NOT file content (always reload from disk on restore).
+20. **Save logic** — Debounced (500ms) serialization of current workspace state to electron-store via IPC. Only save file paths and layout — NOT file content (always reload from disk on restore).
 
-19. **Restore logic** — On app launch, read persisted sessions. For each session, open a window and populate tabs. Skip files that no longer exist. If no persisted session, start with a single empty window (current behavior).
+21. **Restore logic** — On app launch, read persisted sessions. For each session, open a window and populate tabs. Skip files that no longer exist. If no persisted session, start with a single empty window (current behavior).
 
 ### Phase E: Multi-Window
 
-20. **Create `main/window-manager.ts`** — `WindowManager` class that tracks all `BrowserWindow` instances. `createWindow()` creates a new window with shared preload and config. `broadcastToAll()` sends events to all windows. `closeWindow()` cleans up.
+22. **Create `main/window-manager.ts`** — `WindowManager` class that tracks all `BrowserWindow` instances. `createWindow()` creates a new window with shared preload and config. `broadcastToAll()` sends events to all windows. `closeWindow()` cleans up.
 
-21. **Refactor `main/index.ts`** — Replace the single `createWindow()` call with `WindowManager.createWindow()`. Store the manager instance. Handle `app.on('activate')` to create a window if none exist (macOS dock click).
+23. **Refactor `main/index.ts`** — Replace the single `createWindow()` call with `WindowManager.createWindow()`. Store the manager instance. Handle `app.on('activate')` to create a window if none exist (macOS dock click).
 
-22. **Refactor `main/ipc-handlers.ts`** — Remove the `mainWindow` parameter closure. For push events (watcher, updater), use `WindowManager.broadcastToAll()`. For request/response, rely on `event.sender` (already correct). The `WatcherManager` and `AppUpdater` become singletons shared across windows.
+24. **Refactor `main/ipc-handlers.ts`** — Remove the `mainWindow` parameter closure. For push events (watcher, updater), use `WindowManager.broadcastToAll()`. For request/response, rely on `event.sender` (already correct). The `WatcherManager` and `AppUpdater` become singletons shared across windows.
 
-23. **Add IPC channels for multi-window** — `window:new` (create new window), `tab:detach` (serialize tab, create new window with it), `tab:attach` (receive tab data, add to workspace), `window:broadcast` (relay shared state changes).
+25. **Add IPC channels for multi-window** — `window:new` (create new window), `tab:detach` (serialize tab, create new window with it), `tab:attach` (receive tab data, add to workspace), `window:broadcast` (relay shared state changes).
 
-24. **Tab drag-to-window** — On drag start, set a `dataTransfer` payload with serialized tab state. If the drag ends outside the window bounds, send `tab:detach` IPC. Main process creates a new window positioned at the drop location. On drag into a window (detected via `dragenter`/`dragover` on the tab bar), send `tab:attach` IPC.
+26. **Tab drag-to-window** — On drag start, set a `dataTransfer` payload with serialized tab state. If the drag ends outside the window bounds, send `tab:detach` IPC. Main process creates a new window positioned at the drop location. On drag into a window (detected via `dragenter`/`dragover` on the tab bar), send `tab:attach` IPC.
 
-25. **Shared state synchronization** — When collections, favorites, or recents change in one window, the modifying window sends the update to main process. Main process broadcasts to all other windows. Each window's stores update reactively.
+27. **Shared state synchronization** — When collections, favorites, or recents change in one window, the modifying window sends the update to main process. Main process broadcasts to all other windows. Each window's stores update reactively.
 
-26. **New window shortcut** — `Cmd+Shift+N` sends `window:new` IPC. `Cmd+Shift+W` closes current window (with dirty-tab prompts).
+28. **New window shortcut** — `Cmd+Shift+N` sends `window:new` IPC. `Cmd+Shift+W` closes current window (with dirty-tab prompts).
 
 ---
 
@@ -333,6 +371,16 @@ On app launch, restore each persisted window session. If a file no longer exists
 - [ ] Tab bar scrolls horizontally when tabs overflow
 - [ ] Middle-click on a tab closes it
 - [ ] Watcher events update ALL tabs showing the affected file (conflict prompt if dirty)
+
+### Graph Tab
+- [ ] Graph tab appears as a pinned tab at the rightmost position in every pane's tab bar
+- [ ] Graph tab cannot be closed, reordered, or dragged out of the window
+- [ ] Clicking a node in the graph opens (or switches to) a document tab for that file in the same pane
+- [ ] Graph tab preserves camera position, zoom, path filter, and color mode when switching away and back
+- [ ] ModeBar shows Document/Chunk level switcher when graph tab is active (not Editor/Raw)
+- [ ] In split view, each pane can have its own graph tab with independent state
+- [ ] `Cmd+G` switches to the graph tab in the focused pane
+- [ ] Graph toggle button is removed from the titlebar (replaced by the graph tab)
 
 ### Split Panes
 - [ ] `Cmd+\` toggles split view; each pane has its own tab bar
