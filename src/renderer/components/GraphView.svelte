@@ -2047,6 +2047,57 @@
       >
     </div>
 
+    <!-- Graph search overlay -->
+    {#if graphSearchVisible}
+      <div
+        class="graph-search-overlay"
+        style="left: {searchPanelX}px; bottom: {searchPanelY}px;"
+      >
+        <span
+          class="graph-search-drag-handle"
+          class:grabbing={isDraggingSearch}
+          onpointerdown={(e) => {
+            isDraggingSearch = true
+            ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+          }}
+          onpointermove={(e) => {
+            if (!isDraggingSearch || !containerEl) return
+            const rect = containerEl.getBoundingClientRect()
+            searchPanelX = Math.max(0, Math.min(e.clientX - rect.left - 12, rect.width - 280))
+            searchPanelY = Math.max(0, Math.min(rect.bottom - e.clientY - 12, rect.height - 48))
+          }}
+          onpointerup={(e) => {
+            isDraggingSearch = false
+            ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
+          }}
+        >
+          <span class="material-symbols-outlined" style="font-size: 14px; opacity: 0.4;">drag_indicator</span>
+        </span>
+        <span class="material-symbols-outlined" style="font-size: 16px; opacity: 0.5;">search</span>
+        <input
+          type="text"
+          class="graph-search-input"
+          placeholder="Search graph…"
+          value={graphSearchQuery}
+          oninput={(e) => onGraphSearchInput((e.currentTarget as HTMLInputElement).value)}
+        />
+        {#if graphSearchQuery.length > 0}
+          <button class="graph-search-clear" onclick={clearGraphSearch} title="Clear search">×</button>
+        {/if}
+        {#if graphSearchLoading}
+          <span class="material-symbols-outlined spinning" style="font-size: 16px; opacity: 0.5;">progress_activity</span>
+        {/if}
+        {#if graphSearchError}
+          <span class="material-symbols-outlined" style="font-size: 16px; color: var(--color-error, #ef4444);" title={graphSearchError}>error</span>
+        {/if}
+        {#if graphSearchQuery.length >= 2 && !graphSearchLoading && !graphSearchError}
+          <span class="graph-search-count">
+            {graphSearchResultCount > 0 ? `${graphSearchResultCount} file${graphSearchResultCount === 1 ? '' : 's'}` : 'No matches'}
+          </span>
+        {/if}
+      </div>
+    {/if}
+
     <!-- Path filter badge -->
     {#if currentPathFilter}
       <div class="graph-path-badge">
@@ -2947,5 +2998,84 @@
 
   .folder-badge-close:hover {
     color: var(--color-text, #e4e4e7);
+  }
+
+  /* ─── Graph Search Overlay ─────────────────────────────────────── */
+
+  .graph-search-overlay {
+    z-index: 15;
+    position: absolute;
+    background: var(--color-surface, #161617);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--color-border, #27272a);
+    border-radius: 0.375rem;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    min-width: 280px;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.375rem 0.5rem;
+  }
+
+  .graph-search-drag-handle {
+    cursor: grab;
+    touch-action: none;
+    display: flex;
+    align-items: center;
+  }
+
+  .graph-search-drag-handle.grabbing {
+    cursor: grabbing;
+  }
+
+  .graph-search-input {
+    flex: 1;
+    background: transparent;
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-size: var(--text-sm, 0.75rem);
+    color: var(--color-text, #e4e4e7);
+    outline: none;
+    border: none;
+    min-width: 0;
+  }
+
+  .graph-search-input::placeholder {
+    color: var(--color-text-dim, #71717a);
+  }
+
+  .graph-search-clear {
+    background: none;
+    border: none;
+    color: var(--color-text-dim, #71717a);
+    cursor: pointer;
+    font-size: 16px;
+    padding: 0 2px;
+    line-height: 1;
+  }
+
+  .graph-search-clear:hover {
+    color: var(--color-text, #e4e4e7);
+  }
+
+  .graph-search-count {
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-size: var(--text-xs, 0.625rem);
+    color: var(--color-text-dim, #71717a);
+    white-space: nowrap;
+  }
+
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+
+  .spinning {
+    animation: spin 1s linear infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .spinning {
+      animation: none;
+    }
   }
 </style>
