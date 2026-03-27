@@ -31,7 +31,16 @@
   import type { GraphLevel } from '../types/cli'
   import type { GraphNode, GraphData } from '../types/cli'
   import { selectedFilePath } from '../stores/files'
+  import { activeCollection } from '../stores/collections'
+  import { get } from 'svelte/store'
   import { edgeClusterColor } from '../lib/edge-utils'
+  import {
+    buildSearchScoreMap,
+    buildGraphContextMap,
+    computeSearchNodeOpacity,
+    computeEdgeSearchAlpha,
+    getNodePath
+  } from '../lib/graph-search-utils'
   import {
     buildGraph3DData,
     seedClusterPositions,
@@ -166,6 +175,134 @@
   // Label update animation frame
   let labelFrameId: number | null = null
   let labelFrameCount = 0
+
+  // ─── Graph Search State ─────────────────────────────────────────────
+
+  /** Whether the graph search overlay panel is visible. */
+  let graphSearchVisible = $state(false)
+
+  /** Current graph search query text. */
+  let graphSearchQuery = $state('')
+
+  /** Whether a graph search is currently in progress. */
+  let graphSearchLoading = $state(false)
+
+  /** Error message if graph search failed. */
+  let graphSearchError: string | null = $state(null)
+
+  /** Map of file path → max search score for direct matches. */
+  let graphSearchScores: Map<string, number> = $state(new Map())
+
+  /** Map of file path → attenuated score for graph context matches. */
+  let graphSearchContextScores: Map<string, number> = $state(new Map())
+
+  /** Number of direct search results returned. */
+  let graphSearchResultCount = $state(0)
+
+  /** Search panel X position. */
+  let searchPanelX = $state(16)
+
+  /** Search panel Y position. */
+  let searchPanelY = $state(16)
+
+  /** Whether the search panel is currently being dragged. */
+  let isDraggingSearch = $state(false)
+
+  /** Generation counter to discard stale async search results. */
+  let graphSearchGeneration = 0
+
+  /** Debounce timer for graph search input. */
+  let graphSearchDebounceTimer: ReturnType<typeof setTimeout> | null = null
+
+  // ─── Graph Search Functions ─────────────────────────────────────────
+
+  /**
+   * Handle graph search input with 400ms debounce and 2-char minimum.
+   */
+  function onGraphSearchInput(query: string): void {
+    graphSearchQuery = query
+
+    if (graphSearchDebounceTimer !== null) {
+      clearTimeout(graphSearchDebounceTimer)
+      graphSearchDebounceTimer = null
+    }
+
+    if (query.length < 2) {
+      graphSearchScores = new Map()
+      graphSearchContextScores = new Map()
+      graphSearchResultCount = 0
+      graphSearchLoading = false
+      graphSearchError = null
+      return
+    }
+
+    graphSearchLoading = true
+    graphSearchDebounceTimer = setTimeout(() => {
+      graphSearchDebounceTimer = null
+      executeGraphSearch(query)
+    }, 400)
+  }
+
+  /**
+   * Execute graph search with generation counter for stale result handling.
+   */
+  async function executeGraphSearch(query: string): Promise<void> {
+    const collection = get(activeCollection)
+    if (!collection) {
+      graphSearchLoading = false
+      return
+    }
+
+    const generation = ++graphSearchGeneration
+
+    try {
+      const result = await window.api.search(collection.path, query, {
+        mode: 'hybrid',
+        boostLinks: true,
+        expand: 1,
+        limit: 50
+      })
+
+      // Ignore stale results
+      if (generation !== graphSearchGeneration) return
+
+      const directScores = buildSearchScoreMap(result.results ?? [])
+      const contextScores = buildGraphContextMap(result.graph_context ?? [], directScores)
+
+      graphSearchScores = directScores
+      graphSearchContextScores = contextScores
+      graphSearchResultCount = result.total_results ?? (result.results?.length ?? 0)
+      graphSearchError = null
+    } catch (err) {
+      if (generation !== graphSearchGeneration) return
+      graphSearchError = err instanceof Error ? err.message : String(err)
+      graphSearchScores = new Map()
+      graphSearchContextScores = new Map()
+      graphSearchResultCount = 0
+    } finally {
+      if (generation === graphSearchGeneration) {
+        graphSearchLoading = false
+      }
+    }
+  }
+
+  /**
+   * Clear all graph search state and restore normal rendering.
+   */
+  function clearGraphSearch(): void {
+    if (graphSearchDebounceTimer !== null) {
+      clearTimeout(graphSearchDebounceTimer)
+      graphSearchDebounceTimer = null
+    }
+    graphSearchGeneration++
+    graphSearchQuery = ''
+    graphSearchScores = new Map()
+    graphSearchContextScores = new Map()
+    graphSearchResultCount = 0
+    graphSearchLoading = false
+    graphSearchError = null
+    graphSearchVisible = false
+  }
 
   /**
    * Update proximity labels: project node positions to screen,
