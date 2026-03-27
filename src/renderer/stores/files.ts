@@ -4,7 +4,7 @@ import type { FileTree, FileTreeNode, FileState } from '../types/cli'
 import { activeCollection } from './collections'
 import { loadProperties, clearProperties, propertiesFileContent } from './properties'
 import { editorMode, syncEditorStoresFromTab } from './editor'
-import { recordNavigation } from './navigation'
+import { recordNavigation, syncNavigationStoresFromTab } from './navigation'
 import { workspace } from './workspace.svelte'
 // Lazy import to avoid circular dependency (favorites.ts imports selectedFilePath from here)
 const lazyTrackRecent = (...args: Parameters<typeof import('./favorites').trackRecent>) =>
@@ -87,6 +87,7 @@ const _workspaceSync = writable(0)
 export function syncFileStoresFromTab(): void {
   _workspaceSync.update((n) => n + 1)
   syncEditorStoresFromTab()
+  syncNavigationStoresFromTab()
   // Keep propertiesFileContent in sync with the focused tab's content
   const tab = workspace.focusedDocumentTab
   propertiesFileContent.set(tab?.content ?? null)
