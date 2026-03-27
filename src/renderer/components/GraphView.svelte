@@ -273,6 +273,7 @@
       graphSearchContextScores = contextScores
       graphSearchResultCount = result.total_results ?? (result.results?.length ?? 0)
       graphSearchError = null
+      applySearchDimming()
     } catch (err) {
       if (generation !== graphSearchGeneration) return
       graphSearchError = err instanceof Error ? err.message : String(err)
@@ -302,6 +303,8 @@
     graphSearchLoading = false
     graphSearchError = null
     graphSearchVisible = false
+    applySelectionDimming()
+    if (graph) graph.refresh()
   }
 
   /**
@@ -597,6 +600,9 @@
   function applySelectionDimming() {
     if (!graph) return
 
+    // During active search, search dimming takes priority
+    if (graphSearchScores.size > 0 || graphSearchContextScores.size > 0) return
+
     if (currentSelected && neighborSet.size > 0) {
       // Dim non-neighbor nodes
       graph.nodeOpacity(0.15)
@@ -693,6 +699,84 @@
       // Clear linkMaterial override
       graph.linkMaterial(null)
     }
+  }
+
+  /**
+   * Apply search-based dimming to the graph.
+   * Highlights matched nodes (direct + context) and dims everything else.
+   */
+  function applySearchDimming() {
+    if (!graph) return
+
+    // Combine both score maps for edge lookups
+    const allScores = new Map<string, number>([...graphSearchScores, ...graphSearchContextScores])
+
+    // Global dim for unmatched nodes
+    graph.nodeOpacity(0.05)
+
+    // Keep link colors visible
+    graph.linkOpacity(0.8)
+
+    // Custom node rendering based on search scores
+    graph.nodeThreeObject(((node: ForceNode) => {
+      const path = node.id
+      const score = graphSearchScores.get(path) ?? graphSearchContextScores.get(path)
+
+      if (score === undefined) return false // Default sphere at 0.05 opacity
+
+      const opacity = computeSearchNodeOpacity(score)
+      const degree = degreeMap.get(node.id) ?? 0
+
+      // Hub nodes with high scores get emissive glow
+      if (degree >= 5 && score > 0.7) {
+        return createHubNodeObject(node, opacity)
+      }
+
+      // Regular matched node
+      const color = getNodeColor(node)
+      const threeColor = new THREE.Color(color)
+      const radius = Math.cbrt(node.val) * 2
+
+      const group = new THREE.Group()
+      const geometry = new THREE.SphereGeometry(radius, 12, 8)
+      const material = new THREE.MeshLambertMaterial({
+        color: threeColor,
+        transparent: true,
+        opacity
+      })
+      group.add(new THREE.Mesh(geometry, material))
+      return group
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    }) as any)
+
+    // Edge coloring based on endpoint match status
+    graph.linkColor((link: ForceLink) => {
+      const srcPath = getNodePath(link.source)
+      const tgtPath = getNodePath(link.target)
+      const srcScore = allScores.get(srcPath)
+      const tgtScore = allScores.get(tgtPath)
+
+      const srcMatched = srcScore !== undefined
+      const tgtMatched = tgtScore !== undefined
+
+      if (srcMatched && tgtMatched) {
+        const alpha = computeEdgeSearchAlpha(srcScore, tgtScore)
+        return `rgba(0, 220, 255, ${alpha})`
+      }
+      if (srcMatched || tgtMatched) {
+        return 'rgba(0, 220, 255, 0.08)'
+      }
+      return 'rgba(80, 80, 80, 0.02)'
+    })
+
+    // Disable arrows and particles during search
+    graph.linkDirectionalArrowLength(0)
+    graph.linkDirectionalParticles(0)
+
+    // Clear linkMaterial override
+    graph.linkMaterial(null)
+
+    graph.refresh()
   }
 
   // ─── Force Configuration ────────────────────────────────────────────
