@@ -27,6 +27,8 @@ export interface WysiwygEditorOptions {
   editable?: boolean
   /** Collection root path for link autocomplete IPC search */
   collectionPath?: string
+  /** Collection ID for filtering recents in link autocomplete */
+  collectionId?: string
 }
 
 export interface WysiwygEditor {
@@ -90,7 +92,8 @@ export function createWysiwygEditor(
       Wikilink,
       SlashCommandExtension,
       LinkAutocompleteExtension.configure({
-        collectionPath: options.collectionPath ?? ''
+        collectionPath: options.collectionPath ?? '',
+        collectionId: options.collectionId ?? ''
       }),
       BlockDragExtension,
       LinkBubbleExtension

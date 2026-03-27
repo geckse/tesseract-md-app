@@ -5,6 +5,7 @@ import type { SuggestionOptions, SuggestionProps, SuggestionKeyDownProps } from 
 import type { Editor, Range } from '@tiptap/core'
 import { mount, unmount } from 'svelte'
 import LinkAutocomplete from '../../components/wysiwyg/LinkAutocomplete.svelte'
+import { linkAutocompleteState } from './link-autocomplete-state.svelte'
 
 export interface LinkSuggestionItem {
   /** File path relative to collection root */
@@ -13,12 +14,16 @@ export interface LinkSuggestionItem {
   anchor?: string
   /** Display label shown in the popup */
   label: string
+  /** Dimmed subtitle (relative path) */
+  subtitle?: string
 }
 
 export const linkAutocompletePluginKey = new PluginKey('linkAutocomplete')
 
 /**
- * Custom findSuggestionMatch that triggers on `[[`.
+ * Custom findSuggestionMatch that triggers on `@` (primary) and `[[` (secondary).
+ * `@` is single-char and universally recognized (Notion, Slack, GitHub).
+ * `[[` is kept for Obsidian-style power users.
  * Multi-char `char` triggers are unreliable in @tiptap/suggestion (GitHub #2882/#4931),
  * so we implement a custom match function instead.
  */
@@ -36,23 +41,38 @@ function findSuggestionMatch(config: { editor: Editor }): { range: Range; query:
     '\ufffc'
   )
 
-  // Find the last [[ that isn't closed
-  const triggerIndex = textBefore.lastIndexOf('[[')
-  if (triggerIndex === -1) return null
-
-  // Check there's no ]] between the trigger and cursor
-  const afterTrigger = textBefore.slice(triggerIndex + 2)
-  if (afterTrigger.includes(']]')) return null
-
-  const query = afterTrigger
-  const from = $anchor.start() + triggerIndex
-  const to = $anchor.pos
-
-  return {
-    range: { from, to },
-    query,
-    text: textBefore.slice(triggerIndex),
+  // --- Try [[ trigger first (longer match takes priority) ---
+  const bracketIndex = textBefore.lastIndexOf('[[')
+  if (bracketIndex !== -1) {
+    const afterBracket = textBefore.slice(bracketIndex + 2)
+    if (!afterBracket.includes(']]')) {
+      return {
+        range: { from: $anchor.start() + bracketIndex, to: $anchor.pos },
+        query: afterBracket,
+        text: textBefore.slice(bracketIndex),
+      }
+    }
   }
+
+  // --- Try @ trigger ---
+  const atIndex = textBefore.lastIndexOf('@')
+  if (atIndex !== -1) {
+    // Must be preceded by whitespace or start-of-text to avoid
+    // triggering on email addresses like user@example.com
+    if (atIndex === 0 || /\s/.test(textBefore[atIndex - 1])) {
+      const afterAt = textBefore.slice(atIndex + 1)
+      // Don't trigger if it looks like an email (word chars followed by another @)
+      if (!/^\S+@/.test(afterAt)) {
+        return {
+          range: { from: $anchor.start() + atIndex, to: $anchor.pos },
+          query: afterAt,
+          text: textBefore.slice(atIndex),
+        }
+      }
+    }
+  }
+
+  return null
 }
 
 export const LinkAutocompleteExtension = Extension.create({
@@ -62,6 +82,8 @@ export const LinkAutocompleteExtension = Extension.create({
     return {
       /** Collection path for IPC search calls */
       collectionPath: '' as string,
+      /** Collection ID for filtering recents */
+      collectionId: '' as string,
       suggestion: {
         pluginKey: linkAutocompletePluginKey,
         allowSpaces: true,
@@ -76,40 +98,37 @@ export const LinkAutocompleteExtension = Extension.create({
           let component: Record<string, unknown> | null = null
           let popup: HTMLDivElement | null = null
 
+          const getExtensionOptions = (editor: Editor) => {
+            const ext = editor.extensionManager.extensions
+              .find(e => e.name === 'linkAutocomplete')
+            return ext?.options as { collectionPath?: string; collectionId?: string } | undefined
+          }
+
           return {
             onStart: (props: SuggestionProps<LinkSuggestionItem>) => {
               popup = document.createElement('div')
               popup.classList.add('link-autocomplete-popup')
               document.body.appendChild(popup)
 
-              component = mount(LinkAutocomplete, {
-                target: popup,
-                props: {
-                  query: props.query ?? '',
-                  command: props.command,
-                  clientRect: props.clientRect ?? null,
-                  collectionPath: (props.editor.extensionManager.extensions
-                    .find(e => e.name === 'linkAutocomplete')
-                    ?.options as { collectionPath?: string })?.collectionPath ?? '',
-                },
-              })
+              const opts = getExtensionOptions(props.editor)
+
+              // Set reactive state — component reads from this
+              linkAutocompleteState.query = props.query ?? ''
+              linkAutocompleteState.command = props.command
+              linkAutocompleteState.clientRect = props.clientRect ?? null
+              linkAutocompleteState.collectionPath = opts?.collectionPath ?? ''
+              linkAutocompleteState.collectionId = opts?.collectionId ?? ''
+              linkAutocompleteState.active = true
+
+              // Mount ONCE — subsequent updates go through state
+              component = mount(LinkAutocomplete, { target: popup })
             },
 
             onUpdate: (props: SuggestionProps<LinkSuggestionItem>) => {
-              if (component && popup) {
-                unmount(component)
-                component = mount(LinkAutocomplete, {
-                  target: popup,
-                  props: {
-                    query: props.query ?? '',
-                    command: props.command,
-                    clientRect: props.clientRect ?? null,
-                    collectionPath: (props.editor.extensionManager.extensions
-                      .find(e => e.name === 'linkAutocomplete')
-                      ?.options as { collectionPath?: string })?.collectionPath ?? '',
-                  },
-                })
-              }
+              // Just update reactive state — no unmount/remount
+              linkAutocompleteState.query = props.query ?? ''
+              linkAutocompleteState.command = props.command
+              linkAutocompleteState.clientRect = props.clientRect ?? null
             },
 
             onKeyDown: (props: SuggestionKeyDownProps) => {
@@ -123,7 +142,8 @@ export const LinkAutocompleteExtension = Extension.create({
               if (
                 props.event.key === 'ArrowDown' ||
                 props.event.key === 'ArrowUp' ||
-                props.event.key === 'Enter'
+                props.event.key === 'Enter' ||
+                props.event.key === 'Tab'
               ) {
                 if (popup) {
                   popup.dispatchEvent(
@@ -140,6 +160,7 @@ export const LinkAutocompleteExtension = Extension.create({
             },
 
             onExit: () => {
+              linkAutocompleteState.active = false
               if (component) {
                 unmount(component)
                 component = null
@@ -152,7 +173,6 @@ export const LinkAutocompleteExtension = Extension.create({
           }
         },
         command: ({ editor, range, props }: { editor: Editor; range: Range; props: LinkSuggestionItem }) => {
-          const anchor = props.anchor ? `#${props.anchor}` : ''
           editor
             .chain()
             .focus()

@@ -1,7 +1,12 @@
 import { app, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import { registerIpcHandlers, destroyWatcherManager, destroyAppUpdater, getAppUpdater } from './ipc-handlers'
+import {
+  registerIpcHandlers,
+  destroyWatcherManager,
+  destroyAppUpdater,
+  getAppUpdater
+} from './ipc-handlers'
 import { initStore, setZoomLevel } from './store'
 import { buildAppMenu } from './menu'
 
@@ -27,7 +32,7 @@ function createWindow(): BrowserWindow {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true
     }
   })
 
@@ -96,7 +101,7 @@ function createWindow(): BrowserWindow {
 }
 
 app.whenReady().then(() => {
-  electronApp.setAppUserModelId('com.tesseract.app')
+  electronApp.setAppUserModelId('md.tesseract.app')
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window, { escToCloseWindow: false, zoom: true })

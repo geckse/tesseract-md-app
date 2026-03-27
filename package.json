@@ -2,6 +2,13 @@
   "name": "tesseract-app",
   "version": "0.1.0",
   "description": "Tesseract - Markdown Editor for mdvdb with superpowers",
+  "author": "geckse",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nickarino/markdown-vdb"
+  },
+  "homepage": "https://github.com/nickarino/markdown-vdb",
   "private": true,
   "main": "./out/main/index.js",
   "scripts": {
@@ -78,7 +85,8 @@
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.20.0",
     "vite": "^6.3.5",
-    "vitest": "^3.2.1"
+    "vitest": "^3.2.1",
+    "@electron/notarize": "^3.0.0"
   },
   "build": {
     "appId": "md.tesseract.app",
@@ -109,7 +117,9 @@
       "icon": "resources/icon.png",
       "hardenedRuntime": true,
       "entitlements": "resources/entitlements.mac.plist",
-      "entitlementsInherit": "resources/entitlements.mac.plist"
+      "entitlementsInherit": "resources/entitlements.mac.plist",
+      "notarize": false,
+      "afterSign": "scripts/notarize.js"
     },
     "win": {
       "target": [

@@ -216,6 +216,8 @@
 
     wysiwygEditor = createWysiwygEditor(editorEl, body, {
       onUpdate: () => handleEditorUpdate(),
+      collectionPath: currentActiveCollection?.path ?? '',
+      collectionId: currentActiveCollection?.id ?? '',
     });
   }
 
