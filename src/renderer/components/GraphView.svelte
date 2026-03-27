@@ -1416,6 +1416,123 @@
       setGraphHighlightedFolder(null)
       hoveredNode = null
       hoveredEdge = null
+      return
+    }
+
+    // Arrow key navigation between connected nodes
+    if (
+      currentSelected &&
+      graph &&
+      ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)
+    ) {
+      e.preventDefault()
+      navigateToConnectedNode(e.key)
+    }
+  }
+
+  /**
+   * Navigate to the closest connected node in the given arrow direction.
+   * Projects 3D positions to screen space using the camera, then picks
+   * the neighbor whose screen-space direction best matches the arrow key.
+   */
+  function navigateToConnectedNode(key: string) {
+    if (!currentSelected || !graph) return
+
+    const graphD = graph.graphData()
+    const nodes = graphD.nodes as ForceNode[]
+    const links = graphD.links as ForceLink[]
+
+    // Find the currently selected ForceNode (with 3D coordinates)
+    const selectedForceNode = nodes.find((n) => n.id === currentSelected!.id)
+    if (!selectedForceNode || selectedForceNode.x == null) return
+
+    // Get the Three.js camera and renderer size for projection
+    const camera = graph.camera() as THREE.PerspectiveCamera
+    const renderer = graph.renderer() as THREE.WebGLRenderer
+    if (!camera || !renderer) return
+    const width = renderer.domElement.clientWidth
+    const height = renderer.domElement.clientHeight
+
+    // Project a 3D node position to 2D screen coordinates
+    function toScreen(node: ForceNode): { x: number; y: number } | null {
+      if (node.x == null || node.y == null || node.z == null) return null
+      const v = new THREE.Vector3(node.x, node.y, node.z)
+      v.project(camera)
+      return {
+        x: ((v.x + 1) / 2) * width,
+        y: ((-v.y + 1) / 2) * height
+      }
+    }
+
+    const selectedScreen = toScreen(selectedForceNode)
+    if (!selectedScreen) return
+
+    // Collect connected neighbor nodes with their screen positions
+    const neighbors: { node: ForceNode; sx: number; sy: number }[] = []
+    for (const link of links) {
+      const srcId = linkNodeId(link.source)
+      const tgtId = linkNodeId(link.target)
+      let neighborId: string | null = null
+      if (srcId === currentSelected!.id) neighborId = tgtId
+      else if (tgtId === currentSelected!.id) neighborId = srcId
+      if (!neighborId) continue
+
+      const neighborNode = nodes.find((n) => n.id === neighborId)
+      if (!neighborNode) continue
+
+      const screen = toScreen(neighborNode)
+      if (!screen) continue
+
+      // Avoid duplicates (bidirectional edges)
+      if (!neighbors.some((n) => n.node.id === neighborNode.id)) {
+        neighbors.push({ node: neighborNode, sx: screen.x, sy: screen.y })
+      }
+    }
+
+    if (neighbors.length === 0) return
+
+    // Direction vector for the arrow key (screen space: +x right, +y down)
+    let dirX = 0
+    let dirY = 0
+    switch (key) {
+      case 'ArrowUp':
+        dirY = -1
+        break
+      case 'ArrowDown':
+        dirY = 1
+        break
+      case 'ArrowLeft':
+        dirX = -1
+        break
+      case 'ArrowRight':
+        dirX = 1
+        break
+    }
+
+    // Score each neighbor: prefer nodes in the arrow direction.
+    // Score = dot(normalized_offset, direction) / distance — higher is better.
+    // Only consider nodes in the correct half-plane (dot product > 0).
+    let bestNode: ForceNode | null = null
+    let bestScore = -Infinity
+    for (const nb of neighbors) {
+      const dx = nb.sx - selectedScreen.x
+      const dy = nb.sy - selectedScreen.y
+      const dist = Math.hypot(dx, dy)
+      if (dist < 1) continue // Skip overlapping nodes
+
+      const dot = (dx * dirX + dy * dirY) / dist
+      if (dot <= 0.3) continue // Must be at least roughly in the right direction
+
+      // Weight by alignment and penalize distance
+      const score = dot / Math.sqrt(dist)
+      if (score > bestScore) {
+        bestScore = score
+        bestNode = nb.node
+      }
+    }
+
+    if (bestNode) {
+      selectGraphNode(toGraphNode(bestNode))
     }
   }
 

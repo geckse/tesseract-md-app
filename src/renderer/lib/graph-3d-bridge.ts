@@ -214,30 +214,12 @@ export function nodeTooltipHtml(node: Graph3DNode, clusterLabel?: string | null)
 /**
  * Generate HTML tooltip content for an edge on hover.
  *
- * Displays: relationship type (if present), strength as percentage bar,
- * and context text excerpt (truncated at 120 characters).
+ * Returns empty string — edge tooltips are handled by the custom Svelte
+ * overlay in GraphView.svelte, so the 3d-force-graph built-in tooltip
+ * is intentionally suppressed to avoid showing two popovers.
  */
-export function edgeTooltipHtml(link: Graph3DLink): string {
-  let html = ''
-
-  if (link.relationship_type) {
-    html += `<div class="graph-tooltip-title">${escapeHtml(link.relationship_type)}</div>`
-  }
-
-  if (link.strength != null) {
-    const pct = Math.round(link.strength * 100)
-    html += `<div class="graph-tooltip-meta">Strength: ${pct}%</div>`
-  }
-
-  if (link.context_text) {
-    const text =
-      link.context_text.length > 120
-        ? link.context_text.slice(0, 120) + '\u2026'
-        : link.context_text
-    html += `<div class="graph-tooltip-context">${escapeHtml(text)}</div>`
-  }
-
-  return html
+export function edgeTooltipHtml(_link: Graph3DLink): string {
+  return ''
 }
 
 /**
