@@ -3,53 +3,77 @@
   import { EditorView, keymap } from '@codemirror/view';
   import { EditorState } from '@codemirror/state';
   import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
-  import { history, historyKeymap } from '@codemirror/commands';
+  import { history, historyKeymap, historyField } from '@codemirror/commands';
   import { defaultKeymap } from '@codemirror/commands';
   import { search, searchKeymap } from '@codemirror/search';
   import { editorTheme } from '../lib/editor-theme';
   import { softRender } from '../lib/soft-render';
   import { frontmatterDecoration } from '../lib/frontmatter-decoration';
-  import { fileContent, fileContentLoading, selectedFilePath } from '../stores/files';
   import { activeCollection } from '../stores/collections';
+  import { workspace, type DocumentTab } from '../stores/workspace.svelte';
   import { isDirty, wordCount, tokenCount, countWords, countTokens, saveRequested, scrollToLine, activeHeadingIndex, editorMode, type EditorMode } from '../stores/editor';
   import { propertiesFileContent, outline } from '../stores/properties';
-  import { DocumentCache } from '../lib/doc-cache';
   import ConflictNotification from './ConflictNotification.svelte';
   import { showConflict, dismissConflict } from '../stores/conflict';
 
-  let editorEl: HTMLDivElement | undefined = $state(undefined);
-  let view: EditorView | null = null;
-  let lastSavedContent: string = '';
+  // ── Props ─────────────────────────────────────────────────────────────
+  interface EditorProps {
+    tabId?: string
+  }
+  let { tabId }: EditorProps = $props();
+
+  // ── Constants ─────────────────────────────────────────────────────────
+  /** Maximum number of live EditorView instances to keep in the pool. */
+  const MAX_POOL_SIZE = 10;
+  /** Large file handling (>1MB). */
+  const LARGE_FILE_THRESHOLD = 1024 * 1024;
+  /** File change detection interval (ms). */
+  const FILE_CHECK_INTERVAL = 2000;
+
+  // ── Instance Pool ─────────────────────────────────────────────────────
+  /**
+   * Pool of live EditorView instances keyed by tab ID.
+   * Each entry holds the EditorView, its container div, scroll position,
+   * and the lastSavedContent for dirty tracking.
+   */
+  interface PoolEntry {
+    view: EditorView
+    container: HTMLDivElement
+    scrollTop: number
+    lastSavedContent: string
+    useBasicMode: boolean
+  }
+
+  /**
+   * Serialized state for evicted pool entries (beyond MAX_POOL_SIZE).
+   * Stores the JSON-serialized EditorState (including undo history)
+   * so the editor can be reconstructed when re-activated.
+   */
+  interface SerializedEntry {
+    stateJSON: unknown
+    scrollTop: number
+    lastSavedContent: string
+    useBasicMode: boolean
+  }
+
+  const pool = new Map<string, PoolEntry>();
+  const serializedPool = new Map<string, SerializedEntry>();
+  /** LRU access order — most recently accessed tab ID is last. */
+  const accessOrder: string[] = [];
+
+  // ── Component State ───────────────────────────────────────────────────
+  let editorHost: HTMLDivElement | undefined = $state(undefined);
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  let previousFilePath: string | null = null;
-
-  // File change detection
   let fileWatchInterval: ReturnType<typeof setInterval> | null = null;
-  const FILE_CHECK_INTERVAL = 2000; // Check every 2 seconds
-
-  // LRU cache for recently opened documents (last 5 files)
-  const docCache = new DocumentCache(5);
-
-  // Large file handling (>1MB)
-  const LARGE_FILE_THRESHOLD = 1024 * 1024; // 1MB in bytes
   let largeFileWarning = $state(false);
-  let useBasicMode = $state(false);
+  let isSaving = false;
 
+  // ── Store Subscriptions ───────────────────────────────────────────────
   let currentOutline: import('../stores/properties').OutlineHeading[] = [];
   const unsubOutline = outline.subscribe((v) => (currentOutline = v));
 
-  let currentFileContent: string | null = $state(null);
-  let currentSelectedFilePath: string | null = $state(null);
   let currentActiveCollection: import('../../preload/api').Collection | null = $state(null);
-  let currentFileContentLoading: boolean = $state(false);
-  // Track the last fileContent value we applied to the editor, so the $effect
-  // "same file" branch only fires replaceContent when the store actually changed.
-  let lastAppliedFileContent: string | null = null;
-
-  const unsubFileContent = fileContent.subscribe((v) => (currentFileContent = v));
-  const unsubSelectedFile = selectedFilePath.subscribe((v) => (currentSelectedFilePath = v));
   const unsubCollection = activeCollection.subscribe((v) => (currentActiveCollection = v));
-  const unsubLoading = fileContentLoading.subscribe((v) => (currentFileContentLoading = v));
 
   let currentScrollToLine: number | null = $state(null);
   const unsubScrollToLine = scrollToLine.subscribe((v) => (currentScrollToLine = v));
@@ -60,248 +84,90 @@
     if (saveCounter > 0) handleSave();
   });
 
-  // Focus editor when switching to editor mode
   let currentEditorMode = $state<EditorMode>('wysiwyg');
   const unsubEditorMode = editorMode.subscribe((v) => (currentEditorMode = v));
   $effect(() => {
-    if (currentEditorMode === 'editor' && view) {
-      // Defer focus so the display:none is removed first
-      requestAnimationFrame(() => view?.focus());
+    if (currentEditorMode === 'editor') {
+      const entry = activeTabId ? pool.get(activeTabId) : null;
+      if (entry) {
+        requestAnimationFrame(() => entry.view.focus());
+      }
     }
   });
 
-  // Scroll editor to a specific line when requested
+  // ── Derived Tab State ─────────────────────────────────────────────────
+  /**
+   * Resolve the active tab ID: use the explicit tabId prop if provided,
+   * otherwise fall back to the workspace's focused document tab.
+   */
+  const activeTabId = $derived(tabId ?? workspace.focusedDocumentTab?.id ?? null);
+  const activeDocTab = $derived.by(() => {
+    if (!activeTabId) return null;
+    const tab = workspace.tabs[activeTabId];
+    return tab?.kind === 'document' ? tab as DocumentTab : null;
+  });
+
+  // ── Scroll to Line ────────────────────────────────────────────────────
   $effect(() => {
-    if (currentScrollToLine !== null && view) {
-      const doc = view.state.doc;
-      const lineNumber = Math.max(1, Math.min(currentScrollToLine, doc.lines));
-      const line = doc.line(lineNumber);
-      view.dispatch({
-        effects: EditorView.scrollIntoView(line.from, { y: 'start' }),
-      });
-      scrollToLine.set(null);
+    if (currentScrollToLine !== null && activeTabId) {
+      const entry = pool.get(activeTabId);
+      if (entry) {
+        const doc = entry.view.state.doc;
+        const lineNumber = Math.max(1, Math.min(currentScrollToLine, doc.lines));
+        const line = doc.line(lineNumber);
+        entry.view.dispatch({
+          effects: EditorView.scrollIntoView(line.from, { y: 'start' }),
+        });
+        scrollToLine.set(null);
+      }
     }
   });
 
-  function handleUpdate(update: import('@codemirror/view').ViewUpdate) {
-    if (update.docChanged) {
-      const content = update.state.doc.toString();
-      isDirty.set(content !== lastSavedContent);
-      wordCount.set(countWords(content));
-      tokenCount.set(countTokens(content));
-      // Debounce metadata store update (200ms) to avoid parsing YAML on every keystroke
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        propertiesFileContent.set(content);
-      }, 200);
-    }
+  // ── Pool Management ───────────────────────────────────────────────────
+
+  /** Touch a tab ID in the LRU access order (move to end). */
+  function touchAccess(id: string): void {
+    const idx = accessOrder.indexOf(id);
+    if (idx >= 0) accessOrder.splice(idx, 1);
+    accessOrder.push(id);
   }
 
-  /** Update activeHeadingIndex based on the editor's scroll position. */
-  function updateActiveHeading() {
-    if (!view || currentOutline.length === 0) {
-      activeHeadingIndex.set(-1);
-      return;
-    }
-    // Find the topmost visible line
-    const rect = view.dom.getBoundingClientRect();
-    const topPos = view.lineBlockAtHeight(view.scrollDOM.scrollTop);
-    const topLine = view.state.doc.lineAt(topPos.from).number;
-
-    // Find the last heading at or before the topmost visible line
-    let idx = -1;
-    for (let i = 0; i < currentOutline.length; i++) {
-      if (currentOutline[i].line <= topLine + 1) {
-        idx = i;
-      } else {
-        break;
-      }
-    }
-    activeHeadingIndex.set(idx);
-  }
-
-  function dismissLargeFileWarning() {
-    largeFileWarning = false;
-  }
-
-  let isSaving = false;
-
-  function handleSave(): boolean {
-    if (!view || !currentActiveCollection || !currentSelectedFilePath) return true;
-    const content = view.state.doc.toString();
-    const fullPath = `${currentActiveCollection.path}/${currentSelectedFilePath}`;
-    // Update lastSavedContent SYNCHRONOUSLY before the async write so the
-    // conflict checker never sees a mismatch during the write window.
-    lastSavedContent = content;
-    isDirty.set(false);
-    isSaving = true;
-    window.api.writeFile(fullPath, content).then(() => {
-      // Dismiss any conflict notification after successful save
-      dismissConflict();
-    }).catch((err) => {
-      console.error('Save failed:', err);
-    }).finally(() => {
-      isSaving = false;
-    });
-    return true;
-  }
-
-  /**
-   * Check if the currently open file has been modified externally.
-   * If changes are detected, trigger the conflict notification.
-   */
-  async function checkForExternalChanges() {
-    if (!currentSelectedFilePath || !currentActiveCollection || !view) return;
-    // Skip check while a save is in progress to avoid false conflict detection
-    if (isSaving) return;
-
-    const fullPath = `${currentActiveCollection.path}/${currentSelectedFilePath}`;
-
-    try {
-      // Read the current file content from disk
-      const diskContent = await window.api.readFile(fullPath);
-
-      // Compare against what we last read/saved — NOT the editor content.
-      // User edits naturally differ from disk; that's not an external change.
-      if (diskContent !== lastSavedContent) {
-        // Trigger conflict notification
-        showConflict(currentSelectedFilePath);
-        // Stop checking once conflict is detected to avoid repeated notifications
-        stopFileWatcher();
-      }
-    } catch (err) {
-      // File might have been deleted or is inaccessible - stop watching
-      stopFileWatcher();
-    }
-  }
-
-  /**
-   * Start watching the current file for external changes.
-   */
-  function startFileWatcher() {
-    stopFileWatcher();
-    fileWatchInterval = setInterval(checkForExternalChanges, FILE_CHECK_INTERVAL);
-  }
-
-  /**
-   * Stop watching for file changes.
-   */
-  function stopFileWatcher() {
-    if (fileWatchInterval) {
-      clearInterval(fileWatchInterval);
-      fileWatchInterval = null;
-    }
-  }
-
-  /**
-   * Save the current editor state to the document cache.
-   * Caches content, cursor position, and scroll position for instant restoration.
-   */
-  function saveToCacheIfNeeded() {
-    if (!view || !previousFilePath) return;
-
-    const content = view.state.doc.toString();
-    // Never cache empty content — prevents poisoning the cache with wiped data
-    if (content.trim().length === 0) return;
-    const cursorPos = view.state.selection.main.head;
-    const line = view.state.doc.lineAt(cursorPos);
-    const scrollTop = view.scrollDOM.scrollTop;
-
-    docCache.set(previousFilePath, {
-      content,
-      cursor: {
-        line: line.number,
-        column: cursorPos - line.from,
-      },
-      scrollTop,
-      cachedAt: Date.now(),
-    });
-  }
-
-  /**
-   * Restore editor state from the document cache if available.
-   * Returns true if restored from cache, false if not cached.
-   */
-  function restoreFromCache(filePath: string): boolean {
-    const cached = docCache.get(filePath);
-    if (!cached) return false;
-
-    // Check if file is large (>1MB)
-    const contentSize = new Blob([cached.content]).size;
-    const isLargeFile = contentSize > LARGE_FILE_THRESHOLD;
-
-    if (isLargeFile && !largeFileWarning) {
-      largeFileWarning = true;
-      useBasicMode = true;
-    } else if (!isLargeFile) {
-      largeFileWarning = false;
-      useBasicMode = false;
-    }
-
-    if (view) {
-      // Replace content
-      lastSavedContent = cached.content;
-      isDirty.set(false);
-      const doc = view.state.doc;
-      view.dispatch({
-        changes: { from: 0, to: doc.length, insert: cached.content },
-      });
-      wordCount.set(countWords(cached.content));
-      tokenCount.set(countTokens(cached.content));
-
-      // Restore cursor position
-      const newDoc = view.state.doc;
-      if (cached.cursor.line <= newDoc.lines) {
-        const line = newDoc.line(cached.cursor.line);
-        const targetPos = Math.min(line.from + cached.cursor.column, line.to);
-        view.dispatch({
-          selection: { anchor: targetPos, head: targetPos },
-        });
-      }
-
-      // Restore scroll position (on next frame to ensure DOM is updated)
-      requestAnimationFrame(() => {
-        if (view) {
-          view.scrollDOM.scrollTop = cached.scrollTop;
+  /** Evict the least recently used pool entries beyond MAX_POOL_SIZE. */
+  function evictIfNeeded(): void {
+    while (pool.size > MAX_POOL_SIZE) {
+      // Find the oldest entry in accessOrder that is NOT the active tab
+      let evictId: string | null = null;
+      for (const id of accessOrder) {
+        if (id !== activeTabId && pool.has(id)) {
+          evictId = id;
+          break;
         }
-      });
-    } else if (editorEl) {
-      // Create new view with cached content
-      lastSavedContent = cached.content;
-      isDirty.set(false);
-      wordCount.set(countWords(cached.content));
-      tokenCount.set(countTokens(cached.content));
-
-      view = new EditorView({
-        state: EditorState.create({
-          doc: cached.content,
-          extensions: createExtensions(),
-        }),
-        parent: editorEl,
-      });
-
-      // Restore cursor position
-      const doc = view.state.doc;
-      if (cached.cursor.line <= doc.lines) {
-        const line = doc.line(cached.cursor.line);
-        const targetPos = Math.min(line.from + cached.cursor.column, line.to);
-        view.dispatch({
-          selection: { anchor: targetPos, head: targetPos },
-        });
       }
+      if (!evictId) break;
 
-      // Restore scroll position (on next frame to ensure DOM is updated)
-      requestAnimationFrame(() => {
-        if (view) {
-          view.scrollDOM.scrollTop = cached.scrollTop;
-        }
+      const entry = pool.get(evictId)!;
+      // Serialize the state (including undo history)
+      serializedPool.set(evictId, {
+        stateJSON: entry.view.state.toJSON({ history: historyField }),
+        scrollTop: entry.view.scrollDOM.scrollTop,
+        lastSavedContent: entry.lastSavedContent,
+        useBasicMode: entry.useBasicMode,
       });
-    }
 
-    return true;
+      // Destroy the live view and remove its container
+      entry.view.destroy();
+      entry.container.remove();
+      pool.delete(evictId);
+
+      // Remove from access order
+      const idx = accessOrder.indexOf(evictId);
+      if (idx >= 0) accessOrder.splice(idx, 1);
+    }
   }
 
-  function createExtensions() {
+  // ── EditorView Factory ────────────────────────────────────────────────
+
+  function createExtensions(useBasicMode: boolean) {
     const baseExtensions = [
       markdown({ base: markdownLanguage }),
       history(),
@@ -315,172 +181,316 @@
       }),
     ];
 
-    // Add heavy decorations only for normal-sized files
     if (!useBasicMode) {
-      baseExtensions.push(
-        softRender(),
-        frontmatterDecoration()
-      );
+      baseExtensions.push(softRender(), frontmatterDecoration());
     }
 
     return baseExtensions;
   }
 
-  function createView(content: string) {
-    if (!editorEl) return;
-    destroyView();
+  /**
+   * Get or create an EditorView for a given tab. Returns the pool entry.
+   * If a serialized state exists, restores it (including undo history).
+   * Otherwise creates a fresh editor with the provided content.
+   */
+  function getOrCreateEntry(id: string, content: string): PoolEntry {
+    // Check if already in the live pool
+    const existing = pool.get(id);
+    if (existing) {
+      touchAccess(id);
+      return existing;
+    }
 
-    // Check if file is large (>1MB)
+    // Create a container div for this editor instance
+    const container = document.createElement('div');
+    container.className = 'editor-instance';
+    container.style.display = 'none';
+    container.style.flex = '1';
+    container.style.minHeight = '0';
+    container.style.flexDirection = 'column';
+    container.style.overflow = 'hidden';
+
+    // Determine if file is large
     const contentSize = new Blob([content]).size;
     const isLargeFile = contentSize > LARGE_FILE_THRESHOLD;
+    const useBasicMode = isLargeFile;
 
-    if (isLargeFile && !largeFileWarning) {
-      largeFileWarning = true;
-      useBasicMode = true;
-    } else if (!isLargeFile) {
-      largeFileWarning = false;
-      useBasicMode = false;
+    let view: EditorView;
+    let scrollTop = 0;
+    let lastSavedContent = content;
+
+    // Check for serialized state (evicted editor with preserved undo history)
+    const serialized = serializedPool.get(id);
+    if (serialized) {
+      serializedPool.delete(id);
+      scrollTop = serialized.scrollTop;
+      lastSavedContent = serialized.lastSavedContent;
+
+      const state = EditorState.fromJSON(
+        serialized.stateJSON,
+        { extensions: createExtensions(serialized.useBasicMode) },
+        { history: historyField }
+      );
+      view = new EditorView({ state, parent: container });
+    } else {
+      // Fresh editor
+      view = new EditorView({
+        state: EditorState.create({
+          doc: content,
+          extensions: createExtensions(useBasicMode),
+        }),
+        parent: container,
+      });
     }
 
-    lastSavedContent = content;
-    isDirty.set(false);
-    wordCount.set(countWords(content));
-    tokenCount.set(countTokens(content));
+    const entry: PoolEntry = {
+      view,
+      container,
+      scrollTop,
+      lastSavedContent,
+      useBasicMode,
+    };
 
-    view = new EditorView({
-      state: EditorState.create({
-        doc: content,
-        extensions: createExtensions(),
-      }),
-      parent: editorEl,
-    });
+    pool.set(id, entry);
+    touchAccess(id);
+    evictIfNeeded();
+
+    return entry;
   }
 
-  function destroyView() {
-    if (view) {
-      view.destroy();
-      view = null;
+  // ── Show / Hide ───────────────────────────────────────────────────────
+
+  let previousActiveTabId: string | null = null;
+
+  /**
+   * Main reactive effect: whenever the active tab changes, show its editor
+   * and hide the previously active one. Handles content loading and
+   * initial creation.
+   */
+  $effect(() => {
+    const currentTabId = activeTabId;
+    const tab = activeDocTab;
+
+    if (!editorHost || !currentTabId || !tab) {
+      // No active document tab — hide all
+      hideEntry(previousActiveTabId);
+      stopFileWatcher();
+      previousActiveTabId = null;
+      return;
     }
+
+    // Content still loading — wait
+    if (tab.contentLoading || tab.content === null) {
+      return;
+    }
+
+    const isSwitching = previousActiveTabId !== currentTabId;
+
+    if (isSwitching) {
+      // Save scroll position of previous tab and hide it
+      hideEntry(previousActiveTabId);
+      stopFileWatcher();
+      dismissConflict();
+    }
+
+    // Get or create the editor for this tab
+    const entry = getOrCreateEntry(currentTabId, tab.content);
+
+    // Ensure the container is in the host DOM
+    if (!editorHost.contains(entry.container)) {
+      editorHost.appendChild(entry.container);
+    }
+
+    if (isSwitching) {
+      // Show this editor
+      entry.container.style.display = 'flex';
+
+      // Restore scroll position on next frame
+      requestAnimationFrame(() => {
+        if (entry.view.scrollDOM) {
+          entry.view.scrollDOM.scrollTop = entry.scrollTop;
+        }
+      });
+
+      // Update lastSavedContent and dirty state for the tab
+      entry.lastSavedContent = tab.content!;
+      isDirty.set(false);
+      const content = entry.view.state.doc.toString();
+      wordCount.set(countWords(content));
+      tokenCount.set(countTokens(content));
+
+      // Update large file warning
+      const contentSize = new Blob([tab.content!]).size;
+      largeFileWarning = contentSize > LARGE_FILE_THRESHOLD;
+
+      previousActiveTabId = currentTabId;
+      startFileWatcher();
+    } else {
+      // Same tab — check if content was externally reloaded (e.g., conflict resolution)
+      const viewContent = entry.view.state.doc.toString();
+      if (tab.content !== entry.lastSavedContent && tab.content !== viewContent) {
+        // External content change — replace content in the editor
+        replaceContent(entry, tab.content);
+      }
+    }
+  });
+
+  function hideEntry(id: string | null): void {
+    if (!id) return;
+    const entry = pool.get(id);
+    if (!entry) return;
+
+    // Save scroll position before hiding
+    entry.scrollTop = entry.view.scrollDOM.scrollTop;
+    entry.container.style.display = 'none';
   }
 
-  function replaceContent(content: string) {
-    if (!view) return;
-
-    // Check if file is large (>1MB)
-    const contentSize = new Blob([content]).size;
-    const isLargeFile = contentSize > LARGE_FILE_THRESHOLD;
-
-    if (isLargeFile && !largeFileWarning) {
-      largeFileWarning = true;
-      useBasicMode = true;
-      // Recreate view with basic mode extensions
-      destroyView();
-      createView(content);
-      return;
-    } else if (!isLargeFile && useBasicMode) {
-      largeFileWarning = false;
-      useBasicMode = false;
-      // Recreate view with full extensions
-      destroyView();
-      createView(content);
-      return;
-    }
-
-    lastSavedContent = content;
+  function replaceContent(entry: PoolEntry, content: string): void {
+    entry.lastSavedContent = content;
     isDirty.set(false);
-    const doc = view.state.doc;
-    view.dispatch({
+    const doc = entry.view.state.doc;
+    entry.view.dispatch({
       changes: { from: 0, to: doc.length, insert: content },
     });
     wordCount.set(countWords(content));
     tokenCount.set(countTokens(content));
   }
 
-  // React to file content changes with cache support
-  $effect(() => {
-    if (currentSelectedFilePath === null) {
-      // No file selected — tear down editor
-      saveToCacheIfNeeded();
-      stopFileWatcher();
-      dismissConflict();
-      destroyView();
-      isDirty.set(false);
-      wordCount.set(0);
-      tokenCount.set(0);
-      previousFilePath = null;
-      lastAppliedFileContent = null;
+  // ── Editor Update Handler ─────────────────────────────────────────────
+
+  function handleUpdate(update: import('@codemirror/view').ViewUpdate) {
+    if (update.docChanged) {
+      const content = update.state.doc.toString();
+      // Find which pool entry this view belongs to
+      const entry = activeTabId ? pool.get(activeTabId) : null;
+      const savedContent = entry?.lastSavedContent ?? '';
+      isDirty.set(content !== savedContent);
+      wordCount.set(countWords(content));
+      tokenCount.set(countTokens(content));
+      // Debounce metadata store update
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        propertiesFileContent.set(content);
+      }, 200);
+    }
+  }
+
+  /** Update activeHeadingIndex based on the editor's scroll position. */
+  function updateActiveHeading() {
+    const entry = activeTabId ? pool.get(activeTabId) : null;
+    if (!entry || currentOutline.length === 0) {
+      activeHeadingIndex.set(-1);
       return;
     }
+    const view = entry.view;
+    const topPos = view.lineBlockAtHeight(view.scrollDOM.scrollTop);
+    const topLine = view.state.doc.lineAt(topPos.from).number;
 
-    // Content still loading for a new file — wait for it to arrive.
-    // Don't act on stale content from the previous file.
-    if (currentFileContentLoading && previousFilePath !== currentSelectedFilePath) {
-      return;
+    let idx = -1;
+    for (let i = 0; i < currentOutline.length; i++) {
+      if (currentOutline[i].line <= topLine + 1) {
+        idx = i;
+      } else {
+        break;
+      }
     }
+    activeHeadingIndex.set(idx);
+  }
 
-    if (currentFileContent === null) return;
+  // ── Save ──────────────────────────────────────────────────────────────
 
-    const isSwitchingFiles = previousFilePath !== currentSelectedFilePath;
+  function handleSave(): boolean {
+    if (!activeTabId || !currentActiveCollection) return true;
+    const entry = pool.get(activeTabId);
+    if (!entry) return true;
 
-    if (isSwitchingFiles) {
-      // Save current file to cache before switching
-      saveToCacheIfNeeded();
-      // Stop watching the previous file
-      stopFileWatcher();
-      // Dismiss any existing conflict notification
+    const tab = activeDocTab;
+    if (!tab) return true;
+
+    const content = entry.view.state.doc.toString();
+    const fullPath = `${currentActiveCollection.path}/${tab.filePath}`;
+
+    entry.lastSavedContent = content;
+    isDirty.set(false);
+    isSaving = true;
+
+    window.api.writeFile(fullPath, content).then(() => {
       dismissConflict();
+    }).catch((err) => {
+      console.error('Save failed:', err);
+    }).finally(() => {
+      isSaving = false;
+    });
+    return true;
+  }
 
-      // Try to restore from cache
-      const restored = restoreFromCache(currentSelectedFilePath);
+  // ── File Change Detection ─────────────────────────────────────────────
 
-      if (!restored) {
-        // Not in cache, load normally from disk
-        if (view) {
-          replaceContent(currentFileContent);
-        } else if (editorEl) {
-          createView(currentFileContent);
-        }
+  async function checkForExternalChanges() {
+    if (!activeTabId || !currentActiveCollection) return;
+    const entry = pool.get(activeTabId);
+    if (!entry) return;
+    if (isSaving) return;
+
+    const tab = activeDocTab;
+    if (!tab) return;
+
+    const fullPath = `${currentActiveCollection.path}/${tab.filePath}`;
+
+    try {
+      const diskContent = await window.api.readFile(fullPath);
+      if (diskContent !== entry.lastSavedContent) {
+        showConflict(tab.filePath);
+        stopFileWatcher();
       }
-
-      lastAppliedFileContent = currentFileContent;
-      // Update previous file path
-      previousFilePath = currentSelectedFilePath;
-      // Start watching the new file for external changes
-      startFileWatcher();
-    } else {
-      // Same file — only update if the store content actually changed
-      // (e.g., external reload). This prevents overwriting user edits
-      // when the $effect re-runs for unrelated dependency changes.
-      if (currentFileContent !== lastAppliedFileContent) {
-        lastAppliedFileContent = currentFileContent;
-        if (view) {
-          replaceContent(currentFileContent);
-        } else if (editorEl) {
-          createView(currentFileContent);
-        }
-      }
+    } catch {
+      stopFileWatcher();
     }
-  });
+  }
+
+  function startFileWatcher() {
+    stopFileWatcher();
+    fileWatchInterval = setInterval(checkForExternalChanges, FILE_CHECK_INTERVAL);
+  }
+
+  function stopFileWatcher() {
+    if (fileWatchInterval) {
+      clearInterval(fileWatchInterval);
+      fileWatchInterval = null;
+    }
+  }
+
+  // ── Large File Warning ────────────────────────────────────────────────
+
+  function dismissLargeFileWarning() {
+    largeFileWarning = false;
+  }
+
+  // ── Lifecycle ─────────────────────────────────────────────────────────
 
   onMount(() => {
-    if (currentFileContent !== null && currentSelectedFilePath !== null && editorEl) {
-      createView(currentFileContent);
-    }
+    // The main $effect handles initial creation
   });
 
   onDestroy(() => {
     if (debounceTimer) clearTimeout(debounceTimer);
     stopFileWatcher();
     dismissConflict();
-    saveToCacheIfNeeded();
-    destroyView();
+
+    // Destroy all pooled EditorViews
+    for (const [, entry] of pool) {
+      entry.view.destroy();
+      entry.container.remove();
+    }
+    pool.clear();
+    serializedPool.clear();
+    accessOrder.length = 0;
+
     isDirty.set(false);
     wordCount.set(0);
     tokenCount.set(0);
-    unsubFileContent();
-    unsubSelectedFile();
+
     unsubCollection();
-    unsubLoading();
     unsubSave();
     unsubScrollToLine();
     unsubOutline();
@@ -488,7 +498,7 @@
   });
 </script>
 
-{#if currentSelectedFilePath}
+{#if activeDocTab}
   <div class="editor-container">
     <ConflictNotification />
     {#if largeFileWarning}
@@ -503,7 +513,7 @@
         </button>
       </div>
     {/if}
-    <div class="editor-content" bind:this={editorEl}></div>
+    <div class="editor-content" bind:this={editorHost}></div>
   </div>
 {:else}
   <div class="empty-state">
@@ -525,6 +535,12 @@
   .editor-content {
     flex: 1;
     min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .editor-content :global(.editor-instance) {
     display: flex;
     flex-direction: column;
     overflow: hidden;
