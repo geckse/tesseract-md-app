@@ -69,6 +69,14 @@ describe('getNodePath', () => {
   it('handles null', () => {
     expect(getNodePath(null)).toBe('null')
   })
+
+  it('handles undefined', () => {
+    expect(getNodePath(undefined)).toBe('undefined')
+  })
+
+  it('extracts id from object with extra properties', () => {
+    expect(getNodePath({ id: 'test.md', x: 10, y: 20, color: '#fff' })).toBe('test.md')
+  })
 })
 
 // ─── buildSearchScoreMap ─────────────────────────────────────────────
@@ -100,6 +108,17 @@ describe('buildSearchScoreMap', () => {
     expect(map.size).toBe(2)
     expect(map.get('a.md')).toBe(0.8)
     expect(map.get('b.md')).toBe(0.6)
+  })
+
+  it('handles zero scores', () => {
+    const map = buildSearchScoreMap([makeResult('a.md', 0)])
+    expect(map.get('a.md')).toBe(0)
+  })
+
+  it('single result maps correctly', () => {
+    const map = buildSearchScoreMap([makeResult('solo.md', 0.42)])
+    expect(map.size).toBe(1)
+    expect(map.get('solo.md')).toBe(0.42)
   })
 })
 
@@ -133,6 +152,11 @@ describe('buildGraphContextMap', () => {
     )
     expect(map.get('x.md')).toBeCloseTo(0.4)
   })
+
+  it('attenuates at hop distance 3', () => {
+    const map = buildGraphContextMap([makeContextItem('far.md', 3)], new Map())
+    expect(map.get('far.md')).toBeCloseTo(0.4 / 3)
+  })
 })
 
 // ─── computeSearchNodeOpacity ────────────────────────────────────────
@@ -152,6 +176,14 @@ describe('computeSearchNodeOpacity', () => {
 
   it('returns 0.65 for score 0.5', () => {
     expect(computeSearchNodeOpacity(0.5)).toBeCloseTo(0.65)
+  })
+
+  it('increases monotonically with score', () => {
+    const o1 = computeSearchNodeOpacity(0.2)
+    const o2 = computeSearchNodeOpacity(0.5)
+    const o3 = computeSearchNodeOpacity(0.8)
+    expect(o1).toBeLessThan(o2)
+    expect(o2).toBeLessThan(o3)
   })
 })
 
@@ -180,5 +212,9 @@ describe('computeEdgeSearchAlpha', () => {
 
   it('returns 0.2 when both scores are 0', () => {
     expect(computeEdgeSearchAlpha(0, 0)).toBeCloseTo(0.2)
+  })
+
+  it('is symmetric — swapping src/tgt gives same result', () => {
+    expect(computeEdgeSearchAlpha(1.0, 0.5)).toBeCloseTo(computeEdgeSearchAlpha(0.5, 1.0))
   })
 })
