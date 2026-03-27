@@ -1,9 +1,147 @@
-import { writable, get } from 'svelte/store'
+import { writable, derived, get } from 'svelte/store'
+import type { Writable } from 'svelte/store'
 import type { GraphData, GraphLevel, GraphNode, NeighborhoodResult, NeighborhoodNode } from '../types/cli'
 import { activeCollection } from './collections'
+import { workspace } from './workspace.svelte'
+import type { GraphTab, GraphColoringMode } from './workspace.svelte'
 
-/** Whether the graph view is currently active. */
-export const graphViewActive = writable<boolean>(false)
+// Re-export the type for backward compat (consumers import it from graph.ts)
+export type { GraphColoringMode }
+
+// ─── Workspace-derived graph stores ──────────────────────────────────
+//
+// graphViewActive, graphLevel, graphColoringMode, graphPathFilter are
+// now derived from the workspace's focused pane's graph tab state.
+// They use a notification trigger (_graphSync) rather than Svelte 5
+// rune reactivity so they work in plain .ts.
+//
+// Call syncGraphStoresFromTab() after any workspace mutation that
+// changes the active tab (switchTab, closeTab, tab bar click, etc.).
+
+/**
+ * Internal notification trigger. Derived stores re-evaluate when this
+ * writable is bumped, pulling fresh values from workspace state.
+ */
+const _graphSync = writable(0)
+
+/**
+ * Notify backward-compat derived stores that the workspace focus has changed.
+ * Call this after any workspace mutation that changes the active tab.
+ */
+export function syncGraphStoresFromTab(): void {
+  _graphSync.update((n) => n + 1)
+}
+
+// ─── Helper: find the focused pane's graph tab ──────────────────────
+
+/** Get the graph tab for the currently focused pane. */
+function getFocusedGraphTab(): GraphTab | undefined {
+  const pane = workspace.focusedPane
+  if (!pane) return undefined
+  const tab = workspace.tabs[pane.graphTabId]
+  if (tab && tab.kind === 'graph') return tab
+  return undefined
+}
+
+// ─── graphViewActive: derived from whether focused tab is a GraphTab ─
+
+/**
+ * Whether the graph view is currently active — derived from whether the
+ * focused pane's active tab is the graph tab.
+ */
+export const graphViewActive = derived(_graphSync, () => {
+  const tab = workspace.focusedTab
+  return tab?.kind === 'graph'
+})
+
+// ─── graphLevel: derived from focused pane's graph tab ──────────────
+
+/**
+ * Current graph detail level (document or chunk) — derived from focused
+ * pane's graph tab. Retains .set()/.update() for backward compat.
+ */
+export const graphLevel: Writable<GraphLevel> = {
+  subscribe: derived(_graphSync, () => {
+    return getFocusedGraphTab()?.graphLevel ?? 'document'
+  }).subscribe,
+  set(value: GraphLevel) {
+    const graphTab = getFocusedGraphTab()
+    if (graphTab) {
+      graphTab.graphLevel = value
+    }
+    _graphSync.update((n) => n + 1)
+  },
+  update(fn: (value: GraphLevel) => GraphLevel) {
+    const graphTab = getFocusedGraphTab()
+    const current = graphTab?.graphLevel ?? 'document'
+    const newValue = fn(current)
+    if (graphTab) {
+      graphTab.graphLevel = newValue
+    }
+    _graphSync.update((n) => n + 1)
+  },
+}
+
+// ─── graphColoringMode: derived from focused pane's graph tab ───────
+
+/**
+ * Current graph coloring mode — derived from focused pane's graph tab.
+ * Retains .set()/.update() for backward compat.
+ */
+export const graphColoringMode: Writable<GraphColoringMode> = {
+  subscribe: derived(_graphSync, () => {
+    return getFocusedGraphTab()?.graphColoringMode ?? 'cluster'
+  }).subscribe,
+  set(value: GraphColoringMode) {
+    const graphTab = getFocusedGraphTab()
+    if (graphTab) {
+      graphTab.graphColoringMode = value
+    }
+    _graphSync.update((n) => n + 1)
+  },
+  update(fn: (value: GraphColoringMode) => GraphColoringMode) {
+    const graphTab = getFocusedGraphTab()
+    const current = graphTab?.graphColoringMode ?? 'cluster'
+    const newValue = fn(current)
+    if (graphTab) {
+      graphTab.graphColoringMode = newValue
+    }
+    _graphSync.update((n) => n + 1)
+  },
+}
+
+// ─── graphPathFilter: derived from focused pane's graph tab ─────────
+
+/**
+ * Optional path filter to scope graph to a subdirectory — derived from
+ * focused pane's graph tab. Retains .set()/.update() for backward compat.
+ */
+export const graphPathFilter: Writable<string | null> = {
+  subscribe: derived(_graphSync, () => {
+    return getFocusedGraphTab()?.graphPathFilter ?? null
+  }).subscribe,
+  set(value: string | null) {
+    const graphTab = getFocusedGraphTab()
+    if (graphTab) {
+      graphTab.graphPathFilter = value
+    }
+    _graphSync.update((n) => n + 1)
+  },
+  update(fn: (value: string | null) => string | null) {
+    const graphTab = getFocusedGraphTab()
+    const current = graphTab?.graphPathFilter ?? null
+    const newValue = fn(current)
+    if (graphTab) {
+      graphTab.graphPathFilter = newValue
+    }
+    _graphSync.update((n) => n + 1)
+  },
+}
+
+// ─── Shared transient state (not per-tab) ───────────────────────────
+//
+// These remain plain writables because they represent transient UI
+// state within the graph view that doesn't need per-tab isolation.
 
 /** Graph data from the last successful load. */
 export const graphData = writable<GraphData | null>(null)
@@ -20,23 +158,11 @@ export const graphSelectedNode = writable<GraphNode | null>(null)
 /** Currently opened node in the graph (shown in side panel preview). */
 export const graphOpenedNode = writable<GraphNode | null>(null)
 
-/** Graph coloring mode: cluster-based, folder-based, or none. */
-export type GraphColoringMode = 'cluster' | 'folder' | 'none'
-
-/** Current graph coloring mode. */
-export const graphColoringMode = writable<GraphColoringMode>('cluster')
-
 /** Currently highlighted folder path in the graph. */
 export const graphHighlightedFolder = writable<string | null>(null)
 
 /** File path hovered in search results — transient highlight for graph view. */
 export const graphHoveredFilePath = writable<string | null>(null)
-
-/** Current graph detail level (document or chunk). */
-export const graphLevel = writable<GraphLevel>('document')
-
-/** Optional path filter to scope graph to a subdirectory. */
-export const graphPathFilter = writable<string | null>(null)
 
 /** Set of edge cluster IDs to filter (show only these). Empty set means show all. */
 export const graphEdgeFilter = writable<Set<number>>(new Set())
@@ -47,8 +173,12 @@ export const graphSemanticEdgesEnabled = writable<boolean>(true)
 /** Strength threshold below which edges are considered "weak" (rendered dashed). */
 export const graphEdgeWeakThreshold = writable<number>(0.3)
 
+// ─── Generation counter for async staleness ─────────────────────────
+
 /** Generation counter to discard stale async results. */
 let loadGeneration = 0
+
+// ─── Actions ────────────────────────────────────────────────────────
 
 /** Load graph data for the active collection. */
 export async function loadGraphData(): Promise<void> {
@@ -84,15 +214,37 @@ export async function loadGraphData(): Promise<void> {
   }
 }
 
-/** Toggle the graph view on/off. Loads data when activating. */
+/**
+ * Toggle the graph view on/off.
+ *
+ * In the tab model, "toggling graph on" means switching to the graph tab
+ * in the focused pane; "toggling off" means switching away (to the
+ * previously active document tab, or clearing the active tab).
+ * Loads data when activating.
+ *
+ * Backward-compat shim — kept for consumers like Titlebar.svelte.
+ */
 export function toggleGraphView(): void {
   const isActive = get(graphViewActive)
   if (isActive) {
-    graphViewActive.set(false)
+    // Switch away from the graph tab — activate the first document tab, or null
+    const pane = workspace.focusedPane
+    if (pane) {
+      const docTabId = pane.tabOrder.find(
+        (id) => workspace.tabs[id]?.kind === 'document'
+      )
+      if (docTabId) {
+        workspace.switchTab(docTabId, pane.id)
+      } else {
+        pane.activeTabId = null
+      }
+    }
     graphSelectedNode.set(null)
     graphOpenedNode.set(null)
+    syncGraphStoresFromTab()
   } else {
-    graphViewActive.set(true)
+    workspace.switchToGraphTab()
+    syncGraphStoresFromTab()
     loadGraphData()
   }
 }
@@ -211,7 +363,11 @@ export function openGraphWithNeighborhood(filePath: string, neighborhood: Neighb
   const nodeData: GraphNode = { id: filePath, path: filePath, label: null, cluster_id: null, chunk_index: null }
   graphSelectedNode.set(nodeData)
   graphOpenedNode.set(nodeData)
-  graphViewActive.set(true)
+
+  // Switch to the graph tab in the focused pane
+  workspace.switchToGraphTab()
+  syncGraphStoresFromTab()
+
   graphError.set(null)
   graphLoading.set(false)
 }
@@ -219,18 +375,17 @@ export function openGraphWithNeighborhood(filePath: string, neighborhood: Neighb
 /** Reset all graph state. */
 export function resetGraphState(): void {
   loadGeneration++
-  graphViewActive.set(false)
   graphData.set(null)
   graphLoading.set(false)
   graphError.set(null)
   graphSelectedNode.set(null)
   graphOpenedNode.set(null)
-  graphColoringMode.set('cluster')
   graphHighlightedFolder.set(null)
   graphHoveredFilePath.set(null)
-  graphLevel.set('document')
-  graphPathFilter.set(null)
   graphEdgeFilter.set(new Set())
   graphSemanticEdgesEnabled.set(true)
   graphEdgeWeakThreshold.set(0.3)
+  // Per-tab state (graphLevel, graphColoringMode, graphPathFilter) resets
+  // with workspace.reset() — no need to reset here.
+  syncGraphStoresFromTab()
 }
