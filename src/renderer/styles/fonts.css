@@ -1,6 +1,8 @@
-/*
- * Font declarations.
- * Space Grotesk, JetBrains Mono, and Material Symbols Outlined
- * are loaded via system fonts / OS-level availability.
- * Add @font-face rules here if bundling fonts locally.
- */
+/* Material Symbols Outlined — icon font used throughout the app */
+@import 'material-symbols/outlined.css';
+
+/* Space Grotesk — display/body font */
+@import '@fontsource-variable/space-grotesk';
+
+/* JetBrains Mono — code/monospace font */
+@import '@fontsource-variable/jetbrains-mono';
