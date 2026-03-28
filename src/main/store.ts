@@ -35,6 +35,26 @@ export interface RecentEntry {
 /** Update channel preference */
 export type UpdateChannel = 'stable' | 'beta'
 
+/** A persisted tab — only file paths and layout, never file content. */
+export interface PersistedTab {
+  kind: 'document' | 'graph'
+  filePath?: string // Only for document tabs
+  graphLevel?: string // Only for graph tabs: 'document' | 'chunk'
+}
+
+/** A persisted pane within a window session. */
+export interface PersistedPane {
+  tabs: PersistedTab[]
+  activeTabIndex: number
+}
+
+/** Persisted window state — restored on app restart. */
+export interface PersistedWindowState {
+  panes: PersistedPane[]
+  splitEnabled: boolean
+  splitRatio: number // 0-1 fraction for left pane width
+}
+
 /** Schema for the persistent store */
 export interface AppStore {
   collections: Collection[]
@@ -52,6 +72,7 @@ export interface AppStore {
   updateChannel: UpdateChannel
   lastUpdateCheck: number | null
   skipVersion: string | null
+  windowSessions: PersistedWindowState[]
 }
 
 /** electron-store schema definition for validation */
@@ -151,6 +172,43 @@ const schema = {
   skipVersion: {
     type: ['string', 'null'] as const,
     default: null
+  },
+  windowSessions: {
+    type: 'array' as const,
+    default: [] as PersistedWindowState[],
+    items: {
+      type: 'object' as const,
+      properties: {
+        panes: {
+          type: 'array' as const,
+          items: {
+            type: 'object' as const,
+            properties: {
+              tabs: {
+                type: 'array' as const,
+                items: {
+                  type: 'object' as const,
+                  properties: {
+                    kind: {
+                      type: 'string' as const,
+                      enum: ['document', 'graph']
+                    },
+                    filePath: { type: 'string' as const },
+                    graphLevel: { type: 'string' as const }
+                  },
+                  required: ['kind'] as const
+                }
+              },
+              activeTabIndex: { type: 'number' as const }
+            },
+            required: ['tabs', 'activeTabIndex'] as const
+          }
+        },
+        splitEnabled: { type: 'boolean' as const },
+        splitRatio: { type: 'number' as const }
+      },
+      required: ['panes', 'splitEnabled', 'splitRatio'] as const
+    }
   }
 }
 
@@ -323,4 +381,16 @@ export function getSkipVersion(): string | null {
 export function setSkipVersion(version: string | null): void {
   const s = initStore()
   s.set('skipVersion', version)
+}
+
+/** Get all persisted window sessions */
+export function getWindowSessions(): PersistedWindowState[] {
+  const s = initStore()
+  return s.get('windowSessions', [])
+}
+
+/** Save window sessions (replaces all stored sessions) */
+export function setWindowSessions(sessions: PersistedWindowState[]): void {
+  const s = initStore()
+  s.set('windowSessions', sessions)
 }
