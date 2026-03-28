@@ -1,6 +1,7 @@
 import { get } from 'svelte/store'
 import { flatFileList, selectedFilePath, syncFileStoresFromTab } from '../stores/files'
 import { workspace } from '../stores/workspace.svelte'
+import { recordNavigation } from '../stores/navigation'
 
 /**
  * Resolve a wikilink target (e.g. "my-note") to a file path in the collection.
@@ -107,7 +108,8 @@ export function handleLinkClick(event: MouseEvent): boolean {
       if (resolved) {
         event.preventDefault()
         event.stopPropagation()
-        workspace.openTab(resolved)
+        recordNavigation(resolved)
+        workspace.openFile(resolved)
         syncFileStoresFromTab()
         return true
       }
@@ -126,7 +128,8 @@ export function handleLinkClick(event: MouseEvent): boolean {
       if (resolved) {
         event.preventDefault()
         event.stopPropagation()
-        workspace.openTab(resolved)
+        recordNavigation(resolved)
+        workspace.openFile(resolved)
         syncFileStoresFromTab()
         return true
       }

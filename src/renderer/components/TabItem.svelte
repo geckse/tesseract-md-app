@@ -7,26 +7,39 @@
   interface TabItemProps {
     tab: TabState
     isActive?: boolean
+    paneFocused?: boolean
     draggable?: boolean
     onactivate?: (tabId: string) => void
     onclose?: (tabId: string) => void
     onmiddleclick?: (tabId: string) => void
+    oncontextmenu?: (tabId: string, event: MouseEvent) => void
   }
 
   let {
     tab,
     isActive = false,
+    paneFocused = true,
     draggable = true,
     onactivate,
     onclose,
     onmiddleclick,
+    oncontextmenu: oncontextmenuprop,
   }: TabItemProps = $props()
 
   const isGraph = $derived(tab.kind === 'graph')
+  const isAsset = $derived(tab.kind === 'asset')
   const isDirty = $derived(tab.kind === 'document' && tab.isDirty)
-  const icon = $derived(isGraph ? 'hub' : 'description')
+  const icon = $derived(
+    isGraph ? 'hub' :
+    isAsset && tab.kind === 'asset' ? (
+      tab.mimeCategory === 'image' ? 'image' :
+      tab.mimeCategory === 'pdf' ? 'picture_as_pdf' :
+      tab.mimeCategory === 'video' ? 'videocam' :
+      tab.mimeCategory === 'audio' ? 'audiotrack' : 'attach_file'
+    ) : 'description'
+  )
   const canClose = $derived(!isGraph)
-  const canDrag = $derived(draggable && !isGraph)
+  const canDrag = $derived(draggable)
 
   let isDragging = $state(false)
 
@@ -41,6 +54,11 @@
       e.preventDefault()
       onmiddleclick?.(tab.id)
     }
+  }
+
+  function handleContextMenu(e: MouseEvent) {
+    e.preventDefault()
+    oncontextmenuprop?.(tab.id, e)
   }
 
   function handleCloseClick(e: MouseEvent) {
@@ -99,11 +117,13 @@
 
 <button
   class="tab-item"
-  class:active={isActive}
+  class:active={isActive && paneFocused}
+  class:active-dimmed={isActive && !paneFocused}
   class:graph={isGraph}
   class:dragging={isDragging}
   onclick={handleClick}
   onauxclick={handleAuxClick}
+  oncontextmenu={handleContextMenu}
   draggable={canDrag}
   ondragstart={handleDragStart}
   ondragend={handleDragEnd}
@@ -167,6 +187,11 @@
     border-bottom-color: var(--color-primary, #00E5FF);
   }
 
+  .tab-item.active-dimmed {
+    color: var(--color-text, #e4e4e7);
+    border-bottom-color: rgba(0, 229, 255, 0.3);
+  }
+
   .tab-item.graph {
     cursor: pointer;
   }
@@ -184,6 +209,10 @@
 
   .tab-item.active .tab-icon {
     color: var(--color-primary, #00E5FF);
+  }
+
+  .tab-item.active-dimmed .tab-icon {
+    color: rgba(0, 229, 255, 0.4);
   }
 
   /* --- Title --- */

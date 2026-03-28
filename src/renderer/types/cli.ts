@@ -273,6 +273,40 @@ export interface FileTree {
   deleted_count: number;
 }
 
+// ─── Asset Discovery (App-Only Types — NOT mirroring Rust) ──────────
+
+/** Mime category for display purposes. */
+export type MimeCategory = 'image' | 'pdf' | 'video' | 'audio' | 'other';
+
+/** A non-markdown asset file discovered by the app scanner. */
+export interface AssetFileNode {
+  name: string;
+  path: string;
+  is_dir: boolean;
+  children: AssetFileNode[];
+  fileSize?: number;
+  mimeCategory?: MimeCategory;
+}
+
+/** Result of app-level asset scanning. */
+export interface AssetScanResult {
+  root: AssetFileNode;
+  totalAssets: number;
+  scanDurationMs: number;
+}
+
+/** Unified tree node combining CLI markdown nodes and app asset nodes. */
+export interface UnifiedTreeNode {
+  name: string;
+  path: string;
+  is_dir: boolean;
+  children: UnifiedTreeNode[];
+  state: FileState | null;
+  isAsset: boolean;
+  mimeCategory?: MimeCategory;
+  fileSize?: number;
+}
+
 // ─── Links ───────────────────────────────────────────────────────────
 
 /** A single link extracted from a markdown file. */

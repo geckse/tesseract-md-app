@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import { get } from 'svelte/store';
   import { createWysiwygEditor, type WysiwygEditor as WysiwygEditorInstance } from '../lib/tiptap/editor-factory';
   import { splitFrontmatter, joinFrontmatter } from '../lib/tiptap/markdown-bridge';
   import '../lib/tiptap/wysiwyg-theme.css';
@@ -222,6 +223,7 @@
         onUpdate: () => handleEditorUpdate(),
         collectionPath: currentActiveCollection?.path ?? '',
         collectionId: currentActiveCollection?.id ?? '',
+        currentFilePath: activeDocTab?.filePath ?? '',
       });
       editor.editor.commands.setContent(serialized.editorJSON);
     } else {
@@ -233,6 +235,7 @@
         onUpdate: () => handleEditorUpdate(),
         collectionPath: currentActiveCollection?.path ?? '',
         collectionId: currentActiveCollection?.id ?? '',
+        currentFilePath: activeDocTab?.filePath ?? '',
       });
     }
 
@@ -482,6 +485,183 @@
     unsubSave();
     unsubEditorMode();
   });
+
+  // ── Drag-and-drop (internal tree + external OS) ──────────────────────
+
+  const ASSET_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico'])
+  const ASSET_EXTS = new Set([...ASSET_IMAGE_EXTS, 'pdf', 'mp4', 'webm', 'mov', 'mp3', 'wav', 'ogg'])
+
+  function getRelativePath(fromFile: string, toFile: string): string {
+    const fromParts = fromFile.split('/')
+    fromParts.pop() // Remove filename to get directory
+    const toParts = toFile.split('/')
+
+    // Find common prefix length
+    let common = 0
+    while (common < fromParts.length && common < toParts.length && fromParts[common] === toParts[common]) {
+      common++
+    }
+
+    const ups = fromParts.length - common
+    const rest = toParts.slice(common)
+    const prefix = ups > 0 ? Array(ups).fill('..').join('/') : '.'
+    return ups > 0 ? `${prefix}/${rest.join('/')}` : rest.join('/')
+  }
+
+  function handleEditorDragOver(e: DragEvent) {
+    e.preventDefault()
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = 'link'
+    }
+  }
+
+  async function handleEditorDrop(e: DragEvent) {
+    e.preventDefault()
+    if (!e.dataTransfer) return
+
+    const currentEditor = currentEntry?.editor
+    if (!currentEditor) return
+
+    const currentFile = activeDocTab?.filePath
+    if (!currentFile) return
+    const collection = get(activeCollection)
+    if (!collection) return
+
+    // Case 1: Internal tree drag (application/x-mdvdb-path)
+    const mdvdbPath = e.dataTransfer.getData('application/x-mdvdb-path')
+    if (mdvdbPath) {
+      const ext = mdvdbPath.split('.').pop()?.toLowerCase() ?? ''
+      const relPath = getRelativePath(currentFile, mdvdbPath)
+      const name = mdvdbPath.split('/').pop() ?? mdvdbPath
+
+      if (ASSET_IMAGE_EXTS.has(ext)) {
+        currentEditor.chain().focus().setImage({ src: relPath, alt: name }).run()
+      } else {
+        currentEditor.chain().focus().insertContent(`[${name}](${relPath})`).run()
+      }
+      return
+    }
+
+    // Case 2: External OS drag (File objects)
+    const files = e.dataTransfer.files
+    if (files.length > 0) {
+      for (const file of files) {
+        const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
+        if (!ASSET_EXTS.has(ext)) continue
+
+        const absolutePath = window.api.getPathForFile(file)
+        if (!absolutePath) continue
+
+        const checkResult = await window.api.isWithinCollection(absolutePath)
+
+        if (checkResult.within && checkResult.collectionPath === collection.path) {
+          // File is inside the collection — just link it
+          const collPath = collection.path.endsWith('/') ? collection.path : collection.path + '/'
+          const relToCollection = absolutePath.startsWith(collPath)
+            ? absolutePath.slice(collPath.length)
+            : file.name
+          const relPath = getRelativePath(currentFile, relToCollection)
+          const name = file.name
+
+          if (ASSET_IMAGE_EXTS.has(ext)) {
+            currentEditor.chain().focus().setImage({ src: relPath, alt: name }).run()
+          } else {
+            currentEditor.chain().focus().insertContent(`[${name}](${relPath})`).run()
+          }
+        } else {
+          // File is outside the collection — prompt and copy
+          const confirmed = window.confirm(
+            `"${file.name}" is outside your collection. Copy it alongside the current file?`
+          )
+          if (!confirmed) continue
+
+          // Determine destination path (same directory as current file)
+          const currentDir = currentFile.split('/').slice(0, -1).join('/')
+          let destName = file.name
+          let destRelPath = currentDir ? `${currentDir}/${destName}` : destName
+          let destAbsPath = `${collection.path}/${destRelPath}`
+
+          // Auto-suffix if file already exists
+          try {
+            await window.api.fileInfo(destAbsPath)
+            // File exists — add suffix
+            const baseName = destName.replace(/\.[^.]+$/, '')
+            const extension = destName.includes('.') ? '.' + destName.split('.').pop() : ''
+            let suffix = 1
+            while (true) {
+              destName = `${baseName}-${suffix}${extension}`
+              destRelPath = currentDir ? `${currentDir}/${destName}` : destName
+              destAbsPath = `${collection.path}/${destRelPath}`
+              try {
+                await window.api.fileInfo(destAbsPath)
+                suffix++
+              } catch {
+                break
+              }
+            }
+          } catch {
+            // File doesn't exist — good
+          }
+
+          await window.api.copyFile(absolutePath, destAbsPath)
+          const relPath = getRelativePath(currentFile, destRelPath)
+
+          if (ASSET_IMAGE_EXTS.has(ext)) {
+            currentEditor.chain().focus().setImage({ src: relPath, alt: destName }).run()
+          } else {
+            currentEditor.chain().focus().insertContent(`[${destName}](${relPath})`).run()
+          }
+        }
+      }
+    }
+  }
+
+  // ── Clipboard paste (images) ─────────────────────────────────────────
+
+  async function handleEditorPaste(e: ClipboardEvent) {
+    if (!e.clipboardData) return
+
+    const items = Array.from(e.clipboardData.items)
+    const imageItem = items.find((item) => item.type.startsWith('image/'))
+    if (!imageItem) return // Let TipTap handle normal paste
+
+    e.preventDefault()
+
+    const currentEditor = currentEntry?.editor
+    if (!currentEditor) return
+    const currentFile = activeDocTab?.filePath
+    if (!currentFile) return
+    const collection = get(activeCollection)
+    if (!collection) return
+
+    const blob = imageItem.getAsFile()
+    if (!blob) return
+
+    // Read as base64
+    const base64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const result = reader.result as string
+        // Strip data URL prefix to get raw base64
+        const base64Data = result.split(',')[1]
+        resolve(base64Data)
+      }
+      reader.onerror = reject
+      reader.readAsDataURL(blob)
+    })
+
+    // Save alongside current file
+    const timestamp = Date.now()
+    const currentDir = currentFile.split('/').slice(0, -1).join('/')
+    const filename = `pasted-${timestamp}.png`
+    const relPath = currentDir ? `${currentDir}/${filename}` : filename
+    const absPath = `${collection.path}/${relPath}`
+
+    await window.api.writeBinary(absPath, base64)
+
+    // Insert image reference
+    currentEditor.chain().focus().setImage({ src: filename, alt: filename }).run()
+  }
 </script>
 
 {#if activeDocTab}
@@ -500,9 +680,13 @@
         </button>
       </div>
     {/if}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       class="wysiwyg-content"
       bind:this={editorHost}
+      ondragover={handleEditorDragOver}
+      ondrop={handleEditorDrop}
+      onpaste={handleEditorPaste}
     ></div>
   </div>
 {:else}

@@ -6,11 +6,16 @@
     fileTreeError,
     fileStateCounts,
     loadFileTree,
+    loadAssetTree,
     expandAll,
     collapseAll,
     expandedPaths,
     selectedFilePath,
     toggleExpanded,
+    unifiedTree,
+    showAssets,
+    createNewFile,
+    createNewDirectory,
   } from '../stores/files'
   import { activeCollection, activeCollectionId } from '../stores/collections'
   import { runIngest, ingestRunning } from '../stores/ingest'
@@ -18,7 +23,9 @@
   import { setGraphPathFilter, setGraphHighlightedFolder, graphViewActive } from '../stores/graph'
   import { get } from 'svelte/store'
   import type { Collection } from '../../preload/api'
-  import type { FileTree as FileTreeType, FileState, FileTreeNode as FileTreeNodeType } from '../types/cli'
+  import type { FileTree as FileTreeType, FileState, FileTreeNode as FileTreeNodeType, UnifiedTreeNode, MimeCategory } from '../types/cli'
+  import { workspace } from '../stores/workspace.svelte'
+  import { syncFileStoresFromTab } from '../stores/files'
   import {
     calculateVirtualListState,
     scrollToIndex,
@@ -27,10 +34,15 @@
   } from '../lib/virtual-list'
 
   interface FileTreeProps {
-    onfileselect?: (detail: { path: string }) => void
+    onfileselect?: (detail: { path: string; forceNewTab?: boolean }) => void
   }
 
   let { onfileselect }: FileTreeProps = $props()
+
+  function handleAssetSelect(detail: { path: string; mimeCategory: MimeCategory; fileSize?: number }) {
+    workspace.openAssetTab(detail.path, detail.mimeCategory, detail.fileSize)
+    syncFileStoresFromTab()
+  }
 
   // Reactive subscriptions
   let currentFileTree: FileTreeType | null = $state(null)
@@ -58,9 +70,21 @@
   expandedPaths.subscribe((v) => (currentExpandedPaths = v))
   selectedFilePath.subscribe((v) => (currentSelectedFilePath = v))
 
+  // Unified tree
+  let currentUnifiedTree: UnifiedTreeNode | null = $state(null)
+  let currentShowAssets: boolean = $state(true)
+  unifiedTree.subscribe((v) => (currentUnifiedTree = v))
+  showAssets.subscribe((v) => (currentShowAssets = v))
+
+  // New file creation state
+  let newFileInput = $state<{ dirPath: string; type: 'file' | 'folder' } | null>(null)
+  let newFileInputValue = $state('')
+  let newFileError = $state<string | null>(null)
+
   // Context menu state
   let contextMenuPath: string | null = $state(null)
   let contextMenuIsDir: boolean = $state(false)
+  let contextMenuIsAsset: boolean = $state(false)
   let contextMenuPosition = $state({ x: 0, y: 0 })
   let reindexingFile: string | null = $state(null)
 
@@ -80,14 +104,15 @@
   interface FlatNode {
     path: string
     isDir: boolean
+    isAsset: boolean
     depth: number
-    node: FileTreeNodeType
+    node: UnifiedTreeNode
   }
 
-  function buildFlatNodeList(nodes: FileTreeNodeType[], depth: number = 0): FlatNode[] {
+  function buildFlatNodeList(nodes: UnifiedTreeNode[], depth: number = 0): FlatNode[] {
     const result: FlatNode[] = []
     for (const node of nodes) {
-      result.push({ path: node.path, isDir: node.is_dir, depth, node })
+      result.push({ path: node.path, isDir: node.is_dir, isAsset: node.isAsset, depth, node })
       if (node.is_dir && currentExpandedPaths.has(node.path)) {
         result.push(...buildFlatNodeList(node.children, depth + 1))
       }
@@ -96,8 +121,8 @@
   }
 
   let flatNodes = $derived.by(() => {
-    if (!currentFileTree) return []
-    return buildFlatNodeList(currentFileTree.root.children)
+    if (!currentUnifiedTree) return []
+    return buildFlatNodeList(currentUnifiedTree.children)
   })
 
   // Calculate virtual list state for efficient rendering
@@ -111,7 +136,7 @@
 
   // Get visible nodes to render with their absolute positions
   interface VisibleNode {
-    node: FileTreeNodeType
+    node: UnifiedTreeNode
     depth: number
     flatIndex: number
   }
@@ -221,14 +246,22 @@
     }
   })
 
-  function handleNodeContextMenu(detail: { path: string; isDir: boolean; x: number; y: number }) {
+  function handleNodeContextMenu(detail: { path: string; isDir: boolean; isAsset: boolean; x: number; y: number }) {
     contextMenuPath = detail.path
     contextMenuIsDir = detail.isDir
+    contextMenuIsAsset = detail.isAsset
     contextMenuPosition = { x: detail.x, y: detail.y }
   }
 
   function closeContextMenu() {
     contextMenuPath = null
+  }
+
+  function handleOpenInNewTab() {
+    if (!contextMenuPath || contextMenuIsDir || contextMenuIsAsset) return
+    const filePath = contextMenuPath
+    closeContextMenu()
+    onfileselect?.({ path: filePath, forceNewTab: true })
   }
 
   async function handleRevealInFolder() {
@@ -306,8 +339,77 @@
     }
   }
 
+  // New file/folder creation
+  function startNewFile(dirPath: string = '') {
+    newFileInput = { dirPath, type: 'file' }
+    newFileInputValue = ''
+    newFileError = null
+  }
+
+  function startNewFolder(dirPath: string = '') {
+    newFileInput = { dirPath, type: 'folder' }
+    newFileInputValue = ''
+    newFileError = null
+  }
+
+  async function commitNewFile() {
+    if (!newFileInput || !newFileInputValue.trim()) {
+      newFileInput = null
+      return
+    }
+
+    const name = newFileInputValue.trim()
+    try {
+      if (newFileInput.type === 'file') {
+        await createNewFile(newFileInput.dirPath, name)
+      } else {
+        await createNewDirectory(newFileInput.dirPath, name)
+      }
+      newFileInput = null
+      newFileError = null
+    } catch (err) {
+      newFileError = err instanceof Error ? err.message : String(err)
+    }
+  }
+
+  function handleNewFileKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      commitNewFile()
+    } else if (e.key === 'Escape') {
+      newFileInput = null
+    }
+  }
+
+  function handleContextMenuNewFile() {
+    const dirPath = contextMenuIsDir ? contextMenuPath ?? '' : contextMenuPath?.split('/').slice(0, -1).join('/') ?? ''
+    closeContextMenu()
+    startNewFile(dirPath)
+  }
+
+  function handleContextMenuNewFolder() {
+    const dirPath = contextMenuIsDir ? contextMenuPath ?? '' : contextMenuPath?.split('/').slice(0, -1).join('/') ?? ''
+    closeContextMenu()
+    startNewFolder(dirPath)
+  }
+
+  async function handleCopyMarkdownRef() {
+    if (!contextMenuPath) return
+    const name = contextMenuPath.split('/').pop() ?? contextMenuPath
+    // Determine if it's an image
+    const ext = name.split('.').pop()?.toLowerCase() ?? ''
+    const imageExts = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico']
+    const ref = imageExts.includes(ext) ? `![${name}](${contextMenuPath})` : `[${name}](${contextMenuPath})`
+    closeContextMenu()
+    await window.api.writeToClipboard(ref)
+  }
+
+  function toggleShowAssets() {
+    showAssets.update((v) => !v)
+  }
+
   async function handleRefresh() {
-    await loadFileTree()
+    await Promise.all([loadFileTree(), loadAssetTree()])
   }
 
   function totalFiles(): number {
@@ -378,6 +480,12 @@
           </div>
         {/if}
       </div>
+      <button class="icon-btn" onclick={() => startNewFile()} title="New File" disabled={!currentActiveCollection}>
+        <span class="material-symbols-outlined">note_add</span>
+      </button>
+      <button class="icon-btn" onclick={toggleShowAssets} title={currentShowAssets ? 'Hide Assets' : 'Show Assets'} class:active-toggle={currentShowAssets}>
+        <span class="material-symbols-outlined">{currentShowAssets ? 'visibility' : 'visibility_off'}</span>
+      </button>
       <button class="icon-btn" onclick={collapseAll} title="Collapse All">
         <span class="material-symbols-outlined">unfold_less</span>
       </button>
@@ -429,13 +537,36 @@
         <span class="material-symbols-outlined empty-icon">description</span>
         <span class="empty-text">No markdown files found</span>
       </div>
-    {:else if currentFileTree}
+    {:else if currentUnifiedTree}
+      {#if newFileInput}
+        <div class="new-file-input-row" style="padding-left: 28px;">
+          <span class="material-symbols-outlined new-file-icon">
+            {newFileInput.type === 'file' ? 'note_add' : 'create_new_folder'}
+          </span>
+          <input
+            class="new-file-input"
+            class:has-error={!!newFileError}
+            type="text"
+            placeholder={newFileInput.type === 'file' ? 'filename.md' : 'folder name'}
+            bind:value={newFileInputValue}
+            onkeydown={handleNewFileKeydown}
+            onblur={() => commitNewFile()}
+            autofocus
+          />
+          {#if newFileError}
+            <span class="new-file-error" title={newFileError}>
+              <span class="material-symbols-outlined">error</span>
+            </span>
+          {/if}
+        </div>
+      {/if}
       <div class="tree-nodes-virtual" role="tree" aria-label="File tree" style="height: {virtualState.totalHeight}px;">
         {#each visibleNodes as { node, depth, flatIndex } (node.path)}
           <div class="virtual-node-wrapper" style="transform: translateY({flatIndex * ITEM_HEIGHT}px); height: {ITEM_HEIGHT}px;">
             <FileTreeNode
               {node}
               {onfileselect}
+              onassetselect={handleAssetSelect}
               oncontextmenu={handleNodeContextMenu}
               onfolderclick={handleFolderClick}
               focusedPath={flatNodes[focusedNodeIndex]?.path}
@@ -461,6 +592,12 @@
       style="left: {contextMenuPosition.x}px; top: {contextMenuPosition.y}px;"
       onclick={(e) => e.stopPropagation()}
     >
+      {#if !contextMenuIsDir && !contextMenuIsAsset}
+        <button class="context-menu-item" onclick={handleOpenInNewTab}>
+          <span class="material-symbols-outlined">tab</span>
+          Open in New Tab
+        </button>
+      {/if}
       <button class="context-menu-item" onclick={handleRevealInFolder}>
         <span class="material-symbols-outlined">folder_open</span>
         {isMac ? 'Reveal in Finder' : 'Reveal in File Explorer'}
@@ -468,7 +605,7 @@
       {#if !contextMenuIsDir}
         <button class="context-menu-item" onclick={handleOpenInEditor}>
           <span class="material-symbols-outlined">open_in_new</span>
-          Open in Default Editor
+          Open in Default App
         </button>
       {/if}
       <div class="context-menu-separator"></div>
@@ -480,14 +617,31 @@
         <span class="material-symbols-outlined">content_copy</span>
         Copy Relative Path
       </button>
-      {#if contextMenuIsDir}
-        <div class="context-menu-separator"></div>
-        <button class="context-menu-item" onclick={handleShowInGraph}>
-          <span class="material-symbols-outlined">hub</span>
-          Show in Graph
+      {#if contextMenuIsAsset && !contextMenuIsDir}
+        <button class="context-menu-item" onclick={handleCopyMarkdownRef}>
+          <span class="material-symbols-outlined">link</span>
+          Copy Markdown Reference
         </button>
       {/if}
-      {#if !contextMenuIsDir}
+      {#if contextMenuIsDir}
+        <div class="context-menu-separator"></div>
+        <button class="context-menu-item" onclick={handleContextMenuNewFile}>
+          <span class="material-symbols-outlined">note_add</span>
+          New File
+        </button>
+        <button class="context-menu-item" onclick={handleContextMenuNewFolder}>
+          <span class="material-symbols-outlined">create_new_folder</span>
+          New Folder
+        </button>
+        {#if !contextMenuIsAsset}
+          <div class="context-menu-separator"></div>
+          <button class="context-menu-item" onclick={handleShowInGraph}>
+            <span class="material-symbols-outlined">hub</span>
+            Show in Graph
+          </button>
+        {/if}
+      {/if}
+      {#if !contextMenuIsDir && !contextMenuIsAsset}
         <div class="context-menu-separator"></div>
         <button class="context-menu-item" onclick={handleToggleFavorite}>
           <span class="material-symbols-outlined">
@@ -840,5 +994,51 @@
     height: 1px;
     background: var(--color-border, #27272a);
     margin: 4px 0;
+  }
+
+  /* New file inline input */
+  .new-file-input-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    height: 28px;
+    padding-right: 8px;
+  }
+
+  .new-file-icon {
+    font-size: 16px;
+    color: var(--color-primary, #00E5FF);
+    flex-shrink: 0;
+  }
+
+  .new-file-input {
+    flex: 1;
+    height: 22px;
+    border: 1px solid var(--color-primary, #00E5FF);
+    border-radius: 3px;
+    background: var(--color-surface-dark, #0a0a0a);
+    color: var(--color-text-main, #e4e4e7);
+    font-size: 12px;
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    padding: 0 6px;
+    outline: none;
+  }
+
+  .new-file-input.has-error {
+    border-color: var(--color-error, #ef4444);
+  }
+
+  .new-file-error {
+    flex-shrink: 0;
+  }
+
+  .new-file-error .material-symbols-outlined {
+    font-size: 14px;
+    color: var(--color-error, #ef4444);
+  }
+
+  /* Asset toggle */
+  .active-toggle {
+    color: var(--color-primary, #00E5FF) !important;
   }
 </style>

@@ -20,7 +20,7 @@
   import { shortcutManager } from './lib/shortcuts';
   import { setupWatcherListener, teardownWatcherListener, fetchWatcherStatus, clearWatcherEvents } from './stores/watcher';
   import { graphViewActive, toggleGraphView, loadGraphData, resetGraphState } from './stores/graph';
-  import { goBack, goForward, setNavigating, clearNavigation } from './stores/navigation';
+  import { goBack, goForward, setNavigating, clearNavigation, recordNavigation } from './stores/navigation';
   import { settingsOpen, onboardingComplete, loadOnboardingState, editorFontSize, loadEditorFontSize } from './stores/ui';
   import { setupUpdateListener, teardownUpdateListener } from './stores/updater';
   import { workspace } from './stores/workspace.svelte';
@@ -68,7 +68,8 @@
       setActiveCollection(collectionId);
       // Small delay to let collection switch propagate before opening tab
       setTimeout(() => {
-        workspace.openTab(filePath);
+        recordNavigation(filePath);
+        workspace.openFile(filePath);
         syncFileStoresFromTab();
       }, 50);
     });
@@ -318,7 +319,7 @@
           const path = goBack();
           if (path) {
             setNavigating(true);
-            workspace.openTab(path);
+            workspace.replaceTab(path);
             syncFileStoresFromTab();
             setNavigating(false);
           }
@@ -333,7 +334,7 @@
           const path = goForward();
           if (path) {
             setNavigating(true);
-            workspace.openTab(path);
+            workspace.replaceTab(path);
             syncFileStoresFromTab();
             setNavigating(false);
           }
@@ -424,13 +425,15 @@
     setActiveCollection(detail.id);
   }
 
-  function handleFileSelect(detail: { folderId: string; fileId: string }) {
-    workspace.openTab(detail.fileId);
+  function handleFileSelect(detail: { folderId: string; fileId: string; forceNewTab?: boolean }) {
+    recordNavigation(detail.fileId);
+    workspace.openFile(detail.fileId, { forceNewTab: detail.forceNewTab });
     syncFileStoresFromTab();
   }
 
   function navigateToResult(result: SearchResult) {
-    workspace.openTab(result.file.path);
+    recordNavigation(result.file.path);
+    workspace.openFile(result.file.path);
     syncFileStoresFromTab();
     // Wait for loading to finish, then scroll to the result line
     let wasLoading = false;

@@ -36,7 +36,7 @@
     const path = goBack();
     if (path) {
       setNavigating(true);
-      workspace.openTab(path);
+      workspace.replaceTab(path);
       syncFileStoresFromTab();
       setNavigating(false);
     }
@@ -46,7 +46,7 @@
     const path = goForward();
     if (path) {
       setNavigating(true);
-      workspace.openTab(path);
+      workspace.replaceTab(path);
       syncFileStoresFromTab();
       setNavigating(false);
     }

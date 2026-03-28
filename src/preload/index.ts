@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { MdvdbApi } from './api'
 
@@ -58,6 +58,19 @@ const api: MdvdbApi = {
   // File operations
   readFile: (absolutePath) => invoke('fs:read-file', absolutePath),
   writeFile: (absolutePath, content) => invoke('fs:write-file', absolutePath, content),
+  createFile: (absolutePath, content) => invoke('fs:create-file', absolutePath, content),
+  createDirectory: (absolutePath) => invoke('fs:create-directory', absolutePath),
+  readBinary: (absolutePath) => invoke('fs:read-binary', absolutePath),
+  writeBinary: (absolutePath, base64Data) => invoke('fs:write-binary', absolutePath, base64Data),
+  fileInfo: (absolutePath) => invoke('fs:file-info', absolutePath),
+  copyFile: (sourcePath, destPath) => invoke('fs:copy-file', sourcePath, destPath),
+  isWithinCollection: (absolutePath) => invoke('fs:is-within-collection', absolutePath),
+
+  // Asset scanning
+  scanAssets: (collectionPath) => invoke('fs:scan-assets', collectionPath),
+
+  // Get native file path from dropped File (Electron webUtils — runs in preload only)
+  getPathForFile: (file: File) => webUtils.getPathForFile(file),
 
   // Shell operations
   showItemInFolder: (absolutePath) => invoke('shell:show-item-in-folder', absolutePath),

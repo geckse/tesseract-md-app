@@ -57,11 +57,13 @@
     "d3-force": "^3.0.0",
     "electron-store": "^10.0.0",
     "electron-updater": "^6.3.9",
+    "ignore": "^7.0.5",
     "js-tiktoken": "^1.0.21",
     "lowlight": "^3.1.0",
     "marked": "^15.0.0",
     "material-symbols": "^0.43.0",
     "mermaid": "^11.0.0",
+    "pdfjs-dist": "^5.4.624",
     "three": "^0.183.2"
   },
   "devDependencies": {

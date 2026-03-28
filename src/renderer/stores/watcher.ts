@@ -1,7 +1,7 @@
 import { writable, get } from 'svelte/store'
 import type { WatcherStatus, WatcherEvent } from '../../preload/api'
 import { activeCollection, collectionStatus } from './collections'
-import { loadFileTree } from './files'
+import { loadFileTree, loadAssetTree } from './files'
 
 /** Maximum number of events to retain in the ring buffer. */
 const MAX_EVENTS = 50
@@ -113,7 +113,7 @@ export function handleWatcherEvent(event: WatcherEvent): void {
     if (refreshTimer) clearTimeout(refreshTimer)
     refreshTimer = setTimeout(() => {
       refreshTimer = null
-      loadFileTree().catch(() => {})
+      Promise.all([loadFileTree(), loadAssetTree()]).catch(() => {})
       refreshCollectionStatus()
     }, REFRESH_DEBOUNCE_MS)
   }

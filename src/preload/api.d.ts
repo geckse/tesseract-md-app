@@ -14,7 +14,8 @@ import type {
   GraphLevel,
   Schema,
   Config,
-  DoctorResult
+  DoctorResult,
+  AssetScanResult
 } from '../renderer/types/cli'
 
 /** A collection (project folder) managed by the app. */
@@ -80,9 +81,10 @@ export interface CliInstallResult {
 
 /** A persisted tab — only file paths and layout, never file content. */
 export interface PersistedTab {
-  kind: 'document' | 'graph'
+  kind: 'document' | 'graph' | 'asset'
   filePath?: string
   graphLevel?: string
+  mimeCategory?: string
 }
 
 /** A persisted pane within a window session. */
@@ -143,6 +145,19 @@ export interface MdvdbApi {
   // File operations
   readFile(absolutePath: string): Promise<string>
   writeFile(absolutePath: string, content: string): Promise<void>
+  createFile(absolutePath: string, content: string): Promise<void>
+  createDirectory(absolutePath: string): Promise<void>
+  readBinary(absolutePath: string): Promise<string>
+  writeBinary(absolutePath: string, base64Data: string): Promise<void>
+  fileInfo(absolutePath: string): Promise<{ size: number; mtime: string }>
+  copyFile(sourcePath: string, destPath: string): Promise<void>
+  isWithinCollection(absolutePath: string): Promise<{ within: boolean; collectionPath: string | null }>
+
+  // Asset scanning
+  scanAssets(collectionPath: string): Promise<AssetScanResult>
+
+  // Get native file path from a dropped File object (Electron webUtils)
+  getPathForFile(file: File): string
 
   // Shell operations
   showItemInFolder(absolutePath: string): Promise<void>

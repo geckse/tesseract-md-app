@@ -1,13 +1,14 @@
 <script lang="ts">
   import { slide } from 'svelte/transition'
-  import type { FileTreeNode, FileState } from '../types/cli'
+  import type { FileTreeNode, FileState, UnifiedTreeNode, MimeCategory } from '../types/cli'
   import { toggleExpanded } from '../stores/files'
 
   interface FileTreeNodeProps {
-    node: FileTreeNode
+    node: UnifiedTreeNode
     depth?: number
-    onfileselect?: (detail: { path: string }) => void
-    oncontextmenu?: (detail: { path: string; isDir: boolean; x: number; y: number }) => void
+    onfileselect?: (detail: { path: string; forceNewTab?: boolean }) => void
+    onassetselect?: (detail: { path: string; mimeCategory: MimeCategory; fileSize?: number }) => void
+    oncontextmenu?: (detail: { path: string; isDir: boolean; isAsset: boolean; x: number; y: number }) => void
     onfolderclick?: (folderPath: string) => void
     focusedPath?: string
     noRecursiveRender?: boolean // If true, don't render children recursively (for virtual lists)
@@ -19,6 +20,7 @@
     node,
     depth = 0,
     onfileselect,
+    onassetselect,
     oncontextmenu: onctx,
     onfolderclick: onfc,
     focusedPath,
@@ -31,7 +33,7 @@
 
   function handleContextMenu(event: MouseEvent) {
     event.preventDefault()
-    onctx?.({ path: node.path, isDir: node.is_dir, x: event.clientX, y: event.clientY })
+    onctx?.({ path: node.path, isDir: node.is_dir, isAsset: node.isAsset, x: event.clientX, y: event.clientY })
   }
 
   function handleDragStart(event: DragEvent) {
@@ -50,6 +52,8 @@
     if (node.is_dir) {
       toggleExpanded(node.path)
       onfc?.(node.path)
+    } else if (node.isAsset) {
+      onassetselect?.({ path: node.path, mimeCategory: node.mimeCategory ?? 'other', fileSize: node.fileSize })
     } else {
       onfileselect?.({ path: node.path })
     }
@@ -82,7 +86,19 @@
     return `state-${state}`
   }
 
+  function assetIcon(mime?: MimeCategory): string {
+    switch (mime) {
+      case 'image': return 'image'
+      case 'pdf': return 'picture_as_pdf'
+      case 'video': return 'videocam'
+      case 'audio': return 'audiotrack'
+      default: return 'attach_file'
+    }
+  }
+
   function fileIcon(name: string): string {
+    // Asset files use mime-specific icons
+    if (node.isAsset) return assetIcon(node.mimeCategory)
     if (name.endsWith('.md') || name.endsWith('.markdown')) return 'description'
     if (name.endsWith('.json')) return 'data_object'
     if (name.endsWith('.yaml') || name.endsWith('.yml')) return 'settings'
@@ -119,14 +135,14 @@
       </span>
     {:else}
       <span class="expand-spacer"></span>
-      <span class="material-symbols-outlined node-icon file-icon">
+      <span class="material-symbols-outlined node-icon" class:file-icon={!node.isAsset} class:asset-icon={node.isAsset}>
         {fileIcon(node.name)}
       </span>
     {/if}
 
     <span class="node-name">{node.name}</span>
 
-    {#if !node.is_dir && node.state}
+    {#if !node.is_dir && !node.isAsset && node.state}
       <span class="material-symbols-outlined state-indicator {stateClass(node.state)}" title={node.state}>
         {stateIcon(node.state)}
       </span>
@@ -136,7 +152,7 @@
   {#if !noRecursiveRender && node.is_dir && isExpanded}
     <div class="tree-children" transition:slide={{ duration: 150 }}>
       {#each node.children as child (child.path)}
-        <svelte:self node={child} depth={depth + 1} {onfileselect} oncontextmenu={onctx} onfolderclick={onfc} {focusedPath} {currentSelectedFilePath} {currentExpandedPaths} />
+        <svelte:self node={child} depth={depth + 1} {onfileselect} {onassetselect} oncontextmenu={onctx} onfolderclick={onfc} {focusedPath} {currentSelectedFilePath} {currentExpandedPaths} />
       {/each}
     </div>
   {/if}
@@ -204,6 +220,11 @@
 
   .file-icon {
     opacity: 0.7;
+  }
+
+  .asset-icon {
+    opacity: 0.5;
+    color: var(--color-text-dim, #71717a);
   }
 
   .node-name {

@@ -7,6 +7,9 @@
   import Editor from './Editor.svelte'
   import WysiwygEditor from './WysiwygEditor.svelte'
   import GraphView from './GraphView.svelte'
+  import ImageViewer from './ImageViewer.svelte'
+  import PdfViewer from './PdfViewer.svelte'
+  import AssetInfoCard from './AssetInfoCard.svelte'
 
   interface TabPaneProps {
     paneId: string
@@ -55,10 +58,12 @@
 
   function handleTabClose(tabId: string) {
     const tab = workspace.tabs[tabId]
-    if (!tab || tab.kind !== 'document') return
+    if (!tab) return
+    // Graph tabs cannot be closed
+    if (tab.kind === 'graph') return
 
-    // Confirm before closing dirty tabs to prevent data loss
-    if (tab.isDirty) {
+    // Confirm before closing dirty document tabs to prevent data loss
+    if (tab.kind === 'document' && tab.isDirty) {
       const shouldClose = window.confirm(
         `"${tab.title}" has unsaved changes. Discard changes and close?`
       )
@@ -72,6 +77,12 @@
 
     // Sync backward-compat stores after close
     syncFileStoresFromTab()
+  }
+
+  function handleTabCloseMany(tabIds: string[]) {
+    for (const tabId of tabIds) {
+      handleTabClose(tabId)
+    }
   }
 </script>
 
@@ -87,6 +98,7 @@
     {paneId}
     onactivate={handleTabActivate}
     onclose={handleTabClose}
+    onclosemany={handleTabCloseMany}
   />
 
   <!-- Mode bar (context-aware: document mode toggle or graph level switcher) -->
@@ -98,14 +110,27 @@
       <div class="content-region" role="main" aria-label="Graph view">
         <GraphView {paneId} />
       </div>
+    {:else if tabKind === 'asset'}
+      {@const assetTab = activeTab?.kind === 'asset' ? activeTab : null}
+      {#if assetTab}
+        <div class="content-region" role="main" aria-label="Asset preview">
+          {#if assetTab.mimeCategory === 'image'}
+            <ImageViewer filePath={assetTab.filePath} fileSize={assetTab.fileSize} />
+          {:else if assetTab.mimeCategory === 'pdf'}
+            <PdfViewer filePath={assetTab.filePath} />
+          {:else}
+            <AssetInfoCard filePath={assetTab.filePath} mimeCategory={assetTab.mimeCategory} fileSize={assetTab.fileSize} />
+          {/if}
+        </div>
+      {/if}
     {:else if tabKind === 'document'}
       {#if currentEditorMode === 'editor'}
         <div class="content-region" role="main" aria-label="Raw editor">
-          <Editor />
+          <Editor tabId={pane?.activeTabId ?? undefined} />
         </div>
       {:else}
         <div class="content-region" role="main" aria-label="Editor">
-          <WysiwygEditor />
+          <WysiwygEditor tabId={pane?.activeTabId ?? undefined} />
         </div>
       {/if}
     {:else}
@@ -133,12 +158,6 @@
     min-width: 0;
     min-height: 0;
     overflow: hidden;
-    border-left: 2px solid transparent;
-    transition: border-color var(--transition-fast, 150ms ease);
-  }
-
-  .tab-pane.focused {
-    border-left-color: var(--color-primary, #00E5FF);
   }
 
   /* ── Content area ─────────────────────────────────────────────── */

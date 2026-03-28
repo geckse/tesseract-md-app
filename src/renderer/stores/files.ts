@@ -1,12 +1,14 @@
 import { writable, derived, get } from 'svelte/store'
 import type { Writable } from 'svelte/store'
-import type { FileTree, FileTreeNode, FileState } from '../types/cli'
+import type { FileTree, FileTreeNode, FileState, AssetScanResult, UnifiedTreeNode } from '../types/cli'
 import { activeCollection } from './collections'
 import { loadProperties, clearProperties, propertiesFileContent } from './properties'
 import { editorMode, syncEditorStoresFromTab } from './editor'
 import { recordNavigation, syncNavigationStoresFromTab } from './navigation'
 import { syncGraphStoresFromTab } from './graph'
 import { workspace } from './workspace.svelte'
+import { mergeTreeNodes } from '../lib/tree-merge'
+import { clearGraphStateCache } from '../components/GraphView.svelte'
 // Lazy import to avoid circular dependency (favorites.ts imports selectedFilePath from here)
 const lazyTrackRecent = (...args: Parameters<typeof import('./favorites').trackRecent>) =>
   import('./favorites').then((m) => m.trackRecent(...args))
@@ -42,6 +44,20 @@ export const flatFileList = derived(fileTree, ($fileTree) => {
   }
   return files
 })
+
+/** The asset scan result for the active collection. */
+export const assetTree = writable<AssetScanResult | null>(null)
+
+/** Whether to show non-markdown asset files in the tree. */
+export const showAssets = writable<boolean>(true)
+
+/** Unified tree merging CLI markdown tree with app-scanned assets. */
+export const unifiedTree = derived(
+  [fileTree, assetTree, showAssets],
+  ([$fileTree, $assetTree, $showAssets]) => {
+    return mergeTreeNodes($fileTree, $showAssets ? $assetTree : null)
+  }
+)
 
 /** Count files by state in the current tree. */
 export const fileStateCounts = derived(fileTree, ($fileTree) => {
@@ -312,10 +328,12 @@ export function resetFileState(): void {
   selectGeneration++
   workspace.reset()
   fileTree.set(null)
+  assetTree.set(null)
   fileTreeLoading.set(false)
   fileTreeError.set(null)
   expandedPaths.set(new Set())
   clearProperties()
+  clearGraphStateCache()
   syncFileStoresFromTab()
 }
 
@@ -375,4 +393,98 @@ export function expandAll(): void {
 /** Collapse all directories in the tree. */
 export function collapseAll(): void {
   expandedPaths.set(new Set())
+}
+
+// ─── Asset tree operations ──────────────────────────────────────────────
+
+/** Load the asset tree for the active collection. */
+export async function loadAssetTree(): Promise<void> {
+  const collection = get(activeCollection)
+  if (!collection) {
+    assetTree.set(null)
+    return
+  }
+
+  try {
+    const result = await window.api.scanAssets(collection.path)
+    assetTree.set(result)
+  } catch {
+    assetTree.set(null)
+  }
+}
+
+// ─── File creation ──────────────────────────────────────────────────────
+
+/**
+ * Create a new markdown file in the active collection.
+ * @param dirPath - Relative directory path within the collection (e.g., "docs" or "").
+ * @param filename - Filename (auto-appends .md if no extension).
+ * @param withFrontmatter - Whether to include frontmatter template.
+ * @returns The relative path of the created file, or null on failure.
+ */
+export async function createNewFile(
+  dirPath: string,
+  filename: string,
+  withFrontmatter = false
+): Promise<string | null> {
+  const collection = get(activeCollection)
+  if (!collection) return null
+
+  // Auto-append .md if no extension
+  if (!filename.includes('.')) {
+    filename = filename + '.md'
+  }
+
+  const relativePath = dirPath ? `${dirPath}/${filename}` : filename
+  const absolutePath = `${collection.path}/${relativePath}`
+
+  let content = ''
+  if (withFrontmatter) {
+    const title = filename.replace(/\.[^.]+$/, '')
+    content = `---\ntitle: ${title}\n---\n\n`
+  }
+
+  try {
+    await window.api.createFile(absolutePath, content)
+    // Refresh tree and open the new file
+    await loadFileTree()
+    await loadAssetTree()
+    await selectFile(relativePath)
+    return relativePath
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    throw new Error(msg)
+  }
+}
+
+/**
+ * Create a new directory in the active collection.
+ * @param dirPath - Relative directory path within the collection.
+ * @param name - Directory name.
+ * @returns The relative path of the created directory, or null on failure.
+ */
+export async function createNewDirectory(dirPath: string, name: string): Promise<string | null> {
+  const collection = get(activeCollection)
+  if (!collection) return null
+
+  const relativePath = dirPath ? `${dirPath}/${name}` : name
+  const absolutePath = `${collection.path}/${relativePath}`
+
+  try {
+    await window.api.createDirectory(absolutePath)
+    await loadFileTree()
+    await loadAssetTree()
+    // Expand the parent directory
+    if (dirPath) {
+      expandedPaths.update((set) => {
+        const next = new Set(set)
+        next.add(dirPath)
+        return next
+      })
+    }
+    return relativePath
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    throw new Error(msg)
+  }
 }

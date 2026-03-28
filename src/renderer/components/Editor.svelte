@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import { get } from 'svelte/store';
   import { EditorView, keymap } from '@codemirror/view';
   import { EditorState } from '@codemirror/state';
   import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
@@ -496,6 +497,113 @@
     unsubOutline();
     unsubEditorMode();
   });
+
+  // ── Drag-and-drop (internal tree + external OS) ──────────────────────
+
+  const CM_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico'])
+  const CM_ASSET_EXTS = new Set([...CM_IMAGE_EXTS, 'pdf', 'mp4', 'webm', 'mov', 'mp3', 'wav', 'ogg'])
+
+  function cmRelativePath(fromFile: string, toFile: string): string {
+    const fromParts = fromFile.split('/')
+    fromParts.pop()
+    const toParts = toFile.split('/')
+    let common = 0
+    while (common < fromParts.length && common < toParts.length && fromParts[common] === toParts[common]) common++
+    const ups = fromParts.length - common
+    const rest = toParts.slice(common)
+    return ups > 0 ? `${Array(ups).fill('..').join('/')}/${rest.join('/')}` : rest.join('/')
+  }
+
+  function handleCmDragOver(e: DragEvent) {
+    e.preventDefault()
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'link'
+  }
+
+  async function handleCmDrop(e: DragEvent) {
+    e.preventDefault()
+    if (!e.dataTransfer) return
+
+    const view = currentEntry?.view
+    if (!view) return
+    const currentFile = activeDocTab?.filePath
+    if (!currentFile) return
+    const collection = get(activeCollection)
+    if (!collection) return
+
+    // Get drop position in editor
+    const pos = view.posAtCoords({ x: e.clientX, y: e.clientY })
+    if (pos == null) return
+
+    function insertText(text: string) {
+      view!.dispatch({
+        changes: { from: pos!, insert: text },
+        selection: { anchor: pos! + text.length },
+      })
+    }
+
+    // Case 1: Internal tree drag
+    const mdvdbPath = e.dataTransfer.getData('application/x-mdvdb-path')
+    if (mdvdbPath) {
+      const ext = mdvdbPath.split('.').pop()?.toLowerCase() ?? ''
+      const relPath = cmRelativePath(currentFile, mdvdbPath)
+      const name = mdvdbPath.split('/').pop() ?? mdvdbPath
+
+      if (CM_IMAGE_EXTS.has(ext)) {
+        insertText(`![${name}](${relPath})`)
+      } else {
+        insertText(`[${name}](${relPath})`)
+      }
+      return
+    }
+
+    // Case 2: External OS drag
+    const files = e.dataTransfer.files
+    if (files.length > 0) {
+      for (const file of files) {
+        const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
+        if (!CM_ASSET_EXTS.has(ext)) continue
+
+        const absolutePath = window.api.getPathForFile(file)
+        if (!absolutePath) continue
+
+        const checkResult = await window.api.isWithinCollection(absolutePath)
+
+        if (checkResult.within && checkResult.collectionPath === collection.path) {
+          const collPath = collection.path.endsWith('/') ? collection.path : collection.path + '/'
+          const relToCollection = absolutePath.startsWith(collPath) ? absolutePath.slice(collPath.length) : file.name
+          const relPath = cmRelativePath(currentFile, relToCollection)
+          const name = file.name
+
+          insertText(CM_IMAGE_EXTS.has(ext) ? `![${name}](${relPath})` : `[${name}](${relPath})`)
+        } else {
+          const confirmed = window.confirm(`"${file.name}" is outside your collection. Copy it alongside the current file?`)
+          if (!confirmed) continue
+
+          const currentDir = currentFile.split('/').slice(0, -1).join('/')
+          let destName = file.name
+          let destRelPath = currentDir ? `${currentDir}/${destName}` : destName
+          let destAbsPath = `${collection.path}/${destRelPath}`
+
+          try {
+            await window.api.fileInfo(destAbsPath)
+            const baseName = destName.replace(/\.[^.]+$/, '')
+            const extension = destName.includes('.') ? '.' + destName.split('.').pop() : ''
+            let suffix = 1
+            while (true) {
+              destName = `${baseName}-${suffix}${extension}`
+              destRelPath = currentDir ? `${currentDir}/${destName}` : destName
+              destAbsPath = `${collection.path}/${destRelPath}`
+              try { await window.api.fileInfo(destAbsPath); suffix++ } catch { break }
+            }
+          } catch { /* good, doesn't exist */ }
+
+          await window.api.copyFile(absolutePath, destAbsPath)
+          const relPath = cmRelativePath(currentFile, destRelPath)
+          insertText(CM_IMAGE_EXTS.has(ext) ? `![${destName}](${relPath})` : `[${destName}](${relPath})`)
+        }
+      }
+    }
+  }
 </script>
 
 {#if activeDocTab}
@@ -513,7 +621,8 @@
         </button>
       </div>
     {/if}
-    <div class="editor-content" bind:this={editorHost}></div>
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="editor-content" bind:this={editorHost} ondragover={handleCmDragOver} ondrop={handleCmDrop}></div>
   </div>
 {:else}
   <div class="empty-state">

@@ -23,12 +23,14 @@
     paneId: string
     onactivate?: (tabId: string) => void
     onclose?: (tabId: string) => void
+    onclosemany?: (tabIds: string[]) => void
   }
 
   let {
     paneId,
     onactivate,
     onclose,
+    onclosemany,
   }: TabBarProps = $props()
 
   // ── Reactive tab data ───────────────────────────────────────────────
@@ -37,6 +39,7 @@
   const tabs = $derived(pane ? workspace.getTabsInOrder(paneId) : [])
   const activeTabId = $derived(pane?.activeTabId ?? null)
   const graphTabId = $derived(pane?.graphTabId ?? '')
+  const isFocused = $derived(workspace.activePaneId === paneId)
 
   /** Document tabs (everything except the pinned graph tab). */
   const documentTabs = $derived(tabs.filter((t) => t.kind !== 'graph'))
@@ -174,7 +177,17 @@
     const isLocalTab = !!workspace.tabs[draggedTabId]
 
     if (isLocalTab) {
-      // Same-window reorder
+      // Check if the tab is from a different pane (cross-pane move)
+      const sourcePaneId = workspace.findPaneForTab(draggedTabId)
+      if (sourcePaneId && sourcePaneId !== paneId) {
+        // Cross-pane move within the same window
+        workspace.moveTab(draggedTabId, sourcePaneId, paneId)
+        syncFileStoresFromTab()
+        resetDragState()
+        return
+      }
+
+      // Same-pane reorder
       if (!dragOverTabId) {
         resetDragState()
         return
@@ -187,6 +200,7 @@
       }
 
       // Calculate the target index
+      const draggedTab = workspace.tabs[draggedTabId]
       const currentOrder = pane.tabOrder.filter((id) => id !== draggedTabId)
       let targetIndex = currentOrder.indexOf(dragOverTabId)
 
@@ -199,10 +213,12 @@
         targetIndex += 1
       }
 
-      // Clamp before the graph tab
-      const graphIdx = currentOrder.indexOf(graphTabId)
-      if (graphIdx >= 0 && targetIndex > graphIdx) {
-        targetIndex = graphIdx
+      // Clamp before the graph tab (unless we're dragging the graph tab itself)
+      if (draggedTab?.kind !== 'graph') {
+        const graphIdx = currentOrder.indexOf(graphTabId)
+        if (graphIdx >= 0 && targetIndex > graphIdx) {
+          targetIndex = graphIdx
+        }
       }
 
       workspace.reorderTab(draggedTabId, targetIndex, paneId)
@@ -215,6 +231,109 @@
     dragOverTabId = null
     dragOverSide = null
     crossWindowDragOver = false
+  }
+
+  // ── Tab context menu ──────────────────────────────────────────────
+
+  let contextMenuTabId: string | null = $state(null)
+  let contextMenuPosition = $state({ x: 0, y: 0 })
+
+  const contextTab = $derived(contextMenuTabId ? workspace.tabs[contextMenuTabId] : null)
+  const isContextTabGraph = $derived(contextTab?.kind === 'graph')
+  const isContextTabDocument = $derived(contextTab?.kind === 'document')
+  const canSplit = $derived(isContextTabDocument)
+  const canDetach = $derived(isContextTabDocument)
+  const hasTabsToLeft = $derived(
+    contextMenuTabId ? workspace.getTabIdsToLeft(contextMenuTabId, paneId).length > 0 : false
+  )
+  const hasTabsToRight = $derived(
+    contextMenuTabId ? workspace.getTabIdsToRight(contextMenuTabId, paneId).length > 0 : false
+  )
+  const hasOtherTabs = $derived(
+    contextMenuTabId ? workspace.getOtherTabIds(contextMenuTabId, paneId).length > 0 : false
+  )
+  const otherPaneId = $derived(
+    workspace.splitEnabled && workspace.paneOrder.length >= 2
+      ? workspace.paneOrder.find((id) => id !== paneId) ?? null
+      : null
+  )
+
+  function handleTabContextMenu(tabId: string, event: MouseEvent) {
+    const menuWidth = 220
+    const menuHeight = 320
+    const x = Math.min(event.clientX, window.innerWidth - menuWidth)
+    const y = Math.min(event.clientY, window.innerHeight - menuHeight)
+    contextMenuTabId = tabId
+    contextMenuPosition = { x, y }
+  }
+
+  function closeContextMenu() {
+    contextMenuTabId = null
+  }
+
+  function handleCtxClose() {
+    if (!contextMenuTabId) return
+    const tabId = contextMenuTabId
+    closeContextMenu()
+    onclose?.(tabId)
+  }
+
+  function handleCtxCloseOthers() {
+    if (!contextMenuTabId) return
+    const ids = workspace.getOtherTabIds(contextMenuTabId, paneId)
+    closeContextMenu()
+    onclosemany?.(ids)
+  }
+
+  function handleCtxCloseToLeft() {
+    if (!contextMenuTabId) return
+    const ids = workspace.getTabIdsToLeft(contextMenuTabId, paneId)
+    closeContextMenu()
+    onclosemany?.(ids)
+  }
+
+  function handleCtxCloseToRight() {
+    if (!contextMenuTabId) return
+    const ids = workspace.getTabIdsToRight(contextMenuTabId, paneId)
+    closeContextMenu()
+    onclosemany?.(ids)
+  }
+
+  function handleCtxCloseSaved() {
+    const ids = workspace.getSavedTabIds(paneId)
+    closeContextMenu()
+    onclosemany?.(ids)
+  }
+
+  function handleCtxCloseAll() {
+    const ids = workspace.getCloseableTabIds(paneId)
+    closeContextMenu()
+    onclosemany?.(ids)
+  }
+
+  function handleCtxSplitRight() {
+    if (!contextMenuTabId) return
+    const tabId = contextMenuTabId
+    closeContextMenu()
+    workspace.splitAndMoveTab(tabId, 'right')
+    syncFileStoresFromTab()
+  }
+
+  function handleCtxMoveToOtherPane() {
+    if (!contextMenuTabId || !otherPaneId) return
+    const tabId = contextMenuTabId
+    closeContextMenu()
+    workspace.moveTab(tabId, paneId, otherPaneId)
+    syncFileStoresFromTab()
+  }
+
+  function handleCtxMoveToNewWindow() {
+    if (!contextMenuTabId) return
+    const tabId = contextMenuTabId
+    closeContextMenu()
+    workspace.detachTab(tabId, paneId).then(() => {
+      syncFileStoresFromTab()
+    })
   }
 </script>
 
@@ -254,10 +373,12 @@
         <TabItem
           {tab}
           isActive={activeTabId === tab.id}
+          paneFocused={isFocused}
           draggable={true}
           onactivate={handleActivate}
           onclose={handleClose}
           onmiddleclick={handleMiddleClick}
+          oncontextmenu={handleTabContextMenu}
         />
       </div>
     {/each}
@@ -273,8 +394,10 @@
         <TabItem
           tab={graphTab}
           isActive={activeTabId === graphTab.id}
-          draggable={false}
+          paneFocused={isFocused}
+          draggable={true}
           onactivate={handleActivate}
+          oncontextmenu={handleTabContextMenu}
         />
       </div>
     {/if}
@@ -291,6 +414,86 @@
     </button>
   {/if}
 </div>
+
+{#if contextMenuTabId && contextTab}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="context-menu-overlay" onclick={closeContextMenu}>
+    <div
+      class="context-menu"
+      style="left: {contextMenuPosition.x}px; top: {contextMenuPosition.y}px;"
+      onclick={(e) => e.stopPropagation()}
+    >
+      {#if !isContextTabGraph}
+        <button class="context-menu-item" onclick={handleCtxClose}>
+          <span class="material-symbols-outlined">close</span>
+          Close
+          <span class="context-menu-shortcut">⌘W</span>
+        </button>
+      {/if}
+
+      {#if !isContextTabGraph && hasOtherTabs}
+        <button class="context-menu-item" onclick={handleCtxCloseOthers}>
+          <span class="material-symbols-outlined">tab_close</span>
+          Close Others
+          <span class="context-menu-shortcut">⌥⌘T</span>
+        </button>
+      {/if}
+
+      {#if !isContextTabGraph && hasTabsToLeft}
+        <button class="context-menu-item" onclick={handleCtxCloseToLeft}>
+          <span class="material-symbols-outlined">tab_close</span>
+          Close to the Left
+        </button>
+      {/if}
+
+      {#if !isContextTabGraph && hasTabsToRight}
+        <button class="context-menu-item" onclick={handleCtxCloseToRight}>
+          <span class="material-symbols-outlined">tab_close</span>
+          Close to the Right
+        </button>
+      {/if}
+
+      {#if !isContextTabGraph}
+        <button class="context-menu-item" onclick={handleCtxCloseSaved}>
+          <span class="material-symbols-outlined">tab_close</span>
+          Close Saved
+          <span class="context-menu-shortcut">⌘K U</span>
+        </button>
+      {/if}
+
+      <button class="context-menu-item" onclick={handleCtxCloseAll}>
+        <span class="material-symbols-outlined">tab_close</span>
+        Close All
+        <span class="context-menu-shortcut">⌘K W</span>
+      </button>
+
+      <div class="context-menu-separator"></div>
+
+      {#if canSplit}
+        <button class="context-menu-item" onclick={handleCtxSplitRight}>
+          <span class="material-symbols-outlined">vertical_split</span>
+          Split Right
+        </button>
+      {/if}
+
+      {#if canSplit && otherPaneId}
+        <button class="context-menu-item" onclick={handleCtxMoveToOtherPane}>
+          <span class="material-symbols-outlined">swap_horiz</span>
+          Move to Other Pane
+        </button>
+      {/if}
+
+      {#if canDetach}
+        <div class="context-menu-separator"></div>
+        <button class="context-menu-item" onclick={handleCtxMoveToNewWindow}>
+          <span class="material-symbols-outlined">open_in_new</span>
+          Move into New Window
+        </button>
+      {/if}
+    </div>
+  </div>
+{/if}
 
 <style>
   .tab-bar {
@@ -413,6 +616,67 @@
     border-left: 1px solid var(--color-border, #27272a);
   }
 
+  /* ── Context menu ─────────────────────────────────────────────── */
+
+  .context-menu-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 100;
+  }
+
+  .context-menu {
+    position: fixed;
+    background: var(--color-surface, #161617);
+    border: 1px solid var(--color-border, #27272a);
+    border-radius: 8px;
+    padding: 4px;
+    min-width: 200px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    z-index: 101;
+  }
+
+  .context-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 12px;
+    border: none;
+    background: none;
+    border-radius: 4px;
+    color: var(--color-text-dim, #71717a);
+    font-size: 13px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.15s;
+  }
+
+  .context-menu-item:hover {
+    background: var(--color-surface-darker, #0a0a0a);
+    color: #fff;
+  }
+
+  .context-menu-item .material-symbols-outlined {
+    font-size: 16px;
+  }
+
+  .context-menu-separator {
+    height: 1px;
+    background: var(--color-border, #27272a);
+    margin: 4px 0;
+  }
+
+  .context-menu-shortcut {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--color-text-dim, #71717a);
+    opacity: 0.6;
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .scroll-btn {
       transition: none;
@@ -420,6 +684,10 @@
 
     .tab-drop-zone::before,
     .tab-drop-zone::after {
+      transition: none;
+    }
+
+    .context-menu-item {
       transition: none;
     }
   }

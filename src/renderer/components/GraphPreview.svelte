@@ -115,7 +115,7 @@
 
   function handleOpenInEditor() {
     if (!currentNode) return
-    workspace.openTab(currentNode.path)
+    workspace.openTabFromGraph(currentNode.path)
     syncFileStoresFromTab()
     graphSelectedNode.set(null)
     graphOpenedNode.set(null)

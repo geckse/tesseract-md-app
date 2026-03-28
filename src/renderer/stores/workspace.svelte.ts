@@ -10,7 +10,7 @@
  */
 
 import type { EditorMode } from './editor'
-import type { GraphLevel } from '../types/cli'
+import type { GraphLevel, MimeCategory } from '../types/cli'
 import type { PersistedWindowState, PersistedPane, PersistedTab, TabTransferData } from '../../preload/api'
 
 // ─── Tab Types ─────────────────────────────────────────────────────────
@@ -53,8 +53,18 @@ export interface GraphTab {
   graphColoringMode: GraphColoringMode
 }
 
+/** An asset tab — preview-only for non-markdown files (images, PDFs, etc.). */
+export interface AssetTab {
+  id: string
+  kind: 'asset'
+  filePath: string
+  title: string
+  mimeCategory: MimeCategory
+  fileSize?: number
+}
+
 /** Discriminated union of all tab types. */
-export type TabState = DocumentTab | GraphTab
+export type TabState = DocumentTab | GraphTab | AssetTab
 
 // ─── Pane Types ────────────────────────────────────────────────────────
 
@@ -63,7 +73,8 @@ export interface PaneState {
   id: string
   tabOrder: string[]
   activeTabId: string | null
-  graphTabId: string
+  /** Graph tab ID. Only the primary pane has a graph tab (to avoid duplicate 3D renderers). */
+  graphTabId: string | null
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────
@@ -227,6 +238,179 @@ class WorkspaceStore {
   }
 
   /**
+   * Replace the current active document tab's file without creating a new tab.
+   * Preserves navigation history within the tab. Resets content so it reloads.
+   */
+  replaceTab(filePath: string, paneId?: string): string {
+    const targetPaneId = paneId ?? this.activePaneId
+    const pane = this.panes[targetPaneId]
+    if (!pane) return ''
+
+    // Check if file is already open in this pane — just switch to it
+    const existingTabId = this._findTabByFilePath(filePath, targetPaneId)
+    if (existingTabId) {
+      this.switchTab(existingTabId, targetPaneId)
+      return existingTabId
+    }
+
+    // Find the active document tab to replace
+    const activeTab = pane.activeTabId ? this.tabs[pane.activeTabId] : null
+    if (!activeTab || activeTab.kind !== 'document') {
+      // No active document tab to replace — fall back to openTab
+      return this.openTab(filePath, targetPaneId)
+    }
+
+    // Replace the tab's file — keep same tab ID, same position in tab bar
+    activeTab.filePath = filePath
+    activeTab.title = fileNameFromPath(filePath)
+    activeTab.isDirty = false
+    activeTab.content = null
+    activeTab.contentLoading = false
+    activeTab.contentError = null
+    activeTab.scrollPosition = 0
+    activeTab.cursorPosition = 0
+    activeTab.wordCount = 0
+    activeTab.tokenCount = 0
+    // Navigation history is preserved — recordNavigation() handles the stacks
+
+    this.tabs[activeTab.id] = { ...activeTab }
+    this._scheduleSave()
+    return activeTab.id
+  }
+
+  /**
+   * Smart file open: replaces the current tab if it's clean (not dirty),
+   * or opens a new tab if the current tab has unsaved changes.
+   * Records navigation history for back/forward support.
+   * Use `forceNewTab: true` to always open in a new tab (e.g., right-click "Open in New Tab").
+   */
+  openFile(filePath: string, options?: { forceNewTab?: boolean; paneId?: string }): string {
+    const targetPaneId = options?.paneId ?? this.activePaneId
+    const pane = this.panes[targetPaneId]
+    if (!pane) return ''
+
+    // Check if file is already open in this pane — just switch
+    const existingTabId = this._findTabByFilePath(filePath, targetPaneId)
+    if (existingTabId) {
+      this.switchTab(existingTabId, targetPaneId)
+      return existingTabId
+    }
+
+    // Force new tab requested
+    if (options?.forceNewTab) {
+      return this.openTab(filePath, targetPaneId)
+    }
+
+    // Check if current tab can be replaced (not dirty, is a document tab)
+    const activeTab = pane.activeTabId ? this.tabs[pane.activeTabId] : null
+    if (activeTab && activeTab.kind === 'document' && !activeTab.isDirty) {
+      return this.replaceTab(filePath, targetPaneId)
+    }
+
+    // Current tab is dirty or not a document — open new tab
+    return this.openTab(filePath, targetPaneId)
+  }
+
+  /**
+   * Open a document tab from the graph view. Opens in the non-graph pane:
+   * - If split is active, opens in whichever pane does NOT contain the graph tab
+   * - If not split, creates a split with the document on the left and graph on the right
+   */
+  openTabFromGraph(filePath: string): string {
+    // Find the pane that has the graph tab
+    let graphPaneId: string | null = null
+    let otherPaneId: string | null = null
+
+    for (const pid of this.paneOrder) {
+      const pane = this.panes[pid]
+      if (pane?.graphTabId && pane.activeTabId === pane.graphTabId) {
+        graphPaneId = pid
+      } else if (!otherPaneId) {
+        otherPaneId = pid
+      }
+    }
+
+    // If no graph pane found, just use the non-active-graph pane
+    if (!graphPaneId) {
+      for (const pid of this.paneOrder) {
+        if (this.panes[pid]?.graphTabId) {
+          graphPaneId = pid
+          break
+        }
+      }
+    }
+
+    if (this.splitEnabled && this.paneOrder.length >= 2) {
+      // Split is active — open in whichever pane is NOT the graph pane
+      const targetPaneId = this.paneOrder.find((pid) => pid !== graphPaneId) ?? this.paneOrder[0]
+      const tabId = this.openTab(filePath, targetPaneId)
+      this.activePaneId = targetPaneId
+      return tabId
+    }
+
+    // Not split — create split, open doc in the new (secondary) pane.
+    // Graph stays in its current pane untouched (no remount, no camera loss).
+    this._enableSplit()
+
+    const pane2Id = this.paneOrder[1]
+    const tabId = this.openTab(filePath, pane2Id)
+    this.activePaneId = pane2Id
+
+    return tabId
+  }
+
+  /**
+   * Open an asset (non-markdown) file in a preview tab.
+   * If the file is already open, switch to that tab.
+   * Returns the tab ID.
+   */
+  openAssetTab(filePath: string, mimeCategory: MimeCategory, fileSize?: number, paneId?: string): string {
+    const targetPaneId = paneId ?? this.activePaneId
+    const pane = this.panes[targetPaneId]
+    if (!pane) return ''
+
+    // Check if this asset is already open in this pane
+    for (const tabId of pane.tabOrder) {
+      const tab = this.tabs[tabId]
+      if (tab && tab.kind === 'asset' && tab.filePath === filePath) {
+        this.switchTab(tabId, targetPaneId)
+        return tabId
+      }
+    }
+
+    // Create a new asset tab
+    const parts = filePath.split('/')
+    const title = parts[parts.length - 1] || filePath
+    const tab: AssetTab = {
+      id: crypto.randomUUID(),
+      kind: 'asset',
+      filePath,
+      title,
+      mimeCategory,
+      fileSize,
+    }
+    this.tabs[tab.id] = tab
+
+    // Insert before the graph tab
+    const graphIdx = pane.tabOrder.indexOf(pane.graphTabId)
+    if (graphIdx >= 0) {
+      pane.tabOrder = [
+        ...pane.tabOrder.slice(0, graphIdx),
+        tab.id,
+        ...pane.tabOrder.slice(graphIdx),
+      ]
+    } else {
+      pane.tabOrder = [...pane.tabOrder, tab.id]
+    }
+
+    pane.activeTabId = tab.id
+    this.panes[targetPaneId] = { ...pane }
+
+    this._scheduleSave()
+    return tab.id
+  }
+
+  /**
    * Close a tab by ID. If it's the active tab, activate the nearest tab.
    * Returns the closed tab state (for undo/reopen), or null if not found
    * or if the tab is a pinned graph tab.
@@ -270,8 +454,81 @@ class WorkspaceStore {
     const { [tabId]: _, ...remainingTabs } = this.tabs
     this.tabs = remainingTabs
 
+    // Auto-collapse split if this pane has no tabs at all
+    if (this.splitEnabled && this.paneOrder.length >= 2) {
+      if (pane.tabOrder.length === 0) {
+        this._collapseSplit()
+      }
+    }
+
     this._scheduleSave()
     return closedTab
+  }
+
+  /**
+   * Get all closeable tab IDs in a pane (excludes graph tabs).
+   */
+  getCloseableTabIds(paneId: string): string[] {
+    const pane = this.panes[paneId]
+    if (!pane) return []
+    return pane.tabOrder.filter((id) => {
+      const tab = this.tabs[id]
+      return tab && tab.kind !== 'graph'
+    })
+  }
+
+  /**
+   * Get tab IDs to the left of a given tab in a pane (excludes graph tabs).
+   */
+  getTabIdsToLeft(tabId: string, paneId: string): string[] {
+    const pane = this.panes[paneId]
+    if (!pane) return []
+    const idx = pane.tabOrder.indexOf(tabId)
+    if (idx <= 0) return []
+    return pane.tabOrder.slice(0, idx).filter((id) => {
+      const tab = this.tabs[id]
+      return tab && tab.kind !== 'graph'
+    })
+  }
+
+  /**
+   * Get tab IDs to the right of a given tab in a pane (excludes graph tabs).
+   */
+  getTabIdsToRight(tabId: string, paneId: string): string[] {
+    const pane = this.panes[paneId]
+    if (!pane) return []
+    const idx = pane.tabOrder.indexOf(tabId)
+    if (idx < 0) return []
+    return pane.tabOrder.slice(idx + 1).filter((id) => {
+      const tab = this.tabs[id]
+      return tab && tab.kind !== 'graph'
+    })
+  }
+
+  /**
+   * Get tab IDs of all other closeable tabs in a pane (excludes the given tab and graph tabs).
+   */
+  getOtherTabIds(tabId: string, paneId: string): string[] {
+    const pane = this.panes[paneId]
+    if (!pane) return []
+    return pane.tabOrder.filter((id) => {
+      const tab = this.tabs[id]
+      return tab && tab.kind !== 'graph' && id !== tabId
+    })
+  }
+
+  /**
+   * Get tab IDs of all saved (non-dirty) closeable tabs in a pane.
+   */
+  getSavedTabIds(paneId: string): string[] {
+    const pane = this.panes[paneId]
+    if (!pane) return []
+    return pane.tabOrder.filter((id) => {
+      const tab = this.tabs[id]
+      if (!tab || tab.kind === 'graph') return false
+      if (tab.kind === 'document' && tab.isDirty) return false
+      return true
+    })
   }
 
   /**
@@ -313,13 +570,16 @@ class WorkspaceStore {
     const tab = this.tabs[tabId]
     if (!tab) return false
 
-    // Cannot move a pinned graph tab
-    if (tab.kind === 'graph') return false
-
     if (!fromPane.tabOrder.includes(tabId)) return false
 
     // Remove from source pane
     fromPane.tabOrder = fromPane.tabOrder.filter((id) => id !== tabId)
+
+    // If moving the graph tab, update graphTabId on both panes
+    if (tab.kind === 'graph') {
+      fromPane.graphTabId = null
+      toPane.graphTabId = tabId
+    }
 
     // If it was active in the source pane, pick a new active tab
     if (fromPane.activeTabId === tabId) {
@@ -327,16 +587,20 @@ class WorkspaceStore {
       fromPane.activeTabId = documentTabs.length > 0 ? documentTabs[documentTabs.length - 1] : null
     }
 
-    // Insert before the graph tab in the destination pane
-    const graphIdx = toPane.tabOrder.indexOf(toPane.graphTabId)
-    if (graphIdx >= 0) {
-      toPane.tabOrder = [
-        ...toPane.tabOrder.slice(0, graphIdx),
-        tabId,
-        ...toPane.tabOrder.slice(graphIdx),
-      ]
-    } else {
+    // Insert: graph tab always goes last, other tabs go before the graph tab
+    if (tab.kind === 'graph') {
       toPane.tabOrder = [...toPane.tabOrder, tabId]
+    } else {
+      const graphIdx = toPane.tabOrder.indexOf(toPane.graphTabId)
+      if (graphIdx >= 0) {
+        toPane.tabOrder = [
+          ...toPane.tabOrder.slice(0, graphIdx),
+          tabId,
+          ...toPane.tabOrder.slice(graphIdx),
+        ]
+      } else {
+        toPane.tabOrder = [...toPane.tabOrder, tabId]
+      }
     }
 
     toPane.activeTabId = tabId
@@ -344,6 +608,13 @@ class WorkspaceStore {
     this.panes[fromPaneId] = { ...fromPane }
     this.panes[toPaneId] = { ...toPane }
     this.activePaneId = toPaneId
+
+    // Auto-collapse split if source pane has no tabs at all
+    if (this.splitEnabled && this.paneOrder.length >= 2) {
+      if (fromPane.tabOrder.length === 0) {
+        this._collapseSplit()
+      }
+    }
 
     this._scheduleSave()
     return true
@@ -375,13 +646,10 @@ class WorkspaceStore {
     const moved = this.moveTab(tabId, fromPaneId, toPaneId)
     if (!moved) return false
 
-    // Auto-collapse if source pane has no document tabs left
+    // Auto-collapse if source pane is completely empty
     const fromPane = this.panes[fromPaneId]
-    if (fromPane) {
-      const docTabs = fromPane.tabOrder.filter((id) => this.tabs[id]?.kind === 'document')
-      if (docTabs.length === 0) {
-        this._collapseSplit()
-      }
+    if (fromPane && fromPane.tabOrder.length === 0) {
+      this._collapseSplit()
     }
 
     return true
@@ -409,14 +677,34 @@ class WorkspaceStore {
   }
 
   /**
-   * Switch to the graph tab in the active pane.
+   * Switch to the graph tab. Since there's only one graph tab in the
+   * workspace, this finds whichever pane contains it and activates it.
    */
   switchToGraphTab(paneId?: string): void {
-    const targetPaneId = paneId ?? this.activePaneId
-    const pane = this.panes[targetPaneId]
-    if (!pane) return
+    // If a specific pane is requested and has the graph tab, use it
+    if (paneId) {
+      const pane = this.panes[paneId]
+      if (pane?.graphTabId) {
+        this.switchTab(pane.graphTabId, paneId)
+        return
+      }
+    }
 
-    this.switchTab(pane.graphTabId, targetPaneId)
+    // Find the pane that has the graph tab
+    for (const pid of this.paneOrder) {
+      const pane = this.panes[pid]
+      if (pane?.graphTabId) {
+        this.switchTab(pane.graphTabId, pid)
+        return
+      }
+    }
+  }
+
+  /**
+   * Find which pane contains a given tab ID. Returns null if not found.
+   */
+  findPaneForTab(tabId: string): string | null {
+    return this._findPaneForTab(tabId)
   }
 
   /**
@@ -613,6 +901,8 @@ class WorkspaceStore {
           tabs.push({ kind: 'document', filePath: tab.filePath })
         } else if (tab.kind === 'graph') {
           tabs.push({ kind: 'graph', graphLevel: tab.graphLevel })
+        } else if (tab.kind === 'asset') {
+          tabs.push({ kind: 'asset', filePath: tab.filePath, mimeCategory: tab.mimeCategory })
         }
 
         if (tabId === pane.activeTabId) {
@@ -645,16 +935,33 @@ class WorkspaceStore {
 
     const api = window.api
 
-    for (const persistedPane of session.panes) {
-      const { pane, graphTab } = createPane()
+    for (let paneIdx = 0; paneIdx < session.panes.length; paneIdx++) {
+      const persistedPane = session.panes[paneIdx]
+      const isPrimary = paneIdx === 0
 
-      // Override graph tab settings if persisted
-      const persistedGraphTab = persistedPane.tabs.find((t) => t.kind === 'graph')
-      if (persistedGraphTab?.graphLevel) {
-        graphTab.graphLevel = persistedGraphTab.graphLevel as GraphLevel
+      // Only the primary pane gets a graph tab (one 3D renderer only)
+      let pane: PaneState
+      if (isPrimary) {
+        const created = createPane()
+        pane = created.pane
+        const graphTab = created.graphTab
+
+        // Override graph tab settings if persisted
+        const persistedGraphTab = persistedPane.tabs.find((t) => t.kind === 'graph')
+        if (persistedGraphTab?.graphLevel) {
+          graphTab.graphLevel = persistedGraphTab.graphLevel as GraphLevel
+        }
+
+        this.tabs[graphTab.id] = graphTab
+      } else {
+        pane = {
+          id: crypto.randomUUID(),
+          tabOrder: [],
+          activeTabId: null,
+          graphTabId: null,
+        }
       }
 
-      this.tabs[graphTab.id] = graphTab
       this.panes[pane.id] = pane
       this.paneOrder = [...this.paneOrder, pane.id]
 
@@ -663,6 +970,51 @@ class WorkspaceStore {
 
       for (let i = 0; i < persistedPane.tabs.length; i++) {
         const persistedTab = persistedPane.tabs[i]
+
+        if (persistedTab.kind === 'asset' && persistedTab.filePath) {
+          // Restore asset tab — validate file exists via fileInfo
+          let fileExists = true
+          try {
+            const activeCollection = await api.getActiveCollection()
+            if (activeCollection) {
+              const absolutePath = `${activeCollection.path}/${persistedTab.filePath}`
+              await api.fileInfo(absolutePath)
+            } else {
+              fileExists = false
+            }
+          } catch {
+            fileExists = false
+          }
+          if (!fileExists) continue
+
+          const parts = persistedTab.filePath.split('/')
+          const title = parts[parts.length - 1] || persistedTab.filePath
+          const tab: AssetTab = {
+            id: crypto.randomUUID(),
+            kind: 'asset',
+            filePath: persistedTab.filePath,
+            title,
+            mimeCategory: (persistedTab.mimeCategory ?? 'other') as MimeCategory,
+          }
+          this.tabs[tab.id] = tab
+
+          const graphIdx = pane.tabOrder.indexOf(pane.graphTabId)
+          if (graphIdx >= 0) {
+            pane.tabOrder = [
+              ...pane.tabOrder.slice(0, graphIdx),
+              tab.id,
+              ...pane.tabOrder.slice(graphIdx),
+            ]
+          } else {
+            pane.tabOrder = [...pane.tabOrder, tab.id]
+          }
+
+          if (i === persistedPane.activeTabIndex) {
+            activeTabId = tab.id
+          }
+          continue
+        }
+
         if (persistedTab.kind !== 'document' || !persistedTab.filePath) continue
 
         // Validate file still exists by attempting to read it.
@@ -804,8 +1156,13 @@ class WorkspaceStore {
       return
     }
 
-    const { pane, graphTab } = createPane()
-    this.tabs[graphTab.id] = graphTab
+    // Secondary pane has no graph tab — only one 3D renderer in the workspace
+    const pane: PaneState = {
+      id: crypto.randomUUID(),
+      tabOrder: [],
+      activeTabId: null,
+      graphTabId: null,
+    }
     this.panes[pane.id] = pane
     this.paneOrder = [...this.paneOrder, pane.id]
     this.splitEnabled = true
@@ -828,10 +1185,16 @@ class WorkspaceStore {
       return
     }
 
-    // Move all document tabs from secondary to primary (before graph tab)
+    // Move all non-graph tabs from secondary to primary
     const docTabIds = secondaryPane.tabOrder.filter(
-      (id) => this.tabs[id]?.kind === 'document'
+      (id) => this.tabs[id]?.kind !== 'graph'
     )
+
+    // If the graph tab lives in the secondary pane, move it back to primary
+    if (secondaryPane.graphTabId && !primaryPane.graphTabId) {
+      primaryPane.graphTabId = secondaryPane.graphTabId
+      primaryPane.tabOrder = [...primaryPane.tabOrder, secondaryPane.graphTabId]
+    }
 
     const graphIdx = primaryPane.tabOrder.indexOf(primaryPane.graphTabId)
     const insertIdx = graphIdx >= 0 ? graphIdx : primaryPane.tabOrder.length
@@ -850,11 +1213,6 @@ class WorkspaceStore {
         primaryPane.activeTabId = docTabIds[docTabIds.length - 1]
       }
     }
-
-    // Clean up secondary pane's graph tab
-    const secondaryGraphTabId = secondaryPane.graphTabId
-    const { [secondaryGraphTabId]: _removedGraph, ...remainingTabs } = this.tabs
-    this.tabs = remainingTabs
 
     // Remove secondary pane
     const { [secondaryPaneId]: _removedPane, ...remainingPanes } = this.panes

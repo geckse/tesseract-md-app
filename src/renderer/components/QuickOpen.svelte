@@ -1,25 +1,126 @@
 <script lang="ts">
   import { quickOpenModalOpen, closeQuickOpen } from '../stores/quickopen'
   import { flatFileList, syncFileStoresFromTab } from '../stores/files'
+  import { activeCollection } from '../stores/collections'
   import { workspace } from '../stores/workspace.svelte'
+  import { recordNavigation } from '../stores/navigation'
   import { fuzzyFilter } from '../lib/fuzzy-match'
-  import type { FileTreeNode } from '../types/cli'
+  import type { FileTreeNode, SearchResultFile } from '../types/cli'
+
+  interface QuickOpenResult {
+    path: string
+    label: string
+    state: string | null
+    matchIndices: number[]
+  }
 
   let currentOpen = $state(false)
   let currentFiles: FileTreeNode[] = $state([])
+  let currentCollection: import('../../preload/api').Collection | null = $state(null)
   let query = $state('')
   let selectedIndex = $state(0)
   let inputEl: HTMLInputElement | undefined = $state(undefined)
 
+  // CLI search state
+  let searchResults: QuickOpenResult[] = $state([])
+  let searchLoading = $state(false)
+  let searchGeneration = 0
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null
+
   quickOpenModalOpen.subscribe((v) => (currentOpen = v))
   flatFileList.subscribe((v) => (currentFiles = v))
+  activeCollection.subscribe((v) => (currentCollection = v))
 
-  let filteredFiles = $derived.by(() => {
-    if (!query.trim()) {
-      return currentFiles.slice(0, 50).map(item => ({ item, match: { score: 0, indices: [] } }))
-    }
-    return fuzzyFilter(query, currentFiles, (f) => f.path).slice(0, 50)
+  // Default results: file tree (no query)
+  let defaultResults = $derived<QuickOpenResult[]>(
+    currentFiles.slice(0, 50).map((f) => ({
+      path: f.path,
+      label: f.path,
+      state: f.state,
+      matchIndices: [],
+    }))
+  )
+
+  // Fuzzy-filtered results for instant local matching
+  let fuzzyResults = $derived.by<QuickOpenResult[]>(() => {
+    if (!query.trim()) return []
+    return fuzzyFilter(query, currentFiles, (f) => f.path)
+      .slice(0, 50)
+      .map(({ item, match }) => ({
+        path: item.path,
+        label: item.path,
+        state: item.state,
+        matchIndices: match.indices,
+      }))
   })
+
+  // Display results: search results if available, fuzzy as fallback, default if no query
+  let displayResults = $derived<QuickOpenResult[]>(
+    query.trim()
+      ? (searchResults.length > 0 ? searchResults : fuzzyResults)
+      : defaultResults
+  )
+
+  async function runCliSearch(searchQuery: string): Promise<void> {
+    if (!currentCollection || !searchQuery.trim()) {
+      searchResults = []
+      searchLoading = false
+      return
+    }
+
+    const generation = ++searchGeneration
+    searchLoading = true
+
+    try {
+      let result;
+      try {
+        result = await window.api.search(currentCollection.path, searchQuery, {
+          mode: 'hybrid',
+          limit: 20,
+        })
+      } catch {
+        result = await window.api.search(currentCollection.path, searchQuery, {
+          mode: 'lexical',
+          limit: 20,
+        })
+      }
+
+      if (generation !== searchGeneration) return
+
+      // Deduplicate by file path
+      const seen = new Set<string>()
+      const deduped: QuickOpenResult[] = []
+      for (const r of result.results) {
+        if (!seen.has(r.file.path)) {
+          seen.add(r.file.path)
+          deduped.push({
+            path: r.file.path,
+            label: r.file.path,
+            state: null,
+            matchIndices: findMatchIndices(r.file.path, searchQuery),
+          })
+        }
+      }
+
+      searchResults = deduped
+    } catch {
+      if (generation !== searchGeneration) return
+      searchResults = []
+    } finally {
+      if (generation === searchGeneration) {
+        searchLoading = false
+      }
+    }
+  }
+
+  /** Find character indices in the path that match the query (simple substring highlight). */
+  function findMatchIndices(path: string, q: string): number[] {
+    const lower = path.toLowerCase()
+    const qLower = q.toLowerCase()
+    const idx = lower.indexOf(qLower)
+    if (idx === -1) return []
+    return Array.from({ length: qLower.length }, (_, i) => idx + i)
+  }
 
   function handleBackdropClick(e: MouseEvent) {
     if (e.target === e.currentTarget) {
@@ -35,20 +136,21 @@
       handleClose()
     } else if (e.key === 'ArrowDown') {
       e.preventDefault()
-      selectedIndex = Math.min(selectedIndex + 1, filteredFiles.length - 1)
+      selectedIndex = Math.min(selectedIndex + 1, displayResults.length - 1)
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
       selectedIndex = Math.max(selectedIndex - 1, 0)
     } else if (e.key === 'Enter') {
       e.preventDefault()
-      if (filteredFiles[selectedIndex]) {
-        handleSelect(filteredFiles[selectedIndex].item)
+      if (displayResults[selectedIndex]) {
+        handleSelect(displayResults[selectedIndex])
       }
     }
   }
 
-  function handleSelect(file: FileTreeNode) {
-    workspace.openTab(file.path)
+  function handleSelect(result: QuickOpenResult) {
+    recordNavigation(result.path)
+    workspace.openFile(result.path)
     syncFileStoresFromTab()
     handleClose()
   }
@@ -57,6 +159,13 @@
     closeQuickOpen()
     query = ''
     selectedIndex = 0
+    searchResults = []
+    searchLoading = false
+    searchGeneration++
+    if (debounceTimer) {
+      clearTimeout(debounceTimer)
+      debounceTimer = null
+    }
   }
 
   // Focus input when modal opens
@@ -68,10 +177,29 @@
     }
   })
 
-  // Reset selected index when query changes
+  // Debounced CLI search on query change
   $effect(() => {
-    query // track query changes
+    const q = query
+
+    if (debounceTimer) {
+      clearTimeout(debounceTimer)
+      debounceTimer = null
+    }
+
     selectedIndex = 0
+
+    if (!q.trim()) {
+      searchResults = []
+      searchLoading = false
+      return
+    }
+
+    // Start CLI search after debounce (fuzzy results show instantly)
+    searchLoading = true
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null
+      runCliSearch(q)
+    }, 200)
   })
 
   function escapeHtml(text: string): string {
@@ -127,28 +255,28 @@
       </div>
 
       <div class="results-container">
-        {#if filteredFiles.length === 0}
+        {#if displayResults.length === 0}
           <div class="no-results">
             <span class="material-symbols-outlined">folder_off</span>
-            <p>No files found</p>
+            <p>{searchLoading ? 'Searching...' : 'No files found'}</p>
           </div>
         {:else}
           <div class="results-list">
-            {#each filteredFiles as { item, match }, index}
+            {#each displayResults as result, index}
               <!-- svelte-ignore a11y_click_events_have_key_events -->
               <!-- svelte-ignore a11y_no_static_element_interactions -->
               <div
                 class="result-item"
                 class:selected={index === selectedIndex}
-                onclick={() => handleSelect(item)}
+                onclick={() => handleSelect(result)}
                 onmouseenter={() => { selectedIndex = index }}
               >
                 <span class="material-symbols-outlined file-icon">description</span>
                 <span class="file-path">
-                  {@html highlightMatches(item.path, match.indices)}
+                  {@html highlightMatches(result.label, result.matchIndices)}
                 </span>
-                {#if item.state}
-                  <span class="file-state state-{item.state}">{item.state}</span>
+                {#if result.state}
+                  <span class="file-state state-{result.state}">{result.state}</span>
                 {/if}
               </div>
             {/each}

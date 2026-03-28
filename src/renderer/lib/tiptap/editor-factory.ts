@@ -15,6 +15,7 @@ import { BlockDragExtension } from './block-drag-extension'
 import { MermaidBlockExtension } from './mermaid-block-extension'
 import { LinkBubbleExtension } from './link-bubble-extension'
 import { TableUIExtension } from './table-ui-extension'
+import { ImageResolverExtension } from './image-resolver-extension'
 
 const lowlight = createLowlight(commonGrammars)
 
@@ -29,6 +30,8 @@ export interface WysiwygEditorOptions {
   collectionPath?: string
   /** Collection ID for filtering recents in link autocomplete */
   collectionId?: string
+  /** Current file path (relative to collection root) for image resolution */
+  currentFilePath?: string
 }
 
 export interface WysiwygEditor {
@@ -96,7 +99,11 @@ export function createWysiwygEditor(
         collectionId: options.collectionId ?? ''
       }),
       BlockDragExtension,
-      LinkBubbleExtension
+      LinkBubbleExtension,
+      ImageResolverExtension.configure({
+        collectionPath: options.collectionPath ?? '',
+        currentFilePath: options.currentFilePath ?? ''
+      })
     ],
     onUpdate: options.onUpdate ? ({ editor: e }) => options.onUpdate!(e) : undefined
   })

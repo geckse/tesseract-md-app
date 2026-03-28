@@ -9,7 +9,7 @@
     removeCollection,
     setActiveCollection,
   } from '../stores/collections'
-  import { loadFileTree } from '../stores/files'
+  import { loadFileTree, loadAssetTree } from '../stores/files'
   import { runIngest } from '../stores/ingest'
   import { settingsOpen } from '../stores/ui'
   import { settingsTarget } from '../stores/settings'
@@ -20,7 +20,7 @@
 
   interface SidebarProps {
     onnavigate?: (detail: { id: string }) => void
-    onfileselect?: (detail: { folderId: string; fileId: string }) => void
+    onfileselect?: (detail: { folderId: string; fileId: string; forceNewTab?: boolean }) => void
   }
 
   let {
@@ -41,7 +41,7 @@
 
   async function handleCollectionClick(collection: Collection) {
     await setActiveCollection(collection.id)
-    await loadFileTree()
+    await Promise.all([loadFileTree(), loadAssetTree()])
   }
 
   function handleCollectionContextMenu(event: MouseEvent, collection: Collection) {
@@ -192,7 +192,7 @@
     <!-- File Tree -->
     {#if currentActiveCollectionId}
       <div class="file-tree-section">
-        <FileTree onfileselect={(detail) => onfileselect?.({ folderId: currentActiveCollectionId!, fileId: detail.path })} />
+        <FileTree onfileselect={(detail) => onfileselect?.({ folderId: currentActiveCollectionId!, fileId: detail.path, forceNewTab: detail.forceNewTab })} />
       </div>
     {/if}
   </div>

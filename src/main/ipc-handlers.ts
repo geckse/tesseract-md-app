@@ -497,6 +497,140 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
     })
   )
 
+  // Create file (exclusive create — fails if exists)
+  ipcMain.handle('fs:create-file', (_event, absolutePath: string, content: string) =>
+    wrapHandler(async () => {
+      const { resolve, sep, dirname } = await import('node:path')
+      const normalizedPath = resolve(absolutePath)
+      const collections = getCollections()
+      const isWithinCollection = collections.some(
+        (c) => normalizedPath === c.path || normalizedPath.startsWith(c.path + sep)
+      )
+      if (!isWithinCollection) {
+        throw new Error('Access denied: path is not within a known collection')
+      }
+      // Ensure parent directory exists
+      await fs.mkdir(dirname(normalizedPath), { recursive: true })
+      // Exclusive create: fails if file already exists
+      await fs.writeFile(normalizedPath, content, { encoding: 'utf-8', flag: 'wx' })
+    })
+  )
+
+  // Create directory
+  ipcMain.handle('fs:create-directory', (_event, absolutePath: string) =>
+    wrapHandler(async () => {
+      const { resolve, sep } = await import('node:path')
+      const normalizedPath = resolve(absolutePath)
+      const collections = getCollections()
+      const isWithinCollection = collections.some(
+        (c) => normalizedPath === c.path || normalizedPath.startsWith(c.path + sep)
+      )
+      if (!isWithinCollection) {
+        throw new Error('Access denied: path is not within a known collection')
+      }
+      await fs.mkdir(normalizedPath, { recursive: true })
+    })
+  )
+
+  // Scan for non-markdown asset files in a collection
+  ipcMain.handle('fs:scan-assets', (_event, collectionPath: string) =>
+    wrapHandler(async () => {
+      const { scanAssets } = await import('./asset-scanner')
+      return scanAssets(collectionPath)
+    })
+  )
+
+  // Read a file as base64 (for images, PDFs, etc.)
+  ipcMain.handle('fs:read-binary', (_event, absolutePath: string) =>
+    wrapHandler(async () => {
+      const { resolve, sep } = await import('node:path')
+      const normalizedPath = resolve(absolutePath)
+      const collections = getCollections()
+      const isWithinCollection = collections.some(
+        (c) => normalizedPath === c.path || normalizedPath.startsWith(c.path + sep)
+      )
+      if (!isWithinCollection) {
+        throw new Error('Access denied: path is not within a known collection')
+      }
+      // Guard against overly large files (50MB)
+      const stat = await fs.stat(normalizedPath)
+      if (stat.size > 50 * 1024 * 1024) {
+        throw new Error('File too large for binary IPC transfer (max 50MB)')
+      }
+      const buffer = await fs.readFile(normalizedPath)
+      return buffer.toString('base64')
+    })
+  )
+
+  // Write base64 data to a file (for clipboard-pasted images)
+  ipcMain.handle('fs:write-binary', (_event, absolutePath: string, base64Data: string) =>
+    wrapHandler(async () => {
+      const { resolve, sep, dirname } = await import('node:path')
+      const normalizedPath = resolve(absolutePath)
+      const collections = getCollections()
+      const isWithinCollection = collections.some(
+        (c) => normalizedPath === c.path || normalizedPath.startsWith(c.path + sep)
+      )
+      if (!isWithinCollection) {
+        throw new Error('Access denied: path is not within a known collection')
+      }
+      await fs.mkdir(dirname(normalizedPath), { recursive: true })
+      const buffer = Buffer.from(base64Data, 'base64')
+      await fs.writeFile(normalizedPath, buffer)
+    })
+  )
+
+  // Get file metadata (size, mtime)
+  ipcMain.handle('fs:file-info', (_event, absolutePath: string) =>
+    wrapHandler(async () => {
+      const { resolve, sep } = await import('node:path')
+      const normalizedPath = resolve(absolutePath)
+      const collections = getCollections()
+      const isWithinCollection = collections.some(
+        (c) => normalizedPath === c.path || normalizedPath.startsWith(c.path + sep)
+      )
+      if (!isWithinCollection) {
+        throw new Error('Access denied: path is not within a known collection')
+      }
+      const stat = await fs.stat(normalizedPath)
+      return { size: stat.size, mtime: stat.mtime.toISOString() }
+    })
+  )
+
+  // Copy a file into a collection (for external drag-and-drop import)
+  ipcMain.handle('fs:copy-file', (_event, sourcePath: string, destPath: string) =>
+    wrapHandler(async () => {
+      const { resolve, sep, dirname } = await import('node:path')
+      const normalizedDest = resolve(destPath)
+      const collections = getCollections()
+      // Destination must be within a collection
+      const isDestWithinCollection = collections.some(
+        (c) => normalizedDest.startsWith(c.path + sep)
+      )
+      if (!isDestWithinCollection) {
+        throw new Error('Access denied: destination is not within a known collection')
+      }
+      await fs.mkdir(dirname(normalizedDest), { recursive: true })
+      await fs.copyFile(resolve(sourcePath), normalizedDest)
+    })
+  )
+
+  // Check if a path is within any known collection
+  ipcMain.handle('fs:is-within-collection', (_event, absolutePath: string) =>
+    wrapHandler(async () => {
+      const { resolve, sep } = await import('node:path')
+      const normalizedPath = resolve(absolutePath)
+      const collections = getCollections()
+      const match = collections.find(
+        (c) => normalizedPath === c.path || normalizedPath.startsWith(c.path + sep)
+      )
+      return {
+        within: !!match,
+        collectionPath: match?.path ?? null,
+      }
+    })
+  )
+
   // Window state persistence
   ipcMain.handle('store:set-sidebar-width', (_event, width: number) =>
     wrapHandler(async () => {

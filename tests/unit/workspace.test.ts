@@ -262,14 +262,15 @@ describe('WorkspaceStore', () => {
       expect(getPane(getDefaultPaneId()).activeTabId).toBe(tabB)
     })
 
-    it('closes tab in specified pane', () => {
+    it('closes tab in specified pane and auto-collapses when empty', () => {
       workspace.toggleSplit()
       const pane2Id = workspace.paneOrder[1]
       const tabId = workspace.openTab('test.md', pane2Id)
 
       workspace.closeTab(tabId, pane2Id)
-      const pane2 = getPane(pane2Id)
-      expect(pane2.tabOrder).not.toContain(tabId)
+      // Closing the last tab in pane2 auto-collapses the split
+      expect(workspace.splitEnabled).toBe(false)
+      expect(workspace.paneOrder).toHaveLength(1)
     })
   })
 
@@ -363,15 +364,16 @@ describe('WorkspaceStore', () => {
       expect(Object.keys(workspace.panes)).toHaveLength(2)
     })
 
-    it('second pane has its own graph tab', () => {
+    it('second pane has no graph tab (only one graph tab per workspace)', () => {
       workspace.toggleSplit()
       const pane2Id = workspace.paneOrder[1]
       const pane2 = getPane(pane2Id)
 
-      expect(pane2.graphTabId).toBeTruthy()
-      const graphTab = workspace.tabs[pane2.graphTabId]
-      expect(graphTab).toBeDefined()
-      expect(graphTab.kind).toBe('graph')
+      expect(pane2.graphTabId).toBeNull()
+
+      // Only one graph tab exists in the entire workspace
+      const graphTabs = Object.values(workspace.tabs).filter((t) => t.kind === 'graph')
+      expect(graphTabs).toHaveLength(1)
     })
 
     it('merges tabs from second pane into first when disabling split', () => {
@@ -393,14 +395,16 @@ describe('WorkspaceStore', () => {
       expect(filePaths).toContain('pane2-file.md')
     })
 
-    it('removes the second pane graph tab on collapse', () => {
+    it('preserves the single graph tab on collapse', () => {
       workspace.toggleSplit()
-      const pane2Id = workspace.paneOrder[1]
-      const pane2GraphId = getGraphTabId(pane2Id)
+      const pane1Id = workspace.paneOrder[0]
+      const graphId = getGraphTabId(pane1Id)
 
       workspace.toggleSplit()
 
-      expect(workspace.tabs[pane2GraphId]).toBeUndefined()
+      // Graph tab still exists in the remaining pane
+      expect(workspace.tabs[graphId]).toBeDefined()
+      expect(workspace.tabs[graphId].kind).toBe('graph')
     })
 
     it('toggles back to split after collapsing', () => {
@@ -437,6 +441,7 @@ describe('WorkspaceStore', () => {
 
   describe('moveTab', () => {
     it('moves a document tab between panes', () => {
+      workspace.openTab('stay.md')
       const tabId = workspace.openTab('moveable.md')
       workspace.toggleSplit()
       const pane1Id = workspace.paneOrder[0]
@@ -460,14 +465,16 @@ describe('WorkspaceStore', () => {
       expect(getPane(pane2Id).activeTabId).toBe(tabId)
     })
 
-    it('sets focus to the destination pane', () => {
+    it('keeps split when pane still has graph tab after moving last doc tab', () => {
       const tabId = workspace.openTab('moveable.md')
       workspace.toggleSplit()
       const pane1Id = workspace.paneOrder[0]
       const pane2Id = workspace.paneOrder[1]
 
       workspace.moveTab(tabId, pane1Id, pane2Id)
-      expect(workspace.activePaneId).toBe(pane2Id)
+      // Pane1 still has the graph tab — split stays open
+      expect(workspace.splitEnabled).toBe(true)
+      expect(workspace.paneOrder).toHaveLength(2)
     })
 
     it('activates another tab in the source pane after move', () => {
@@ -482,24 +489,35 @@ describe('WorkspaceStore', () => {
       expect(getPane(pane1Id).activeTabId).toBe(tabStay)
     })
 
-    it('sets source pane activeTabId to null when last doc tab is moved', () => {
-      const tabId = workspace.openTab('only.md')
+    it('sets focus to destination pane when source still has tabs', () => {
+      workspace.openTab('stay.md')
+      const tabId = workspace.openTab('moveable.md')
       workspace.toggleSplit()
       const pane1Id = workspace.paneOrder[0]
       const pane2Id = workspace.paneOrder[1]
 
       workspace.moveTab(tabId, pane1Id, pane2Id)
-      expect(getPane(pane1Id).activeTabId).toBeNull()
+      expect(workspace.activePaneId).toBe(pane2Id)
     })
 
-    it('cannot move the pinned graph tab', () => {
+    it('can move the graph tab between panes', () => {
+      workspace.openTab('keep.md') // keep pane1 non-empty
       workspace.toggleSplit()
+      workspace.openTab('keep2.md', workspace.paneOrder[1]) // keep pane2 non-empty
       const pane1Id = workspace.paneOrder[0]
       const pane2Id = workspace.paneOrder[1]
       const graphTabId = getGraphTabId(pane1Id)
 
       const result = workspace.moveTab(graphTabId, pane1Id, pane2Id)
-      expect(result).toBe(false)
+      expect(result).toBe(true)
+
+      // Graph tab moved: pane1 no longer has it, pane2 does
+      expect(getPane(pane1Id).graphTabId).toBeNull()
+      expect(getPane(pane2Id).graphTabId).toBe(graphTabId)
+
+      // Graph tab is last in pane2
+      const pane2 = getPane(pane2Id)
+      expect(pane2.tabOrder[pane2.tabOrder.length - 1]).toBe(graphTabId)
     })
 
     it('returns false when moving to the same pane', () => {
@@ -528,16 +546,24 @@ describe('WorkspaceStore', () => {
     })
 
     it('inserts moved tab before graph tab in destination pane', () => {
-      const tabId = workspace.openTab('moveable.md')
+      // Set up: two doc tabs in pane1, graph moved to pane2
+      workspace.openTab('stay.md')
       workspace.toggleSplit()
+      workspace.openTab('keep.md', workspace.paneOrder[1]) // keep pane2 non-empty
       const pane1Id = workspace.paneOrder[0]
       const pane2Id = workspace.paneOrder[1]
-      const graphTabId2 = getGraphTabId(pane2Id)
+      const graphTabId1 = getGraphTabId(pane1Id)
 
+      // Move graph to pane2
+      workspace.moveTab(graphTabId1, pane1Id, pane2Id)
+
+      // Open a doc tab in pane1, then move it to pane2
+      const tabId = workspace.openTab('moveable.md', pane1Id)
       workspace.moveTab(tabId, pane1Id, pane2Id)
+
       const pane2 = getPane(pane2Id)
       const lastTabId = pane2.tabOrder[pane2.tabOrder.length - 1]
-      expect(lastTabId).toBe(graphTabId2)
+      expect(lastTabId).toBe(graphTabId1) // graph tab stays last
     })
   })
 
@@ -644,13 +670,16 @@ describe('WorkspaceStore', () => {
       expect(pane.activeTabId).toBe(pane.graphTabId)
     })
 
-    it('can switch to graph tab in a specific pane', () => {
+    it('switchToGraphTab from pane without graph activates the graph in its home pane', () => {
       workspace.toggleSplit()
+      const pane1Id = workspace.paneOrder[0]
       const pane2Id = workspace.paneOrder[1]
       workspace.openTab('file.md', pane2Id)
 
+      // pane2 has no graph tab — switchToGraphTab finds it in pane1
       workspace.switchToGraphTab(pane2Id)
-      expect(getPane(pane2Id).activeTabId).toBe(getGraphTabId(pane2Id))
+      const pane1 = getPane(pane1Id)
+      expect(pane1.activeTabId).toBe(pane1.graphTabId)
     })
   })
 
@@ -961,20 +990,172 @@ describe('WorkspaceStore', () => {
       expect(result).toBe(false)
     })
 
-    it('collapses split when last document tab is moved out of a pane', () => {
+    it('keeps split when source pane still has graph tab after moving last doc tab', () => {
       const tabId = workspace.openTab('only.md')
       expect(workspace.splitEnabled).toBe(false)
 
       // This will enable split, then move the only doc tab to the right pane.
-      // The left pane now has 0 doc tabs, so split should auto-collapse.
+      // The left pane still has its graph tab, so split stays open.
       const result = workspace.splitAndMoveTab(tabId, 'right')
       expect(result).toBe(true)
-      expect(workspace.splitEnabled).toBe(false)
-      expect(workspace.paneOrder).toHaveLength(1)
+      expect(workspace.splitEnabled).toBe(true)
+      expect(workspace.paneOrder).toHaveLength(2)
 
-      // The tab should still exist in the remaining pane
-      const paneId = workspace.paneOrder[0]
-      expect(getPane(paneId).tabOrder).toContain(tabId)
+      // The tab should be in the right pane
+      const pane2Id = workspace.paneOrder[1]
+      expect(getPane(pane2Id).tabOrder).toContain(tabId)
+    })
+  })
+
+  // ── Context menu query methods ────────────────────────────────────
+
+  describe('getCloseableTabIds', () => {
+    it('returns empty array for pane with only graph tab', () => {
+      const paneId = getDefaultPaneId()
+      expect(workspace.getCloseableTabIds(paneId)).toEqual([])
+    })
+
+    it('returns all non-graph tab IDs in order', () => {
+      const paneId = getDefaultPaneId()
+      const tab1 = workspace.openTab('a.md')
+      const tab2 = workspace.openTab('b.md')
+      const tab3 = workspace.openTab('c.md')
+
+      const result = workspace.getCloseableTabIds(paneId)
+      expect(result).toEqual([tab1, tab2, tab3])
+    })
+
+    it('excludes graph tab', () => {
+      const paneId = getDefaultPaneId()
+      workspace.openTab('a.md')
+      const graphTabId = getGraphTabId(paneId)
+
+      const result = workspace.getCloseableTabIds(paneId)
+      expect(result).not.toContain(graphTabId)
+    })
+
+    it('returns empty array for invalid pane ID', () => {
+      expect(workspace.getCloseableTabIds('nonexistent')).toEqual([])
+    })
+  })
+
+  describe('getTabIdsToLeft', () => {
+    it('returns tabs to the left of the given tab', () => {
+      const paneId = getDefaultPaneId()
+      const tab1 = workspace.openTab('a.md')
+      const tab2 = workspace.openTab('b.md')
+      const tab3 = workspace.openTab('c.md')
+
+      const result = workspace.getTabIdsToLeft(tab3, paneId)
+      expect(result).toEqual([tab1, tab2])
+    })
+
+    it('returns empty array for the first document tab', () => {
+      const paneId = getDefaultPaneId()
+      const tab1 = workspace.openTab('a.md')
+      workspace.openTab('b.md')
+
+      const result = workspace.getTabIdsToLeft(tab1, paneId)
+      expect(result).toEqual([])
+    })
+
+    it('returns empty array for nonexistent tab', () => {
+      const paneId = getDefaultPaneId()
+      expect(workspace.getTabIdsToLeft('nonexistent', paneId)).toEqual([])
+    })
+  })
+
+  describe('getTabIdsToRight', () => {
+    it('returns tabs to the right of the given tab', () => {
+      const paneId = getDefaultPaneId()
+      const tab1 = workspace.openTab('a.md')
+      const tab2 = workspace.openTab('b.md')
+      const tab3 = workspace.openTab('c.md')
+
+      const result = workspace.getTabIdsToRight(tab1, paneId)
+      expect(result).toEqual([tab2, tab3])
+    })
+
+    it('returns empty array for the last document tab', () => {
+      const paneId = getDefaultPaneId()
+      workspace.openTab('a.md')
+      const tab2 = workspace.openTab('b.md')
+
+      // graph tab is after tab2 but should be excluded
+      const result = workspace.getTabIdsToRight(tab2, paneId)
+      expect(result).toEqual([])
+    })
+
+    it('returns empty array for nonexistent tab', () => {
+      const paneId = getDefaultPaneId()
+      expect(workspace.getTabIdsToRight('nonexistent', paneId)).toEqual([])
+    })
+  })
+
+  describe('getOtherTabIds', () => {
+    it('returns all closeable tabs except the given one', () => {
+      const paneId = getDefaultPaneId()
+      const tab1 = workspace.openTab('a.md')
+      const tab2 = workspace.openTab('b.md')
+      const tab3 = workspace.openTab('c.md')
+
+      const result = workspace.getOtherTabIds(tab2, paneId)
+      expect(result).toEqual([tab1, tab3])
+    })
+
+    it('returns empty array when only one document tab exists', () => {
+      const paneId = getDefaultPaneId()
+      const tab1 = workspace.openTab('a.md')
+
+      const result = workspace.getOtherTabIds(tab1, paneId)
+      expect(result).toEqual([])
+    })
+
+    it('excludes graph tab', () => {
+      const paneId = getDefaultPaneId()
+      const tab1 = workspace.openTab('a.md')
+      const graphTabId = getGraphTabId(paneId)
+
+      const result = workspace.getOtherTabIds(tab1, paneId)
+      expect(result).not.toContain(graphTabId)
+    })
+  })
+
+  describe('getSavedTabIds', () => {
+    it('returns all non-dirty closeable tabs', () => {
+      const paneId = getDefaultPaneId()
+      const tab1 = workspace.openTab('a.md')
+      const tab2 = workspace.openTab('b.md')
+      const tab3 = workspace.openTab('c.md')
+
+      // Mark tab2 as dirty
+      const docTab2 = asDocTab(workspace.tabs[tab2])
+      docTab2.isDirty = true
+      workspace.tabs[tab2] = { ...docTab2 }
+
+      const result = workspace.getSavedTabIds(paneId)
+      expect(result).toEqual([tab1, tab3])
+    })
+
+    it('returns empty array when all document tabs are dirty', () => {
+      const paneId = getDefaultPaneId()
+      const tab1 = workspace.openTab('a.md')
+
+      const docTab1 = asDocTab(workspace.tabs[tab1])
+      docTab1.isDirty = true
+      workspace.tabs[tab1] = { ...docTab1 }
+
+      const result = workspace.getSavedTabIds(paneId)
+      expect(result).toEqual([])
+    })
+
+    it('excludes graph tab', () => {
+      const paneId = getDefaultPaneId()
+      workspace.openTab('a.md')
+      const graphTabId = getGraphTabId(paneId)
+
+      const result = workspace.getSavedTabIds(paneId)
+      expect(result).not.toContain(graphTabId)
     })
   })
 })

@@ -1,7 +1,7 @@
 import { writable, get } from 'svelte/store'
 import type { IngestResult, IngestPreview } from '../types/cli'
 import { activeCollection, collectionStatus } from './collections'
-import { loadFileTree } from './files'
+import { loadFileTree, loadAssetTree } from './files'
 
 /** Ingest state machine states. */
 export type IngestState = 'idle' | 'previewing' | 'ingesting' | 'done' | 'error'
@@ -102,7 +102,7 @@ export async function runIngest(reindex = false): Promise<void> {
     stopTimer()
     ingestRunning.set(false)
     // Refresh file tree and collection status after ingest
-    await loadFileTree()
+    await Promise.all([loadFileTree(), loadAssetTree()])
     try {
       const status = await window.api.status(collection.path)
       collectionStatus.set(status)

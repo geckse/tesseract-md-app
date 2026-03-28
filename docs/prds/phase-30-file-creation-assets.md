@@ -236,10 +236,11 @@ In `WysiwygEditor.svelte`, intercept paste events with image blobs:
 1. Check `event.clipboardData.items` for image MIME types
 2. Read blob as base64 via `FileReader`
 3. Generate filename: `pasted-{Date.now()}.png`
-4. Ensure `{collection}/assets/` directory exists via `window.api.createDirectory()`
-5. Save via `window.api.writeBinary(absolutePath, base64Data)`
-6. Insert `![](assets/pasted-{timestamp}.png)` into editor
-7. Trigger asset tree refresh
+4. Save alongside the current markdown file via `window.api.writeBinary(sameDirPath + filename, base64Data)` — the pasted image lands in the same directory as the document that references it
+5. Insert `![](pasted-{timestamp}.png)` into editor (relative to current file)
+6. Trigger asset tree refresh
+
+No special `assets/` directory — pasted images go next to the markdown file, keeping assets co-located with content.
 
 ### Insert Asset Dialog
 
@@ -339,17 +340,17 @@ Add branch for `tab.kind === 'asset'`: route to `ImageViewer`, `PdfViewer`, or `
 
 ### Track D: Editor Integration (Steps 12–15)
 
-**Step 12: Drag-and-drop from tree to editor**
+**Step 12: Drag-and-drop — internal (tree) and external (OS)**
 
-Files: `WysiwygEditor.svelte`, `Editor.svelte`
+Files: `WysiwygEditor.svelte`, `Editor.svelte`, `ipc-handlers.ts`, `preload/index.ts`, `preload/api.d.ts`
 
-Add drop handlers that read `application/x-mdvdb-path`, determine file type, compute relative path from current document, and insert appropriate markdown syntax.
+Add `fs:copy-file` and `fs:is-within-collection` IPC handlers. Add drop handlers to both editors that handle two cases: (a) internal tree drag via `application/x-mdvdb-path` — compute relative path, insert markdown; (b) external OS drag via `dataTransfer.files` — check if within collection, if outside show confirmation dialog then copy alongside current file, insert markdown link.
 
-**Step 13: Clipboard paste images to assets folder**
+**Step 13: Clipboard paste images alongside current file**
 
 Files: `WysiwygEditor.svelte`, `ipc-handlers.ts`, `preload/index.ts`, `preload/api.d.ts`
 
-Add `fs:write-binary` IPC handler. Intercept paste events with image blobs. Save to `{collection}/assets/` directory, insert markdown reference, refresh asset tree.
+Add `fs:write-binary` IPC handler. Intercept paste events with image blobs. Save alongside the current markdown file (same directory), insert relative markdown reference, refresh asset tree.
 
 **Step 14: Insert Asset Dialog**
 
@@ -398,7 +399,11 @@ D depends on B and C (Step 12 needs asset nodes in tree from Step 5, Step 15 nee
 - [ ] Dragging image from tree into WYSIWYG editor inserts `![](relative-path)` and renders inline
 - [ ] Dragging image from tree into CodeMirror editor inserts `![](relative-path)` at drop position
 - [ ] Dragging non-image file inserts `[filename](relative-path)` link syntax
-- [ ] Pasting image from clipboard saves to `assets/` folder and inserts reference
+- [ ] Dragging a file from OS (Finder/Explorer) that is inside the collection inserts a link (no copy)
+- [ ] Dragging a file from OS that is outside the collection shows confirmation dialog, copies alongside current file, inserts link
+- [ ] External drag with duplicate filename auto-suffixes (`image.png` → `image-1.png`)
+- [ ] External drag of unsupported file type shows "Unsupported file type" toast
+- [ ] Pasting image from clipboard saves alongside current markdown file and inserts reference
 - [ ] Insert Asset Dialog shows searchable list of collection assets with thumbnails
 - [ ] WYSIWYG mode renders relative-path images inline (resolved to data URLs)
 - [ ] Asset files have no representation in the 3D graph/canvas
@@ -417,6 +422,7 @@ D depends on B and C (Step 12 needs asset nodes in tree from Step 5, Step 15 nee
 - **Don't use `fs.watch` for asset change detection** — Reuse the existing watcher infrastructure. Extend its event handling to trigger asset rescans when non-markdown files change.
 - **Don't embed pdf.js as a global script** — Import `pdfjs-dist` as an ES module and set the worker source path for Electron's packaged environment.
 - **Don't create files with `fs.writeFile` without the `wx` flag** — Exclusive create prevents silent overwrites of existing files.
+- **Don't force a special `assets/` directory** — Assets live wherever they naturally are in the filesystem. Pasted images and externally-dragged files are saved alongside the current markdown file (same directory). Users organize their own folder structure.
 
 ## Patterns to Follow
 

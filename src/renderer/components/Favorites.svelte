@@ -3,6 +3,7 @@
   import { collections, activeCollectionId, setActiveCollection } from '../stores/collections'
   import { syncFileStoresFromTab } from '../stores/files'
   import { workspace } from '../stores/workspace.svelte'
+  import { recordNavigation } from '../stores/navigation'
   import type { FavoriteEntry } from '../../preload/api'
 
   // Reactive subscriptions
@@ -41,8 +42,9 @@
     if (currentActiveCollectionId !== favorite.collectionId) {
       await setActiveCollection(favorite.collectionId)
     }
-    // Open the file in a workspace tab
-    workspace.openTab(favorite.filePath)
+    // Open the file — replaces current tab if clean
+    recordNavigation(favorite.filePath)
+    workspace.openFile(favorite.filePath)
     syncFileStoresFromTab()
   }
 </script>

@@ -4,6 +4,22 @@
     position: { x: number; y: number; z: number }
     target: { x: number; y: number; z: number }
   }>()
+
+  /** Per-graph-tab node position cache. Preserves force-simulation layout across remounts. */
+  const nodePositionCache = new Map<string, Map<string, { x: number; y: number; z: number }>>()
+
+  /** Per-graph-tab selected node ID cache. */
+  let selectedNodeIdCache: string | null = null
+
+  /** Flag to suppress focusCameraOnNode during state restore. */
+  let suppressCameraFocus = false
+
+  /** Clear all graph state caches (e.g., on collection switch). */
+  export function clearGraphStateCache(): void {
+    cameraStateCache.clear()
+    nodePositionCache.clear()
+    selectedNodeIdCache = null
+  }
 </script>
 
 <script lang="ts">
@@ -959,7 +975,7 @@
    * looking at the node's position. Uses 1000ms transition duration.
    */
   function focusCameraOnNode(node: ForceNode) {
-    if (!graph) return
+    if (!graph || suppressCameraFocus) return
     const nx = node.x ?? 0
     const ny = node.y ?? 0
     const nz = node.z ?? 0
@@ -1002,6 +1018,35 @@
     // Seed cluster positions using Fibonacci sphere distribution
     const spreadRadius = currentLevel === 'chunk' ? 300 : 200
     seedClusterPositions(graph3DData.nodes, data.clusters, spreadRadius)
+
+    // Override with cached node positions if available (preserves layout across remounts)
+    const cachedPositions = graphTabId ? nodePositionCache.get(graphTabId) : null
+    if (cachedPositions && cachedPositions.size > 0) {
+      for (const node of graph3DData.nodes) {
+        const cached = cachedPositions.get(node.id)
+        if (cached) {
+          node.x = cached.x
+          node.y = cached.y
+          node.z = cached.z
+          // Pin positions so force simulation doesn't disturb the restored layout
+          ;(node as any).fx = cached.x
+          ;(node as any).fy = cached.y
+          ;(node as any).fz = cached.z
+        }
+      }
+      // Clear the cache after restoring (one-time use)
+      nodePositionCache.delete(graphTabId!)
+      // Unpin nodes after simulation has a chance to initialize with these positions
+      setTimeout(() => {
+        if (!graph) return
+        const gd = graph.graphData()
+        for (const node of gd.nodes as ForceNode[]) {
+          node.fx = undefined
+          node.fy = undefined
+          node.fz = undefined
+        }
+      }, 200)
+    }
 
     // Compute cluster centroids from seeded positions
     computeClusterCentroids(graph3DData.nodes)
@@ -1046,6 +1091,21 @@
       setTimeout(() => {
         graph?.zoomToFit(400, 50)
       }, 600)
+    }
+
+    // Restore selected node if cached (suppress camera focus — camera is already restored)
+    if (selectedNodeIdCache) {
+      const nodeId = selectedNodeIdCache
+      selectedNodeIdCache = null
+      const matchingNode = graph3DData.nodes.find((n) => n.id === nodeId)
+      if (matchingNode) {
+        suppressCameraFocus = true
+        const graphNode = toGraphNode(matchingNode as unknown as ForceNode)
+        selectGraphNode(graphNode)
+        openGraphNode(graphNode)
+        // Re-enable after the store subscription has fired synchronously
+        requestAnimationFrame(() => { suppressCameraFocus = false })
+      }
     }
   }
 
@@ -1849,7 +1909,7 @@
 
   function handleContextMenuOpen() {
     if (!contextMenuNode) return
-    workspace.openTab(contextMenuNode.path)
+    workspace.openTabFromGraph(contextMenuNode.path)
     syncFileStoresFromTab()
     contextMenuNode = null
   }
@@ -2036,7 +2096,7 @@
       const graphNode = toGraphNode(node)
       if (currentSelected && currentSelected.id === node.id) {
         // Second click on same node: open as document tab
-        workspace.openTab(node.path)
+        workspace.openTabFromGraph(node.path)
         syncFileStoresFromTab()
       } else {
         // First click: select and show inline preview
@@ -2131,7 +2191,7 @@
   })
 
   onDestroy(() => {
-    // Save camera state for this graph tab before destruction
+    // Save camera state and node positions for this graph tab before destruction
     if (graph && graphTabId) {
       try {
         const pos = graph.cameraPosition()
@@ -2141,10 +2201,25 @@
           ? { x: controls.target.x as number, y: controls.target.y as number, z: controls.target.z as number }
           : { x: 0, y: 0, z: 0 }
         cameraStateCache.set(graphTabId, { position: pos, target })
+
+        // Save node positions from force simulation
+        const gd = graph.graphData()
+        const positions = new Map<string, { x: number; y: number; z: number }>()
+        for (const node of gd.nodes as ForceNode[]) {
+          if (node.id != null && node.x != null && node.y != null && node.z != null) {
+            positions.set(String(node.id), { x: node.x, y: node.y, z: node.z })
+          }
+        }
+        if (positions.size > 0) {
+          nodePositionCache.set(graphTabId, positions)
+        }
       } catch {
-        // Camera state save is best-effort
+        // State save is best-effort
       }
     }
+
+    // Save selected node ID
+    selectedNodeIdCache = currentSelected?.id ?? null
 
     // Clean up graph search debounce timer
     if (graphSearchDebounceTimer) {
