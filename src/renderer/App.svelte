@@ -24,6 +24,7 @@
   import { settingsOpen, onboardingComplete, loadOnboardingState, editorFontSize, loadEditorFontSize } from './stores/ui';
   import { setupUpdateListener, teardownUpdateListener } from './stores/updater';
   import { workspace } from './stores/workspace.svelte';
+  import { closedTabs } from './stores/closed-tabs.svelte';
   import type { SearchResult } from './types/cli';
 
 
@@ -88,14 +89,25 @@
         },
       }),
 
-      // Cmd+W / Ctrl+W: Close active tab (or deselect if no document tab)
+      // Cmd+W / Ctrl+W: Close active tab (with dirty check) or deselect if no document tab
       shortcutManager.register({
         key: 'w',
         meta: true,
         handler: () => {
           const tab = workspace.focusedTab;
           if (tab && tab.kind === 'document') {
-            workspace.closeTab(tab.id);
+            if (tab.isDirty) {
+              // Show save/discard/cancel prompt for dirty tabs
+              const shouldClose = window.confirm(
+                `"${tab.title}" has unsaved changes. Discard changes and close?`
+              );
+              if (!shouldClose) return;
+            }
+            const paneId = workspace.activePaneId;
+            const closed = workspace.closeTab(tab.id);
+            if (closed && closed.kind === 'document') {
+              closedTabs.push(closed, paneId);
+            }
           } else {
             // No document tab focused — deselect
             const pane = workspace.focusedPane;
@@ -107,7 +119,7 @@
         },
       }),
 
-      // Cmd+G / Ctrl+G: Toggle graph tab
+      // Cmd+G / Ctrl+G: Switch to graph tab in focused pane (toggle)
       shortcutManager.register({
         key: 'g',
         meta: true,
@@ -116,6 +128,81 @@
           syncFileStoresFromTab();
         },
       }),
+
+      // Cmd+T / Ctrl+T: New tab (open file picker)
+      shortcutManager.register({
+        key: 't',
+        meta: true,
+        handler: () => {
+          openQuickOpen();
+        },
+      }),
+
+      // Cmd+Shift+T / Ctrl+Shift+T: Reopen last closed tab
+      shortcutManager.register({
+        key: 't',
+        meta: true,
+        shift: true,
+        handler: () => {
+          const entry = closedTabs.pop();
+          if (entry) {
+            workspace.openTab(entry.tab.filePath);
+            syncFileStoresFromTab();
+          }
+        },
+      }),
+
+      // Cmd+Option+Left / Ctrl+Alt+Left: Switch to previous tab
+      shortcutManager.register({
+        key: 'ArrowLeft',
+        meta: true,
+        alt: true,
+        handler: () => {
+          const pane = workspace.focusedPane;
+          if (!pane) return;
+          const docTabs = pane.tabOrder.filter((id) => workspace.tabs[id]?.kind === 'document');
+          if (docTabs.length === 0) return;
+          const currentIdx = pane.activeTabId ? docTabs.indexOf(pane.activeTabId) : -1;
+          const prevIdx = currentIdx <= 0 ? docTabs.length - 1 : currentIdx - 1;
+          workspace.switchTab(docTabs[prevIdx]);
+          syncFileStoresFromTab();
+        },
+      }),
+
+      // Cmd+Option+Right / Ctrl+Alt+Right: Switch to next tab
+      shortcutManager.register({
+        key: 'ArrowRight',
+        meta: true,
+        alt: true,
+        handler: () => {
+          const pane = workspace.focusedPane;
+          if (!pane) return;
+          const docTabs = pane.tabOrder.filter((id) => workspace.tabs[id]?.kind === 'document');
+          if (docTabs.length === 0) return;
+          const currentIdx = pane.activeTabId ? docTabs.indexOf(pane.activeTabId) : -1;
+          const nextIdx = currentIdx < 0 || currentIdx >= docTabs.length - 1 ? 0 : currentIdx + 1;
+          workspace.switchTab(docTabs[nextIdx]);
+          syncFileStoresFromTab();
+        },
+      }),
+
+      // Cmd+1 through Cmd+9 / Ctrl+1 through Ctrl+9: Switch to tab N
+      ...Array.from({ length: 9 }, (_, i) =>
+        shortcutManager.register({
+          key: String(i + 1),
+          meta: true,
+          handler: () => {
+            const pane = workspace.focusedPane;
+            if (!pane) return;
+            const docTabs = pane.tabOrder.filter((id) => workspace.tabs[id]?.kind === 'document');
+            const tabIndex = i; // 0-based: Cmd+1 = index 0
+            if (tabIndex < docTabs.length) {
+              workspace.switchTab(docTabs[tabIndex]);
+              syncFileStoresFromTab();
+            }
+          },
+        })
+      ),
 
       // Cmd+E / Ctrl+E: Toggle editor/preview mode
       shortcutManager.register({
