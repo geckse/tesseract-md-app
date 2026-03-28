@@ -57,8 +57,13 @@
     const tab = workspace.tabs[tabId]
     if (!tab || tab.kind !== 'document') return
 
-    // TODO: In a future subtask, add dirty-tab confirmation dialog here
-    // For now, close immediately and push to closed tabs stack
+    // Confirm before closing dirty tabs to prevent data loss
+    if (tab.isDirty) {
+      const shouldClose = window.confirm(
+        `"${tab.title}" has unsaved changes. Discard changes and close?`
+      )
+      if (!shouldClose) return
+    }
 
     const closedTab = workspace.closeTab(tabId, paneId)
     if (closedTab && closedTab.kind === 'document') {

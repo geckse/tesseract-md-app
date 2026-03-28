@@ -111,6 +111,7 @@
 
   <!-- Resize handle + secondary (right) pane — only when split is enabled -->
   {#if splitEnabled && paneOrder[1]}
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <div
       class="split-resize-handle"
       class:dragging={isDragging}

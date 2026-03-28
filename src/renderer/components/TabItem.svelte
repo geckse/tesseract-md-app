@@ -120,6 +120,7 @@
   {/if}
 
   {#if canClose}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
     <span
       class="close-btn"
       role="button"
