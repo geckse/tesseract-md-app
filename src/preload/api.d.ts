@@ -205,6 +205,9 @@ export interface MdvdbApi {
   saveWindowSession(session: PersistedWindowState): Promise<void>
   getWindowSession(): Promise<PersistedWindowState | null>
 
+  // Multi-window management
+  newWindow(): Promise<void>
+
   // Auto-updater
   checkForUpdates(): Promise<UpdateCheckResult>
   downloadUpdate(): Promise<void>

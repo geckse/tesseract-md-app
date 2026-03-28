@@ -145,6 +145,9 @@ const api: MdvdbApi = {
   saveWindowSession: (session) => invoke('session:save', session),
   getWindowSession: () => invoke('session:get'),
 
+  // Multi-window management
+  newWindow: () => invoke('window:new'),
+
   // Auto-updater
   checkForUpdates: () => invoke('updater:check'),
   downloadUpdate: () => invoke('updater:download'),

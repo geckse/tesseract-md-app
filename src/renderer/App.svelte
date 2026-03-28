@@ -275,6 +275,16 @@
         },
       }),
 
+      // Cmd+Shift+N / Ctrl+Shift+N: Open new window
+      shortcutManager.register({
+        key: 'n',
+        meta: true,
+        shift: true,
+        handler: () => {
+          window.api.newWindow();
+        },
+      }),
+
       // Cmd+, / Ctrl+,: Toggle settings panel
       shortcutManager.register({
         key: ',',
