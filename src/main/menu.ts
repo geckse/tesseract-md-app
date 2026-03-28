@@ -3,25 +3,29 @@
  *
  * Provides a standard menu bar with File > Open Recent, Edit (undo/redo/clipboard),
  * View (dev tools), and Window menus.
+ *
+ * Uses WindowManager for multi-window support — recent file clicks target the
+ * focused window, falling back to broadcast if no window is focused.
  */
 
-import { Menu, app, type BrowserWindow, type MenuItemConstructorOptions } from 'electron'
+import { Menu, BrowserWindow, app, type MenuItemConstructorOptions } from 'electron'
 import { initStore, getCollections } from './store'
 import type { RecentEntry, Collection } from './store'
+import type { WindowManager } from './window-manager'
 import path from 'node:path'
 
-/** Reference to the main window for sending IPC events. */
-let mainWindowRef: BrowserWindow | null = null
+/** Reference to the WindowManager for sending IPC events to windows. */
+let windowManagerRef: WindowManager | null = null
 
 /** Whether the app is in development mode. */
 const isDev = !app.isPackaged
 
 /**
  * Build and set the application menu.
- * Call once after the main window is created, and again via refreshRecentMenu().
+ * Call once after the first window is created, and again via refreshRecentMenu().
  */
-export function buildAppMenu(mainWindow: BrowserWindow): void {
-  mainWindowRef = mainWindow
+export function buildAppMenu(windowManager: WindowManager): void {
+  windowManagerRef = windowManager
   const menu = Menu.buildFromTemplate(buildTemplate())
   Menu.setApplicationMenu(menu)
 }
@@ -31,7 +35,7 @@ export function buildAppMenu(mainWindow: BrowserWindow): void {
  * Call after recents:add, recents:clear, or collections:remove.
  */
 export function refreshRecentMenu(): void {
-  if (!mainWindowRef || mainWindowRef.isDestroyed()) return
+  if (!windowManagerRef || windowManagerRef.getAllWindows().length === 0) return
   const menu = Menu.buildFromTemplate(buildTemplate())
   Menu.setApplicationMenu(menu)
 }
@@ -118,11 +122,16 @@ function buildRecentSubmenu(): MenuItemConstructorOptions[] {
     items.push({
       label: `${fileName} — ${collectionName}`,
       click: () => {
-        if (mainWindowRef && !mainWindowRef.isDestroyed()) {
-          mainWindowRef.webContents.send('menu:open-recent', {
-            collectionId: recent.collectionId,
-            filePath: recent.filePath
-          })
+        const payload = {
+          collectionId: recent.collectionId,
+          filePath: recent.filePath
+        }
+        // Send to the focused window, or broadcast to all if none focused
+        const focusedWindow = BrowserWindow.getFocusedWindow()
+        if (focusedWindow && !focusedWindow.isDestroyed()) {
+          focusedWindow.webContents.send('menu:open-recent', payload)
+        } else if (windowManagerRef) {
+          windowManagerRef.broadcastToAll('menu:open-recent', payload)
         }
       }
     })

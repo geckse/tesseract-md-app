@@ -19,14 +19,14 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window, { escToCloseWindow: false, zoom: true })
   })
 
-  const mainWindow = windowManager.createWindow()
+  windowManager.createWindow()
 
-  registerIpcHandlers(mainWindow)
-  buildAppMenu(mainWindow)
+  registerIpcHandlers(windowManager)
+  buildAppMenu(windowManager)
 
   // Initialize auto-updater via the singleton (same instance used by IPC handlers)
   const updater = getAppUpdater()
-  updater.setMainWindow(mainWindow)
+  updater.setWindowManager(windowManager)
   updater.start()
 
   app.on('activate', () => {

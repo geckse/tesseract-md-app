@@ -5,7 +5,7 @@
  * Called once from the main process on app ready.
  */
 
-import { app, ipcMain, shell, clipboard, type BrowserWindow } from 'electron'
+import { app, ipcMain, shell, clipboard, BrowserWindow } from 'electron'
 import { promises as fs } from 'node:fs'
 import { findCli, getCliVersion, execCommand, execRaw } from './cli'
 import { detectCli, installCli, checkLatestVersion } from './cli-install'
@@ -24,6 +24,7 @@ import {
 import type { PersistedWindowState } from './store'
 import { WatcherManager, type WatcherState } from './watcher'
 import { AppUpdater } from './updater'
+import type { WindowManager } from './window-manager'
 import {
   getCollections,
   addCollection,
@@ -170,9 +171,9 @@ async function withWatcherPaused<T>(root: string, fn: () => Promise<T>): Promise
  * Register all IPC handlers for CLI bridge channels.
  * Must be called once after app is ready.
  *
- * @param mainWindow - The main BrowserWindow for forwarding watcher events
+ * @param windowManager - The WindowManager for broadcasting events to all windows
  */
-export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
+export function registerIpcHandlers(windowManager: WindowManager): void {
   // CLI detection
   ipcMain.handle('cli:find', () => wrapHandler(() => findCli()))
 
@@ -562,12 +563,13 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
     })
   )
 
-  ipcMain.handle('cli:install', () =>
+  ipcMain.handle('cli:install', (event) =>
     wrapHandler(async () => {
-      if (!mainWindow) {
-        throw new Error('No main window available for install progress')
+      const win = BrowserWindow.fromWebContents(event.sender)
+      if (!win) {
+        throw new Error('No window available for install progress')
       }
-      const result = await installCli(mainWindow)
+      const result = await installCli(win)
       if (result.success) {
         setCliInfo(result.path, result.version ?? null)
       }
@@ -657,12 +659,13 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
     wrapHandler(async () => getZoomLevel())
   )
 
-  ipcMain.handle('store:set-zoom-level', (_event, value: number) =>
+  ipcMain.handle('store:set-zoom-level', (event, value: number) =>
     wrapHandler(async () => {
       setZoomLevel(value)
-      // Apply zoom to the webContents immediately
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.setZoomFactor(value)
+      // Apply zoom to the requesting window immediately
+      const win = BrowserWindow.fromWebContents(event.sender)
+      if (win && !win.isDestroyed()) {
+        win.webContents.setZoomFactor(value)
       }
     })
   )
@@ -672,28 +675,20 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
     wrapHandler(async () => {
       const watcher = getWatcherManager()
 
-      // Forward watcher events to the renderer via webContents
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        watcher.removeAllListeners()
+      // Forward watcher events to all windows via broadcastToAll
+      watcher.removeAllListeners()
 
-        watcher.onEvent((event) => {
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('watcher:event', { type: 'watch-event', data: event })
-          }
-        })
+      watcher.onEvent((watchEvent) => {
+        windowManager.broadcastToAll('watcher:event', { type: 'watch-event', data: watchEvent })
+      })
 
-        watcher.onError((error) => {
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('watcher:event', { type: 'error', data: { message: error.message } })
-          }
-        })
+      watcher.onError((error) => {
+        windowManager.broadcastToAll('watcher:event', { type: 'error', data: { message: error.message } })
+      })
 
-        watcher.onStateChange((state: WatcherState) => {
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('watcher:event', { type: 'state-change', data: state })
-          }
-        })
-      }
+      watcher.onStateChange((state: WatcherState) => {
+        windowManager.broadcastToAll('watcher:event', { type: 'state-change', data: state })
+      })
 
       await watcher.start(root)
     })
@@ -719,10 +714,8 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
   // Updater management
   const updater = getAppUpdater()
 
-  // Wire event forwarding from AppUpdater to renderer
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    updater.setMainWindow(mainWindow)
-  }
+  // Wire event forwarding from AppUpdater to all windows
+  updater.setWindowManager(windowManager)
 
   ipcMain.handle('updater:check', () =>
     wrapHandler(async () => {
@@ -770,6 +763,13 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
     wrapHandler(async (): Promise<PersistedWindowState | null> => {
       const sessions = getWindowSessions()
       return sessions.length > 0 ? sessions[0] : null
+    })
+  )
+
+  // Multi-window management
+  ipcMain.handle('window:new', () =>
+    wrapHandler(async () => {
+      windowManager.createWindow()
     })
   )
 }
