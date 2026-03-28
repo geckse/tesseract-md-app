@@ -22,6 +22,7 @@ import {
   setWindowSessions
 } from './store'
 import type { PersistedWindowState } from './store'
+import type { TabTransferData } from '../preload/api'
 import { WatcherManager, type WatcherState } from './watcher'
 import { AppUpdater } from './updater'
 import type { WindowManager } from './window-manager'
@@ -770,6 +771,35 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
   ipcMain.handle('window:new', () =>
     wrapHandler(async () => {
       windowManager.createWindow()
+    })
+  )
+
+  // Cross-window tab transfer
+  //
+  // tab:detach: Serialized tab data from the source window.
+  // Spawns a new BrowserWindow and sends the tab data to it
+  // once the renderer has finished loading (did-finish-load).
+  ipcMain.handle('tab:detach', (_event, tabData: TabTransferData) =>
+    wrapHandler(async () => {
+      const newWin = windowManager.createWindow()
+      newWin.webContents.once('did-finish-load', () => {
+        if (!newWin.isDestroyed()) {
+          newWin.webContents.send('tab:attach', tabData)
+        }
+      })
+    })
+  )
+
+  // tab:attach: Relay tab data to a specific target window.
+  // Used for cross-window drag-drop where the target window
+  // is already identified. The main process forwards the data
+  // as a push event so the renderer can add it to the workspace.
+  ipcMain.handle('tab:attach', (event, tabData: TabTransferData) =>
+    wrapHandler(async () => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('tab:attach', tabData)
+      }
     })
   )
 }

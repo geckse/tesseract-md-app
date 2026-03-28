@@ -11,7 +11,7 @@
 
 import type { EditorMode } from './editor'
 import type { GraphLevel } from '../types/cli'
-import type { PersistedWindowState, PersistedPane, PersistedTab } from '../../preload/api'
+import type { PersistedWindowState, PersistedPane, PersistedTab, TabTransferData } from '../../preload/api'
 
 // ─── Tab Types ─────────────────────────────────────────────────────────
 
@@ -459,6 +459,97 @@ class WorkspaceStore {
     pane.tabOrder = newOrder
     this.panes[targetPaneId] = { ...pane }
     this._scheduleSave()
+  }
+
+  // ── Cross-Window Tab Transfer ───────────────────────────────────────
+
+  /**
+   * Serialize a tab for cross-window transfer.
+   * Only document tabs can be transferred (graph tabs are pinned per pane).
+   * Content is only included when the tab is dirty to avoid unnecessary data.
+   */
+  serializeTab(tabId: string): TabTransferData | null {
+    const tab = this.tabs[tabId]
+    if (!tab || tab.kind !== 'document') return null
+
+    return {
+      kind: 'document',
+      filePath: tab.filePath,
+      editorMode: tab.editorMode,
+      isDirty: tab.isDirty,
+      content: tab.isDirty ? tab.content : null,
+    }
+  }
+
+  /**
+   * Add a tab from cross-window transfer data.
+   * Creates a new document tab in the target pane and makes it active.
+   * Returns the new tab ID, or empty string if the data is invalid.
+   */
+  attachTab(data: TabTransferData, paneId?: string): string {
+    if (data.kind !== 'document' || !data.filePath) return ''
+
+    const targetPaneId = paneId ?? this.activePaneId
+    const pane = this.panes[targetPaneId]
+    if (!pane) return ''
+
+    // Check if the file is already open in this pane — switch to it instead
+    const existingTabId = this._findTabByFilePath(data.filePath, targetPaneId)
+    if (existingTabId) {
+      this.switchTab(existingTabId, targetPaneId)
+      return existingTabId
+    }
+
+    // Create a new document tab from the transfer data
+    const tab = createDocumentTab(data.filePath)
+    if (data.editorMode) {
+      tab.editorMode = data.editorMode as EditorMode
+    }
+    if (data.isDirty) {
+      tab.isDirty = true
+    }
+    if (data.content !== undefined && data.content !== null) {
+      tab.content = data.content
+    }
+
+    this.tabs[tab.id] = tab
+
+    // Insert before the graph tab (graph is always last)
+    const graphIdx = pane.tabOrder.indexOf(pane.graphTabId)
+    if (graphIdx >= 0) {
+      pane.tabOrder = [
+        ...pane.tabOrder.slice(0, graphIdx),
+        tab.id,
+        ...pane.tabOrder.slice(graphIdx),
+      ]
+    } else {
+      pane.tabOrder = [...pane.tabOrder, tab.id]
+    }
+
+    pane.activeTabId = tab.id
+    this.panes[targetPaneId] = { ...pane }
+
+    this._scheduleSave()
+    return tab.id
+  }
+
+  /**
+   * Detach a tab from this window and spawn it in a new window.
+   * Serializes the tab, removes it from the source pane, and calls
+   * the preload API to create a new window with the tab.
+   * Returns the serialized tab data, or null if the tab cannot be detached.
+   */
+  async detachTab(tabId: string, paneId?: string): Promise<TabTransferData | null> {
+    const data = this.serializeTab(tabId)
+    if (!data) return null
+
+    // Remove the tab from the source pane
+    this.closeTab(tabId, paneId)
+
+    // Spawn a new window with the detached tab via IPC
+    await window.api.detachTab(data)
+
+    return data
   }
 
   // ── Session Persistence ─────────────────────────────────────────────
