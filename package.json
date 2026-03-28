@@ -1,6 +1,7 @@
 {
   "name": "tesseract-app",
   "version": "0.1.0",
+  "productName": "Tesseract",
   "description": "Tesseract - Markdown Editor for mdvdb with superpowers",
   "author": "geckse",
   "license": "MIT",

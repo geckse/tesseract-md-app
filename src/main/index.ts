@@ -100,6 +100,10 @@ function createWindow(): BrowserWindow {
   return mainWindow
 }
 
+// Set the app name explicitly so macOS menu and About dialog show "Tesseract"
+// (in dev mode, Electron defaults to the package.json "name" field)
+app.setName('Tesseract')
+
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('md.tesseract.app')
 
