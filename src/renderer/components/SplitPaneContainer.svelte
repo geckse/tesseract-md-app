@@ -1,5 +1,7 @@
 <script lang="ts">
   import { workspace } from '../stores/workspace.svelte'
+  import { syncFileStoresFromTab } from '../stores/files'
+  import { tabBarDropReceived } from './TabBar.svelte'
   import TabPane from './TabPane.svelte'
 
   // ── Container ref for pixel-based ratio calculations ──────────────
@@ -95,12 +97,91 @@
       }
     }
   })
+
+  // ── Drag-to-split state & handlers ──────────────────────────────
+
+  /** Which side of the container the drop overlay is showing on. */
+  let dragOverSide: 'left' | 'right' | null = $state(null)
+
+  function handleContainerDragOver(e: DragEvent) {
+    if (!e.dataTransfer?.types.includes('text/plain')) return
+    if (!containerEl) return
+
+    // Don't show split overlay when cursor is over the tab bar area
+    const target = e.target as HTMLElement | null
+    if (target?.closest('.tab-scroll-area, .tab-bar')) {
+      dragOverSide = null
+      return
+    }
+
+    const rect = containerEl.getBoundingClientRect()
+    const relativeX = e.clientX - rect.left
+    const containerWidth = rect.width
+    const edgeThreshold = Math.max(80, containerWidth * 0.2)
+
+    if (splitEnabled) {
+      // When already split, detect which pane the cursor is over
+      const dividerX = containerWidth * splitRatio
+      if (relativeX < dividerX) {
+        dragOverSide = 'left'
+      } else {
+        dragOverSide = 'right'
+      }
+    } else {
+      // When not split, only activate at the edges
+      if (relativeX >= containerWidth - edgeThreshold) {
+        dragOverSide = 'right'
+      } else if (relativeX <= edgeThreshold) {
+        dragOverSide = 'left'
+      } else {
+        dragOverSide = null
+        return
+      }
+    }
+
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+  }
+
+  function handleContainerDrop(e: DragEvent) {
+    const side = dragOverSide
+    dragOverSide = null
+
+    // If a TabBar already handled this drop, bail
+    if (tabBarDropReceived.value) return
+    if (!side) return
+
+    const draggedTabId = e.dataTransfer?.getData('text/plain')
+    if (!draggedTabId) return
+
+    // Validate it's a local document tab
+    const tab = workspace.tabs[draggedTabId]
+    if (!tab || tab.kind !== 'document') return
+
+    e.preventDefault()
+
+    // Signal that an internal drop occurred (prevents cross-window detach)
+    tabBarDropReceived.value = true
+
+    workspace.splitAndMoveTab(draggedTabId, side)
+    syncFileStoresFromTab()
+  }
+
+  function handleContainerDragLeave(e: DragEvent) {
+    // Only reset if leaving the container entirely
+    const related = e.relatedTarget as HTMLElement | null
+    if (related && containerEl?.contains(related)) return
+    dragOverSide = null
+  }
 </script>
 
 <div
   class="split-pane-container"
   class:split={splitEnabled}
   bind:this={containerEl}
+  ondragover={handleContainerDragOver}
+  ondrop={handleContainerDrop}
+  ondragleave={handleContainerDragLeave}
 >
   <!-- Primary (left) pane — always rendered -->
   {#if paneOrder[0]}
@@ -126,6 +207,20 @@
       <TabPane paneId={paneOrder[1]} onfocus={handlePaneFocus} />
     </div>
   {/if}
+
+  <!-- Drop-to-split overlay -->
+  {#if dragOverSide}
+    <div
+      class="split-drop-overlay"
+      class:drop-left={dragOverSide === 'left'}
+      class:drop-right={dragOverSide === 'right'}
+    >
+      <div class="split-drop-indicator">
+        <span class="material-symbols-outlined">vertical_split</span>
+        <span class="split-drop-label">Drop to open here</span>
+      </div>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -136,6 +231,7 @@
     min-width: 0;
     min-height: 0;
     overflow: hidden;
+    position: relative;
   }
 
   .pane-wrapper {
@@ -175,8 +271,59 @@
     background: var(--color-primary, #00E5FF);
   }
 
+  /* ── Drop-to-split overlay ──────────────────────────────────────── */
+
+  .split-drop-overlay {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: color-mix(in srgb, var(--color-primary, #00E5FF) 6%, transparent);
+    border: 1px dashed color-mix(in srgb, var(--color-primary, #00E5FF) 40%, transparent);
+    z-index: var(--z-overlay, 40);
+    pointer-events: none;
+    opacity: 1;
+    transition: opacity 150ms ease;
+  }
+
+  .split-drop-overlay.drop-right {
+    right: 0;
+    left: auto;
+    border-left: 2px solid var(--color-primary, #00E5FF);
+  }
+
+  .split-drop-overlay.drop-left {
+    left: 0;
+    right: auto;
+    border-right: 2px solid var(--color-primary, #00E5FF);
+  }
+
+  .split-drop-indicator {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    color: var(--color-primary, #00E5FF);
+    opacity: 0.7;
+    user-select: none;
+  }
+
+  .split-drop-indicator .material-symbols-outlined {
+    font-size: 32px;
+  }
+
+  .split-drop-label {
+    font-size: 12px;
+    font-weight: 500;
+    font-family: var(--font-sans, 'Space Grotesk', sans-serif);
+  }
+
   @media (prefers-reduced-motion: reduce) {
-    .split-resize-handle {
+    .split-resize-handle,
+    .split-drop-overlay {
       transition: none;
     }
   }

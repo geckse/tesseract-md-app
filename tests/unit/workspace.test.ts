@@ -892,4 +892,89 @@ describe('WorkspaceStore', () => {
       expect(result).toBe('')
     })
   })
+
+  describe('splitAndMoveTab', () => {
+    it('creates split and moves tab to the right pane', () => {
+      const tabId = workspace.openTab('moveable.md')
+      workspace.openTab('stay.md') // Keep at least one tab in source
+
+      expect(workspace.splitEnabled).toBe(false)
+
+      const result = workspace.splitAndMoveTab(tabId, 'right')
+      expect(result).toBe(true)
+      expect(workspace.splitEnabled).toBe(true)
+      expect(workspace.paneOrder).toHaveLength(2)
+
+      const pane2Id = workspace.paneOrder[1]
+      expect(getPane(pane2Id).tabOrder).toContain(tabId)
+      expect(getPane(pane2Id).activeTabId).toBe(tabId)
+    })
+
+    it('moves tab between panes when already split', () => {
+      const tabId = workspace.openTab('moveable.md')
+      workspace.openTab('stay.md')
+      workspace.toggleSplit()
+      const pane1Id = workspace.paneOrder[0]
+      const pane2Id = workspace.paneOrder[1]
+
+      const result = workspace.splitAndMoveTab(tabId, 'right')
+      expect(result).toBe(true)
+      expect(getPane(pane1Id).tabOrder).not.toContain(tabId)
+      expect(getPane(pane2Id).tabOrder).toContain(tabId)
+    })
+
+    it('moves tab to the left pane', () => {
+      workspace.openTab('stay-left.md')
+      workspace.toggleSplit()
+      const pane2Id = workspace.paneOrder[1]
+      workspace.openTab('stay-right.md', pane2Id)
+      const tabId = workspace.openTab('moveable.md', pane2Id)
+
+      const result = workspace.splitAndMoveTab(tabId, 'left')
+      expect(result).toBe(true)
+
+      const pane1Id = workspace.paneOrder[0]
+      expect(getPane(pane1Id).tabOrder).toContain(tabId)
+      expect(getPane(pane2Id).tabOrder).not.toContain(tabId)
+    })
+
+    it('returns false for graph tabs', () => {
+      const paneId = getDefaultPaneId()
+      const graphTabId = getGraphTabId(paneId)
+
+      const result = workspace.splitAndMoveTab(graphTabId, 'right')
+      expect(result).toBe(false)
+    })
+
+    it('returns false for nonexistent tab ID', () => {
+      const result = workspace.splitAndMoveTab('bad-id', 'right')
+      expect(result).toBe(false)
+    })
+
+    it('returns false when tab is already in the target pane', () => {
+      const tabId = workspace.openTab('file.md')
+      workspace.openTab('other.md')
+      workspace.toggleSplit()
+
+      // Tab is in pane 0 (left), try to move to left — should be no-op
+      const result = workspace.splitAndMoveTab(tabId, 'left')
+      expect(result).toBe(false)
+    })
+
+    it('collapses split when last document tab is moved out of a pane', () => {
+      const tabId = workspace.openTab('only.md')
+      expect(workspace.splitEnabled).toBe(false)
+
+      // This will enable split, then move the only doc tab to the right pane.
+      // The left pane now has 0 doc tabs, so split should auto-collapse.
+      const result = workspace.splitAndMoveTab(tabId, 'right')
+      expect(result).toBe(true)
+      expect(workspace.splitEnabled).toBe(false)
+      expect(workspace.paneOrder).toHaveLength(1)
+
+      // The tab should still exist in the remaining pane
+      const paneId = workspace.paneOrder[0]
+      expect(getPane(paneId).tabOrder).toContain(tabId)
+    })
+  })
 })
