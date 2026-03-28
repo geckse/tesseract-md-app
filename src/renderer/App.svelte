@@ -39,7 +39,23 @@
   // Split pane state is managed by workspace + SplitPaneContainer
 
   onMount(() => {
-    loadCollections();
+    // Load collections first, then restore tab session once the active collection is known.
+    // restoreSession() validates file existence via the preload API, so it needs an active collection.
+    loadCollections().then(async () => {
+      try {
+        const session = await window.api.getWindowSession();
+        if (session) {
+          await workspace.restoreSession(session);
+          syncFileStoresFromTab();
+        } else {
+          // No saved session — enable persistence so this session gets auto-saved
+          workspace.enablePersistence();
+        }
+      } catch {
+        // If restore fails, still enable persistence for this session
+        workspace.enablePersistence();
+      }
+    });
     loadFavorites();
     setupWatcherListener();
     setupUpdateListener();
