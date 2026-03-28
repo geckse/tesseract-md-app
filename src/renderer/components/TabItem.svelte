@@ -1,5 +1,8 @@
 <script lang="ts">
+  import { workspace } from '../stores/workspace.svelte'
   import type { TabState } from '../stores/workspace.svelte'
+  import { syncFileStoresFromTab } from '../stores/files'
+  import { tabBarDropReceived } from './TabBar.svelte'
 
   interface TabItemProps {
     tab: TabState
@@ -51,12 +54,46 @@
       return
     }
     isDragging = true
+    // Reset the cross-window drop flag at drag start
+    tabBarDropReceived.value = false
     e.dataTransfer?.setData('text/plain', tab.id)
     e.dataTransfer!.effectAllowed = 'move'
   }
 
-  function handleDragEnd() {
+  /**
+   * On dragend, check if the drop was handled internally (within any TabBar
+   * in this window). If not, the tab was dragged outside the window —
+   * detach it to spawn a new window at the drop position.
+   *
+   * We use a shared `tabBarDropReceived` flag rather than screen coordinates
+   * because the browser's dragend event fires regardless of where the drop
+   * lands, but the drop event only fires within valid drop targets in our
+   * window. If no internal drop was received, the tab left the window.
+   */
+  function handleDragEnd(e: DragEvent) {
     isDragging = false
+
+    // If the drop was handled internally (reorder within a TabBar), nothing to do
+    if (tabBarDropReceived.value) {
+      tabBarDropReceived.value = false
+      return
+    }
+
+    // The tab was dragged outside the window — check if outside viewport bounds
+    // using client coordinates (0,0 to viewport width/height)
+    const { clientX, clientY } = e
+    const isOutsideWindow =
+      clientX <= 0 ||
+      clientY <= 0 ||
+      clientX >= window.innerWidth ||
+      clientY >= window.innerHeight
+
+    if (isOutsideWindow && tab.kind === 'document') {
+      // Detach this tab to a new window
+      workspace.detachTab(tab.id).then(() => {
+        syncFileStoresFromTab()
+      })
+    }
   }
 </script>
 

@@ -1,7 +1,23 @@
+<script lang="ts" module>
+  /**
+   * Shared flag indicating whether a drop was received by any TabBar in this
+   * window during the current drag operation. Used by TabItem to detect when
+   * a tab has been dragged outside the window (if no internal drop occurred,
+   * the tab was dragged out and should be detached to a new window).
+   *
+   * This is a module-level export (shared across all TabBar instances) so that
+   * TabItem can import it. The flag is reset at dragStart and set at drop.
+   */
+  export const tabBarDropReceived = { value: false }
+</script>
+
 <script lang="ts">
+  import { onMount, onDestroy } from 'svelte'
   import { workspace } from '../stores/workspace.svelte'
   import type { TabState } from '../stores/workspace.svelte'
+  import { syncFileStoresFromTab } from '../stores/files'
   import TabItem from './TabItem.svelte'
+  import type { TabTransferData } from '../../preload/api'
 
   interface TabBarProps {
     paneId: string
@@ -57,6 +73,31 @@
     requestAnimationFrame(() => updateScrollState())
   })
 
+  // ── Cross-window tab attach listener ──────────────────────────────
+
+  function handleTabAttach(data: TabTransferData) {
+    const newTabId = workspace.attachTab(data, paneId)
+    if (newTabId) {
+      syncFileStoresFromTab()
+      onactivate?.(newTabId)
+    }
+  }
+
+  onMount(() => {
+    // Listen for tabs being attached from other windows via IPC.
+    // Only the first pane's TabBar registers the listener to avoid
+    // duplicate handling when split panes are active.
+    if (workspace.paneOrder[0] === paneId) {
+      window.api.onTabAttach(handleTabAttach)
+    }
+  })
+
+  onDestroy(() => {
+    if (workspace.paneOrder[0] === paneId) {
+      window.api.removeTabAttachListener()
+    }
+  })
+
   // ── Tab activation / close ────────────────────────────────────────
 
   function handleActivate(tabId: string) {
@@ -76,6 +117,9 @@
 
   let dragOverTabId: string | null = $state(null)
   let dragOverSide: 'left' | 'right' | null = $state(null)
+
+  /** Visual indicator for cross-window drop on the empty tab bar area. */
+  let crossWindowDragOver = $state(false)
 
   function handleDragOver(e: DragEvent, tab: TabState) {
     // Don't allow dropping on the graph tab
@@ -98,46 +142,79 @@
     dragOverSide = null
   }
 
+  /**
+   * Handle dragover on the scroll area itself — enables dropping tabs
+   * from other windows onto this tab bar (the tab ID from another window
+   * won't match any local tab, so handleDrop will treat it as cross-window).
+   */
+  function handleScrollAreaDragOver(e: DragEvent) {
+    e.preventDefault()
+    e.dataTransfer!.dropEffect = 'move'
+    crossWindowDragOver = true
+  }
+
+  function handleScrollAreaDragLeave() {
+    crossWindowDragOver = false
+  }
+
   function handleDrop(e: DragEvent) {
     e.preventDefault()
+    crossWindowDragOver = false
+
+    // Signal to TabItem that a drop was received in this window
+    tabBarDropReceived.value = true
+
     const draggedTabId = e.dataTransfer?.getData('text/plain')
-    if (!draggedTabId || !dragOverTabId || !pane) {
+    if (!draggedTabId || !pane) {
       resetDragState()
       return
     }
 
-    // Don't reorder onto itself
-    if (draggedTabId === dragOverTabId) {
-      resetDragState()
-      return
+    // Check if this tab exists in our workspace (same-window drag)
+    const isLocalTab = !!workspace.tabs[draggedTabId]
+
+    if (isLocalTab) {
+      // Same-window reorder
+      if (!dragOverTabId) {
+        resetDragState()
+        return
+      }
+
+      // Don't reorder onto itself
+      if (draggedTabId === dragOverTabId) {
+        resetDragState()
+        return
+      }
+
+      // Calculate the target index
+      const currentOrder = pane.tabOrder.filter((id) => id !== draggedTabId)
+      let targetIndex = currentOrder.indexOf(dragOverTabId)
+
+      if (targetIndex < 0) {
+        resetDragState()
+        return
+      }
+
+      if (dragOverSide === 'right') {
+        targetIndex += 1
+      }
+
+      // Clamp before the graph tab
+      const graphIdx = currentOrder.indexOf(graphTabId)
+      if (graphIdx >= 0 && targetIndex > graphIdx) {
+        targetIndex = graphIdx
+      }
+
+      workspace.reorderTab(draggedTabId, targetIndex, paneId)
     }
 
-    // Calculate the target index
-    const currentOrder = pane.tabOrder.filter((id) => id !== draggedTabId)
-    let targetIndex = currentOrder.indexOf(dragOverTabId)
-
-    if (targetIndex < 0) {
-      resetDragState()
-      return
-    }
-
-    if (dragOverSide === 'right') {
-      targetIndex += 1
-    }
-
-    // Clamp before the graph tab
-    const graphIdx = currentOrder.indexOf(graphTabId)
-    if (graphIdx >= 0 && targetIndex > graphIdx) {
-      targetIndex = graphIdx
-    }
-
-    workspace.reorderTab(draggedTabId, targetIndex, paneId)
     resetDragState()
   }
 
   function resetDragState() {
     dragOverTabId = null
     dragOverSide = null
+    crossWindowDragOver = false
   }
 </script>
 
@@ -157,10 +234,12 @@
   <!-- Scrollable tab area -->
   <div
     class="tab-scroll-area"
+    class:cross-window-drag={crossWindowDragOver}
     bind:this={scrollContainer}
     onscroll={updateScrollState}
     ondrop={handleDrop}
-    ondragover={(e) => e.preventDefault()}
+    ondragover={handleScrollAreaDragOver}
+    ondragleave={handleScrollAreaDragLeave}
     ondragend={resetDragState}
   >
     <!-- Document tabs -->
@@ -238,6 +317,14 @@
 
   .tab-scroll-area::-webkit-scrollbar {
     display: none; /* Chrome/Safari */
+  }
+
+  /* ── Cross-window drag indicator ─────────────────────────────── */
+
+  .tab-scroll-area.cross-window-drag {
+    background: color-mix(in srgb, var(--color-primary, #00E5FF) 8%, transparent);
+    outline: 1px dashed var(--color-primary, #00E5FF);
+    outline-offset: -1px;
   }
 
   /* ── Tab drop zones ───────────────────────────────────────────── */
