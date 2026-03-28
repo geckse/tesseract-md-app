@@ -25,6 +25,8 @@
   const canClose = $derived(!isGraph)
   const canDrag = $derived(draggable && !isGraph)
 
+  let isDragging = $state(false)
+
   function handleClick(e: MouseEvent) {
     if (e.button === 0) {
       onactivate?.(tab.id)
@@ -48,8 +50,13 @@
       e.preventDefault()
       return
     }
+    isDragging = true
     e.dataTransfer?.setData('text/plain', tab.id)
     e.dataTransfer!.effectAllowed = 'move'
+  }
+
+  function handleDragEnd() {
+    isDragging = false
   }
 </script>
 
@@ -57,10 +64,12 @@
   class="tab-item"
   class:active={isActive}
   class:graph={isGraph}
+  class:dragging={isDragging}
   onclick={handleClick}
   onauxclick={handleAuxClick}
   draggable={canDrag}
   ondragstart={handleDragStart}
+  ondragend={handleDragEnd}
   title={tab.title}
   role="tab"
   aria-selected={isActive}
@@ -122,6 +131,10 @@
 
   .tab-item.graph {
     cursor: pointer;
+  }
+
+  .tab-item.dragging {
+    opacity: 0.4;
   }
 
   /* --- Icon --- */

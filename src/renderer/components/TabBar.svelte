@@ -161,6 +161,7 @@
     onscroll={updateScrollState}
     ondrop={handleDrop}
     ondragover={(e) => e.preventDefault()}
+    ondragend={resetDragState}
   >
     <!-- Document tabs -->
     {#each documentTabs as tab (tab.id)}
@@ -248,28 +249,35 @@
     flex-shrink: 0;
   }
 
-  .tab-drop-zone.drag-left::before {
+  .tab-drop-zone::before,
+  .tab-drop-zone::after {
     content: '';
     position: absolute;
-    left: 0;
     top: 4px;
     bottom: 4px;
     width: 2px;
     background: var(--color-primary, #00E5FF);
     border-radius: 1px;
     z-index: 2;
+    opacity: 0;
+    transition: opacity var(--transition-fast, 150ms ease);
+    pointer-events: none;
+  }
+
+  .tab-drop-zone::before {
+    left: 0;
+  }
+
+  .tab-drop-zone::after {
+    right: 0;
+  }
+
+  .tab-drop-zone.drag-left::before {
+    opacity: 1;
   }
 
   .tab-drop-zone.drag-right::after {
-    content: '';
-    position: absolute;
-    right: 0;
-    top: 4px;
-    bottom: 4px;
-    width: 2px;
-    background: var(--color-primary, #00E5FF);
-    border-radius: 1px;
-    z-index: 2;
+    opacity: 1;
   }
 
   .graph-tab-zone {
@@ -320,6 +328,11 @@
 
   @media (prefers-reduced-motion: reduce) {
     .scroll-btn {
+      transition: none;
+    }
+
+    .tab-drop-zone::before,
+    .tab-drop-zone::after {
       transition: none;
     }
   }
