@@ -33,6 +33,7 @@ const mockApi = {
   getFile: vi.fn(),
   backlinks: vi.fn(),
   links: vi.fn(),
+  neighborhood: vi.fn(),
   listCollections: vi.fn(),
   getActiveCollection: vi.fn(),
   addCollection: vi.fn(),
@@ -41,6 +42,14 @@ const mockApi = {
   status: vi.fn(),
   readFile: vi.fn(),
   tree: vi.fn(),
+  listFavorites: vi.fn().mockResolvedValue([]),
+  addFavorite: vi.fn(),
+  removeFavorite: vi.fn(),
+  isFavorite: vi.fn().mockResolvedValue(false),
+  listRecents: vi.fn().mockResolvedValue([]),
+  addRecent: vi.fn(),
+  saveWindowSession: vi.fn().mockResolvedValue(undefined),
+  getWindowSession: vi.fn().mockResolvedValue(null),
 }
 
 Object.defineProperty(globalThis, 'window', {
@@ -80,6 +89,8 @@ function makeBacklinksOutput(file: string, backlinks: ReturnType<typeof makeLink
 
 beforeEach(() => {
   vi.resetAllMocks()
+  // Default neighborhood mock to reject (so LocalGraph falls back to 1-hop data)
+  mockApi.neighborhood.mockRejectedValue(new Error('not available'))
 })
 
 describe('buildLocalGraph utility', () => {
@@ -452,11 +463,13 @@ import {
   documentInfo,
   backlinksInfo,
   linksInfo,
+  neighborhoodInfo,
   propertiesLoading,
   propertiesError,
   propertiesFileContent,
 } from '../../src/renderer/stores/properties'
-import { selectedFilePath } from '../../src/renderer/stores/files'
+import { workspace } from '@renderer/stores/workspace.svelte'
+import { syncFileStoresFromTab } from '../../src/renderer/stores/files'
 import PropertiesPanel from '@renderer/components/PropertiesPanel.svelte'
 import type { LinksOutput as LinksOutputType, BacklinksOutput as BacklinksOutputType } from '../../src/renderer/types/cli'
 
@@ -489,26 +502,41 @@ function resetStores() {
   documentInfo.set(null)
   backlinksInfo.set(null)
   linksInfo.set(null)
+  neighborhoodInfo.set(null)
   propertiesLoading.set(false)
   propertiesError.set(null)
   propertiesFileContent.set(null)
-  selectedFilePath.set(null)
+  workspace.reset()
+}
+
+/** Open a file in the workspace so selectedFilePath is populated.
+ *  Pre-fills the tab content to prevent auto-loading via syncFileStoresFromTab. */
+function selectFileInWorkspace(path: string) {
+  const tabId = workspace.openTab(path)
+  // Pre-fill content so syncFileStoresFromTab doesn't trigger _autoLoadTabContent
+  const tab = workspace.tabs[tabId]
+  if (tab && tab.kind === 'document') {
+    tab.content = ''
+  }
+  syncFileStoresFromTab()
 }
 
 describe('LocalGraph integration in PropertiesPanel', () => {
   beforeEach(() => {
     resetStores()
     vi.resetAllMocks()
+    // Default neighborhood mock to reject (so LocalGraph falls back to 1-hop data)
+    mockApi.neighborhood.mockRejectedValue(new Error('not available'))
   })
 
   it('shows "Local Graph" section header when a file is selected', () => {
-    selectedFilePath.set('docs/test.md')
+    selectFileInWorkspace('docs/test.md')
     render(PropertiesPanel)
     expect(screen.getByText('Local Graph')).toBeTruthy()
   })
 
   it('collapses and expands Local Graph section on header click', async () => {
-    selectedFilePath.set('docs/test.md')
+    selectFileInWorkspace('docs/test.md')
     linksInfo.set(sampleLinks)
     backlinksInfo.set(sampleBacklinks)
 
@@ -528,7 +556,7 @@ describe('LocalGraph integration in PropertiesPanel', () => {
   })
 
   it('has expand button with correct title attribute', () => {
-    selectedFilePath.set('docs/test.md')
+    selectFileInWorkspace('docs/test.md')
     render(PropertiesPanel)
 
     const expandBtn = screen.getByTitle('Open full graph view')
@@ -537,7 +565,7 @@ describe('LocalGraph integration in PropertiesPanel', () => {
 
   it('fires onfileselect with correct path when a graph node is clicked', async () => {
     // Set stores BEFORE render so subscriptions fire during initialization
-    selectedFilePath.set('docs/test.md')
+    selectFileInWorkspace('docs/test.md')
     linksInfo.set(sampleLinks)
     backlinksInfo.set(sampleBacklinks)
 

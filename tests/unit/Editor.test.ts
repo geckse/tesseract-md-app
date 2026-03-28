@@ -12,6 +12,8 @@ const mockApi = {
   status: vi.fn(),
   readFile: vi.fn(),
   writeFile: vi.fn(),
+  saveWindowSession: vi.fn().mockResolvedValue(undefined),
+  detachTab: vi.fn().mockResolvedValue(undefined),
 }
 
 Object.defineProperty(globalThis, 'window', {
@@ -38,6 +40,7 @@ vi.mock('@codemirror/view', () => {
     EditorView: Object.assign(EditorView, {
       updateListener: { of: vi.fn(() => []) },
       domEventHandlers: vi.fn(() => []),
+      scrollIntoView: vi.fn(() => ({})),
     }),
     keymap: { of: vi.fn(() => []) },
   }
@@ -57,6 +60,18 @@ vi.mock('@codemirror/state', () => ({
         main: { head: 0 },
       },
     })),
+    fromJSON: vi.fn(() => ({
+      doc: {
+        toString: () => '',
+        length: 0,
+        lineAt: () => ({ from: 0, to: 0, number: 1, text: '' }),
+        line: () => ({ from: 0, to: 0, number: 1, text: '' }),
+        sliceString: () => '',
+      },
+      selection: {
+        main: { head: 0 },
+      },
+    })),
   },
 }))
 
@@ -69,6 +84,12 @@ vi.mock('@codemirror/commands', () => ({
   history: vi.fn(() => []),
   historyKeymap: [],
   defaultKeymap: [],
+  historyField: {},
+}))
+
+vi.mock('@codemirror/search', () => ({
+  search: vi.fn(() => []),
+  searchKeymap: [],
 }))
 
 vi.mock('../../src/renderer/lib/editor-theme', () => ({
@@ -83,9 +104,9 @@ vi.mock('../../src/renderer/lib/frontmatter-decoration', () => ({
   frontmatterDecoration: vi.fn(() => []),
 }))
 
-import { fileContent, selectedFilePath } from '../../src/renderer/stores/files'
 import { collections, activeCollectionId } from '../../src/renderer/stores/collections'
 import { isDirty, wordCount, countWords } from '../../src/renderer/stores/editor'
+import { workspace } from '../../src/renderer/stores/workspace.svelte'
 import { get } from 'svelte/store'
 import Editor from '@renderer/components/Editor.svelte'
 
@@ -100,9 +121,22 @@ function setActiveCollectionForTest(collection: { id: string; name: string; path
   }
 }
 
+/**
+ * Helper to simulate an open file in the workspace.
+ * Opens a tab and sets its content so the Editor component sees it.
+ */
+function openFileInWorkspace(filePath: string, content: string): string {
+  const tabId = workspace.openTab(filePath)
+  const tab = workspace.tabs[tabId]
+  if (tab && tab.kind === 'document') {
+    tab.content = content
+    tab.contentLoading = false
+  }
+  return tabId
+}
+
 function resetStores() {
-  fileContent.set(null)
-  selectedFilePath.set(null)
+  workspace.reset()
   collections.set([])
   activeCollectionId.set(null)
   isDirty.set(false)
@@ -128,9 +162,8 @@ describe('Editor component', () => {
   })
 
   it('renders editor container when file is selected', () => {
-    selectedFilePath.set('test.md')
-    fileContent.set('# Hello World')
     setActiveCollectionForTest({ id: '1', name: 'Test', path: '/test' })
+    openFileInWorkspace('test.md', '# Hello World')
 
     const { container } = render(Editor)
 
@@ -138,8 +171,7 @@ describe('Editor component', () => {
   })
 
   it('does not show empty state when file is selected', () => {
-    selectedFilePath.set('test.md')
-    fileContent.set('# Hello')
+    openFileInWorkspace('test.md', '# Hello')
 
     const { container } = render(Editor)
 
@@ -147,9 +179,8 @@ describe('Editor component', () => {
   })
 
   it('resets isDirty and wordCount on destroy', () => {
-    selectedFilePath.set('test.md')
-    fileContent.set('hello world')
     setActiveCollectionForTest({ id: '1', name: 'Test', path: '/test' })
+    openFileInWorkspace('test.md', 'hello world')
 
     const { unmount } = render(Editor)
 
@@ -163,9 +194,8 @@ describe('Editor component', () => {
   })
 
   it('sets wordCount when file content loads', async () => {
-    selectedFilePath.set('test.md')
-    fileContent.set('hello world foo bar')
     setActiveCollectionForTest({ id: '1', name: 'Test', path: '/test' })
+    openFileInWorkspace('test.md', 'hello world foo bar')
 
     render(Editor)
 

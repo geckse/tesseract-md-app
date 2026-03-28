@@ -43,7 +43,7 @@
 
   // ── Tab lifecycle ─────────────────────────────────────────────────
 
-  function handleTabActivate(tabId: string) {
+  function handleTabActivate(_tabId: string) {
     // Focus this pane when a tab is activated
     if (!isFocused) {
       workspace.setActivePane(paneId)

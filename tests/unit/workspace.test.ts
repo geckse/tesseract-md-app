@@ -607,7 +607,7 @@ describe('WorkspaceStore', () => {
 
       it('updates when switching tabs', () => {
         workspace.openTab('a.md')
-        const tabB = workspace.openTab('b.md')
+        workspace.openTab('b.md')
         expect(workspace.selectedFilePath).toBe('b.md')
 
         workspace.switchTab(workspace.getDocumentTabs(getDefaultPaneId())[0].id)
@@ -814,7 +814,7 @@ describe('WorkspaceStore', () => {
 
     it('records the active tab index', () => {
       workspace.openTab('a.md')
-      const tabB = workspace.openTab('b.md')
+      workspace.openTab('b.md')
       // b.md is active, which is at index 1 among all tabs (a.md=0, b.md=1, graph=2)
       const session = workspace.serializeSession()
       expect(session.panes[0].activeTabIndex).toBe(1) // b.md

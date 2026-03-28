@@ -16,7 +16,7 @@ function getPane(paneId: string) {
 }
 
 /** Assert a tab is a DocumentTab and return it typed. */
-function asDocTab(tab: unknown): DocumentTab {
+function _asDocTab(tab: unknown): DocumentTab {
   expect(tab).toBeDefined()
   expect((tab as DocumentTab).kind).toBe('document')
   return tab as DocumentTab

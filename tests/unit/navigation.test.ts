@@ -8,10 +8,24 @@ import {
   goForward,
   setNavigating,
   clearNavigation,
+  syncNavigationStoresFromTab,
 } from '@renderer/stores/navigation'
+import { workspace } from '@renderer/stores/workspace.svelte'
+
+/**
+ * Helper: ensure the workspace has a focused document tab so that
+ * navigation functions have somewhere to read/write history.
+ * Opens a dummy document tab and syncs stores.
+ */
+function ensureFocusedDocumentTab() {
+  workspace.openTab('__nav-test-dummy__.md')
+  syncNavigationStoresFromTab()
+}
 
 describe('navigation store', () => {
   beforeEach(() => {
+    workspace.reset()
+    ensureFocusedDocumentTab()
     clearNavigation()
   })
 

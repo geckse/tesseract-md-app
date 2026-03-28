@@ -38,24 +38,32 @@ import {
   toggleEdgeClusterFilter,
   clearEdgeFilter,
   toggleSemanticEdges,
+  syncGraphStoresFromTab,
 } from '../../src/renderer/stores/graph'
 
+import { workspace } from '../../src/renderer/stores/workspace.svelte'
 
 import { collections, activeCollectionId } from '../../src/renderer/stores/collections'
 
+/**
+ * Reset workspace and transient graph stores to defaults.
+ * graphViewActive, graphColoringMode, graphLevel, graphPathFilter are
+ * now derived from workspace state, so we reset workspace instead of
+ * calling .set() on them directly.
+ */
 function resetStores() {
-  graphViewActive.set(false)
+  workspace.reset()
   graphData.set(null)
   graphLoading.set(false)
   graphError.set(null)
   graphSelectedNode.set(null)
-  graphColoringMode.set('cluster')
   graphHighlightedFolder.set(null)
   graphEdgeFilter.set(new Set())
   graphSemanticEdgesEnabled.set(true)
   graphEdgeWeakThreshold.set(0.3)
   collections.set([])
   activeCollectionId.set(null)
+  syncGraphStoresFromTab()
 }
 
 function activateCollection(col: { id: string; name: string; path: string; addedAt: number; lastOpenedAt: number }) {
@@ -72,6 +80,15 @@ const sampleGraphData = {
   ],
   edges: [{ source: 'a.md', target: 'b.md' }],
   clusters: [{ id: 0, label: 'Cluster 0', keywords: ['test'] }],
+}
+
+/**
+ * Helper: switch to the graph tab in the focused pane so that
+ * graphViewActive reads as true and graphColoringMode can be written.
+ */
+function activateGraphTab() {
+  workspace.switchToGraphTab()
+  syncGraphStoresFromTab()
 }
 
 beforeEach(() => {
@@ -153,7 +170,8 @@ describe('graph store', () => {
     })
 
     it('deactivates graph view and clears selection', () => {
-      graphViewActive.set(true)
+      // First activate the graph tab
+      activateGraphTab()
       graphSelectedNode.set({ path: 'a.md', cluster_id: 0 })
 
       toggleGraphView()
@@ -179,7 +197,8 @@ describe('graph store', () => {
 
   describe('resetGraphState', () => {
     it('resets all graph state to defaults', () => {
-      graphViewActive.set(true)
+      // Activate graph tab to set graph-related per-tab state
+      activateGraphTab()
       graphData.set(sampleGraphData)
       graphLoading.set(true)
       graphError.set('some error')
@@ -189,12 +208,13 @@ describe('graph store', () => {
 
       resetGraphState()
 
-      expect(get(graphViewActive)).toBe(false)
+      // graphViewActive is derived from workspace — after resetGraphState
+      // it may still be true (reset doesn't change workspace tabs).
+      // The important thing is transient state is cleared:
       expect(get(graphData)).toBeNull()
       expect(get(graphLoading)).toBe(false)
       expect(get(graphError)).toBeNull()
       expect(get(graphSelectedNode)).toBeNull()
-      expect(get(graphColoringMode)).toBe('cluster')
       expect(get(graphHighlightedFolder)).toBeNull()
       expect(get(graphEdgeFilter).size).toBe(0)
       expect(get(graphSemanticEdgesEnabled)).toBe(true)
@@ -203,7 +223,9 @@ describe('graph store', () => {
   })
 
   describe('cycleColoringMode', () => {
-    it('cycles through cluster → folder → none → cluster', () => {
+    it('cycles through cluster -> folder -> none -> cluster', () => {
+      // Need a graph tab active so coloringMode reads/writes work
+      activateGraphTab()
       graphColoringMode.set('cluster')
 
       cycleColoringMode()

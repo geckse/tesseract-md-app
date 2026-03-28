@@ -6,6 +6,7 @@ const mockApi = {
   getFile: vi.fn(),
   backlinks: vi.fn(),
   links: vi.fn(),
+  neighborhood: vi.fn(),
   listCollections: vi.fn(),
   getActiveCollection: vi.fn(),
   addCollection: vi.fn(),
@@ -118,18 +119,20 @@ beforeEach(() => {
 
 describe('properties store', () => {
   describe('loadProperties', () => {
-    it('fetches document info, backlinks, and links sequentially', async () => {
+    it('fetches document info, backlinks, links, and neighborhood in parallel', async () => {
       collections.set([col1])
       activeCollectionId.set('a')
       mockApi.getFile.mockResolvedValue(sampleDoc)
       mockApi.backlinks.mockResolvedValue(sampleBacklinks)
       mockApi.links.mockResolvedValue(sampleLinks)
+      mockApi.neighborhood.mockResolvedValue({ outgoing: [], incoming: [] })
 
       await loadProperties('docs/test.md')
 
       expect(mockApi.getFile).toHaveBeenCalledWith('/alpha', 'docs/test.md')
       expect(mockApi.backlinks).toHaveBeenCalledWith('/alpha', 'docs/test.md')
       expect(mockApi.links).toHaveBeenCalledWith('/alpha', 'docs/test.md')
+      expect(mockApi.neighborhood).toHaveBeenCalledWith('/alpha', 'docs/test.md', 1)
       expect(get(documentInfo)).toEqual(sampleDoc)
       expect(get(backlinksInfo)).toEqual(sampleBacklinks)
       expect(get(linksInfo)).toEqual(sampleLinks)
@@ -147,6 +150,7 @@ describe('properties store', () => {
       })
       mockApi.backlinks.mockResolvedValue(sampleBacklinks)
       mockApi.links.mockResolvedValue(sampleLinks)
+      mockApi.neighborhood.mockResolvedValue({ outgoing: [], incoming: [] })
 
       await loadProperties('docs/test.md')
 
@@ -160,6 +164,7 @@ describe('properties store', () => {
       mockApi.getFile.mockRejectedValue(new Error('file not in index'))
       mockApi.backlinks.mockResolvedValue(sampleBacklinks)
       mockApi.links.mockResolvedValue(sampleLinks)
+      mockApi.neighborhood.mockResolvedValue({ outgoing: [], incoming: [] })
 
       await loadProperties('docs/test.md')
 
@@ -175,6 +180,7 @@ describe('properties store', () => {
       mockApi.getFile.mockResolvedValue(sampleDoc)
       mockApi.backlinks.mockRejectedValue(new Error('lock busy'))
       mockApi.links.mockResolvedValue(sampleLinks)
+      mockApi.neighborhood.mockResolvedValue({ outgoing: [], incoming: [] })
 
       await loadProperties('docs/test.md')
 
@@ -190,6 +196,7 @@ describe('properties store', () => {
       mockApi.getFile.mockResolvedValue(sampleDoc)
       mockApi.backlinks.mockResolvedValue(sampleBacklinks)
       mockApi.links.mockRejectedValue(new Error('fail'))
+      mockApi.neighborhood.mockResolvedValue({ outgoing: [], incoming: [] })
 
       await loadProperties('docs/test.md')
 
@@ -205,6 +212,7 @@ describe('properties store', () => {
       mockApi.getFile.mockRejectedValue(new Error('fail'))
       mockApi.backlinks.mockRejectedValue(new Error('fail'))
       mockApi.links.mockRejectedValue(new Error('fail'))
+      mockApi.neighborhood.mockRejectedValue(new Error('fail'))
 
       await loadProperties('docs/test.md')
 

@@ -188,8 +188,8 @@ describe('SearchResults component', () => {
     const { container } = render(SearchResults)
 
     const pills = container.querySelectorAll('.mode-pill')
-    // pills are: hybrid, semantic, lexical
-    expect(pills.length).toBe(3)
+    // pills are: hybrid, semantic, lexical, graph (expand toggle)
+    expect(pills.length).toBe(4)
 
     // Click 'lexical' (index 2)
     await fireEvent.click(pills[2])

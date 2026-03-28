@@ -20,20 +20,28 @@ import {
   userConfig,
   collectionConfig,
   configLoading,
+  userDraft,
+  collectionDraft,
+  collectionDeletions,
+  isDirty,
   loadUserConfig,
   loadCollectionConfig,
-  saveUserConfig,
-  saveCollectionConfig,
-  deleteUserConfigKey,
-  deleteCollectionConfigKey
+  stageUserConfig,
+  stageCollectionConfig,
+  stageCollectionDelete,
+  saveAllSettings,
+  discardDraft,
+  deleteUserConfigKey
 } from '../../src/renderer/stores/settings'
 
 beforeEach(() => {
   userConfig.set({})
   collectionConfig.set({})
   configLoading.set(false)
+  userDraft.set({})
+  collectionDraft.set({})
+  collectionDeletions.set(new Set())
   vi.resetAllMocks()
-  vi.useFakeTimers()
 })
 
 describe('settings store', () => {
@@ -81,57 +89,123 @@ describe('settings store', () => {
     })
   })
 
-  describe('saveUserConfig', () => {
-    it('updates store immediately and calls API after debounce', async () => {
+  describe('stageUserConfig', () => {
+    it('stages a user-level config edit in the draft', () => {
+      stageUserConfig('KEY', 'val')
+
+      expect(get(userDraft)).toEqual({ KEY: 'val' })
+      // userConfig is NOT updated yet (draft only)
+      expect(get(userConfig)).toEqual({})
+    })
+
+    it('marks store as dirty when draft has entries', () => {
+      expect(get(isDirty)).toBe(false)
+
+      stageUserConfig('K', 'v1')
+
+      expect(get(isDirty)).toBe(true)
+    })
+  })
+
+  describe('stageCollectionConfig', () => {
+    it('stages a collection-level config edit in the draft', () => {
+      stageCollectionConfig('KEY', 'val')
+
+      expect(get(collectionDraft)).toEqual({ KEY: 'val' })
+    })
+
+    it('un-deletes a key if it was scheduled for deletion', () => {
+      stageCollectionDelete('KEY')
+      expect(get(collectionDeletions).has('KEY')).toBe(true)
+
+      stageCollectionConfig('KEY', 'new-val')
+      expect(get(collectionDeletions).has('KEY')).toBe(false)
+      expect(get(collectionDraft)).toEqual({ KEY: 'new-val' })
+    })
+  })
+
+  describe('stageCollectionDelete', () => {
+    it('schedules a collection key for deletion', () => {
+      stageCollectionDelete('KEY')
+
+      expect(get(collectionDeletions).has('KEY')).toBe(true)
+    })
+
+    it('removes the key from collectionDraft', () => {
+      stageCollectionConfig('KEY', 'val')
+      expect(get(collectionDraft)).toEqual({ KEY: 'val' })
+
+      stageCollectionDelete('KEY')
+      expect(get(collectionDraft)).toEqual({})
+    })
+  })
+
+  describe('saveAllSettings', () => {
+    it('persists staged user config changes to API', async () => {
       mockApi.setUserConfig.mockResolvedValue(undefined)
+      stageUserConfig('KEY', 'val')
 
-      const promise = saveUserConfig('KEY', 'val')
-
-      // Store updated immediately
-      expect(get(userConfig)).toEqual({ KEY: 'val' })
-      // API not called yet
-      expect(mockApi.setUserConfig).not.toHaveBeenCalled()
-
-      // Advance past debounce
-      vi.advanceTimersByTime(300)
-      await promise
+      await saveAllSettings()
 
       expect(mockApi.setUserConfig).toHaveBeenCalledWith('KEY', 'val')
     })
 
-    it('debounces multiple rapid calls', async () => {
+    it('persists staged collection config changes to API', async () => {
+      mockApi.setCollectionConfig.mockResolvedValue(undefined)
+      stageCollectionConfig('KEY', 'val')
+
+      await saveAllSettings('/root')
+
+      expect(mockApi.setCollectionConfig).toHaveBeenCalledWith('/root', 'KEY', 'val')
+    })
+
+    it('persists collection deletions to API', async () => {
+      mockApi.deleteCollectionConfig.mockResolvedValue(undefined)
+      stageCollectionDelete('KEY')
+
+      await saveAllSettings('/root')
+
+      expect(mockApi.deleteCollectionConfig).toHaveBeenCalledWith('/root', 'KEY')
+    })
+
+    it('merges user draft into saved state after save', async () => {
       mockApi.setUserConfig.mockResolvedValue(undefined)
+      userConfig.set({ EXISTING: 'yes' })
+      stageUserConfig('NEW', 'val')
 
-      // First call — will be superseded
-      const _p1 = saveUserConfig('K', 'v1')
-      vi.advanceTimersByTime(100)
+      await saveAllSettings()
 
-      // Second call resets the timer
-      const p2 = saveUserConfig('K', 'v2')
-      vi.advanceTimersByTime(300)
+      expect(get(userConfig)).toEqual({ EXISTING: 'yes', NEW: 'val' })
+      expect(get(userDraft)).toEqual({})
+    })
 
-      await p2
+    it('clears all drafts after successful save', async () => {
+      mockApi.setUserConfig.mockResolvedValue(undefined)
+      mockApi.setCollectionConfig.mockResolvedValue(undefined)
+      stageUserConfig('U', '1')
+      stageCollectionConfig('C', '2')
 
-      // Only the second call's value should have been sent
-      expect(mockApi.setUserConfig).toHaveBeenCalledTimes(1)
-      expect(mockApi.setUserConfig).toHaveBeenCalledWith('K', 'v2')
-      expect(get(userConfig)).toEqual({ K: 'v2' })
+      await saveAllSettings('/root')
+
+      expect(get(userDraft)).toEqual({})
+      expect(get(collectionDraft)).toEqual({})
+      expect(get(collectionDeletions).size).toBe(0)
+      expect(get(isDirty)).toBe(false)
     })
   })
 
-  describe('saveCollectionConfig', () => {
-    it('updates store immediately and calls API after debounce', async () => {
-      mockApi.setCollectionConfig.mockResolvedValue(undefined)
+  describe('discardDraft', () => {
+    it('clears all unsaved draft changes', () => {
+      stageUserConfig('U', '1')
+      stageCollectionConfig('C', '2')
+      stageCollectionDelete('D')
 
-      const promise = saveCollectionConfig('/root', 'KEY', 'val')
+      discardDraft()
 
-      expect(get(collectionConfig)).toEqual({ KEY: 'val' })
-      expect(mockApi.setCollectionConfig).not.toHaveBeenCalled()
-
-      vi.advanceTimersByTime(300)
-      await promise
-
-      expect(mockApi.setCollectionConfig).toHaveBeenCalledWith('/root', 'KEY', 'val')
+      expect(get(userDraft)).toEqual({})
+      expect(get(collectionDraft)).toEqual({})
+      expect(get(collectionDeletions).size).toBe(0)
+      expect(get(isDirty)).toBe(false)
     })
   })
 
@@ -144,18 +218,6 @@ describe('settings store', () => {
 
       expect(mockApi.deleteUserConfig).toHaveBeenCalledWith('A')
       expect(get(userConfig)).toEqual({ B: '2' })
-    })
-  })
-
-  describe('deleteCollectionConfigKey', () => {
-    it('calls API and removes key from store', async () => {
-      collectionConfig.set({ X: '10', Y: '20' })
-      mockApi.deleteCollectionConfig.mockResolvedValue(undefined)
-
-      await deleteCollectionConfigKey('/root', 'X')
-
-      expect(mockApi.deleteCollectionConfig).toHaveBeenCalledWith('/root', 'X')
-      expect(get(collectionConfig)).toEqual({ Y: '20' })
     })
   })
 

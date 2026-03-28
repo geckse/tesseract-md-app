@@ -33,7 +33,7 @@ import {
   setActiveCollection,
   getActiveCollection
 } from './store'
-import type { Collection, FavoriteEntry, RecentEntry } from './store'
+import type { Collection, FavoriteEntry } from './store'
 import {
   pickCollectionFolder,
   validateCollectionPath,
