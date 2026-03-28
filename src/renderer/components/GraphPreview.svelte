@@ -2,8 +2,9 @@
   import { onDestroy } from 'svelte'
   import Badge from './ui/Badge.svelte'
   import ResizeHandle from './ResizeHandle.svelte'
-  import { graphOpenedNode, graphViewActive, graphSelectedNode } from '../stores/graph'
-  import { selectFile } from '../stores/files'
+  import { graphOpenedNode, graphSelectedNode } from '../stores/graph'
+  import { syncFileStoresFromTab } from '../stores/files'
+  import { workspace } from '../stores/workspace.svelte'
   import { activeCollection } from '../stores/collections'
   import { renderMarkdown, formatFrontmatterValue } from '../lib/markdown-render'
   import type { GraphNode, JsonValue } from '../types/cli'
@@ -114,10 +115,10 @@
 
   function handleOpenInEditor() {
     if (!currentNode) return
-    graphViewActive.set(false)
+    workspace.openTab(currentNode.path)
+    syncFileStoresFromTab()
     graphSelectedNode.set(null)
     graphOpenedNode.set(null)
-    selectFile(currentNode.path)
   }
 </script>
 

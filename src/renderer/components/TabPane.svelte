@@ -91,7 +91,7 @@
   <div class="tab-pane-content">
     {#if tabKind === 'graph'}
       <div class="content-region" role="main" aria-label="Graph view">
-        <GraphView />
+        <GraphView {paneId} />
       </div>
     {:else if tabKind === 'document'}
       {#if currentEditorMode === 'editor'}
