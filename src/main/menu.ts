@@ -51,7 +51,17 @@ function buildTemplate(): MenuItemConstructorOptions[] {
     template.push({
       label: app.name,
       submenu: [
-        { role: 'about' },
+        {
+          label: `About ${app.name}`,
+          click: () => {
+            app.setAboutPanelOptions({
+              applicationName: app.name,
+              applicationVersion: app.getVersion(),
+              copyright: `© ${new Date().getFullYear()} ${app.name}`
+            })
+            app.showAboutPanel()
+          }
+        },
         { type: 'separator' },
         { role: 'hide' },
         { role: 'hideOthers' },
