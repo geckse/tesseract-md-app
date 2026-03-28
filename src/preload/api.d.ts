@@ -78,6 +78,26 @@ export interface CliInstallResult {
   error?: string
 }
 
+/** A persisted tab — only file paths and layout, never file content. */
+export interface PersistedTab {
+  kind: 'document' | 'graph'
+  filePath?: string
+  graphLevel?: string
+}
+
+/** A persisted pane within a window session. */
+export interface PersistedPane {
+  tabs: PersistedTab[]
+  activeTabIndex: number
+}
+
+/** Persisted window state — restored on app restart. */
+export interface PersistedWindowState {
+  panes: PersistedPane[]
+  splitEnabled: boolean
+  splitRatio: number
+}
+
 /** Typed API exposed to the renderer process via contextBridge. */
 export interface MdvdbApi {
   findCli(): Promise<string>
@@ -180,6 +200,10 @@ export interface MdvdbApi {
   // Zoom
   getZoomLevel(): Promise<number>
   setZoomLevel(value: number): Promise<void>
+
+  // Window session persistence
+  saveWindowSession(session: PersistedWindowState): Promise<void>
+  getWindowSession(): Promise<PersistedWindowState | null>
 
   // Auto-updater
   checkForUpdates(): Promise<UpdateCheckResult>

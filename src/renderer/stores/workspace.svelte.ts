@@ -11,6 +11,7 @@
 
 import type { EditorMode } from './editor'
 import type { GraphLevel } from '../types/cli'
+import type { PersistedWindowState, PersistedPane, PersistedTab } from '../../preload/api'
 
 // ─── Tab Types ─────────────────────────────────────────────────────────
 
@@ -121,6 +122,11 @@ function createPane(): { pane: PaneState; graphTab: GraphTab } {
   return { pane, graphTab }
 }
 
+// ─── Auto-save Debounce ────────────────────────────────────────────────
+
+/** Debounce delay for auto-saving session state (ms). */
+const SESSION_SAVE_DEBOUNCE_MS = 500
+
 // ─── WorkspaceStore ────────────────────────────────────────────────────
 
 class WorkspaceStore {
@@ -141,6 +147,12 @@ class WorkspaceStore {
 
   /** Split ratio (0-1) for the divider position. Default 0.5. */
   splitRatio = $state<number>(0.5)
+
+  /** Debounce timer for session auto-save. */
+  private _saveTimer: ReturnType<typeof setTimeout> | null = null
+
+  /** Whether session persistence is enabled (set after initial restore). */
+  private _persistenceEnabled = false
 
   constructor() {
     this._initDefaultPane()
@@ -210,6 +222,7 @@ class WorkspaceStore {
     pane.activeTabId = tab.id
     this.panes[targetPaneId] = { ...pane }
 
+    this._scheduleSave()
     return tab.id
   }
 
@@ -257,6 +270,7 @@ class WorkspaceStore {
     const { [tabId]: _, ...remainingTabs } = this.tabs
     this.tabs = remainingTabs
 
+    this._scheduleSave()
     return closedTab
   }
 
@@ -331,6 +345,7 @@ class WorkspaceStore {
     this.panes[toPaneId] = { ...toPane }
     this.activePaneId = toPaneId
 
+    this._scheduleSave()
     return true
   }
 
@@ -344,6 +359,15 @@ class WorkspaceStore {
     } else {
       this._enableSplit()
     }
+    this._scheduleSave()
+  }
+
+  /**
+   * Set the split ratio (0-1) and trigger auto-save.
+   */
+  setSplitRatio(ratio: number): void {
+    this.splitRatio = Math.max(0, Math.min(1, ratio))
+    this._scheduleSave()
   }
 
   /**
@@ -434,6 +458,179 @@ class WorkspaceStore {
     newOrder.splice(clampedIndex, 0, tabId)
     pane.tabOrder = newOrder
     this.panes[targetPaneId] = { ...pane }
+    this._scheduleSave()
+  }
+
+  // ── Session Persistence ─────────────────────────────────────────────
+
+  /**
+   * Serialize the current workspace state into a PersistedWindowState.
+   * Only persists file paths and layout — never file content.
+   */
+  serializeSession(): PersistedWindowState {
+    const panes: PersistedPane[] = this.paneOrder.map((paneId) => {
+      const pane = this.panes[paneId]
+      if (!pane) return { tabs: [], activeTabIndex: -1 }
+
+      const tabs: PersistedTab[] = []
+      let activeTabIndex = -1
+
+      for (let i = 0; i < pane.tabOrder.length; i++) {
+        const tabId = pane.tabOrder[i]
+        const tab = this.tabs[tabId]
+        if (!tab) continue
+
+        if (tab.kind === 'document') {
+          tabs.push({ kind: 'document', filePath: tab.filePath })
+        } else if (tab.kind === 'graph') {
+          tabs.push({ kind: 'graph', graphLevel: tab.graphLevel })
+        }
+
+        if (tabId === pane.activeTabId) {
+          activeTabIndex = tabs.length - 1
+        }
+      }
+
+      return { tabs, activeTabIndex }
+    })
+
+    return {
+      panes,
+      splitEnabled: this.splitEnabled,
+      splitRatio: this.splitRatio,
+    }
+  }
+
+  /**
+   * Restore workspace state from a persisted session.
+   * Silently skips document tabs whose files no longer exist.
+   * Validates file existence via the preload API.
+   */
+  async restoreSession(session: PersistedWindowState): Promise<void> {
+    // Reset to clean state before restoring
+    this.tabs = {}
+    this.panes = {}
+    this.paneOrder = []
+    this.splitEnabled = false
+    this.splitRatio = 0.5
+
+    const api = window.api
+
+    for (const persistedPane of session.panes) {
+      const { pane, graphTab } = createPane()
+
+      // Override graph tab settings if persisted
+      const persistedGraphTab = persistedPane.tabs.find((t) => t.kind === 'graph')
+      if (persistedGraphTab?.graphLevel) {
+        graphTab.graphLevel = persistedGraphTab.graphLevel as GraphLevel
+      }
+
+      this.tabs[graphTab.id] = graphTab
+      this.panes[pane.id] = pane
+      this.paneOrder = [...this.paneOrder, pane.id]
+
+      // Restore document tabs, silently skipping deleted files
+      let activeTabId: string | null = null
+
+      for (let i = 0; i < persistedPane.tabs.length; i++) {
+        const persistedTab = persistedPane.tabs[i]
+        if (persistedTab.kind !== 'document' || !persistedTab.filePath) continue
+
+        // Validate file still exists by attempting to read it.
+        // Silently skip if the file is gone or no collection is active.
+        let fileExists = true
+        try {
+          const activeCollection = await api.getActiveCollection()
+          if (activeCollection) {
+            const absolutePath = `${activeCollection.path}/${persistedTab.filePath}`
+            await api.readFile(absolutePath)
+          } else {
+            fileExists = false
+          }
+        } catch {
+          fileExists = false
+        }
+
+        if (!fileExists) continue
+
+        // Create the document tab
+        const tab = createDocumentTab(persistedTab.filePath)
+        this.tabs[tab.id] = tab
+
+        // Insert before the graph tab
+        const graphIdx = pane.tabOrder.indexOf(pane.graphTabId)
+        if (graphIdx >= 0) {
+          pane.tabOrder = [
+            ...pane.tabOrder.slice(0, graphIdx),
+            tab.id,
+            ...pane.tabOrder.slice(graphIdx),
+          ]
+        } else {
+          pane.tabOrder = [...pane.tabOrder, tab.id]
+        }
+
+        // Track active tab by persisted index
+        if (i === persistedPane.activeTabIndex) {
+          activeTabId = tab.id
+        }
+      }
+
+      // Set active tab: use the persisted active, or the last restored document tab,
+      // or null if no tabs were restored
+      if (activeTabId) {
+        pane.activeTabId = activeTabId
+      } else {
+        const docTabs = pane.tabOrder.filter((id) => this.tabs[id]?.kind === 'document')
+        pane.activeTabId = docTabs.length > 0 ? docTabs[docTabs.length - 1] : null
+      }
+
+      this.panes[pane.id] = { ...pane }
+    }
+
+    // Set split state
+    this.splitEnabled = session.splitEnabled && this.paneOrder.length >= 2
+    this.splitRatio = session.splitRatio
+
+    // Set active pane to the first one
+    if (this.paneOrder.length > 0) {
+      this.activePaneId = this.paneOrder[0]
+    }
+
+    // If no panes were restored, init a default one
+    if (this.paneOrder.length === 0) {
+      this._initDefaultPane()
+    }
+
+    // Enable persistence now that we've restored
+    this._persistenceEnabled = true
+  }
+
+  /**
+   * Schedule a debounced auto-save of the current session state.
+   * Called internally after mutations that change tab/split layout.
+   */
+  private _scheduleSave(): void {
+    if (!this._persistenceEnabled) return
+
+    if (this._saveTimer !== null) {
+      clearTimeout(this._saveTimer)
+    }
+
+    this._saveTimer = setTimeout(() => {
+      this._saveTimer = null
+      const session = this.serializeSession()
+      window.api.saveWindowSession(session).catch(() => {
+        // Best-effort persistence — don't crash on save failure
+      })
+    }, SESSION_SAVE_DEBOUNCE_MS)
+  }
+
+  /**
+   * Enable session persistence (call after initial restore or when
+   * starting fresh without a persisted session).
+   */
+  enablePersistence(): void {
+    this._persistenceEnabled = true
   }
 
   // ── Private Helpers ────────────────────────────────────────────────

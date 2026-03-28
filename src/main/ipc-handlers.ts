@@ -17,8 +17,11 @@ import {
   setEditorFontSize,
   getZoomLevel,
   setZoomLevel,
-  setCliInfo
+  setCliInfo,
+  getWindowSessions,
+  setWindowSessions
 } from './store'
+import type { PersistedWindowState } from './store'
 import { WatcherManager, type WatcherState } from './watcher'
 import { AppUpdater } from './updater'
 import {
@@ -753,5 +756,20 @@ export function registerIpcHandlers(mainWindow?: BrowserWindow): void {
 
   ipcMain.handle('updater:app-version', () =>
     wrapHandler(async () => app.getVersion())
+  )
+
+  // Window session persistence
+  ipcMain.handle('session:save', (_event, session: PersistedWindowState) =>
+    wrapHandler(async () => {
+      // For single-window mode, store as a single-element array
+      setWindowSessions([session])
+    })
+  )
+
+  ipcMain.handle('session:get', () =>
+    wrapHandler(async (): Promise<PersistedWindowState | null> => {
+      const sessions = getWindowSessions()
+      return sessions.length > 0 ? sessions[0] : null
+    })
   )
 }

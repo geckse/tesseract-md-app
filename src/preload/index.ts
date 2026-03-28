@@ -141,6 +141,10 @@ const api: MdvdbApi = {
   getZoomLevel: () => invoke('store:get-zoom-level'),
   setZoomLevel: (value) => invoke('store:set-zoom-level', value),
 
+  // Window session persistence
+  saveWindowSession: (session) => invoke('session:save', session),
+  getWindowSession: () => invoke('session:get'),
+
   // Auto-updater
   checkForUpdates: () => invoke('updater:check'),
   downloadUpdate: () => invoke('updater:download'),
