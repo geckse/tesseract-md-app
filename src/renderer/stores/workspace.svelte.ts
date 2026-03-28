@@ -350,6 +350,44 @@ class WorkspaceStore {
   }
 
   /**
+   * Split the view and move a tab to the target side in one atomic operation.
+   * If not already split, creates the split first. If the source pane ends up
+   * empty (no document tabs), the split auto-collapses.
+   * Returns true if the tab was moved successfully.
+   */
+  splitAndMoveTab(tabId: string, targetSide: 'left' | 'right'): boolean {
+    const tab = this.tabs[tabId]
+    if (!tab || tab.kind !== 'document') return false
+
+    const fromPaneId = this._findPaneForTab(tabId)
+    if (!fromPaneId) return false
+
+    // Enable split if not already active
+    if (!this.splitEnabled) {
+      this._enableSplit()
+    }
+
+    // Determine target pane
+    const toPaneId = targetSide === 'left' ? this.paneOrder[0] : this.paneOrder[1]
+    if (!toPaneId || fromPaneId === toPaneId) return false
+
+    // Move the tab
+    const moved = this.moveTab(tabId, fromPaneId, toPaneId)
+    if (!moved) return false
+
+    // Auto-collapse if source pane has no document tabs left
+    const fromPane = this.panes[fromPaneId]
+    if (fromPane) {
+      const docTabs = fromPane.tabOrder.filter((id) => this.tabs[id]?.kind === 'document')
+      if (docTabs.length === 0) {
+        this._collapseSplit()
+      }
+    }
+
+    return true
+  }
+
+  /**
    * Toggle split pane mode. When enabling, creates a second pane.
    * When disabling, merges all tabs from the second pane into the first.
    */
