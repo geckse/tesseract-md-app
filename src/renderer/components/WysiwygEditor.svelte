@@ -4,48 +4,77 @@
   import { splitFrontmatter, joinFrontmatter } from '../lib/tiptap/markdown-bridge';
   import '../lib/tiptap/wysiwyg-theme.css';
   import 'highlight.js/styles/github-dark.css';
-  import { fileContent, fileContentLoading, selectedFilePath } from '../stores/files';
   import { activeCollection } from '../stores/collections';
+  import { workspace, type DocumentTab } from '../stores/workspace.svelte';
   import { isDirty, wordCount, tokenCount, countWords, countTokens, saveRequested, editorMode, type EditorMode } from '../stores/editor';
   import { propertiesFileContent } from '../stores/properties';
-  import { DocumentCache } from '../lib/doc-cache';
   import ConflictNotification from './ConflictNotification.svelte';
   import FrontmatterEditor from './wysiwyg/FrontmatterEditor.svelte';
   import { showConflict, dismissConflict } from '../stores/conflict';
   import { handleLinkClick } from '../lib/link-navigation';
 
-  let editorEl: HTMLDivElement | undefined = $state(undefined);
-  let wysiwygEditor: WysiwygEditorInstance | null = null;
-  let lastSavedContent: string = '';
-  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  let previousFilePath: string | null = null;
+  // ── Props ─────────────────────────────────────────────────────────────
+  interface WysiwygEditorProps {
+    tabId?: string
+  }
+  let { tabId }: WysiwygEditorProps = $props();
 
-  // Frontmatter preserved across edits (WYSIWYG only edits the body)
-  let currentFrontmatter: string | null = $state(null);
-
-  // File change detection
-  let fileWatchInterval: ReturnType<typeof setInterval> | null = null;
+  // ── Constants ─────────────────────────────────────────────────────────
+  /** Maximum number of live TipTap editor instances to keep in the pool. */
+  const MAX_POOL_SIZE = 10;
+  /** Large file handling (>1MB). */
+  const LARGE_FILE_THRESHOLD = 1024 * 1024;
+  /** File change detection interval (ms). */
   const FILE_CHECK_INTERVAL = 2000;
 
-  // LRU cache for recently opened documents (last 5 files)
-  // Caches full markdown strings (frontmatter + body), not TipTap JSON
-  const docCache = new DocumentCache(5);
+  // ── Instance Pool ─────────────────────────────────────────────────────
+  /**
+   * Pool of live TipTap editor instances keyed by tab ID.
+   * Each entry holds the editor, its container div, scroll position,
+   * the lastSavedContent for dirty tracking, and per-tab frontmatter.
+   *
+   * We show/hide DOM containers instead of calling setContent() which
+   * breaks undo history (tiptap#5708).
+   */
+  interface PoolEntry {
+    editor: WysiwygEditorInstance
+    container: HTMLDivElement
+    scrollTop: number
+    lastSavedContent: string
+    frontmatter: string | null
+  }
 
-  // Large file handling (>1MB)
-  const LARGE_FILE_THRESHOLD = 1024 * 1024;
+  /**
+   * Serialized state for evicted pool entries (beyond MAX_POOL_SIZE).
+   * Stores the editor JSON so the editor can be reconstructed when re-activated.
+   * Note: undo history is lost on eviction — this is an acceptable trade-off
+   * for memory management. The show/hide pool preserves undo for active tabs.
+   */
+  interface SerializedEntry {
+    editorJSON: unknown
+    scrollTop: number
+    lastSavedContent: string
+    frontmatter: string | null
+  }
+
+  const pool = new Map<string, PoolEntry>();
+  const serializedPool = new Map<string, SerializedEntry>();
+  /** LRU access order — most recently accessed tab ID is last. */
+  const accessOrder: string[] = [];
+
+  // ── Component State ───────────────────────────────────────────────────
+  let editorHost: HTMLDivElement | undefined = $state(undefined);
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let fileWatchInterval: ReturnType<typeof setInterval> | null = null;
   let largeFileWarning = $state(false);
-  let _forcedSourceMode = $state(false);
+  let isSaving = false;
 
-  let currentFileContent: string | null = $state(null);
-  let currentSelectedFilePath: string | null = $state(null);
+  // Frontmatter for the currently active tab (reactive for FrontmatterEditor)
+  let currentFrontmatter: string | null = $state(null);
+
+  // ── Store Subscriptions ───────────────────────────────────────────────
   let currentActiveCollection: import('../../preload/api').Collection | null = $state(null);
-  let currentFileContentLoading: boolean = $state(false);
-  let lastAppliedFileContent: string | null = null;
-
-  const unsubFileContent = fileContent.subscribe((v) => (currentFileContent = v));
-  const unsubSelectedFile = selectedFilePath.subscribe((v) => (currentSelectedFilePath = v));
   const unsubCollection = activeCollection.subscribe((v) => (currentActiveCollection = v));
-  const unsubLoading = fileContentLoading.subscribe((v) => (currentFileContentLoading = v));
 
   let saveCounter = $state(0);
   const unsubSave = saveRequested.subscribe((v) => (saveCounter = v));
@@ -57,26 +86,89 @@
   let currentEditorMode = $state<EditorMode>('wysiwyg');
   const unsubEditorMode = editorMode.subscribe((v) => (currentEditorMode = v));
   $effect(() => {
-    if (currentEditorMode === 'wysiwyg' && wysiwygEditor) {
-      requestAnimationFrame(() => wysiwygEditor?.editor.commands.focus());
+    if (currentEditorMode === 'wysiwyg' && activeTabId) {
+      const entry = pool.get(activeTabId);
+      if (entry) {
+        requestAnimationFrame(() => entry.editor.editor.commands.focus());
+      }
     }
   });
 
+  // ── Derived Tab State ─────────────────────────────────────────────────
   /**
-   * Get full markdown content by joining frontmatter with editor body.
+   * Resolve the active tab ID: use the explicit tabId prop if provided,
+   * otherwise fall back to the workspace's focused document tab.
    */
-  function getFullContent(): string {
-    if (!wysiwygEditor) return '';
-    const body = wysiwygEditor.getMarkdown();
-    return joinFrontmatter(currentFrontmatter, body);
+  const activeTabId = $derived(tabId ?? workspace.focusedDocumentTab?.id ?? null);
+  const activeDocTab = $derived.by(() => {
+    if (!activeTabId) return null;
+    const tab = workspace.tabs[activeTabId];
+    return tab?.kind === 'document' ? tab as DocumentTab : null;
+  });
+
+  // ── Pool Management ───────────────────────────────────────────────────
+
+  /** Touch a tab ID in the LRU access order (move to end). */
+  function touchAccess(id: string): void {
+    const idx = accessOrder.indexOf(id);
+    if (idx >= 0) accessOrder.splice(idx, 1);
+    accessOrder.push(id);
+  }
+
+  /** Evict the least recently used pool entries beyond MAX_POOL_SIZE. */
+  function evictIfNeeded(): void {
+    while (pool.size > MAX_POOL_SIZE) {
+      // Find the oldest entry in accessOrder that is NOT the active tab
+      let evictId: string | null = null;
+      for (const id of accessOrder) {
+        if (id !== activeTabId && pool.has(id)) {
+          evictId = id;
+          break;
+        }
+      }
+      if (!evictId) break;
+
+      const entry = pool.get(evictId)!;
+      // Serialize the editor state (undo history is lost, but content is preserved)
+      serializedPool.set(evictId, {
+        editorJSON: entry.editor.editor.getJSON(),
+        scrollTop: entry.container.querySelector('.ProseMirror')?.scrollTop ?? 0,
+        lastSavedContent: entry.lastSavedContent,
+        frontmatter: entry.frontmatter,
+      });
+
+      // Destroy the live editor and remove its container
+      entry.editor.destroy();
+      entry.container.remove();
+      pool.delete(evictId);
+
+      // Remove from access order
+      const idx = accessOrder.indexOf(evictId);
+      if (idx >= 0) accessOrder.splice(idx, 1);
+    }
+  }
+
+  // ── Editor Factory ────────────────────────────────────────────────────
+
+  /**
+   * Get the full markdown content for a pool entry by joining its
+   * frontmatter with the editor body.
+   */
+  function getFullContentForEntry(entry: PoolEntry): string {
+    const body = entry.editor.getMarkdown();
+    return joinFrontmatter(entry.frontmatter, body);
   }
 
   /**
-   * Handle TipTap content updates — debounced sync to stores.
+   * Handle TipTap content updates for the active tab — debounced sync to stores.
    */
   function handleEditorUpdate() {
-    const fullContent = getFullContent();
-    isDirty.set(fullContent !== lastSavedContent);
+    if (!activeTabId) return;
+    const entry = pool.get(activeTabId);
+    if (!entry) return;
+
+    const fullContent = getFullContentForEntry(entry);
+    isDirty.set(fullContent !== entry.lastSavedContent);
     wordCount.set(countWords(fullContent));
     tokenCount.set(countTokens(fullContent));
 
@@ -86,19 +178,229 @@
     }, 200);
   }
 
-  function dismissLargeFileWarning() {
-    largeFileWarning = false;
+  /**
+   * Get or create a TipTap editor for a given tab. Returns the pool entry.
+   * If a serialized state exists, restores it. Otherwise creates a fresh editor
+   * from the provided content (splitting frontmatter).
+   */
+  function getOrCreateEntry(id: string, content: string): PoolEntry {
+    // Check if already in the live pool
+    const existing = pool.get(id);
+    if (existing) {
+      touchAccess(id);
+      return existing;
+    }
+
+    // Create a container div for this editor instance
+    const container = document.createElement('div');
+    container.className = 'wysiwyg-instance';
+    container.style.display = 'none';
+    container.style.flex = '1';
+    container.style.minHeight = '0';
+    container.style.flexDirection = 'column';
+    container.style.overflow = 'auto';
+    container.style.position = 'relative';
+    // Attach link click handler to the container
+    container.addEventListener('click', handleLinkClick);
+
+    let editor: WysiwygEditorInstance;
+    let scrollTop = 0;
+    let lastSavedContent = content;
+    let frontmatter: string | null = null;
+
+    // Check for serialized state (evicted editor)
+    const serialized = serializedPool.get(id);
+    if (serialized) {
+      serializedPool.delete(id);
+      scrollTop = serialized.scrollTop;
+      lastSavedContent = serialized.lastSavedContent;
+      frontmatter = serialized.frontmatter;
+
+      // Reconstruct editor from serialized JSON
+      // Note: we create with empty content then set JSON to restore structure
+      editor = createWysiwygEditor(container, '', {
+        onUpdate: () => handleEditorUpdate(),
+        collectionPath: currentActiveCollection?.path ?? '',
+        collectionId: currentActiveCollection?.id ?? '',
+      });
+      editor.editor.commands.setContent(serialized.editorJSON);
+    } else {
+      // Fresh editor — split frontmatter from content
+      const split = splitFrontmatter(content);
+      frontmatter = split.frontmatter;
+
+      editor = createWysiwygEditor(container, split.body, {
+        onUpdate: () => handleEditorUpdate(),
+        collectionPath: currentActiveCollection?.path ?? '',
+        collectionId: currentActiveCollection?.id ?? '',
+      });
+    }
+
+    const entry: PoolEntry = {
+      editor,
+      container,
+      scrollTop,
+      lastSavedContent,
+      frontmatter,
+    };
+
+    pool.set(id, entry);
+    touchAccess(id);
+    evictIfNeeded();
+
+    return entry;
   }
 
-  let isSaving = false;
+  // ── Show / Hide ───────────────────────────────────────────────────────
+
+  let previousActiveTabId: string | null = null;
+
+  /**
+   * Main reactive effect: whenever the active tab changes, show its editor
+   * and hide the previously active one. Uses show/hide (not setContent) to
+   * preserve undo history per tab (tiptap#5708).
+   */
+  $effect(() => {
+    const currentTabId = activeTabId;
+    const tab = activeDocTab;
+
+    if (!editorHost || !currentTabId || !tab) {
+      // No active document tab — hide all
+      hideEntry(previousActiveTabId);
+      stopFileWatcher();
+      previousActiveTabId = null;
+      currentFrontmatter = null;
+      return;
+    }
+
+    // Content still loading — wait
+    if (tab.contentLoading || tab.content === null) {
+      return;
+    }
+
+    const isSwitching = previousActiveTabId !== currentTabId;
+
+    if (isSwitching) {
+      // Save scroll position of previous tab and hide it
+      hideEntry(previousActiveTabId);
+      stopFileWatcher();
+      dismissConflict();
+    }
+
+    // Large file check: >1MB forces Source/Preview mode
+    const contentSize = new Blob([tab.content].filter(Boolean)).size;
+    if (contentSize > LARGE_FILE_THRESHOLD) {
+      largeFileWarning = true;
+      editorMode.set('editor');
+      previousActiveTabId = currentTabId;
+      return;
+    }
+
+    largeFileWarning = false;
+
+    // Get or create the editor for this tab
+    const entry = getOrCreateEntry(currentTabId, tab.content);
+
+    // Ensure the container is in the host DOM
+    if (!editorHost.contains(entry.container)) {
+      editorHost.appendChild(entry.container);
+    }
+
+    if (isSwitching) {
+      // Show this editor
+      entry.container.style.display = 'flex';
+
+      // Restore scroll position on next frame
+      requestAnimationFrame(() => {
+        const pm = entry.container.querySelector('.ProseMirror');
+        if (pm) pm.scrollTop = entry.scrollTop;
+      });
+
+      // Sync frontmatter state for FrontmatterEditor
+      currentFrontmatter = entry.frontmatter;
+
+      // Update lastSavedContent and dirty state for the tab
+      entry.lastSavedContent = tab.content!;
+      isDirty.set(false);
+      const fullContent = getFullContentForEntry(entry);
+      wordCount.set(countWords(fullContent));
+      tokenCount.set(countTokens(fullContent));
+
+      previousActiveTabId = currentTabId;
+      startFileWatcher();
+    } else {
+      // Same tab — check if content was externally reloaded (e.g., conflict resolution)
+      const currentBody = entry.editor.getMarkdown();
+      const currentFullContent = joinFrontmatter(entry.frontmatter, currentBody);
+      if (tab.content !== entry.lastSavedContent && tab.content !== currentFullContent) {
+        // External content change — reload in this editor
+        reloadContent(entry, tab.content);
+      }
+    }
+  });
+
+  function hideEntry(id: string | null): void {
+    if (!id) return;
+    const entry = pool.get(id);
+    if (!entry) return;
+
+    // Save scroll position before hiding
+    const pm = entry.container.querySelector('.ProseMirror');
+    if (pm) entry.scrollTop = pm.scrollTop;
+    entry.container.style.display = 'none';
+  }
+
+  /**
+   * Reload content into an editor entry on external change.
+   * This uses setContent which breaks undo — acceptable for conflict resolution.
+   */
+  function reloadContent(entry: PoolEntry, content: string): void {
+    const { frontmatter, body } = splitFrontmatter(content);
+    entry.frontmatter = frontmatter;
+    entry.lastSavedContent = content;
+    currentFrontmatter = frontmatter;
+    isDirty.set(false);
+    entry.editor.setMarkdownContent(body);
+    wordCount.set(countWords(content));
+    tokenCount.set(countTokens(content));
+  }
+
+  // ── Frontmatter Handling ─────────────────────────────────────────────
+
+  /**
+   * Handle frontmatter updates from the visual property editor.
+   * Updates the per-tab frontmatter in the pool entry.
+   */
+  function handleFrontmatterUpdate(newYaml: string | null) {
+    currentFrontmatter = newYaml;
+
+    // Persist frontmatter to the pool entry
+    if (activeTabId) {
+      const entry = pool.get(activeTabId);
+      if (entry) {
+        entry.frontmatter = newYaml;
+        handleEditorUpdate();
+      }
+    }
+  }
+
+  // ── Save ──────────────────────────────────────────────────────────────
 
   function handleSave(): boolean {
-    if (!wysiwygEditor || !currentActiveCollection || !currentSelectedFilePath) return true;
-    const content = getFullContent();
-    const fullPath = `${currentActiveCollection.path}/${currentSelectedFilePath}`;
-    lastSavedContent = content;
+    if (!activeTabId || !currentActiveCollection) return true;
+    const entry = pool.get(activeTabId);
+    if (!entry) return true;
+
+    const tab = activeDocTab;
+    if (!tab) return true;
+
+    const content = getFullContentForEntry(entry);
+    const fullPath = `${currentActiveCollection.path}/${tab.filePath}`;
+
+    entry.lastSavedContent = content;
     isDirty.set(false);
     isSaving = true;
+
     window.api.writeFile(fullPath, content).then(() => {
       dismissConflict();
     }).catch((err) => {
@@ -109,16 +411,23 @@
     return true;
   }
 
+  // ── File Change Detection ─────────────────────────────────────────────
+
   async function checkForExternalChanges() {
-    if (!currentSelectedFilePath || !currentActiveCollection || !wysiwygEditor) return;
+    if (!activeTabId || !currentActiveCollection) return;
+    const entry = pool.get(activeTabId);
+    if (!entry) return;
     if (isSaving) return;
 
-    const fullPath = `${currentActiveCollection.path}/${currentSelectedFilePath}`;
+    const tab = activeDocTab;
+    if (!tab) return;
+
+    const fullPath = `${currentActiveCollection.path}/${tab.filePath}`;
 
     try {
       const diskContent = await window.api.readFile(fullPath);
-      if (diskContent !== lastSavedContent) {
-        showConflict(currentSelectedFilePath);
+      if (diskContent !== entry.lastSavedContent) {
+        showConflict(tab.filePath);
         stopFileWatcher();
       }
     } catch {
@@ -138,195 +447,44 @@
     }
   }
 
-  /**
-   * Save current editor state to document cache.
-   * Caches full markdown (frontmatter + body), not TipTap JSON.
-   */
-  function saveToCacheIfNeeded() {
-    if (!wysiwygEditor || !previousFilePath) return;
+  // ── Large File Warning ────────────────────────────────────────────────
 
-    const content = getFullContent();
-    if (content.trim().length === 0) return;
-
-    docCache.set(previousFilePath, {
-      content,
-      cursor: { line: 1, column: 0 },
-      scrollTop: editorEl?.querySelector('.ProseMirror')?.scrollTop ?? 0,
-      cachedAt: Date.now(),
-    });
-  }
-
-  /**
-   * Restore editor state from cache. Returns true if restored.
-   */
-  function restoreFromCache(filePath: string): boolean {
-    const cached = docCache.get(filePath);
-    if (!cached) return false;
-
-    const contentSize = new Blob([cached.content]).size;
-    if (contentSize > LARGE_FILE_THRESHOLD) {
-      largeFileWarning = true;
-      _forcedSourceMode = true;
-      editorMode.set('editor');
-      return false;
-    }
-
+  function dismissLargeFileWarning() {
     largeFileWarning = false;
-    _forcedSourceMode = false;
-    loadContentIntoEditor(cached.content);
-
-    // Restore scroll position
-    requestAnimationFrame(() => {
-      const pm = editorEl?.querySelector('.ProseMirror');
-      if (pm) pm.scrollTop = cached.scrollTop;
-    });
-
-    return true;
   }
 
-  /**
-   * Load full markdown content into the editor, splitting frontmatter.
-   */
-  function loadContentIntoEditor(content: string) {
-    const { frontmatter, body } = splitFrontmatter(content);
-    currentFrontmatter = frontmatter;
-    lastSavedContent = content;
-    isDirty.set(false);
-    wordCount.set(countWords(content));
-    tokenCount.set(countTokens(content));
-
-    if (wysiwygEditor) {
-      wysiwygEditor.setMarkdownContent(body);
-    } else if (editorEl) {
-      createEditor(body);
-    }
-  }
-
-  /**
-   * Handle frontmatter updates from the visual property editor.
-   */
-  function handleFrontmatterUpdate(newYaml: string | null) {
-    currentFrontmatter = newYaml;
-    handleEditorUpdate();
-  }
-
-  function createEditor(body: string) {
-    if (!editorEl) return;
-    destroyEditor();
-
-    wysiwygEditor = createWysiwygEditor(editorEl, body, {
-      onUpdate: () => handleEditorUpdate(),
-      collectionPath: currentActiveCollection?.path ?? '',
-      collectionId: currentActiveCollection?.id ?? '',
-    });
-  }
-
-  function destroyEditor() {
-    if (wysiwygEditor) {
-      wysiwygEditor.destroy();
-      wysiwygEditor = null;
-    }
-  }
-
-  // React to file content changes with cache support
-  $effect(() => {
-    if (currentSelectedFilePath === null) {
-      saveToCacheIfNeeded();
-      stopFileWatcher();
-      dismissConflict();
-      destroyEditor();
-      isDirty.set(false);
-      wordCount.set(0);
-      tokenCount.set(0);
-      previousFilePath = null;
-      lastAppliedFileContent = null;
-      return;
-    }
-
-    if (currentFileContentLoading && previousFilePath !== currentSelectedFilePath) {
-      return;
-    }
-
-    if (currentFileContent === null) return;
-
-    // Large file check: >1MB forces Source/Preview mode
-    const contentSize = new Blob([currentFileContent]).size;
-    if (contentSize > LARGE_FILE_THRESHOLD) {
-      largeFileWarning = true;
-      _forcedSourceMode = true;
-      editorMode.set('editor');
-      previousFilePath = currentSelectedFilePath;
-      lastAppliedFileContent = currentFileContent;
-      return;
-    }
-
-    largeFileWarning = false;
-    _forcedSourceMode = false;
-
-    const isSwitchingFiles = previousFilePath !== currentSelectedFilePath;
-
-    if (isSwitchingFiles) {
-      saveToCacheIfNeeded();
-      stopFileWatcher();
-      dismissConflict();
-
-      const restored = restoreFromCache(currentSelectedFilePath);
-
-      if (!restored) {
-        loadContentIntoEditor(currentFileContent);
-      }
-
-      lastAppliedFileContent = currentFileContent;
-      previousFilePath = currentSelectedFilePath;
-      startFileWatcher();
-    } else {
-      if (currentFileContent !== lastAppliedFileContent) {
-        lastAppliedFileContent = currentFileContent;
-        loadContentIntoEditor(currentFileContent);
-      }
-    }
-  });
+  // ── Lifecycle ─────────────────────────────────────────────────────────
 
   onMount(() => {
-    if (currentFileContent !== null && currentSelectedFilePath !== null && editorEl) {
-      const contentSize = new Blob([currentFileContent]).size;
-      if (contentSize > LARGE_FILE_THRESHOLD) {
-        largeFileWarning = true;
-        _forcedSourceMode = true;
-        editorMode.set('editor');
-        return;
-      }
-
-      const { frontmatter, body } = splitFrontmatter(currentFileContent);
-      currentFrontmatter = frontmatter;
-      lastSavedContent = currentFileContent;
-      wordCount.set(countWords(currentFileContent));
-      tokenCount.set(countTokens(currentFileContent));
-      createEditor(body);
-      previousFilePath = currentSelectedFilePath;
-      startFileWatcher();
-    }
+    // The main $effect handles initial creation
   });
 
   onDestroy(() => {
     if (debounceTimer) clearTimeout(debounceTimer);
     stopFileWatcher();
     dismissConflict();
-    saveToCacheIfNeeded();
-    destroyEditor();
+
+    // Destroy all pooled TipTap editors
+    for (const [, entry] of pool) {
+      entry.container.removeEventListener('click', handleLinkClick);
+      entry.editor.destroy();
+      entry.container.remove();
+    }
+    pool.clear();
+    serializedPool.clear();
+    accessOrder.length = 0;
+
     isDirty.set(false);
     wordCount.set(0);
     tokenCount.set(0);
-    unsubFileContent();
-    unsubSelectedFile();
+
     unsubCollection();
-    unsubLoading();
     unsubSave();
     unsubEditorMode();
   });
 </script>
 
-{#if currentSelectedFilePath}
+{#if activeDocTab}
   <div class="wysiwyg-editor-container">
     <ConflictNotification />
     <FrontmatterEditor frontmatterYaml={currentFrontmatter} onUpdate={handleFrontmatterUpdate} />
@@ -344,8 +502,7 @@
     {/if}
     <div
       class="wysiwyg-content"
-      bind:this={editorEl}
-      onclick={handleLinkClick}
+      bind:this={editorHost}
     ></div>
   </div>
 {:else}
@@ -370,8 +527,14 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
-    overflow: auto;
+    overflow: hidden;
     position: relative;
+  }
+
+  .wysiwyg-content :global(.wysiwyg-instance) {
+    display: flex;
+    flex-direction: column;
+    overflow: auto;
   }
 
   .wysiwyg-content :global(.ProseMirror) {

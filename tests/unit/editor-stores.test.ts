@@ -1,13 +1,19 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { get } from 'svelte/store'
-import { isDirty, wordCount, tokenCount, countWords, countTokens, editorMode, toggleEditorMode, setEditorMode, saveRequested, requestSave } from '../../src/renderer/stores/editor'
+import { workspace } from '@renderer/stores/workspace.svelte'
+import { isDirty, wordCount, tokenCount, countWords, countTokens, editorMode, toggleEditorMode, setEditorMode, saveRequested, requestSave, syncEditorStoresFromTab } from '../../src/renderer/stores/editor'
 
 describe('editor stores', () => {
   beforeEach(() => {
+    // Reset workspace and open a document tab so focused tab-derived stores work
+    workspace.reset()
+    workspace.openTab('test.md')
+    syncEditorStoresFromTab()
+
     isDirty.set(false)
     wordCount.set(0)
     tokenCount.set(0)
-    editorMode.set('preview')
+    editorMode.set('wysiwyg')
     saveRequested.set(0)
   })
 
@@ -75,25 +81,21 @@ describe('editor stores', () => {
   })
 
   describe('toggleEditorMode', () => {
-    it('cycles preview → wysiwyg → editor → preview', () => {
-      expect(get(editorMode)).toBe('preview')
-      toggleEditorMode()
+    it('cycles wysiwyg → editor → wysiwyg', () => {
       expect(get(editorMode)).toBe('wysiwyg')
       toggleEditorMode()
       expect(get(editorMode)).toBe('editor')
       toggleEditorMode()
-      expect(get(editorMode)).toBe('preview')
+      expect(get(editorMode)).toBe('wysiwyg')
     })
   })
 
   describe('setEditorMode', () => {
     it('sets mode explicitly', () => {
-      setEditorMode('wysiwyg')
-      expect(get(editorMode)).toBe('wysiwyg')
       setEditorMode('editor')
       expect(get(editorMode)).toBe('editor')
-      setEditorMode('preview')
-      expect(get(editorMode)).toBe('preview')
+      setEditorMode('wysiwyg')
+      expect(get(editorMode)).toBe('wysiwyg')
     })
   })
 

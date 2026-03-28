@@ -1,3 +1,11 @@
+<script module lang="ts">
+  /** Per-graph-tab camera state cache. Survives component destroy/recreate cycles. */
+  const cameraStateCache = new Map<string, {
+    position: { x: number; y: number; z: number }
+    target: { x: number; y: number; z: number }
+  }>()
+</script>
+
 <script lang="ts">
   import { onMount, onDestroy, tick } from 'svelte'
   import type { ForceGraph3DInstance } from '3d-force-graph'
@@ -9,6 +17,7 @@
     graphLoading,
     graphError,
     graphSelectedNode,
+    graphOpenedNode,
     graphColoringMode,
     cycleColoringMode,
     graphLevel,
@@ -30,9 +39,11 @@
   import type { GraphColoringMode } from '../stores/graph'
   import type { GraphLevel } from '../types/cli'
   import type { GraphNode, GraphData } from '../types/cli'
-  import { selectedFilePath } from '../stores/files'
+  import { selectedFilePath, syncFileStoresFromTab } from '../stores/files'
   import { activeCollection } from '../stores/collections'
   import { get } from 'svelte/store'
+  import { workspace } from '../stores/workspace.svelte'
+  import GraphPreview from './GraphPreview.svelte'
   import { edgeClusterColor } from '../lib/edge-utils'
   import {
     buildSearchScoreMap,
@@ -52,6 +63,18 @@
     type Graph3DLink,
     type Graph3DData
   } from '../lib/graph-3d-bridge'
+
+  // ─── Props ─────────────────────────────────────────────────────────
+
+  interface GraphViewProps {
+    paneId?: string
+  }
+  let { paneId }: GraphViewProps = $props()
+
+  // Derive graph tab ID for camera state caching
+  let graphTabId = $derived(
+    paneId ? workspace.panes[paneId]?.graphTabId ?? null : null
+  )
 
   // ─── Constants ───────────────────────────────────────────────────────
 
@@ -128,6 +151,7 @@
   let unsubLoading: (() => void) | null = null
   let unsubError: (() => void) | null = null
   let unsubLevel: (() => void) | null = null
+  let unsubOpenedNode: (() => void) | null = null
 
   // Reactive local copies for template use
   let currentData: GraphData | null = $state(null)
@@ -143,6 +167,13 @@
   let currentEdgeFilter: Set<number> = $state(new Set())
   let _currentSemanticEdgesEnabled: boolean = $state(true)
   let currentEdgeWeakThreshold: number = $state(0.3)
+  let currentOpenedNode: GraphNode | null = $state(null)
+
+  /** Pending camera restore from cache. Set on mount, consumed by first feedData call. */
+  let pendingCameraRestore: {
+    position: { x: number; y: number; z: number }
+    target: { x: number; y: number; z: number }
+  } | null = null
 
   // Context menu state
   let contextMenuNode: ForceNode | null = $state(null)
@@ -1004,10 +1035,18 @@
     // Resume after data is set
     graph.resumeAnimation()
 
-    // Zoom to fit after layout settles
-    setTimeout(() => {
-      graph?.zoomToFit(400, 50)
-    }, 600)
+    // Restore saved camera state or zoom to fit after layout settles
+    const cameraToRestore = pendingCameraRestore
+    pendingCameraRestore = null
+    if (cameraToRestore) {
+      setTimeout(() => {
+        graph?.cameraPosition(cameraToRestore.position, cameraToRestore.target, 0)
+      }, 100)
+    } else {
+      setTimeout(() => {
+        graph?.zoomToFit(400, 50)
+      }, 600)
+    }
   }
 
   /**
@@ -1580,6 +1619,11 @@
         }
       }
     })
+
+    // Opened node → tracked for inline preview visibility
+    unsubOpenedNode = graphOpenedNode.subscribe((v) => {
+      currentOpenedNode = v
+    })
   }
 
   // ─── Resize Handling ────────────────────────────────────────────────
@@ -1805,6 +1849,13 @@
 
   function handleContextMenuOpen() {
     if (!contextMenuNode) return
+    workspace.openTab(contextMenuNode.path)
+    syncFileStoresFromTab()
+    contextMenuNode = null
+  }
+
+  function handleContextMenuPreview() {
+    if (!contextMenuNode) return
     const node = contextMenuNode
     openGraphNode({
       id: node.id,
@@ -1980,13 +2031,17 @@
 
     // ─── Event Handlers ──────────────────────────────────────────────
 
-    // Node click: first click selects, second click on same node opens in side panel
+    // Node click: first click selects + shows inline preview, second click opens as document tab
     graph.onNodeClick((node: ForceNode, _event: MouseEvent) => {
       const graphNode = toGraphNode(node)
       if (currentSelected && currentSelected.id === node.id) {
-        openGraphNode(graphNode)
+        // Second click on same node: open as document tab
+        workspace.openTab(node.path)
+        syncFileStoresFromTab()
       } else {
+        // First click: select and show inline preview
         selectGraphNode(graphNode)
+        openGraphNode(graphNode)
       }
       // Close context menu if open
       contextMenuNode = null
@@ -2054,6 +2109,12 @@
       webglSupported = false
     }
 
+    // 0. Check for saved camera state BEFORE subscriptions (which may trigger feedData).
+    //    pendingCameraRestore is consumed by the first feedData() call.
+    if (graphTabId) {
+      pendingCameraRestore = cameraStateCache.get(graphTabId) ?? null
+    }
+
     // 1. Set up store subscriptions FIRST (unconditionally).
     //    This populates currentData, currentLoading, currentError which drive
     //    the conditional template rendering. When graphData arrives and the
@@ -2070,6 +2131,21 @@
   })
 
   onDestroy(() => {
+    // Save camera state for this graph tab before destruction
+    if (graph && graphTabId) {
+      try {
+        const pos = graph.cameraPosition()
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const controls = graph.controls() as any
+        const target = controls?.target
+          ? { x: controls.target.x as number, y: controls.target.y as number, z: controls.target.z as number }
+          : { x: 0, y: 0, z: 0 }
+        cameraStateCache.set(graphTabId, { position: pos, target })
+      } catch {
+        // Camera state save is best-effort
+      }
+    }
+
     // Clean up graph search debounce timer
     if (graphSearchDebounceTimer) {
       clearTimeout(graphSearchDebounceTimer)
@@ -2113,9 +2189,11 @@
     unsubLoading?.()
     unsubError?.()
     unsubLevel?.()
+    unsubOpenedNode?.()
   })
 </script>
 
+<div class="graph-tab-layout">
 <div class="graph-view" bind:this={containerEl}>
   <!-- 3d-force-graph container: ALWAYS mounted so WebGL context survives tab switches.
        Hidden until data is available via CSS visibility. -->
@@ -2185,6 +2263,8 @@
         style="left: {searchPanelX}px; bottom: {searchPanelY}px;"
       >
         <span
+          role="separator"
+          aria-label="Drag to reposition search overlay"
           class="graph-search-drag-handle"
           class:grabbing={isDraggingSearch}
           onpointerdown={(e) => {
@@ -2372,8 +2452,12 @@
       <div class="context-menu" style="left: {contextMenuX}px; top: {contextMenuY}px">
         <div class="context-menu-header">{contextMenuNode.path.split('/').pop()}</div>
         <button class="context-menu-item" onclick={handleContextMenuOpen}>
+          <span class="material-symbols-outlined">open_in_new</span>
+          Open in tab
+        </button>
+        <button class="context-menu-item" onclick={handleContextMenuPreview}>
           <span class="material-symbols-outlined">preview</span>
-          Open in side panel
+          Preview
         </button>
         <button class="context-menu-item" onclick={handleContextMenuSelect}>
           <span class="material-symbols-outlined">radio_button_checked</span>
@@ -2488,8 +2572,20 @@
     {/if}
   {/if}
 </div>
+{#if currentOpenedNode}
+  <GraphPreview />
+{/if}
+</div>
 
 <style>
+  .graph-tab-layout {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+
   .graph-view {
     flex: 1;
     position: relative;

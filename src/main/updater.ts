@@ -2,14 +2,15 @@
  * AppUpdater — manages auto-update lifecycle using electron-updater.
  *
  * Handles checking for updates, downloading, and installing on quit.
- * Follows the WatcherManager pattern with event forwarding to renderer.
+ * Follows the WatcherManager pattern with event forwarding to all windows
+ * via WindowManager.broadcastToAll().
  */
 
-import { type BrowserWindow } from 'electron'
 import { autoUpdater, type UpdateInfo, type ProgressInfo } from 'electron-updater'
 import { is } from '@electron-toolkit/utils'
 
 import { initStore } from './store'
+import type { WindowManager } from './window-manager'
 
 /** Update lifecycle states */
 export type UpdateState =
@@ -32,7 +33,7 @@ const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1_000
 
 export class AppUpdater {
   private state: UpdateState = 'idle'
-  private mainWindow: BrowserWindow | null = null
+  private windowManager: WindowManager | null = null
   private checkTimer: ReturnType<typeof setInterval> | null = null
   private initialTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -44,9 +45,9 @@ export class AppUpdater {
     this.setupListeners()
   }
 
-  /** Set the main window for IPC forwarding. */
-  setMainWindow(window: BrowserWindow | null): void {
-    this.mainWindow = window
+  /** Set the WindowManager for broadcasting update events to all windows. */
+  setWindowManager(wm: WindowManager | null): void {
+    this.windowManager = wm
   }
 
   /** Start periodic update checks. No-op in dev mode. */
@@ -125,7 +126,7 @@ export class AppUpdater {
   destroy(): void {
     this.stop()
     autoUpdater.removeAllListeners()
-    this.mainWindow = null
+    this.windowManager = null
   }
 
   // --- Private ---
@@ -192,7 +193,7 @@ export class AppUpdater {
   }
 
   private sendToRenderer(event: string, data: Record<string, unknown>): void {
-    if (!this.mainWindow || this.mainWindow.isDestroyed()) return
+    if (!this.windowManager) return
 
     // Map event name to the type expected by the renderer's UpdateEvent interface.
     // For 'state-changed', use the state value directly as the type.
@@ -200,10 +201,6 @@ export class AppUpdater {
       ? (data.state as string)
       : (AppUpdater.EVENT_TYPE_MAP[event] ?? event)
 
-    try {
-      this.mainWindow.webContents.send(`${IPC_PREFIX}:event`, { type, data })
-    } catch {
-      // Window may have been destroyed between the check and the send
-    }
+    this.windowManager.broadcastToAll(`${IPC_PREFIX}:event`, { type, data })
   }
 }

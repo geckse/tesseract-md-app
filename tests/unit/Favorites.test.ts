@@ -11,6 +11,11 @@ const mockApi = {
   getFile: vi.fn(),
   addRecent: vi.fn(),
   listRecents: vi.fn(),
+  status: vi.fn(),
+  doctor: vi.fn(),
+  readFile: vi.fn(),
+  saveWindowSession: vi.fn().mockResolvedValue(undefined),
+  detachTab: vi.fn().mockResolvedValue(undefined),
 }
 
 Object.defineProperty(globalThis, 'window', {
@@ -18,9 +23,19 @@ Object.defineProperty(globalThis, 'window', {
   writable: true,
 })
 
+// Mock syncFileStoresFromTab to avoid side effects during tests
+vi.mock('../../src/renderer/stores/files', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/renderer/stores/files')>()
+  return {
+    ...actual,
+    syncFileStoresFromTab: vi.fn(),
+  }
+})
+
 import { favorites, favoritesLoading } from '../../src/renderer/stores/favorites'
 import { collections, activeCollectionId } from '../../src/renderer/stores/collections'
-import { selectedFilePath } from '../../src/renderer/stores/files'
+import { workspace } from '../../src/renderer/stores/workspace.svelte'
+import { syncFileStoresFromTab } from '../../src/renderer/stores/files'
 import Favorites from '@renderer/components/Favorites.svelte'
 import type { FavoriteEntry } from '../../src/preload/api.d'
 
@@ -50,7 +65,7 @@ function resetStores() {
   favoritesLoading.set(false)
   collections.set([])
   activeCollectionId.set(null)
-  selectedFilePath.set(null)
+  workspace.reset()
 }
 
 beforeEach(() => {
@@ -60,6 +75,9 @@ beforeEach(() => {
   // Set default mock implementations
   mockApi.addRecent.mockResolvedValue(undefined)
   mockApi.listRecents.mockResolvedValue([])
+  mockApi.setActiveCollection.mockResolvedValue(undefined)
+  mockApi.status.mockResolvedValue(null)
+  mockApi.doctor.mockResolvedValue(null)
 })
 
 describe('Favorites component', () => {
@@ -194,13 +212,7 @@ describe('Favorites component', () => {
     collections.set([testCollection1, testCollection2])
     activeCollectionId.set('1')
 
-    mockApi.setActiveCollection.mockResolvedValue(undefined)
-    mockApi.getFile.mockResolvedValue({
-      path: 'guide/intro.md',
-      content: '# Test',
-      frontmatter: {},
-      modified_at: Date.now(),
-    })
+    const openTabSpy = vi.spyOn(workspace, 'openTab')
 
     render(Favorites)
 
@@ -209,8 +221,12 @@ describe('Favorites component', () => {
 
     await fireEvent.click(introButton!)
 
-    // Should call getFile to open the file
-    expect(mockApi.getFile).toHaveBeenCalledWith('/docs', 'guide/intro.md')
+    // Should open the file via workspace.openTab
+    expect(openTabSpy).toHaveBeenCalledWith('guide/intro.md')
+    // Should sync file stores
+    expect(syncFileStoresFromTab).toHaveBeenCalled()
+
+    openTabSpy.mockRestore()
   })
 
   it('switches collection when clicking favorite from different collection', async () => {
@@ -219,13 +235,7 @@ describe('Favorites component', () => {
     collections.set([testCollection1, testCollection2])
     activeCollectionId.set('1') // Currently on Docs
 
-    mockApi.setActiveCollection.mockResolvedValue(undefined)
-    mockApi.getFile.mockResolvedValue({
-      path: 'notes/meeting.md',
-      content: '# Meeting',
-      frontmatter: {},
-      modified_at: Date.now(),
-    })
+    const openTabSpy = vi.spyOn(workspace, 'openTab')
 
     render(Favorites)
 
@@ -235,11 +245,13 @@ describe('Favorites component', () => {
 
     await fireEvent.click(meetingButton!)
 
-    // Should switch to collection 2
+    // Should switch to collection 2 via the API
     expect(mockApi.setActiveCollection).toHaveBeenCalledWith('2')
 
-    // Then open the file
-    expect(mockApi.getFile).toHaveBeenCalledWith('/notes', 'notes/meeting.md')
+    // Then open the file via workspace.openTab
+    expect(openTabSpy).toHaveBeenCalledWith('notes/meeting.md')
+
+    openTabSpy.mockRestore()
   })
 
   it('does not switch collection when clicking favorite from same collection', async () => {
@@ -248,13 +260,7 @@ describe('Favorites component', () => {
     collections.set([testCollection1, testCollection2])
     activeCollectionId.set('1') // Currently on Docs
 
-    mockApi.setActiveCollection.mockResolvedValue(undefined)
-    mockApi.getFile.mockResolvedValue({
-      path: 'guide/intro.md',
-      content: '# Test',
-      frontmatter: {},
-      modified_at: Date.now(),
-    })
+    const openTabSpy = vi.spyOn(workspace, 'openTab')
 
     render(Favorites)
 
@@ -266,8 +272,10 @@ describe('Favorites component', () => {
     // Should NOT call setActiveCollection
     expect(mockApi.setActiveCollection).not.toHaveBeenCalled()
 
-    // But should still open the file
-    expect(mockApi.getFile).toHaveBeenCalledWith('/docs', 'guide/intro.md')
+    // But should still open the file via workspace.openTab
+    expect(openTabSpy).toHaveBeenCalledWith('guide/intro.md')
+
+    openTabSpy.mockRestore()
   })
 
   it('renders multiple favorites in order', () => {

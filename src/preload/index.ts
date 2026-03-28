@@ -141,6 +141,22 @@ const api: MdvdbApi = {
   getZoomLevel: () => invoke('store:get-zoom-level'),
   setZoomLevel: (value) => invoke('store:set-zoom-level', value),
 
+  // Window session persistence
+  saveWindowSession: (session) => invoke('session:save', session),
+  getWindowSession: () => invoke('session:get'),
+
+  // Multi-window management
+  newWindow: () => invoke('window:new'),
+
+  // Cross-window tab transfer
+  detachTab: (tabData) => invoke('tab:detach', tabData),
+  onTabAttach: (callback) => {
+    ipcRenderer.on('tab:attach', (_event, data) => callback(data))
+  },
+  removeTabAttachListener: () => {
+    ipcRenderer.removeAllListeners('tab:attach')
+  },
+
   // Auto-updater
   checkForUpdates: () => invoke('updater:check'),
   downloadUpdate: () => invoke('updater:download'),

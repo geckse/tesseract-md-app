@@ -292,9 +292,13 @@ describe('nodeTooltipHtml', () => {
 })
 
 // ─── edgeTooltipHtml ────────────────────────────────────────────────
+//
+// Edge tooltips are now handled by the custom Svelte overlay in
+// GraphView.svelte, so edgeTooltipHtml always returns '' to suppress
+// the 3d-force-graph built-in tooltip.
 
 describe('edgeTooltipHtml', () => {
-  it('includes relationship type when present', () => {
+  it('returns empty string for link with relationship type', () => {
     const link: Graph3DLink = {
       source: 'a',
       target: 'b',
@@ -305,27 +309,10 @@ describe('edgeTooltipHtml', () => {
       color: '#fff',
       width: 1
     }
-    const html = edgeTooltipHtml(link)
-    expect(html).toContain('references')
-    expect(html).toContain('graph-tooltip-title')
+    expect(edgeTooltipHtml(link)).toBe('')
   })
 
-  it('omits relationship type when null', () => {
-    const link: Graph3DLink = {
-      source: 'a',
-      target: 'b',
-      relationship_type: null,
-      strength: 0.5,
-      context_text: null,
-      edge_cluster_id: null,
-      color: '#fff',
-      width: 1
-    }
-    const html = edgeTooltipHtml(link)
-    expect(html).not.toContain('graph-tooltip-title')
-  })
-
-  it('includes strength as percentage', () => {
+  it('returns empty string for link with strength', () => {
     const link: Graph3DLink = {
       source: 'a',
       target: 'b',
@@ -336,26 +323,10 @@ describe('edgeTooltipHtml', () => {
       color: '#fff',
       width: 1
     }
-    const html = edgeTooltipHtml(link)
-    expect(html).toContain('Strength: 75%')
+    expect(edgeTooltipHtml(link)).toBe('')
   })
 
-  it('omits strength when null', () => {
-    const link: Graph3DLink = {
-      source: 'a',
-      target: 'b',
-      relationship_type: null,
-      strength: null,
-      context_text: null,
-      edge_cluster_id: null,
-      color: '#fff',
-      width: 1
-    }
-    const html = edgeTooltipHtml(link)
-    expect(html).not.toContain('Strength')
-  })
-
-  it('includes context text when present', () => {
+  it('returns empty string for link with context text', () => {
     const link: Graph3DLink = {
       source: 'a',
       target: 'b',
@@ -366,44 +337,7 @@ describe('edgeTooltipHtml', () => {
       color: '#fff',
       width: 1
     }
-    const html = edgeTooltipHtml(link)
-    expect(html).toContain('Related to architecture decisions')
-    expect(html).toContain('graph-tooltip-context')
-  })
-
-  it('truncates context text longer than 120 characters', () => {
-    const longText = 'A'.repeat(150)
-    const link: Graph3DLink = {
-      source: 'a',
-      target: 'b',
-      relationship_type: null,
-      strength: null,
-      context_text: longText,
-      edge_cluster_id: null,
-      color: '#fff',
-      width: 1
-    }
-    const html = edgeTooltipHtml(link)
-    expect(html).toContain('A'.repeat(120))
-    expect(html).toContain('\u2026') // ellipsis character
-    expect(html).not.toContain('A'.repeat(121))
-  })
-
-  it('does not truncate context text at exactly 120 characters', () => {
-    const exactText = 'B'.repeat(120)
-    const link: Graph3DLink = {
-      source: 'a',
-      target: 'b',
-      relationship_type: null,
-      strength: null,
-      context_text: exactText,
-      edge_cluster_id: null,
-      color: '#fff',
-      width: 1
-    }
-    const html = edgeTooltipHtml(link)
-    expect(html).toContain('B'.repeat(120))
-    expect(html).not.toContain('\u2026')
+    expect(edgeTooltipHtml(link)).toBe('')
   })
 
   it('returns empty string when all fields are null', () => {
@@ -417,42 +351,10 @@ describe('edgeTooltipHtml', () => {
       color: '#fff',
       width: 1
     }
-    const html = edgeTooltipHtml(link)
-    expect(html).toBe('')
+    expect(edgeTooltipHtml(link)).toBe('')
   })
 
-  it('escapes HTML special characters in relationship type', () => {
-    const link: Graph3DLink = {
-      source: 'a',
-      target: 'b',
-      relationship_type: '<script>alert("xss")</script>',
-      strength: null,
-      context_text: null,
-      edge_cluster_id: null,
-      color: '#fff',
-      width: 1
-    }
-    const html = edgeTooltipHtml(link)
-    expect(html).toContain('&lt;script&gt;')
-    expect(html).not.toContain('<script>')
-  })
-
-  it('escapes HTML special characters in context text', () => {
-    const link: Graph3DLink = {
-      source: 'a',
-      target: 'b',
-      relationship_type: null,
-      strength: null,
-      context_text: 'A & B "quoted"',
-      edge_cluster_id: null,
-      color: '#fff',
-      width: 1
-    }
-    const html = edgeTooltipHtml(link)
-    expect(html).toContain('A &amp; B &quot;quoted&quot;')
-  })
-
-  it('includes all fields together', () => {
+  it('returns empty string for link with all fields populated', () => {
     const link: Graph3DLink = {
       source: 'a',
       target: 'b',
@@ -463,10 +365,50 @@ describe('edgeTooltipHtml', () => {
       color: '#fff',
       width: 2
     }
-    const html = edgeTooltipHtml(link)
-    expect(html).toContain('extends')
-    expect(html).toContain('Strength: 90%')
-    expect(html).toContain('Module extends the base class')
+    expect(edgeTooltipHtml(link)).toBe('')
+  })
+
+  it('returns empty string for link with HTML special characters', () => {
+    const link: Graph3DLink = {
+      source: 'a',
+      target: 'b',
+      relationship_type: '<script>alert("xss")</script>',
+      strength: null,
+      context_text: 'A & B "quoted"',
+      edge_cluster_id: null,
+      color: '#fff',
+      width: 1
+    }
+    expect(edgeTooltipHtml(link)).toBe('')
+  })
+
+  it('returns empty string for link with long context text', () => {
+    const longText = 'A'.repeat(150)
+    const link: Graph3DLink = {
+      source: 'a',
+      target: 'b',
+      relationship_type: null,
+      strength: null,
+      context_text: longText,
+      edge_cluster_id: null,
+      color: '#fff',
+      width: 1
+    }
+    expect(edgeTooltipHtml(link)).toBe('')
+  })
+
+  it('always returns empty string regardless of input', () => {
+    const link: Graph3DLink = {
+      source: 'a',
+      target: 'b',
+      relationship_type: null,
+      strength: 0.5,
+      context_text: null,
+      edge_cluster_id: null,
+      color: '#fff',
+      width: 1
+    }
+    expect(edgeTooltipHtml(link)).toBe('')
   })
 })
 

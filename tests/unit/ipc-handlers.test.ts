@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import type { WindowManager } from '../../src/main/window-manager'
 
 // Mock electron ipcMain and shell
 const mockHandle = vi.fn()
@@ -31,6 +32,10 @@ vi.mock('../../src/main/store', () => ({
   setOnboardingComplete: vi.fn(),
   getEditorFontSize: vi.fn().mockReturnValue(17),
   setEditorFontSize: vi.fn(),
+  getZoomLevel: vi.fn().mockReturnValue(1.0),
+  setZoomLevel: vi.fn(),
+  getWindowSessions: vi.fn().mockReturnValue([]),
+  setWindowSessions: vi.fn(),
   setCliInfo: vi.fn(),
   initStore: vi.fn()
 }))
@@ -63,19 +68,22 @@ vi.mock('../../src/main/collections', () => ({
   promptInitCollection: (...args: unknown[]) => mockPromptInitCollection(...args)
 }))
 
-// Mock node:fs for fs:read-file and fs:write-file handlers
+// Mock node:fs for fs:read-file, fs:write-file, and cli:reset-index handlers
 const mockReadFile = vi.fn()
 const mockWriteFile = vi.fn()
+const mockRm = vi.fn().mockResolvedValue(undefined)
 vi.mock('node:fs', () => ({
   default: {
     promises: {
       readFile: (...args: unknown[]) => mockReadFile(...args),
-      writeFile: (...args: unknown[]) => mockWriteFile(...args)
+      writeFile: (...args: unknown[]) => mockWriteFile(...args),
+      rm: (...args: unknown[]) => mockRm(...args)
     }
   },
   promises: {
     readFile: (...args: unknown[]) => mockReadFile(...args),
-    writeFile: (...args: unknown[]) => mockWriteFile(...args)
+    writeFile: (...args: unknown[]) => mockWriteFile(...args),
+    rm: (...args: unknown[]) => mockRm(...args)
   }
 }))
 
@@ -112,7 +120,7 @@ vi.mock('../../src/main/menu', () => ({
 // Mock updater module
 vi.mock('../../src/main/updater', () => ({
   AppUpdater: vi.fn().mockImplementation(() => ({
-    setMainWindow: vi.fn(),
+    setWindowManager: vi.fn(),
     start: vi.fn(),
     stop: vi.fn(),
     checkForUpdates: vi.fn(),
@@ -143,9 +151,10 @@ vi.mock('@electron-toolkit/utils', () => ({
   is: { dev: true }
 }))
 
-// Mock electron shell and clipboard
+// Mock electron shell, clipboard, and BrowserWindow
 const mockShellOpenPath = vi.fn()
 const mockClipboardWriteText = vi.fn()
+const mockFromWebContents = vi.fn()
 vi.mock('electron', () => ({
   app: {
     getVersion: () => '1.0.0-test'
@@ -159,10 +168,32 @@ vi.mock('electron', () => ({
   },
   clipboard: {
     writeText: (...args: unknown[]) => mockClipboardWriteText(...args)
+  },
+  BrowserWindow: {
+    fromWebContents: (...args: unknown[]) => mockFromWebContents(...args)
   }
 }))
 
 import { registerIpcHandlers } from '../../src/main/ipc-handlers'
+
+/** Create a mock WindowManager with all required methods */
+function createMockWindowManager() {
+  const mockBroadcastToAll = vi.fn()
+  const mockCreateWindow = vi.fn()
+  const mockGetAllWindows = vi.fn().mockReturnValue([])
+  const mockGetWindow = vi.fn()
+  const mockCloseWindow = vi.fn()
+
+  const wm = {
+    broadcastToAll: mockBroadcastToAll,
+    createWindow: mockCreateWindow,
+    getAllWindows: mockGetAllWindows,
+    getWindow: mockGetWindow,
+    closeWindow: mockCloseWindow
+  } as unknown as WindowManager
+
+  return { wm, mockBroadcastToAll, mockCreateWindow, mockGetAllWindows, mockGetWindow, mockCloseWindow }
+}
 
 beforeEach(() => {
   mockHandle.mockReset()
@@ -194,11 +225,13 @@ beforeEach(() => {
   mockRefreshRecentMenu.mockReset()
   mockShellOpenPath.mockReset()
   mockClipboardWriteText.mockReset()
+  mockFromWebContents.mockReset()
 })
 
 describe('registerIpcHandlers', () => {
   it('registers all expected IPC channels', () => {
-    registerIpcHandlers()
+    const { wm } = createMockWindowManager()
+    registerIpcHandlers(wm)
 
     const channels = mockHandle.mock.calls.map((call: unknown[]) => call[0])
     expect(channels).toContain('cli:find')
@@ -232,14 +265,24 @@ describe('registerIpcHandlers', () => {
     expect(channels).toContain('shell:open-path')
     expect(channels).toContain('clipboard:write-text')
     expect(channels).toContain('updater:app-version')
-    expect(channels).toHaveLength(61)
+    expect(channels).toContain('window:new')
+    expect(channels).toContain('tab:detach')
+    expect(channels).toContain('tab:attach')
+    expect(channels).toContain('session:save')
+    expect(channels).toContain('session:get')
+    expect(channels).toContain('store:get-zoom-level')
+    expect(channels).toContain('store:set-zoom-level')
+    expect(channels).toContain('cli:reset-index')
+    expect(channels).toContain('cli:neighborhood')
+    expect(channels).toHaveLength(70)
   })
 })
 
 describe('IPC handler argument passing', () => {
   /** Helper: register handlers, find the one for `channel`, invoke it */
   function getHandler(channel: string): (...args: unknown[]) => Promise<unknown> {
-    registerIpcHandlers()
+    const { wm } = createMockWindowManager()
+    registerIpcHandlers(wm)
     const call = mockHandle.mock.calls.find((c: unknown[]) => c[0] === channel)
     if (!call) throw new Error(`No handler for channel: ${channel}`)
     return call[1] as (...args: unknown[]) => Promise<unknown>
@@ -474,7 +517,8 @@ describe('IPC handler argument passing', () => {
 
 describe('Collection IPC handlers', () => {
   function getHandler(channel: string): (...args: unknown[]) => Promise<unknown> {
-    registerIpcHandlers()
+    const { wm } = createMockWindowManager()
+    registerIpcHandlers(wm)
     const call = mockHandle.mock.calls.find((c: unknown[]) => c[0] === channel)
     if (!call) throw new Error(`No handler for channel: ${channel}`)
     return call[1] as (...args: unknown[]) => Promise<unknown>
@@ -652,7 +696,8 @@ describe('Collection IPC handlers', () => {
 
 describe('shell:open-path IPC handler', () => {
   function getHandler(channel: string): (...args: unknown[]) => Promise<unknown> {
-    registerIpcHandlers()
+    const { wm } = createMockWindowManager()
+    registerIpcHandlers(wm)
     const call = mockHandle.mock.calls.find((c: unknown[]) => c[0] === channel)
     if (!call) throw new Error(`No handler for channel: ${channel}`)
     return call[1] as (...args: unknown[]) => Promise<unknown>
@@ -679,7 +724,8 @@ describe('shell:open-path IPC handler', () => {
 
 describe('clipboard:write-text IPC handler', () => {
   function getHandler(channel: string): (...args: unknown[]) => Promise<unknown> {
-    registerIpcHandlers()
+    const { wm } = createMockWindowManager()
+    registerIpcHandlers(wm)
     const call = mockHandle.mock.calls.find((c: unknown[]) => c[0] === channel)
     if (!call) throw new Error(`No handler for channel: ${channel}`)
     return call[1] as (...args: unknown[]) => Promise<unknown>
@@ -696,7 +742,8 @@ describe('clipboard:write-text IPC handler', () => {
 
 describe('IPC error serialization', () => {
   function getHandler(channel: string): (...args: unknown[]) => Promise<unknown> {
-    registerIpcHandlers()
+    const { wm } = createMockWindowManager()
+    registerIpcHandlers(wm)
     const call = mockHandle.mock.calls.find((c: unknown[]) => c[0] === channel)
     if (!call) throw new Error(`No handler for channel: ${channel}`)
     return call[1] as (...args: unknown[]) => Promise<unknown>
@@ -770,7 +817,8 @@ describe('IPC error serialization', () => {
 
 describe('Watcher IPC handlers', () => {
   function getHandler(channel: string): (...args: unknown[]) => Promise<unknown> {
-    registerIpcHandlers()
+    const { wm } = createMockWindowManager()
+    registerIpcHandlers(wm)
     const call = mockHandle.mock.calls.find((c: unknown[]) => c[0] === channel)
     if (!call) throw new Error(`No handler for channel: ${channel}`)
     return call[1] as (...args: unknown[]) => Promise<unknown>
@@ -786,11 +834,11 @@ describe('Watcher IPC handlers', () => {
       expect(mockWatcherStart).toHaveBeenCalledWith('/tmp/project')
     })
 
-    it('sets up event forwarding listeners when mainWindow is provided', async () => {
+    it('sets up event forwarding listeners via windowManager', async () => {
       mockWatcherStart.mockResolvedValue(undefined)
       mockHandle.mockReset()
-      const mockWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } }
-      registerIpcHandlers(mockWindow as unknown as import('electron').BrowserWindow)
+      const { wm } = createMockWindowManager()
+      registerIpcHandlers(wm)
       const call = mockHandle.mock.calls.find((c: unknown[]) => c[0] === 'watcher:start')
       const handler = call![1] as (...args: unknown[]) => Promise<unknown>
       await handler(fakeEvent, '/tmp/project')
@@ -798,13 +846,6 @@ describe('Watcher IPC handlers', () => {
       expect(mockWatcherOnEvent).toHaveBeenCalled()
       expect(mockWatcherOnError).toHaveBeenCalled()
       expect(mockWatcherOnStateChange).toHaveBeenCalled()
-    })
-
-    it('skips event forwarding when no mainWindow', async () => {
-      mockWatcherStart.mockResolvedValue(undefined)
-      const handler = getHandler('watcher:start')
-      await handler(fakeEvent, '/tmp/project')
-      expect(mockWatcherRemoveAllListeners).not.toHaveBeenCalled()
     })
   })
 
@@ -838,7 +879,8 @@ describe('Watcher IPC handlers', () => {
 
 describe('cli:ingest-file IPC handler', () => {
   function getHandler(channel: string): (...args: unknown[]) => Promise<unknown> {
-    registerIpcHandlers()
+    const { wm } = createMockWindowManager()
+    registerIpcHandlers(wm)
     const call = mockHandle.mock.calls.find((c: unknown[]) => c[0] === channel)
     if (!call) throw new Error(`No handler for channel: ${channel}`)
     return call[1] as (...args: unknown[]) => Promise<unknown>
@@ -870,7 +912,8 @@ describe('cli:ingest-file IPC handler', () => {
 
 describe('Watcher pause during ingest', () => {
   function getHandler(channel: string): (...args: unknown[]) => Promise<unknown> {
-    registerIpcHandlers()
+    const { wm } = createMockWindowManager()
+    registerIpcHandlers(wm)
     const call = mockHandle.mock.calls.find((c: unknown[]) => c[0] === channel)
     if (!call) throw new Error(`No handler for channel: ${channel}`)
     return call[1] as (...args: unknown[]) => Promise<unknown>
@@ -960,9 +1003,8 @@ describe('Watcher event envelope wrapping', () => {
     mockWatcherStart.mockResolvedValue(undefined)
     mockHandle.mockReset()
 
-    const mockSend = vi.fn()
-    const mockWindow = { isDestroyed: () => false, webContents: { send: mockSend } }
-    registerIpcHandlers(mockWindow as unknown as import('electron').BrowserWindow)
+    const { wm, mockBroadcastToAll } = createMockWindowManager()
+    registerIpcHandlers(wm)
 
     const startCall = mockHandle.mock.calls.find((c: unknown[]) => c[0] === 'watcher:start')
     const handler = startCall![1] as (...args: unknown[]) => Promise<unknown>
@@ -976,7 +1018,7 @@ describe('Watcher event envelope wrapping', () => {
     const rawEvent = { event_type: 'Modified', path: 'readme.md', chunks_processed: 3, duration_ms: 42, success: true, error: null }
     onEventCallback(rawEvent)
 
-    expect(mockSend).toHaveBeenCalledWith('watcher:event', {
+    expect(mockBroadcastToAll).toHaveBeenCalledWith('watcher:event', {
       type: 'watch-event',
       data: rawEvent
     })
@@ -986,9 +1028,8 @@ describe('Watcher event envelope wrapping', () => {
     mockWatcherStart.mockResolvedValue(undefined)
     mockHandle.mockReset()
 
-    const mockSend = vi.fn()
-    const mockWindow = { isDestroyed: () => false, webContents: { send: mockSend } }
-    registerIpcHandlers(mockWindow as unknown as import('electron').BrowserWindow)
+    const { wm, mockBroadcastToAll } = createMockWindowManager()
+    registerIpcHandlers(wm)
 
     const startCall = mockHandle.mock.calls.find((c: unknown[]) => c[0] === 'watcher:start')
     const handler = startCall![1] as (...args: unknown[]) => Promise<unknown>
@@ -999,7 +1040,7 @@ describe('Watcher event envelope wrapping', () => {
 
     onErrorCallback(new Error('watcher crashed'))
 
-    expect(mockSend).toHaveBeenCalledWith('watcher:event', {
+    expect(mockBroadcastToAll).toHaveBeenCalledWith('watcher:event', {
       type: 'error',
       data: { message: 'watcher crashed' }
     })
@@ -1009,9 +1050,8 @@ describe('Watcher event envelope wrapping', () => {
     mockWatcherStart.mockResolvedValue(undefined)
     mockHandle.mockReset()
 
-    const mockSend = vi.fn()
-    const mockWindow = { isDestroyed: () => false, webContents: { send: mockSend } }
-    registerIpcHandlers(mockWindow as unknown as import('electron').BrowserWindow)
+    const { wm, mockBroadcastToAll } = createMockWindowManager()
+    registerIpcHandlers(wm)
 
     const startCall = mockHandle.mock.calls.find((c: unknown[]) => c[0] === 'watcher:start')
     const handler = startCall![1] as (...args: unknown[]) => Promise<unknown>
@@ -1022,7 +1062,7 @@ describe('Watcher event envelope wrapping', () => {
 
     onStateCallback('running')
 
-    expect(mockSend).toHaveBeenCalledWith('watcher:event', {
+    expect(mockBroadcastToAll).toHaveBeenCalledWith('watcher:event', {
       type: 'state-change',
       data: 'running'
     })
@@ -1032,9 +1072,8 @@ describe('Watcher event envelope wrapping', () => {
     mockWatcherStart.mockResolvedValue(undefined)
     mockHandle.mockReset()
 
-    const mockSend = vi.fn()
-    const mockWindow = { isDestroyed: () => false, webContents: { send: mockSend } }
-    registerIpcHandlers(mockWindow as unknown as import('electron').BrowserWindow)
+    const { wm, mockBroadcastToAll } = createMockWindowManager()
+    registerIpcHandlers(wm)
 
     const startCall = mockHandle.mock.calls.find((c: unknown[]) => c[0] === 'watcher:start')
     const handler = startCall![1] as (...args: unknown[]) => Promise<unknown>
@@ -1050,8 +1089,8 @@ describe('Watcher event envelope wrapping', () => {
     onStateCb('stopped')
 
     // All three should go to 'watcher:event' channel, not separate channels
-    const channels = mockSend.mock.calls.map((c: unknown[]) => c[0])
+    const channels = mockBroadcastToAll.mock.calls.map((c: unknown[]) => c[0])
     expect(channels.every((ch: string) => ch === 'watcher:event')).toBe(true)
-    expect(mockSend).toHaveBeenCalledTimes(3)
+    expect(mockBroadcastToAll).toHaveBeenCalledTimes(3)
   })
 })

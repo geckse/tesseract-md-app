@@ -78,6 +78,39 @@ export interface CliInstallResult {
   error?: string
 }
 
+/** A persisted tab — only file paths and layout, never file content. */
+export interface PersistedTab {
+  kind: 'document' | 'graph'
+  filePath?: string
+  graphLevel?: string
+}
+
+/** A persisted pane within a window session. */
+export interface PersistedPane {
+  tabs: PersistedTab[]
+  activeTabIndex: number
+}
+
+/** Persisted window state — restored on app restart. */
+export interface PersistedWindowState {
+  panes: PersistedPane[]
+  splitEnabled: boolean
+  splitRatio: number
+}
+
+/**
+ * Serialized tab data for cross-window transfer (detach/attach).
+ * Content is only included when the tab is dirty (unsaved changes).
+ * Clean tabs reload content from disk in the target window.
+ */
+export interface TabTransferData {
+  kind: 'document'
+  filePath: string
+  editorMode?: string
+  isDirty?: boolean
+  content?: string | null
+}
+
 /** Typed API exposed to the renderer process via contextBridge. */
 export interface MdvdbApi {
   findCli(): Promise<string>
@@ -180,6 +213,18 @@ export interface MdvdbApi {
   // Zoom
   getZoomLevel(): Promise<number>
   setZoomLevel(value: number): Promise<void>
+
+  // Window session persistence
+  saveWindowSession(session: PersistedWindowState): Promise<void>
+  getWindowSession(): Promise<PersistedWindowState | null>
+
+  // Multi-window management
+  newWindow(): Promise<void>
+
+  // Cross-window tab transfer
+  detachTab(tabData: TabTransferData): Promise<void>
+  onTabAttach(callback: (data: TabTransferData) => void): void
+  removeTabAttachListener(): void
 
   // Auto-updater
   checkForUpdates(): Promise<UpdateCheckResult>

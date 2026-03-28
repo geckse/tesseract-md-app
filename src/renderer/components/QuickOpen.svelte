@@ -1,6 +1,7 @@
 <script lang="ts">
   import { quickOpenModalOpen, closeQuickOpen } from '../stores/quickopen'
-  import { flatFileList, selectFile } from '../stores/files'
+  import { flatFileList, syncFileStoresFromTab } from '../stores/files'
+  import { workspace } from '../stores/workspace.svelte'
   import { fuzzyFilter } from '../lib/fuzzy-match'
   import type { FileTreeNode } from '../types/cli'
 
@@ -47,7 +48,8 @@
   }
 
   function handleSelect(file: FileTreeNode) {
-    selectFile(file.path)
+    workspace.openTab(file.path)
+    syncFileStoresFromTab()
     handleClose()
   }
 

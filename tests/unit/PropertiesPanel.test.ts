@@ -14,6 +14,9 @@ const mockApi = {
   status: vi.fn(),
   readFile: vi.fn(),
   tree: vi.fn(),
+  neighborhood: vi.fn(),
+  saveWindowSession: vi.fn().mockResolvedValue(undefined),
+  detachTab: vi.fn().mockResolvedValue(undefined),
 }
 
 Object.defineProperty(globalThis, 'window', {
@@ -29,7 +32,8 @@ import {
   propertiesError,
   propertiesFileContent,
 } from '../../src/renderer/stores/properties'
-import { selectedFilePath } from '../../src/renderer/stores/files'
+import { syncFileStoresFromTab } from '../../src/renderer/stores/files'
+import { workspace } from '../../src/renderer/stores/workspace.svelte'
 import PropertiesPanel from '@renderer/components/PropertiesPanel.svelte'
 import type { DocumentInfo, BacklinksOutput, LinksOutput } from '../../src/renderer/types/cli'
 
@@ -104,6 +108,18 @@ const sampleLinks: LinksOutput = {
   },
 }
 
+/** Open a file tab in the workspace and sync derived stores so selectedFilePath updates.
+ *  Pre-fills the tab content to prevent auto-loading via syncFileStoresFromTab. */
+function selectFilePath(filePath: string): void {
+  const tabId = workspace.openTab(filePath)
+  // Pre-fill content so syncFileStoresFromTab doesn't trigger _autoLoadTabContent
+  const tab = workspace.tabs[tabId]
+  if (tab && tab.kind === 'document') {
+    tab.content = ''
+  }
+  syncFileStoresFromTab()
+}
+
 function resetStores() {
   documentInfo.set(null)
   backlinksInfo.set(null)
@@ -111,7 +127,8 @@ function resetStores() {
   propertiesLoading.set(false)
   propertiesError.set(null)
   propertiesFileContent.set(null)
-  selectedFilePath.set(null)
+  workspace.reset()
+  syncFileStoresFromTab()
 }
 
 beforeEach(() => {
@@ -130,7 +147,7 @@ describe('PropertiesPanel component', () => {
 
   describe('loading state', () => {
     it('shows loading indicator when loading', () => {
-      selectedFilePath.set('docs/test.md')
+      selectFilePath('docs/test.md')
       propertiesLoading.set(true)
 
       render(PropertiesPanel)
@@ -141,7 +158,7 @@ describe('PropertiesPanel component', () => {
 
   describe('error state', () => {
     it('shows error message', () => {
-      selectedFilePath.set('docs/test.md')
+      selectFilePath('docs/test.md')
       propertiesError.set('Something went wrong')
 
       render(PropertiesPanel)
@@ -152,17 +169,17 @@ describe('PropertiesPanel component', () => {
 
   describe('metadata section', () => {
     it('renders section headers', () => {
-      selectedFilePath.set('docs/test.md')
+      selectFilePath('docs/test.md')
 
       render(PropertiesPanel)
 
-      expect(screen.getByText('Metadata')).toBeTruthy()
+      expect(screen.getByText('Frontmatter')).toBeTruthy()
       expect(screen.getByText('Links')).toBeTruthy()
       expect(screen.getByText('Outline')).toBeTruthy()
     })
 
     it('shows "No frontmatter" when no document info', () => {
-      selectedFilePath.set('docs/test.md')
+      selectFilePath('docs/test.md')
 
       render(PropertiesPanel)
 
@@ -170,7 +187,7 @@ describe('PropertiesPanel component', () => {
     })
 
     it('renders frontmatter property labels', () => {
-      selectedFilePath.set('docs/test.md')
+      selectFilePath('docs/test.md')
       documentInfo.set(sampleDoc)
 
       render(PropertiesPanel)
@@ -181,7 +198,7 @@ describe('PropertiesPanel component', () => {
     })
 
     it('renders status value as a badge', () => {
-      selectedFilePath.set('docs/test.md')
+      selectFilePath('docs/test.md')
       documentInfo.set(sampleDoc)
 
       render(PropertiesPanel)
@@ -190,7 +207,7 @@ describe('PropertiesPanel component', () => {
     })
 
     it('renders tag values as badges', () => {
-      selectedFilePath.set('docs/test.md')
+      selectFilePath('docs/test.md')
       documentInfo.set(sampleDoc)
 
       render(PropertiesPanel)
@@ -200,7 +217,7 @@ describe('PropertiesPanel component', () => {
     })
 
     it('renders plain string frontmatter values', () => {
-      selectedFilePath.set('docs/test.md')
+      selectFilePath('docs/test.md')
       documentInfo.set(sampleDoc)
 
       render(PropertiesPanel)
@@ -209,7 +226,7 @@ describe('PropertiesPanel component', () => {
     })
 
     it('shows date labels', () => {
-      selectedFilePath.set('docs/test.md')
+      selectFilePath('docs/test.md')
       documentInfo.set(sampleDoc)
 
       render(PropertiesPanel)
@@ -219,7 +236,7 @@ describe('PropertiesPanel component', () => {
     })
 
     it('shows em dash for dates when no document info', () => {
-      selectedFilePath.set('docs/test.md')
+      selectFilePath('docs/test.md')
 
       render(PropertiesPanel)
 
@@ -230,7 +247,7 @@ describe('PropertiesPanel component', () => {
 
   describe('links section', () => {
     it('shows Incoming and Outgoing tabs', () => {
-      selectedFilePath.set('docs/test.md')
+      selectFilePath('docs/test.md')
 
       render(PropertiesPanel)
 
@@ -239,7 +256,7 @@ describe('PropertiesPanel component', () => {
     })
 
     it('shows "No incoming links" when none exist', () => {
-      selectedFilePath.set('docs/test.md')
+      selectFilePath('docs/test.md')
 
       render(PropertiesPanel)
 
@@ -247,7 +264,7 @@ describe('PropertiesPanel component', () => {
     })
 
     it('renders incoming link file names on incoming tab', () => {
-      selectedFilePath.set('docs/test.md')
+      selectFilePath('docs/test.md')
       backlinksInfo.set(sampleBacklinks)
 
       render(PropertiesPanel)
@@ -257,7 +274,7 @@ describe('PropertiesPanel component', () => {
     })
 
     it('renders incoming link snippets', () => {
-      selectedFilePath.set('docs/test.md')
+      selectFilePath('docs/test.md')
       backlinksInfo.set(sampleBacklinks)
 
       render(PropertiesPanel)
@@ -267,7 +284,7 @@ describe('PropertiesPanel component', () => {
     })
 
     it('shows total link count in section header', () => {
-      selectedFilePath.set('docs/test.md')
+      selectFilePath('docs/test.md')
       backlinksInfo.set(sampleBacklinks)
       linksInfo.set(sampleLinks)
 
@@ -279,7 +296,7 @@ describe('PropertiesPanel component', () => {
     })
 
     it('fires onfileselect when an incoming link is clicked', async () => {
-      selectedFilePath.set('docs/test.md')
+      selectFilePath('docs/test.md')
       backlinksInfo.set(sampleBacklinks)
       const handler = vi.fn()
 
@@ -291,7 +308,7 @@ describe('PropertiesPanel component', () => {
     })
 
     it('switches to outgoing tab and shows outgoing links', async () => {
-      selectedFilePath.set('docs/test.md')
+      selectFilePath('docs/test.md')
       linksInfo.set(sampleLinks)
 
       render(PropertiesPanel)
@@ -304,7 +321,7 @@ describe('PropertiesPanel component', () => {
     })
 
     it('renders outgoing link snippets', async () => {
-      selectedFilePath.set('docs/test.md')
+      selectFilePath('docs/test.md')
       linksInfo.set(sampleLinks)
 
       render(PropertiesPanel)
@@ -316,7 +333,7 @@ describe('PropertiesPanel component', () => {
     })
 
     it('shows "No outgoing links" when none exist', async () => {
-      selectedFilePath.set('docs/test.md')
+      selectFilePath('docs/test.md')
 
       render(PropertiesPanel)
 
@@ -326,7 +343,7 @@ describe('PropertiesPanel component', () => {
     })
 
     it('fires onfileselect when an outgoing link is clicked', async () => {
-      selectedFilePath.set('docs/test.md')
+      selectFilePath('docs/test.md')
       linksInfo.set(sampleLinks)
       const handler = vi.fn()
 
@@ -341,7 +358,7 @@ describe('PropertiesPanel component', () => {
 
   describe('outline section', () => {
     it('shows "No headings" when no content', () => {
-      selectedFilePath.set('docs/test.md')
+      selectFilePath('docs/test.md')
 
       render(PropertiesPanel)
 
@@ -349,7 +366,7 @@ describe('PropertiesPanel component', () => {
     })
 
     it('renders headings from file content', () => {
-      selectedFilePath.set('docs/test.md')
+      selectFilePath('docs/test.md')
       propertiesFileContent.set('# Introduction\n\n## Getting Started\n\n### Installation\n')
 
       render(PropertiesPanel)
@@ -360,7 +377,7 @@ describe('PropertiesPanel component', () => {
     })
 
     it('skips frontmatter when parsing headings', () => {
-      selectedFilePath.set('docs/test.md')
+      selectFilePath('docs/test.md')
       propertiesFileContent.set('---\ntitle: Test\n---\n\n# Real Heading\n')
 
       render(PropertiesPanel)
@@ -370,7 +387,7 @@ describe('PropertiesPanel component', () => {
     })
 
     it('skips headings inside code blocks', () => {
-      selectedFilePath.set('docs/test.md')
+      selectFilePath('docs/test.md')
       propertiesFileContent.set('# Real\n\n```\n# Fake\n```\n\n## Also Real\n')
 
       render(PropertiesPanel)
@@ -381,7 +398,7 @@ describe('PropertiesPanel component', () => {
     })
 
     it('outline items have clickable cursor style', () => {
-      selectedFilePath.set('docs/test.md')
+      selectFilePath('docs/test.md')
       propertiesFileContent.set('# Title\n')
 
       render(PropertiesPanel)
@@ -393,7 +410,7 @@ describe('PropertiesPanel component', () => {
 
   describe('section collapse', () => {
     it('collapses metadata section on header click', async () => {
-      selectedFilePath.set('docs/test.md')
+      selectFilePath('docs/test.md')
       documentInfo.set(sampleDoc)
 
       render(PropertiesPanel)
@@ -401,15 +418,15 @@ describe('PropertiesPanel component', () => {
       // Status value should be visible initially
       expect(screen.getByText('in-progress')).toBeTruthy()
 
-      // Click the Metadata header to collapse
-      await fireEvent.click(screen.getByText('Metadata'))
+      // Click the Frontmatter header to collapse
+      await fireEvent.click(screen.getByText('Frontmatter'))
 
       // Status value should no longer be visible
       expect(screen.queryByText('in-progress')).toBeNull()
     })
 
     it('collapses links section on header click', async () => {
-      selectedFilePath.set('docs/test.md')
+      selectFilePath('docs/test.md')
       backlinksInfo.set(sampleBacklinks)
 
       render(PropertiesPanel)
@@ -422,7 +439,7 @@ describe('PropertiesPanel component', () => {
     })
 
     it('collapses outline section on header click', async () => {
-      selectedFilePath.set('docs/test.md')
+      selectFilePath('docs/test.md')
       propertiesFileContent.set('# Title\n')
 
       render(PropertiesPanel)
@@ -435,7 +452,7 @@ describe('PropertiesPanel component', () => {
     })
 
     it('re-expands section on second click', async () => {
-      selectedFilePath.set('docs/test.md')
+      selectFilePath('docs/test.md')
       propertiesFileContent.set('# Title\n')
 
       render(PropertiesPanel)

@@ -156,123 +156,109 @@ describe('AppUpdater', () => {
   })
 
   describe('event forwarding to renderer', () => {
-    it('forwards update-available to webContents.send()', () => {
-      const mockSend = vi.fn()
-      const mockWindow = {
-        isDestroyed: () => false,
-        webContents: { send: mockSend }
-      }
+    it('forwards update-available via windowManager.broadcastToAll()', () => {
+      const mockBroadcast = vi.fn()
+      const mockWm = { broadcastToAll: mockBroadcast, getAllWindows: () => [] }
 
       const updater = new AppUpdater()
-      updater.setMainWindow(mockWindow as never)
+      updater.setWindowManager(mockWm as never)
       mockStoreGet.mockReturnValue(null)
 
       mockAutoUpdater.emit('update-available', { version: '2.0.0', releaseNotes: 'New stuff' })
 
       expect(updater.getState()).toBe('available')
-      expect(mockSend).toHaveBeenCalledWith('updater:event', { type: 'available', data: { state: 'available' } })
-      expect(mockSend).toHaveBeenCalledWith('updater:event', { type: 'available', data: { version: '2.0.0', releaseNotes: 'New stuff' } })
+      expect(mockBroadcast).toHaveBeenCalledWith('updater:event', { type: 'available', data: { state: 'available' } })
+      expect(mockBroadcast).toHaveBeenCalledWith('updater:event', { type: 'available', data: { version: '2.0.0', releaseNotes: 'New stuff' } })
     })
 
     it('forwards update-not-available', () => {
-      const mockSend = vi.fn()
-      const mockWindow = { isDestroyed: () => false, webContents: { send: mockSend } }
+      const mockBroadcast = vi.fn()
+      const mockWm = { broadcastToAll: mockBroadcast, getAllWindows: () => [] }
 
       const updater = new AppUpdater()
-      updater.setMainWindow(mockWindow as never)
+      updater.setWindowManager(mockWm as never)
 
       mockAutoUpdater.emit('update-not-available', { version: '1.0.0' })
 
       expect(updater.getState()).toBe('not-available')
-      expect(mockSend).toHaveBeenCalledWith('updater:event', { type: 'not-available', data: {} })
+      expect(mockBroadcast).toHaveBeenCalledWith('updater:event', { type: 'not-available', data: {} })
     })
 
     it('forwards download-progress', () => {
-      const mockSend = vi.fn()
-      const mockWindow = { isDestroyed: () => false, webContents: { send: mockSend } }
+      const mockBroadcast = vi.fn()
+      const mockWm = { broadcastToAll: mockBroadcast, getAllWindows: () => [] }
 
       const updater = new AppUpdater()
-      updater.setMainWindow(mockWindow as never)
+      updater.setWindowManager(mockWm as never)
 
       mockAutoUpdater.emit('download-progress', { percent: 42, bytesPerSecond: 1024, transferred: 420, total: 1000 })
 
       expect(updater.getState()).toBe('downloading')
-      expect(mockSend).toHaveBeenCalledWith('updater:event', {
+      expect(mockBroadcast).toHaveBeenCalledWith('updater:event', {
         type: 'downloading',
         data: { percent: 42, bytesPerSecond: 1024, transferred: 420, total: 1000 }
       })
     })
 
     it('forwards update-downloaded', () => {
-      const mockSend = vi.fn()
-      const mockWindow = { isDestroyed: () => false, webContents: { send: mockSend } }
+      const mockBroadcast = vi.fn()
+      const mockWm = { broadcastToAll: mockBroadcast, getAllWindows: () => [] }
 
       const updater = new AppUpdater()
-      updater.setMainWindow(mockWindow as never)
+      updater.setWindowManager(mockWm as never)
 
       mockAutoUpdater.emit('update-downloaded', { version: '2.0.0' })
 
       expect(updater.getState()).toBe('downloaded')
-      expect(mockSend).toHaveBeenCalledWith('updater:event', { type: 'downloaded', data: { version: '2.0.0' } })
+      expect(mockBroadcast).toHaveBeenCalledWith('updater:event', { type: 'downloaded', data: { version: '2.0.0' } })
     })
 
     it('forwards error events', () => {
-      const mockSend = vi.fn()
-      const mockWindow = { isDestroyed: () => false, webContents: { send: mockSend } }
+      const mockBroadcast = vi.fn()
+      const mockWm = { broadcastToAll: mockBroadcast, getAllWindows: () => [] }
 
       const updater = new AppUpdater()
-      updater.setMainWindow(mockWindow as never)
+      updater.setWindowManager(mockWm as never)
 
       mockAutoUpdater.emit('error', new Error('Update failed'))
 
       expect(updater.getState()).toBe('error')
-      expect(mockSend).toHaveBeenCalledWith('updater:event', { type: 'error', data: { error: 'Update failed' } })
+      expect(mockBroadcast).toHaveBeenCalledWith('updater:event', { type: 'error', data: { error: 'Update failed' } })
     })
 
-    it('does not send when no mainWindow set', () => {
+    it('does not send when no windowManager set', () => {
       const updater = new AppUpdater()
       // Should not throw
       mockAutoUpdater.emit('update-not-available', { version: '1.0.0' })
       expect(updater.getState()).toBe('not-available')
     })
-
-    it('does not send when window is destroyed', () => {
-      const mockSend = vi.fn()
-      const mockWindow = { isDestroyed: () => true, webContents: { send: mockSend } }
-
-      const updater = new AppUpdater()
-      updater.setMainWindow(mockWindow as never)
-
-      mockAutoUpdater.emit('update-not-available', { version: '1.0.0' })
-      expect(mockSend).not.toHaveBeenCalled()
-    })
   })
 
   describe('skip version suppression', () => {
     it('suppresses update-available when version matches skipped', () => {
-      const mockSend = vi.fn()
-      const mockWindow = { isDestroyed: () => false, webContents: { send: mockSend } }
+      const mockBroadcast = vi.fn()
+      const mockWm = { broadcastToAll: mockBroadcast, getAllWindows: () => [] }
 
       const updater = new AppUpdater()
-      updater.setMainWindow(mockWindow as never)
+      updater.setWindowManager(mockWm as never)
       mockStoreGet.mockReturnValue('2.0.0')
 
       mockAutoUpdater.emit('update-available', { version: '2.0.0', releaseNotes: '' })
 
       expect(updater.getState()).toBe('not-available')
       // Should not have sent an 'available' type event (only state-changed to not-available)
-      const availableCalls = mockSend.mock.calls.filter(
+      const availableCalls = mockBroadcast.mock.calls.filter(
         (c: unknown[]) => c[0] === 'updater:event' && (c[1] as { type: string }).type === 'available'
       )
       expect(availableCalls).toHaveLength(0)
     })
 
     it('does not suppress when version differs from skipped', () => {
-      const mockSend = vi.fn()
-      const mockWindow = { isDestroyed: () => false, webContents: { send: mockSend } }
+      const mockBroadcast = vi.fn()
+      const mockWm = { broadcastToAll: mockBroadcast, getAllWindows: () => [] }
 
       const updater = new AppUpdater()
-      updater.setMainWindow(mockWindow as never)
+      updater.setWindowManager(mockWm as never)
       mockStoreGet.mockReturnValue('1.9.0')
 
       mockAutoUpdater.emit('update-available', { version: '2.0.0', releaseNotes: '' })
@@ -343,10 +329,10 @@ describe('AppUpdater', () => {
   })
 
   describe('destroy', () => {
-    it('cleans up timers and listeners and nulls mainWindow', () => {
-      const mockWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } }
+    it('cleans up timers and listeners and nulls windowManager', () => {
+      const mockWm = { broadcastToAll: vi.fn(), getAllWindows: () => [] }
       const updater = new AppUpdater()
-      updater.setMainWindow(mockWindow as never)
+      updater.setWindowManager(mockWm as never)
       mockAutoUpdater.checkForUpdates.mockResolvedValue(null)
       updater.start()
 
