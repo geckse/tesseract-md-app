@@ -4,7 +4,7 @@
   import Sidebar from './components/Sidebar.svelte';
   import Titlebar from './components/Titlebar.svelte';
   import StatusBar from './components/StatusBar.svelte';
-  import TabPane from './components/TabPane.svelte';
+  import SplitPaneContainer from './components/SplitPaneContainer.svelte';
   import PropertiesPanel from './components/PropertiesPanel.svelte';
   import IngestModal from './components/IngestModal.svelte';
   import QuickOpen from './components/QuickOpen.svelte';
@@ -36,8 +36,7 @@
   let editorEl: HTMLElement | undefined = $state(undefined);
   let propertiesEl: HTMLElement | undefined = $state(undefined);
 
-  // Active pane ID for TabPane rendering
-  const activePaneId = $derived(workspace.paneOrder[0] ?? '');
+  // Split pane state is managed by workspace + SplitPaneContainer
 
   onMount(() => {
     loadCollections();
@@ -147,6 +146,44 @@
           const entry = closedTabs.pop();
           if (entry) {
             workspace.openTab(entry.tab.filePath);
+            syncFileStoresFromTab();
+          }
+        },
+      }),
+
+      // Cmd+\ / Ctrl+\: Toggle split pane
+      shortcutManager.register({
+        key: '\\',
+        meta: true,
+        handler: () => {
+          workspace.toggleSplit();
+          syncFileStoresFromTab();
+        },
+      }),
+
+      // Cmd+Option+1 / Ctrl+Alt+1: Focus pane 1 (left)
+      shortcutManager.register({
+        key: '1',
+        meta: true,
+        alt: true,
+        handler: () => {
+          const paneId = workspace.paneOrder[0];
+          if (paneId) {
+            workspace.setActivePane(paneId);
+            syncFileStoresFromTab();
+          }
+        },
+      }),
+
+      // Cmd+Option+2 / Ctrl+Alt+2: Focus pane 2 (right)
+      shortcutManager.register({
+        key: '2',
+        meta: true,
+        alt: true,
+        handler: () => {
+          const paneId = workspace.paneOrder[1];
+          if (paneId) {
+            workspace.setActivePane(paneId);
             syncFileStoresFromTab();
           }
         },
@@ -461,7 +498,7 @@
           </div>
         {:else}
           <div id="main-content" class="tab-pane-region" bind:this={editorEl} tabindex="-1">
-            <TabPane paneId={activePaneId} />
+            <SplitPaneContainer />
           </div>
           {#if propertiesOpen}
             <div class="properties-region" bind:this={propertiesEl} tabindex="-1" role="complementary" aria-label="File metadata">
