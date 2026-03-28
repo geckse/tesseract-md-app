@@ -116,8 +116,8 @@ export function goForward(): string | null {
 }
 
 /**
- * Set the navigating flag. Use this to wrap selectFile calls
- * triggered by back/forward so they don't get recorded.
+ * Set the navigating flag. Use this to wrap workspace.openTab() calls
+ * triggered by back/forward so they don't get recorded in navigation history.
  */
 export function setNavigating(value: boolean): void {
   navigating = value

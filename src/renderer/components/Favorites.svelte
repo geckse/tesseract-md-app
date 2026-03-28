@@ -1,7 +1,8 @@
 <script lang="ts">
   import { favorites, favoritesLoading } from '../stores/favorites'
   import { collections, activeCollectionId, setActiveCollection } from '../stores/collections'
-  import { selectFile } from '../stores/files'
+  import { syncFileStoresFromTab } from '../stores/files'
+  import { workspace } from '../stores/workspace.svelte'
   import type { FavoriteEntry } from '../../preload/api'
 
   // Reactive subscriptions
@@ -40,8 +41,9 @@
     if (currentActiveCollectionId !== favorite.collectionId) {
       await setActiveCollection(favorite.collectionId)
     }
-    // Open the file
-    await selectFile(favorite.filePath)
+    // Open the file in a workspace tab
+    workspace.openTab(favorite.filePath)
+    syncFileStoresFromTab()
   }
 </script>
 

@@ -12,7 +12,7 @@
   import Settings from './components/Settings.svelte';
   import UpdateNotification from './components/UpdateNotification.svelte';
   import { loadCollections, setActiveCollection, activeCollectionId } from './stores/collections';
-  import { selectFile, fileContentLoading, resetFileState, syncFileStoresFromTab } from './stores/files';
+  import { fileContentLoading, resetFileState, syncFileStoresFromTab } from './stores/files';
   import { searchOpen, clearSearch } from './stores/search';
   import { scrollToLine, editorMode, toggleEditorMode, requestSave, resetEditorState } from './stores/editor';
   import { loadFavorites } from './stores/favorites';
@@ -50,8 +50,11 @@
     // Listen for native menu "Open Recent" clicks
     window.api.onMenuOpenRecent(({ collectionId, filePath }) => {
       setActiveCollection(collectionId);
-      // Small delay to let collection switch propagate before selecting file
-      setTimeout(() => selectFile(filePath), 50);
+      // Small delay to let collection switch propagate before opening tab
+      setTimeout(() => {
+        workspace.openTab(filePath);
+        syncFileStoresFromTab();
+      }, 50);
     });
 
     // Register keyboard shortcuts
@@ -85,12 +88,22 @@
         },
       }),
 
-      // Cmd+W / Ctrl+W: Deselect file
+      // Cmd+W / Ctrl+W: Close active tab (or deselect if no document tab)
       shortcutManager.register({
         key: 'w',
         meta: true,
         handler: () => {
-          selectFile(null);
+          const tab = workspace.focusedTab;
+          if (tab && tab.kind === 'document') {
+            workspace.closeTab(tab.id);
+          } else {
+            // No document tab focused — deselect
+            const pane = workspace.focusedPane;
+            if (pane) {
+              pane.activeTabId = null;
+            }
+          }
+          syncFileStoresFromTab();
         },
       }),
 
@@ -155,7 +168,8 @@
           const path = goBack();
           if (path) {
             setNavigating(true);
-            selectFile(path);
+            workspace.openTab(path);
+            syncFileStoresFromTab();
             setNavigating(false);
           }
         },
@@ -169,7 +183,8 @@
           const path = goForward();
           if (path) {
             setNavigating(true);
-            selectFile(path);
+            workspace.openTab(path);
+            syncFileStoresFromTab();
             setNavigating(false);
           }
         },
@@ -260,11 +275,13 @@
   }
 
   function handleFileSelect(detail: { folderId: string; fileId: string }) {
-    selectFile(detail.fileId);
+    workspace.openTab(detail.fileId);
+    syncFileStoresFromTab();
   }
 
   function navigateToResult(result: SearchResult) {
-    selectFile(result.file.path);
+    workspace.openTab(result.file.path);
+    syncFileStoresFromTab();
     // Wait for loading to finish, then scroll to the result line
     let wasLoading = false;
     const unsub = fileContentLoading.subscribe((loading) => {

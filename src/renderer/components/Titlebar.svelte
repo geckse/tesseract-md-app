@@ -2,7 +2,8 @@
   import { searchOpen, clearSearch } from '../stores/search';
   import { graphViewActive, toggleGraphView } from '../stores/graph';
   import { canGoBack, canGoForward, goBack, goForward, setNavigating } from '../stores/navigation';
-  import { selectFile } from '../stores/files';
+  import { syncFileStoresFromTab } from '../stores/files';
+  import { workspace } from '../stores/workspace.svelte';
   import type { SearchResult } from '../types/cli';
   import Search from './Search.svelte';
   import SearchResults from './SearchResults.svelte';
@@ -35,7 +36,8 @@
     const path = goBack();
     if (path) {
       setNavigating(true);
-      selectFile(path);
+      workspace.openTab(path);
+      syncFileStoresFromTab();
       setNavigating(false);
     }
   }
@@ -44,7 +46,8 @@
     const path = goForward();
     if (path) {
       setNavigating(true);
-      selectFile(path);
+      workspace.openTab(path);
+      syncFileStoresFromTab();
       setNavigating(false);
     }
   }

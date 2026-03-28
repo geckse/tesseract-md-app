@@ -1,6 +1,6 @@
 <script lang="ts">
   import { conflictFilePath, dismissConflict } from '../stores/conflict'
-  import { selectedFilePath, selectFile } from '../stores/files'
+  import { selectedFilePath } from '../stores/files'
   import { activeCollection } from '../stores/collections'
   import { fileContent } from '../stores/files'
 

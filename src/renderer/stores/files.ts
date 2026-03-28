@@ -82,8 +82,13 @@ const _workspaceSync = writable(0)
 /**
  * Notify backward-compat derived stores that the workspace focus has changed.
  * Call this after any workspace mutation that changes the active tab
- * (e.g., switchTab, closeTab, tab bar click). Also syncs the
- * propertiesFileContent store with the focused tab's content.
+ * (e.g., switchTab, closeTab, tab bar click, workspace.openTab()). Also syncs
+ * the propertiesFileContent store with the focused tab's content.
+ *
+ * Automatically triggers content loading for newly focused tabs that have no
+ * content yet (e.g., after workspace.openTab() creates a fresh tab). This
+ * enables components to simply call workspace.openTab(path) followed by
+ * syncFileStoresFromTab() without needing to handle content loading themselves.
  */
 export function syncFileStoresFromTab(): void {
   _workspaceSync.update((n) => n + 1)
@@ -93,6 +98,74 @@ export function syncFileStoresFromTab(): void {
   // Keep propertiesFileContent in sync with the focused tab's content
   const tab = workspace.focusedDocumentTab
   propertiesFileContent.set(tab?.content ?? null)
+
+  // Auto-load content for newly focused tabs that have no content yet.
+  // The contentLoading guard prevents re-entrant loading when syncFileStoresFromTab
+  // is called again from within _autoLoadTabContent's finally block.
+  if (tab && tab.content === null && !tab.contentLoading && !tab.contentError) {
+    _autoLoadTabContent(tab.id, tab.filePath)
+  }
+}
+
+/**
+ * Load content for a tab that has not been loaded yet.
+ * Called automatically by syncFileStoresFromTab() when a freshly opened tab
+ * has no content. Handles generation guard, recent tracking, content fetch,
+ * and properties loading.
+ */
+async function _autoLoadTabContent(tabId: string, filePath: string): Promise<void> {
+  const gen = ++selectGeneration
+
+  const collection = get(activeCollection)
+  if (!collection) return
+
+  // Track this file as recently opened
+  lazyTrackRecent(collection.id, filePath)
+
+  // Reset to wysiwyg mode when opening a new file
+  editorMode.set('wysiwyg')
+
+  // Mark tab as loading (update directly, then bump sync trigger without recursion)
+  const tab = workspace.tabs[tabId]
+  if (tab && tab.kind === 'document') {
+    tab.contentLoading = true
+    tab.contentError = null
+  }
+  _workspaceSync.update((n) => n + 1)
+
+  const fullPath = `${collection.path}/${filePath}`
+  try {
+    const content = await window.api.readFile(fullPath)
+    if (gen !== selectGeneration) return
+
+    const currentTab = workspace.tabs[tabId]
+    if (currentTab && currentTab.kind === 'document') {
+      currentTab.content = content
+      currentTab.contentError = null
+    }
+    propertiesFileContent.set(content)
+  } catch (err) {
+    if (gen !== selectGeneration) return
+    const errorMsg = err instanceof Error ? err.message : String(err)
+
+    const currentTab = workspace.tabs[tabId]
+    if (currentTab && currentTab.kind === 'document') {
+      currentTab.contentError = errorMsg
+    }
+  } finally {
+    if (gen === selectGeneration) {
+      const currentTab = workspace.tabs[tabId]
+      if (currentTab && currentTab.kind === 'document') {
+        currentTab.contentLoading = false
+      }
+      syncFileStoresFromTab()
+    }
+  }
+
+  // Load properties panel data (document info + backlinks) in parallel
+  if (gen === selectGeneration) {
+    loadProperties(filePath)
+  }
 }
 
 /** Currently selected file path — derived from focused pane's active document tab. */
