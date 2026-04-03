@@ -22,6 +22,7 @@ Users cannot create new markdown files from within the app — they must switch 
 
 - **Editing non-markdown files** — assets are preview-only, never editable in the app
 - **Indexing assets in the CLI** — the Rust CLI continues to know only about `.md` files
+- **External file import / drag from OS** — only files already inside the collection are discovered
 - **Image manipulation** — no resizing, cropping, or format conversion
 - **Non-markdown files in the 3D graph** — graph stays markdown-only
 - **Full-text search across non-markdown files** — search remains markdown-only
@@ -45,6 +46,8 @@ Add six new IPC channels to `app/src/main/ipc-handlers.ts`, all following the ex
 | `fs:is-within-collection` | `(absolutePath: string) → { within: boolean, collectionPath?: string }` | Check if a path is inside any known collection. Used by the renderer to decide copy-vs-link for drag-and-drop. |
 
 All channels validate that the destination path is within a known collection before proceeding. The validation logic is identical to the existing `fs:read-file` handler (lines 469–481 of `ipc-handlers.ts`).
+
+All channels validate that the path is within a known collection before proceeding. The validation logic is identical to the existing `fs:read-file` handler (lines 469–481 of `ipc-handlers.ts`).
 
 ### Data Model
 
@@ -241,6 +244,10 @@ In `WysiwygEditor.svelte`, intercept paste events with image blobs:
 6. Trigger asset tree refresh
 
 No special `assets/` directory — pasted images go next to the markdown file, keeping assets co-located with content.
+4. Ensure `{collection}/assets/` directory exists via `window.api.createDirectory()`
+5. Save via `window.api.writeBinary(absolutePath, base64Data)`
+6. Insert `![](assets/pasted-{timestamp}.png)` into editor
+7. Trigger asset tree refresh
 
 ### Insert Asset Dialog
 
