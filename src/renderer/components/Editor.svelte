@@ -12,7 +12,7 @@
   import { frontmatterDecoration } from '../lib/frontmatter-decoration';
   import { activeCollection } from '../stores/collections';
   import { workspace, type DocumentTab } from '../stores/workspace.svelte';
-  import { isDirty, wordCount, tokenCount, countWords, countTokens, saveRequested, scrollToLine, activeHeadingIndex, editorMode, type EditorMode } from '../stores/editor';
+  import { isDirty, wordCount, tokenCount, countWords, countTokens, saveRequested, discardRequested, scrollToLine, activeHeadingIndex, editorMode, type EditorMode } from '../stores/editor';
   import { propertiesFileContent, outline } from '../stores/properties';
   import ConflictNotification from './ConflictNotification.svelte';
   import { showConflict, dismissConflict } from '../stores/conflict';
@@ -68,6 +68,7 @@
   let fileWatchInterval: ReturnType<typeof setInterval> | null = null;
   let largeFileWarning = $state(false);
   let isSaving = false;
+  let saveGraceUntil = 0;
 
   // ── Store Subscriptions ───────────────────────────────────────────────
   let currentOutline: import('../stores/properties').OutlineHeading[] = [];
@@ -83,6 +84,12 @@
   const unsubSave = saveRequested.subscribe((v) => (saveCounter = v));
   $effect(() => {
     if (saveCounter > 0) handleSave();
+  });
+
+  let discardCounter = $state(0);
+  const unsubDiscard = discardRequested.subscribe((v) => (discardCounter = v));
+  $effect(() => {
+    if (discardCounter > 0) handleDiscard();
   });
 
   let currentEditorMode = $state<EditorMode>('wysiwyg');
@@ -168,6 +175,9 @@
 
   // ── EditorView Factory ────────────────────────────────────────────────
 
+  /** Guard flag: true while an editor is being created, to suppress spurious dirty marking. */
+  let initializing = false;
+
   function createExtensions(useBasicMode: boolean) {
     const baseExtensions = [
       markdown({ base: markdownLanguage }),
@@ -220,6 +230,10 @@
     let scrollTop = 0;
     let lastSavedContent = content;
 
+    // Suppress spurious dirty marking during editor creation
+    initializing = true;
+    try {
+
     // Check for serialized state (evicted editor with preserved undo history)
     const serialized = serializedPool.get(id);
     if (serialized) {
@@ -243,6 +257,8 @@
         parent: container,
       });
     }
+
+    } finally { initializing = false; }
 
     const entry: PoolEntry = {
       view,
@@ -349,10 +365,12 @@
   function replaceContent(entry: PoolEntry, content: string): void {
     entry.lastSavedContent = content;
     isDirty.set(false);
+    initializing = true;
     const doc = entry.view.state.doc;
     entry.view.dispatch({
       changes: { from: 0, to: doc.length, insert: content },
     });
+    initializing = false;
     wordCount.set(countWords(content));
     tokenCount.set(countTokens(content));
   }
@@ -360,6 +378,7 @@
   // ── Editor Update Handler ─────────────────────────────────────────────
 
   function handleUpdate(update: import('@codemirror/view').ViewUpdate) {
+    if (initializing) return;
     if (update.docChanged) {
       const content = update.state.doc.toString();
       // Find which pool entry this view belongs to
@@ -412,6 +431,7 @@
     const fullPath = `${currentActiveCollection.path}/${tab.filePath}`;
 
     entry.lastSavedContent = content;
+    tab.content = content;
     isDirty.set(false);
     isSaving = true;
 
@@ -421,8 +441,20 @@
       console.error('Save failed:', err);
     }).finally(() => {
       isSaving = false;
+      saveGraceUntil = Date.now() + 2000;
     });
     return true;
+  }
+
+  // ── Discard ───────────────────────────────────────────────────────────
+
+  function handleDiscard(): void {
+    if (!activeTabId) return;
+    const entry = pool.get(activeTabId);
+    if (!entry) return;
+
+    // Replace editor content with last saved content
+    replaceContent(entry, entry.lastSavedContent);
   }
 
   // ── File Change Detection ─────────────────────────────────────────────
@@ -431,7 +463,7 @@
     if (!activeTabId || !currentActiveCollection) return;
     const entry = pool.get(activeTabId);
     if (!entry) return;
-    if (isSaving) return;
+    if (isSaving || Date.now() < saveGraceUntil) return;
 
     const tab = activeDocTab;
     if (!tab) return;
@@ -493,6 +525,7 @@
 
     unsubCollection();
     unsubSave();
+    unsubDiscard();
     unsubScrollToLine();
     unsubOutline();
     unsubEditorMode();

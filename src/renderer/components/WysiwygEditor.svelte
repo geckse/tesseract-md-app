@@ -7,7 +7,7 @@
   import 'highlight.js/styles/github-dark.css';
   import { activeCollection } from '../stores/collections';
   import { workspace, type DocumentTab } from '../stores/workspace.svelte';
-  import { isDirty, wordCount, tokenCount, countWords, countTokens, saveRequested, editorMode, type EditorMode } from '../stores/editor';
+  import { isDirty, wordCount, tokenCount, countWords, countTokens, saveRequested, discardRequested, editorMode, type EditorMode } from '../stores/editor';
   import { propertiesFileContent } from '../stores/properties';
   import ConflictNotification from './ConflictNotification.svelte';
   import FrontmatterEditor from './wysiwyg/FrontmatterEditor.svelte';
@@ -69,6 +69,7 @@
   let fileWatchInterval: ReturnType<typeof setInterval> | null = null;
   let largeFileWarning = $state(false);
   let isSaving = false;
+  let saveGraceUntil = 0;
 
   // Frontmatter for the currently active tab (reactive for FrontmatterEditor)
   let currentFrontmatter: string | null = $state(null);
@@ -81,6 +82,12 @@
   const unsubSave = saveRequested.subscribe((v) => (saveCounter = v));
   $effect(() => {
     if (saveCounter > 0) handleSave();
+  });
+
+  let discardCounter = $state(0);
+  const unsubDiscard = discardRequested.subscribe((v) => (discardCounter = v));
+  $effect(() => {
+    if (discardCounter > 0) handleDiscard();
   });
 
   // Focus editor when switching to wysiwyg mode
@@ -151,6 +158,9 @@
 
   // ── Editor Factory ────────────────────────────────────────────────────
 
+  /** Guard flag: true while an editor is being created, to suppress spurious dirty marking. */
+  let initializing = false;
+
   /**
    * Get the full markdown content for a pool entry by joining its
    * frontmatter with the editor body.
@@ -164,6 +174,7 @@
    * Handle TipTap content updates for the active tab — debounced sync to stores.
    */
   function handleEditorUpdate() {
+    if (initializing) return;
     if (!activeTabId) return;
     const entry = pool.get(activeTabId);
     if (!entry) return;
@@ -209,6 +220,10 @@
     let lastSavedContent = content;
     let frontmatter: string | null = null;
 
+    // Suppress spurious dirty marking during editor creation
+    initializing = true;
+    try {
+
     // Check for serialized state (evicted editor)
     const serialized = serializedPool.get(id);
     if (serialized) {
@@ -238,6 +253,8 @@
         currentFilePath: activeDocTab?.filePath ?? '',
       });
     }
+
+    } finally { initializing = false; }
 
     const entry: PoolEntry = {
       editor,
@@ -363,7 +380,9 @@
     entry.lastSavedContent = content;
     currentFrontmatter = frontmatter;
     isDirty.set(false);
+    initializing = true;
     entry.editor.setMarkdownContent(body);
+    initializing = false;
     wordCount.set(countWords(content));
     tokenCount.set(countTokens(content));
   }
@@ -401,6 +420,7 @@
     const fullPath = `${currentActiveCollection.path}/${tab.filePath}`;
 
     entry.lastSavedContent = content;
+    tab.content = content;
     isDirty.set(false);
     isSaving = true;
 
@@ -410,8 +430,20 @@
       console.error('Save failed:', err);
     }).finally(() => {
       isSaving = false;
+      saveGraceUntil = Date.now() + 2000;
     });
     return true;
+  }
+
+  // ── Discard ───────────────────────────────────────────────────────────
+
+  function handleDiscard(): void {
+    if (!activeTabId) return;
+    const entry = pool.get(activeTabId);
+    if (!entry) return;
+
+    // Reload last saved content into the editor
+    reloadContent(entry, entry.lastSavedContent);
   }
 
   // ── File Change Detection ─────────────────────────────────────────────
@@ -420,7 +452,7 @@
     if (!activeTabId || !currentActiveCollection) return;
     const entry = pool.get(activeTabId);
     if (!entry) return;
-    if (isSaving) return;
+    if (isSaving || Date.now() < saveGraceUntil) return;
 
     const tab = activeDocTab;
     if (!tab) return;
@@ -483,6 +515,7 @@
 
     unsubCollection();
     unsubSave();
+    unsubDiscard();
     unsubEditorMode();
   });
 

@@ -23,7 +23,7 @@
     {
       name: 'Navigation',
       shortcuts: [
-        { label: 'Quick Open', keys: getShortcutDisplay('P', true) },
+        { label: 'Quick Open', keys: getShortcutDisplay('O', true) },
         { label: 'Search', keys: getShortcutDisplay('K', true) },
         { label: 'Graph View', keys: getShortcutDisplay('G', true) },
         { label: 'Close File', keys: getShortcutDisplay('W', true) },

@@ -104,7 +104,7 @@
   let dragOverSide: 'left' | 'right' | null = $state(null)
 
   function handleContainerDragOver(e: DragEvent) {
-    if (!e.dataTransfer?.types.includes('text/plain')) return
+    if (!e.dataTransfer?.types.includes('text/plain') && !e.dataTransfer?.types.includes('application/x-mdvdb-path')) return
     if (!containerEl) return
 
     // Don't show split overlay when cursor is over the tab bar area
@@ -140,7 +140,7 @@
     }
 
     e.preventDefault()
-    e.dataTransfer.dropEffect = 'move'
+    e.dataTransfer.dropEffect = e.dataTransfer.types.includes('application/x-mdvdb-path') ? 'link' : 'move'
   }
 
   function handleContainerDrop(e: DragEvent) {
@@ -151,6 +151,26 @@
     if (tabBarDropReceived.value) return
     if (!side) return
 
+    // Check if this is a file tree drop (has a file path)
+    const filePath = e.dataTransfer?.getData('application/x-mdvdb-path')
+    if (filePath) {
+      e.preventDefault()
+      tabBarDropReceived.value = true
+
+      // Enable split if needed, then open the file in the target pane
+      if (!workspace.splitEnabled) {
+        workspace.toggleSplit()
+      }
+      const targetPaneId = side === 'left' ? workspace.paneOrder[0] : workspace.paneOrder[1]
+      if (targetPaneId) {
+        workspace.openTab(filePath, targetPaneId)
+        workspace.activePaneId = targetPaneId
+        syncFileStoresFromTab()
+      }
+      return
+    }
+
+    // Otherwise treat as a tab drag (text/plain = tab ID)
     const draggedTabId = e.dataTransfer?.getData('text/plain')
     if (!draggedTabId) return
 

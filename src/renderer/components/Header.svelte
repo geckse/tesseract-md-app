@@ -1,7 +1,7 @@
 <script lang="ts">
   import { activeCollection, activeCollectionId } from '../stores/collections';
   import { selectedFilePath } from '../stores/files';
-  import { isDirty, requestSave } from '../stores/editor';
+  import { isDirty, requestSave, requestDiscard } from '../stores/editor';
   import { isFavorited, toggleFavorite } from '../stores/favorites';
 
   interface HeaderProps {
@@ -54,6 +54,12 @@
     if (!currentActiveCollectionId || !currentSelectedFilePath) return;
     await toggleFavorite(currentActiveCollectionId, currentSelectedFilePath);
   }
+
+  function handleDiscardClick() {
+    if (window.confirm('Discard unsaved changes? This cannot be undone.')) {
+      requestDiscard();
+    }
+  }
 </script>
 
 <header class="header">
@@ -95,6 +101,10 @@
     </button>
 
     {#if currentIsDirty}
+      <button class="discard-button" onclick={handleDiscardClick} title="Discard changes">
+        <span class="material-symbols-outlined discard-icon">undo</span>
+        <span>Discard</span>
+      </button>
       <button class="save-button" onclick={requestSave}>
         <span>Save</span>
         <kbd class="save-kbd"><span class="kbd-symbol">⌘</span>S</kbd>
@@ -102,6 +112,7 @@
     {/if}
   </div>
 </header>
+
 
 <style>
   .header {
@@ -244,4 +255,33 @@
     color: var(--color-surface-darker, #0a0a0a);
     border: none;
   }
+
+  .discard-button {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 10px;
+    background: transparent;
+    color: var(--color-text-dim, #71717a);
+    border: 1px solid var(--color-border, #27272a);
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    font-family: inherit;
+  }
+
+  .discard-button:hover {
+    color: var(--color-error, #ef4444);
+    border-color: var(--color-error, #ef4444);
+    background: rgba(239, 68, 68, 0.08);
+  }
+
+  .discard-icon {
+    font-size: 16px;
+  }
+
 </style>

@@ -2,7 +2,7 @@
   import { get } from 'svelte/store';
   import { workspace } from '../stores/workspace.svelte';
   import type { TabState } from '../stores/workspace.svelte';
-  import { editorMode, requestSave } from '../stores/editor';
+  import { editorMode, requestSave, requestDiscard } from '../stores/editor';
   import { isDirty } from '../stores/editor';
   import { fileContent } from '../stores/files';
   import { graphLevel, setGraphLevel } from '../stores/graph';
@@ -69,6 +69,13 @@
       document.removeEventListener('click', handleCopyDropdownClickOutside)
     }
   })
+
+  // ── Discard confirmation ──────────────────────────────────────────
+  function handleDiscardClick() {
+    if (window.confirm('Discard unsaved changes? This cannot be undone.')) {
+      requestDiscard()
+    }
+  }
 </script>
 
 {#if tabKind === 'document'}
@@ -133,6 +140,9 @@
         {/if}
       </div>
       {#if $isDirty}
+        <button class="discard-button" onclick={handleDiscardClick} title="Discard changes">
+          <span class="material-symbols-outlined discard-icon">undo</span>
+        </button>
         <button class="save-button" onclick={() => requestSave()}>
           <span>Save</span>
           <kbd class="save-kbd"><span class="kbd-symbol">⌘</span>S</kbd>
@@ -256,6 +266,31 @@
     font-weight: 600;
     color: var(--color-surface-darker, #0a0a0a);
     border: none;
+  }
+
+  /* ── Discard button ────────────────────────── */
+
+  .discard-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 6px;
+    background: transparent;
+    color: var(--color-text-dim, #71717a);
+    border: 1px solid var(--color-border, #27272a);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .discard-button:hover {
+    color: var(--color-error, #ef4444);
+    border-color: var(--color-error, #ef4444);
+    background: rgba(239, 68, 68, 0.08);
+  }
+
+  .discard-icon {
+    font-size: 16px;
   }
 
   /* ── Copy dropdown ─────────────────────────── */

@@ -76,9 +76,9 @@
 
     // Register keyboard shortcuts
     const unregisterShortcuts = [
-      // Cmd+P / Ctrl+P: Open quick file finder
+      // Cmd+O / Ctrl+O: Open quick file finder
       shortcutManager.register({
-        key: 'p',
+        key: 'o',
         meta: true,
         handler: () => {
           openQuickOpen();

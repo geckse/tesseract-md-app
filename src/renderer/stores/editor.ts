@@ -163,6 +163,9 @@ export const activeHeadingIndex = writable<number>(-1)
 /** Monotonic counter — increment to request a save from the Editor. */
 export const saveRequested = writable<number>(0)
 
+/** Monotonic counter — increment to request a discard from the Editor. */
+export const discardRequested = writable<number>(0)
+
 // ─── Mutation functions ─────────────────────────────────────────────────
 
 /** Toggle between editor modes: wysiwyg ↔ editor — targets focused tab. */
@@ -186,6 +189,11 @@ export function setEditorMode(mode: EditorMode): void {
 /** Request the Editor to save the current file. */
 export function requestSave(): void {
   saveRequested.update((n) => n + 1)
+}
+
+/** Request the Editor to discard unsaved changes. */
+export function requestDiscard(): void {
+  discardRequested.update((n) => n + 1)
 }
 
 /** Reset all editor state to defaults — resets focused tab's editor state. */
