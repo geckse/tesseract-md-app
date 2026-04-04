@@ -130,7 +130,7 @@
 
   .nav-item:hover {
     background: var(--color-surface, #161617);
-    color: #fff;
+    color: var(--color-text-white, #fff);
   }
 
   .nav-item:hover .nav-icon {

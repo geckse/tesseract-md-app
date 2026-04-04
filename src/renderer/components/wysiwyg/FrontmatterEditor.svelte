@@ -510,8 +510,8 @@
 
 <style>
   .fm-card {
-    background: #161617;
-    border: 1px solid #27272a;
+    background: var(--color-surface, #161617);
+    border: 1px solid var(--color-border, #27272a);
     border-radius: 8px;
     margin: 1rem 4rem 0 4rem;
     overflow: hidden;
@@ -525,7 +525,7 @@
     padding: 10px 16px;
     background: none;
     border: none;
-    color: #71717a;
+    color: var(--color-text-dim, #71717a);
     font-family: 'JetBrains Mono', monospace;
     font-size: 10px;
     font-weight: 600;
@@ -536,7 +536,7 @@
   }
 
   .fm-header:hover {
-    color: #e4e4e7;
+    color: var(--color-text, #e4e4e7);
   }
 
   .fm-header-actions {
@@ -560,7 +560,7 @@
 
   .fm-add-icon:hover {
     opacity: 1 !important;
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--overlay-hover, rgba(255, 255, 255, 0.06));
   }
 
   .fm-chevron {
@@ -578,7 +578,7 @@
 
   .fm-body {
     padding: 0 16px 12px;
-    border-top: 1px solid #27272a;
+    border-top: 1px solid var(--color-border, #27272a);
     padding-top: 12px;
     display: flex;
     flex-direction: column;
@@ -614,7 +614,7 @@
     background: transparent;
     border: 1px solid transparent;
     border-radius: 4px;
-    color: #71717a;
+    color: var(--color-text-dim, #71717a);
     font-family: 'JetBrains Mono', monospace;
     font-size: 10px;
     font-weight: 600;
@@ -626,8 +626,8 @@
 
   .fm-key:hover,
   .fm-key:focus {
-    border-color: #27272a;
-    color: #a1a1aa;
+    border-color: var(--color-border, #27272a);
+    color: var(--color-text-muted, #a1a1aa);
     outline: none;
   }
 
@@ -643,7 +643,7 @@
     background: transparent;
     border: 1px solid transparent;
     border-radius: 4px;
-    color: #e4e4e7;
+    color: var(--color-text, #e4e4e7);
     font-size: 12px;
     font-family: 'JetBrains Mono', monospace;
     padding: 3px 6px;
@@ -653,7 +653,7 @@
 
   .fm-val:hover,
   .fm-val:focus {
-    border-color: #27272a;
+    border-color: var(--color-border, #27272a);
     outline: none;
   }
 
@@ -678,7 +678,7 @@
 
   .fm-select:hover,
   .fm-select:focus {
-    border-color: #3f3f46;
+    border-color: var(--color-border-hover, #3f3f46);
   }
 
   .fm-textarea {
@@ -692,7 +692,7 @@
     width: 32px;
     height: 18px;
     border-radius: 9999px;
-    background: #27272a;
+    background: var(--color-border, #27272a);
     border: none;
     cursor: pointer;
     position: relative;
@@ -768,7 +768,7 @@
   .fm-tag-input {
     background: transparent;
     border: none;
-    color: #e4e4e7;
+    color: var(--color-text, #e4e4e7);
     font-size: 10px;
     font-family: 'JetBrains Mono', monospace;
     padding: 2px 4px;
@@ -778,13 +778,13 @@
   }
 
   .fm-tag-input::placeholder {
-    color: #52525b;
+    color: var(--color-text-faint, #52525b);
   }
 
   .fm-remove-btn {
     background: none;
     border: none;
-    color: #71717a;
+    color: var(--color-text-dim, #71717a);
     cursor: pointer;
     padding: 3px;
     border-radius: 4px;

@@ -12,9 +12,11 @@
   import ConflictNotification from './ConflictNotification.svelte';
   import DocumentHeader from './wysiwyg/DocumentHeader.svelte';
   import { showConflict, dismissConflict } from '../stores/conflict';
-  import { handleLinkClick } from '../lib/link-navigation';
   import { schema, fetchSchema } from '../stores/schema';
   import type { Schema } from '../types/cli';
+  import BubbleMenu from './wysiwyg/BubbleMenu.svelte';
+  import EditorContextMenu from './wysiwyg/EditorContextMenu.svelte';
+  import LinkModal from './wysiwyg/LinkModal.svelte';
 
   // ── Props ─────────────────────────────────────────────────────────────
   interface WysiwygEditorProps {
@@ -95,15 +97,23 @@
   });
 
   let saveCounter = $state(0);
+  let lastSaveCounter = 0;
   const unsubSave = saveRequested.subscribe((v) => (saveCounter = v));
   $effect(() => {
-    if (saveCounter > 0) handleSave();
+    if (saveCounter > 0 && saveCounter !== lastSaveCounter) {
+      lastSaveCounter = saveCounter;
+      handleSave();
+    }
   });
 
   let discardCounter = $state(0);
+  let lastDiscardCounter = 0;
   const unsubDiscard = discardRequested.subscribe((v) => (discardCounter = v));
   $effect(() => {
-    if (discardCounter > 0) handleDiscard();
+    if (discardCounter > 0 && discardCounter !== lastDiscardCounter) {
+      lastDiscardCounter = discardCounter;
+      handleDiscard();
+    }
   });
 
   // Focus editor when switching to wysiwyg mode
@@ -129,6 +139,42 @@
     const tab = workspace.tabs[activeTabId];
     return tab?.kind === 'document' ? tab as DocumentTab : null;
   });
+
+  /** The TipTap Editor instance for the active tab (for BubbleMenu/ContextMenu). */
+  let activeEditor = $state<import('@tiptap/core').Editor | null>(null);
+
+  // ── Link Modal ─────────────────────────────────────────────────────────
+  let linkModalOpen = $state(false);
+  let linkModalInitialQuery = $state('');
+
+  function handleOpenLinkModal(e: Event) {
+    const detail = (e as CustomEvent).detail;
+    linkModalInitialQuery = detail?.initialQuery ?? '';
+    linkModalOpen = true;
+  }
+
+  function closeLinkModal() {
+    linkModalOpen = false;
+    linkModalInitialQuery = '';
+  }
+
+  // ── Context Menu (driven by custom DOM event from table-ui-extension) ──
+  let contextMenuOpen = $state(false);
+  let contextMenuX = $state(0);
+  let contextMenuY = $state(0);
+
+  function handleEditorContextMenu(e: Event) {
+    const detail = (e as CustomEvent).detail;
+    contextMenuX = detail.x;
+    contextMenuY = detail.y;
+    contextMenuOpen = true;
+    // Close any open link bubble
+    document.querySelector('.link-bubble-popup')?.remove();
+  }
+
+  function closeContextMenu() {
+    contextMenuOpen = false;
+  }
 
   // ── Pool Management ───────────────────────────────────────────────────
 
@@ -231,8 +277,9 @@
     container.style.flexDirection = 'column';
     container.style.overflow = 'auto';
     container.style.position = 'relative';
-    // Attach link click handler to the container
-    container.addEventListener('click', handleLinkClick);
+    // Attach context menu and link modal handlers to the container
+    container.addEventListener('editor-contextmenu', handleEditorContextMenu);
+    container.addEventListener('open-link-modal', handleOpenLinkModal);
 
     let editor: WysiwygEditorInstance;
     let scrollTop = 0;
@@ -309,6 +356,7 @@
       stopFileWatcher();
       previousActiveTabId = null;
       currentFrontmatter = null;
+      activeEditor = null;
       return;
     }
 
@@ -344,6 +392,9 @@
     if (!editorHost.contains(entry.container)) {
       editorHost.appendChild(entry.container);
     }
+
+    // Update reactive editor reference for BubbleMenu/ContextMenu
+    activeEditor = entry.editor.editor;
 
     if (isSwitching) {
       // Show this editor
@@ -542,7 +593,6 @@
 
     // Destroy all pooled TipTap editors
     for (const [, entry] of pool) {
-      entry.container.removeEventListener('click', handleLinkClick);
       entry.editor.destroy();
       entry.container.remove();
     }
@@ -771,6 +821,20 @@
       />
       <div class="wysiwyg-content" bind:this={editorHost}></div>
     </div>
+    {#if activeEditor}
+      <BubbleMenu editor={activeEditor} />
+    {/if}
+    {#if linkModalOpen && activeEditor}
+      <LinkModal editor={activeEditor} initialQuery={linkModalInitialQuery} onclose={closeLinkModal} />
+    {/if}
+    {#if contextMenuOpen && activeEditor}
+      <EditorContextMenu
+        editor={activeEditor}
+        x={contextMenuX}
+        y={contextMenuY}
+        onclose={closeContextMenu}
+      />
+    {/if}
   </div>
 {:else}
   <div class="empty-state">
@@ -786,7 +850,7 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    background: #0f0f10;
+    background: var(--color-canvas, #0a0a0a);
   }
 
   .wysiwyg-scroll {
@@ -795,7 +859,7 @@
     overflow-y: auto;
     position: relative;
     scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.10) transparent;
+    scrollbar-color: var(--overlay-active, rgba(255, 255, 255, 0.10)) transparent;
   }
 
   .wysiwyg-scroll::-webkit-scrollbar {
@@ -805,11 +869,11 @@
     background: transparent;
   }
   .wysiwyg-scroll::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.10);
+    background: var(--overlay-active, rgba(255, 255, 255, 0.10));
     border-radius: 3px;
   }
   .wysiwyg-scroll::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.20);
+    background: var(--overlay-active, rgba(255, 255, 255, 0.20));
   }
 
   .wysiwyg-content {
@@ -835,7 +899,7 @@
     align-items: center;
     justify-content: center;
     gap: 12px;
-    background: #0f0f10;
+    background: var(--color-canvas, #0a0a0a);
   }
 
   .empty-icon {

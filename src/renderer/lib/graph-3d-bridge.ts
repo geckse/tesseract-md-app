@@ -24,8 +24,14 @@ const CLUSTER_COLORS: string[] = [
   '#FFC078'
 ]
 
-/** Default node color for unclustered nodes or 'none' document mode. */
-const DEFAULT_NODE_COLOR = '#E4E4E7'
+/** Default node color for unclustered nodes or 'none' document mode. Reads from CSS variable. */
+function getDefaultNodeColor(): string {
+  if (typeof document !== 'undefined') {
+    const val = getComputedStyle(document.documentElement).getPropertyValue('--color-text').trim()
+    if (val) return val
+  }
+  return '#E4E4E7'
+}
 
 /** Directional arrow color: outgoing edge from selected node. Reads from CSS variable. */
 function getArrowCyan(): string {
@@ -136,15 +142,15 @@ function nodeColor(
     if (node.cluster_id != null) {
       return CLUSTER_COLORS[node.cluster_id % CLUSTER_COLORS.length]
     }
-    return isChunk ? fileColor(node.path) : DEFAULT_NODE_COLOR
+    return isChunk ? fileColor(node.path) : getDefaultNodeColor()
   }
 
   if (mode === 'folder') {
-    return folderColorMap?.get(getTopLevelFolder(node.path)) ?? DEFAULT_NODE_COLOR
+    return folderColorMap?.get(getTopLevelFolder(node.path)) ?? getDefaultNodeColor()
   }
 
   // 'none' mode: per-file hash color for chunks, default for documents
-  return isChunk ? fileColor(node.path) : DEFAULT_NODE_COLOR
+  return isChunk ? fileColor(node.path) : getDefaultNodeColor()
 }
 
 /**

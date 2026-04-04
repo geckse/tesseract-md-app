@@ -13,41 +13,47 @@ let initPromise: Promise<void> | null = null
 let counter = 0
 let renderQueue: Promise<unknown> = Promise.resolve()
 
-/** Read the current primary color from the CSS custom property */
-function getCurrentPrimaryColor(): string {
+/** Read a CSS custom property value with fallback */
+function getCssVar(name: string, fallback: string): string {
   if (typeof document !== 'undefined') {
-    const val = getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim()
+    const val = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
     if (val) return val
   }
-  return '#00E5FF'
+  return fallback
 }
 
-/** Initialize mermaid with dark theme config. Called automatically on first render. */
+/** Initialize mermaid with theme-aware config. Called automatically on first render. */
 export async function initMermaid(): Promise<void> {
   if (initPromise) return initPromise
   initPromise = (async () => {
     mermaidModule = await import('mermaid')
-    const primaryColor = getCurrentPrimaryColor()
+    const primaryColor = getCssVar('--color-primary', '#00E5FF')
+    const bg = getCssVar('--color-bg', '#0f0f10')
+    const surface = getCssVar('--color-surface', '#161617')
+    const text = getCssVar('--color-text', '#e4e4e7')
+    const border = getCssVar('--color-border', '#27272a')
+    const dim = getCssVar('--color-text-dim', '#71717a')
+    const isDark = document?.documentElement?.getAttribute('data-theme') !== 'light'
     mermaidModule.default.initialize({
       startOnLoad: false,
-      theme: 'dark',
+      theme: isDark ? 'dark' : 'neutral',
       themeVariables: {
-        darkMode: true,
-        background: '#0f0f10',
+        darkMode: isDark,
+        background: bg,
         primaryColor,
-        primaryTextColor: '#e4e4e7',
-        primaryBorderColor: '#27272a',
-        secondaryColor: '#161617',
-        tertiaryColor: '#27272a',
-        lineColor: '#71717a',
-        textColor: '#e4e4e7',
-        mainBkg: '#161617',
-        nodeBorder: '#27272a',
-        clusterBkg: '#161617',
-        clusterBorder: '#27272a',
-        titleColor: '#e4e4e7',
-        edgeLabelBackground: '#161617',
-        nodeTextColor: '#e4e4e7'
+        primaryTextColor: text,
+        primaryBorderColor: border,
+        secondaryColor: surface,
+        tertiaryColor: border,
+        lineColor: dim,
+        textColor: text,
+        mainBkg: surface,
+        nodeBorder: border,
+        clusterBkg: surface,
+        clusterBorder: border,
+        titleColor: text,
+        edgeLabelBackground: surface,
+        nodeTextColor: text
       },
       fontFamily: "'Space Grotesk', system-ui, sans-serif",
       securityLevel: 'strict'

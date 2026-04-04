@@ -273,15 +273,30 @@ export const TableUIExtension = Extension.create({
                 left: event.clientX,
                 top: event.clientY,
               })
-              if (!pos) return false
+              if (!pos) {
+                // No position — dispatch general context menu event
+                event.preventDefault()
+                view.dom.dispatchEvent(new CustomEvent('editor-contextmenu', {
+                  bubbles: true,
+                  detail: { x: event.clientX, y: event.clientY },
+                }))
+                return true
+              }
 
               const $pos = view.state.doc.resolve(pos.pos)
               const cellInfo = resolveCellInfo($pos)
-              if (!cellInfo) return false
+              if (!cellInfo) {
+                // Not in a table cell — dispatch general context menu event
+                event.preventDefault()
+                view.dom.dispatchEvent(new CustomEvent('editor-contextmenu', {
+                  bubbles: true,
+                  detail: { x: event.clientX, y: event.clientY },
+                }))
+                return true
+              }
 
-              // Prevent browser default context menu
+              // In a table cell — show table-specific context menu
               event.preventDefault()
-
               showContextMenu(view, cellInfo, event.clientX, event.clientY)
               return true
             },

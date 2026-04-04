@@ -138,7 +138,7 @@
     border-radius: 6px;
     padding: 3px 48px 3px 36px;
     font-size: 12px;
-    color: #fff;
+    color: var(--color-text-white, #fff);
     width: 320px;
     transition: all 0.2s;
     font-family: var(--font-mono, 'JetBrains Mono', monospace);

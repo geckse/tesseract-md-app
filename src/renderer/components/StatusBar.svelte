@@ -1,8 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { isDirty, wordCount as wordCountStore, tokenCount as tokenCountStore } from '../stores/editor';
+  import { workspace, type AssetTab } from '../stores/workspace.svelte';
   import WatcherToggle from './WatcherToggle.svelte';
   import logoIcon from '../../../resources/icon.png';
+  import type { MimeCategory } from '../types/cli';
 
   interface StatusBarProps {
     language?: string;
@@ -27,6 +29,38 @@
 
   let cliVersion: string | null = $state(null);
   let cliFound = $state(false);
+
+  // Active tab awareness for asset vs document display
+  const activeTab = $derived(workspace.focusedTab);
+  const isAssetTab = $derived(activeTab?.kind === 'asset');
+  const assetTab = $derived(isAssetTab && activeTab?.kind === 'asset' ? activeTab as AssetTab : null);
+
+  function mimeIcon(cat?: MimeCategory): string {
+    switch (cat) {
+      case 'image': return 'image';
+      case 'pdf': return 'picture_as_pdf';
+      case 'video': return 'videocam';
+      case 'audio': return 'audiotrack';
+      default: return 'attach_file';
+    }
+  }
+
+  function mimeLabel(cat?: MimeCategory): string {
+    switch (cat) {
+      case 'image': return 'Image';
+      case 'pdf': return 'PDF';
+      case 'video': return 'Video';
+      case 'audio': return 'Audio';
+      default: return 'File';
+    }
+  }
+
+  function formatSize(bytes?: number): string {
+    if (bytes == null) return '';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
 
   onMount(async () => {
     try {
@@ -53,15 +87,25 @@
   </div>
 
   <div class="status-group">
-    <span class="status-item interactive">
-      <span class="material-symbols-outlined status-icon">markdown</span>
-      {language}
-      {#if currentIsDirty}
-        <span class="dirty-dot"></span>
+    {#if isAssetTab && assetTab}
+      <span class="status-item">
+        <span class="material-symbols-outlined status-icon">{mimeIcon(assetTab.mimeCategory)}</span>
+        {mimeLabel(assetTab.mimeCategory)}
+      </span>
+      {#if assetTab.fileSize}
+        <span class="status-item">{formatSize(assetTab.fileSize)}</span>
       {/if}
-    </span>
-    <span class="status-item interactive">{currentWordCount} words</span>
-    <span class="status-item interactive">{currentTokenCount.toLocaleString()} tokens</span>
+    {:else}
+      <span class="status-item interactive">
+        <span class="material-symbols-outlined status-icon">markdown</span>
+        {language}
+        {#if currentIsDirty}
+          <span class="dirty-dot"></span>
+        {/if}
+      </span>
+      <span class="status-item interactive">{currentWordCount} words</span>
+      <span class="status-item interactive">{currentTokenCount.toLocaleString()} tokens</span>
+    {/if}
   </div>
 
   <div class="status-group">
@@ -115,7 +159,7 @@
   }
 
   .status-item.interactive:hover {
-    color: #fff;
+    color: var(--color-text-white, #fff);
   }
 
   .status-icon {

@@ -275,13 +275,13 @@
     flex-direction: column;
     min-height: 0;
     scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.10) transparent;
+    scrollbar-color: var(--overlay-active, rgba(255, 255, 255, 0.10)) transparent;
   }
 
   .nav-content::-webkit-scrollbar { width: 6px; }
   .nav-content::-webkit-scrollbar-track { background: transparent; }
-  .nav-content::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.10); border-radius: 3px; }
-  .nav-content::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.20); }
+  .nav-content::-webkit-scrollbar-thumb { background: var(--overlay-active, rgba(255, 255, 255, 0.10)); border-radius: 3px; }
+  .nav-content::-webkit-scrollbar-thumb:hover { background: var(--overlay-active, rgba(255, 255, 255, 0.20)); }
 
   .collections-section {
     flex-shrink: 0;
@@ -379,7 +379,7 @@
 
   .nav-item:hover {
     background: var(--color-surface, #161617);
-    color: #fff;
+    color: var(--color-text-white, #fff);
   }
 
   .nav-item:hover .nav-icon {
@@ -397,7 +397,7 @@
 
   .collection-item.active {
     background: var(--color-surface, #161617);
-    color: #fff;
+    color: var(--color-text-white, #fff);
     border: 1px solid rgba(39, 39, 42, 0.5);
   }
 
@@ -508,7 +508,7 @@
 
   .context-menu-item:hover {
     background: var(--color-surface-darker, #0a0a0a);
-    color: #fff;
+    color: var(--color-text-white, #fff);
   }
 
   .context-menu-item.danger:hover {

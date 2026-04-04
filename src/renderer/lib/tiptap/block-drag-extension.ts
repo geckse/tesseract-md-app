@@ -5,7 +5,7 @@ import type { EditorView } from '@tiptap/pm/view'
 const blockDragPluginKey = new PluginKey('blockDragHandles')
 
 // Unique MIME type so we can identify our own drags
-const BLOCK_DRAG_MIME = 'application/x-mdvdb-block-drag'
+export const BLOCK_DRAG_MIME = 'application/x-mdvdb-block-drag'
 
 /**
  * Block drag handles that float in the left gutter.
@@ -24,6 +24,8 @@ export const BlockDragExtension = Extension.create({
     // Source block info captured at dragstart, used at drop
     let dragSourcePos: number | null = null
     let dragSourceNodeSize: number | null = null
+    // Prevents wrapper repositioning during an active block drag
+    let isDraggingBlock = false
 
     function createWrapper(view: EditorView): HTMLDivElement {
       const el = document.createElement('div')
@@ -50,23 +52,29 @@ export const BlockDragExtension = Extension.create({
         const node = view.state.doc.nodeAt(currentBlockPos)
         if (!node) return
 
+        isDraggingBlock = true
+
         // Remember source position for the drop handler
         dragSourcePos = currentBlockPos
         dragSourceNodeSize = node.nodeSize
 
         // Tag with our custom MIME so we can identify it on drop
         e.dataTransfer.setData(BLOCK_DRAG_MIME, String(currentBlockPos))
-        e.dataTransfer.setData('text/plain', node.textContent)
         e.dataTransfer.effectAllowed = 'move'
 
-        // Use the actual block element as drag image
+        // Use the actual block element as drag image, anchored at the mouse position
         if (currentBlockDom) {
-          const rect = currentBlockDom.getBoundingClientRect()
-          e.dataTransfer.setDragImage(currentBlockDom, rect.width / 2, 10)
+          const blockRect = currentBlockDom.getBoundingClientRect()
+          e.dataTransfer.setDragImage(
+            currentBlockDom,
+            e.clientX - blockRect.left,
+            e.clientY - blockRect.top,
+          )
         }
       })
 
       grip.addEventListener('dragend', () => {
+        isDraggingBlock = false
         dragSourcePos = null
         dragSourceNodeSize = null
       })
@@ -145,8 +153,11 @@ export const BlockDragExtension = Extension.create({
       const topOffset = (lineHeight - handleHeight) / 2
 
       const top = blockRect.top - parentRect.top + scrollTop + topOffset
+      // Position handles just to the left of the text content
+      const wrapperWidth = wrapper.offsetWidth || 49
+      const left = blockRect.left - parentRect.left - wrapperWidth - 4
       wrapper.style.top = `${top}px`
-      wrapper.style.left = '0.5rem'
+      wrapper.style.left = `${Math.max(4, left)}px`
       wrapper.style.opacity = '1'
     }
 
@@ -174,6 +185,9 @@ export const BlockDragExtension = Extension.create({
         props: {
           handleDOMEvents: {
             mousemove(view, event) {
+              // Don't reposition handles while dragging a block — moving the
+              // grip element mid-drag cancels the drag in Chromium.
+              if (isDraggingBlock) return false
               const block = findBlockAtY(view, event.clientY)
               if (block) {
                 showHandles(view, block.dom, block.pos)
@@ -183,6 +197,7 @@ export const BlockDragExtension = Extension.create({
               return false
             },
             mouseleave() {
+              if (isDraggingBlock) return false
               setTimeout(() => {
                 if (wrapper && !wrapper.matches(':hover')) {
                   hideHandles()
@@ -193,14 +208,15 @@ export const BlockDragExtension = Extension.create({
             dragover(view, event) {
               if (!event.dataTransfer) return false
               // Accept our block drags and file tree drops
-              if (
-                event.dataTransfer.types.includes(BLOCK_DRAG_MIME) ||
-                event.dataTransfer.types.includes('application/x-mdvdb-path')
-              ) {
+              if (event.dataTransfer.types.includes(BLOCK_DRAG_MIME)) {
                 event.preventDefault()
-                event.dataTransfer.dropEffect = event.dataTransfer.types.includes(BLOCK_DRAG_MIME)
-                  ? 'move'
-                  : 'link'
+                event.stopPropagation()
+                event.dataTransfer.dropEffect = 'move'
+                return true
+              }
+              if (event.dataTransfer.types.includes('application/x-mdvdb-path')) {
+                event.preventDefault()
+                event.dataTransfer.dropEffect = 'link'
                 return true
               }
               return false
@@ -231,6 +247,7 @@ export const BlockDragExtension = Extension.create({
               if (dragSourcePos == null || dragSourceNodeSize == null) return false
 
               event.preventDefault()
+              event.stopPropagation()
 
               // Find drop position from mouse coordinates
               const dropCoords = view.posAtCoords({ left: event.clientX, top: event.clientY })

@@ -128,9 +128,7 @@
     width: 100%;
     display: flex;
     align-items: center;
-    background: rgba(15, 15, 16, 0.95);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    background: var(--color-surface-darker, #0a0a0a);
     -webkit-app-region: drag;
     border-bottom: 1px solid var(--color-border, #27272a);
     z-index: 35;

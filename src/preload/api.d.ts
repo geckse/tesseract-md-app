@@ -237,6 +237,12 @@ export interface MdvdbApi {
   getCollectionColor(collectionId: string): Promise<string | null>
   setCollectionColor(collectionId: string, hex: string | null): Promise<void>
 
+  // Theme
+  getTheme(): Promise<string>
+  setTheme(mode: string): Promise<void>
+  getCollectionTheme(collectionId: string): Promise<string | null>
+  setCollectionTheme(collectionId: string, mode: string | null): Promise<void>
+
   // Window session persistence
   saveWindowSession(session: PersistedWindowState): Promise<void>
   getWindowSession(): Promise<PersistedWindowState | null>

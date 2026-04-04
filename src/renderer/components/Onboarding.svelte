@@ -240,7 +240,7 @@
     margin-top: 12px;
     padding: 10px 32px;
     background: var(--color-accent, #3b82f6);
-    color: #fff;
+    color: var(--color-text-white, #fff);
     border: none;
     border-radius: 6px;
     font-size: 15px;

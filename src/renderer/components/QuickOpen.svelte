@@ -514,7 +514,7 @@
     font-family: 'JetBrains Mono', monospace;
     font-weight: 600;
     background: var(--color-border, #27272a);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--overlay-active, rgba(255, 255, 255, 0.1));
     border-radius: 4px;
     color: var(--color-text, #e4e4e7);
   }

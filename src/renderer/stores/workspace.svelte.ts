@@ -13,6 +13,22 @@ import type { EditorMode } from './editor'
 import type { GraphLevel, MimeCategory } from '../types/cli'
 import type { PersistedWindowState, PersistedPane, PersistedTab, TabTransferData } from '../../preload/api'
 
+// ─── Asset Detection ──────────────────────────────────────────────────
+
+/** Map of file extensions to MimeCategory for asset detection. */
+const ASSET_EXT_MAP: Record<string, MimeCategory> = {
+  png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', svg: 'image', webp: 'image', bmp: 'image', ico: 'image',
+  pdf: 'pdf',
+  mp4: 'video', webm: 'video', mov: 'video', avi: 'video',
+  mp3: 'audio', wav: 'audio', ogg: 'audio', flac: 'audio',
+}
+
+/** Detect if a file path is an asset by extension. Returns MimeCategory or null. */
+function detectAssetMime(filePath: string): MimeCategory | null {
+  const ext = filePath.split('.').pop()?.toLowerCase() ?? ''
+  return ASSET_EXT_MAP[ext] ?? null
+}
+
 // ─── Tab Types ─────────────────────────────────────────────────────────
 
 /** Graph coloring mode (duplicated from graph.ts to avoid circular deps). */
@@ -292,6 +308,12 @@ class WorkspaceStore {
     const targetPaneId = options?.paneId ?? this.activePaneId
     const pane = this.panes[targetPaneId]
     if (!pane) return ''
+
+    // Detect asset files by extension and route to asset tab instead of document tab
+    const detectedMime = detectAssetMime(filePath)
+    if (detectedMime) {
+      return this.openAssetTab(filePath, detectedMime, undefined, targetPaneId)
+    }
 
     // Check if file is already open in this pane — just switch
     const existingTabId = this._findTabByFilePath(filePath, targetPaneId)

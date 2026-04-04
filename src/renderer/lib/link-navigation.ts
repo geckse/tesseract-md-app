@@ -88,6 +88,77 @@ function isInternalHref(href: string): boolean {
 }
 
 /**
+ * Resolve any link href (relative path, wikilink target, or URL) to a file path.
+ * Returns the resolved path, or null if not an internal file.
+ */
+export function resolveHref(href: string): string | null {
+  if (!href || !isInternalHref(href)) return null
+  // Try as relative link first
+  const relative = resolveRelativeLink(href)
+  if (relative) return relative
+  // Try as wikilink target (bare filename)
+  const wiki = resolveWikilinkTarget(href)
+  if (wiki) return wiki
+  return null
+}
+
+/**
+ * Check if an href is external (http, mailto, etc.).
+ */
+export function isExternalHref(href: string): boolean {
+  return !isInternalHref(href)
+}
+
+/**
+ * Navigate to a link URL. Internal links open in the current tab,
+ * external links open in the system browser.
+ */
+export function navigateLink(href: string): void {
+  if (isInternalHref(href)) {
+    const resolved = resolveHref(href)
+    if (resolved) {
+      recordNavigation(resolved)
+      workspace.openFile(resolved)
+      syncFileStoresFromTab()
+    }
+  } else {
+    window.open(href, '_blank')
+  }
+}
+
+/**
+ * Navigate to a link, opening in a new tab instead of replacing current.
+ */
+export function navigateLinkNewTab(href: string): void {
+  if (isInternalHref(href)) {
+    const resolved = resolveHref(href)
+    if (resolved) {
+      recordNavigation(resolved)
+      workspace.openTab(resolved)
+      syncFileStoresFromTab()
+    }
+  } else {
+    window.open(href, '_blank')
+  }
+}
+
+/**
+ * Navigate to a link, opening in the other split pane.
+ */
+export function navigateLinkOtherPane(href: string): void {
+  if (isInternalHref(href)) {
+    const resolved = resolveHref(href)
+    if (resolved) {
+      recordNavigation(resolved)
+      workspace.openTabFromGraph(resolved)
+      syncFileStoresFromTab()
+    }
+  } else {
+    window.open(href, '_blank')
+  }
+}
+
+/**
  * Handle a click event on a link or wikilink element.
  * Navigates internally if the target is a known file, otherwise does nothing.
  * Returns true if navigation occurred (caller should preventDefault).

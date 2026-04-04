@@ -335,7 +335,7 @@
     transition: background 150ms ease;
     position: relative;
   }
-  .pr:hover { background: rgba(255, 255, 255, 0.03); }
+  .pr:hover { background: var(--overlay-hover, rgba(255, 255, 255, 0.03)); }
 
   .pr-type-icon {
     font-size: 16px;
@@ -423,7 +423,7 @@
     padding-right: 22px;
     cursor: pointer;
   }
-  .pr-select:hover, .pr-select:focus { border-color: #3f3f46; }
+  .pr-select:hover, .pr-select:focus { border-color: var(--color-border-hover, #3f3f46); }
 
   .pr-textarea {
     min-height: 60px;
@@ -456,7 +456,7 @@
 
   /* Toggle */
   .pr-toggle {
-    width: 32px; height: 18px; border-radius: 9999px; background: #27272a;
+    width: 32px; height: 18px; border-radius: 9999px; background: var(--color-border, #27272a);
     border: none; cursor: pointer; position: relative; padding: 0; margin: 2px 0;
     transition: background 150ms ease;
   }
@@ -490,7 +490,7 @@
     font-size: 10px; font-family: var(--font-mono, 'JetBrains Mono'), monospace;
     padding: 2px 4px; width: 50px; outline: none; text-align: left;
   }
-  .pr-tag-input::placeholder { color: #52525b; }
+  .pr-tag-input::placeholder { color: var(--color-text-faint, #52525b); }
 
   .pr-remove {
     background: none; border: none; color: var(--color-text-dim, #71717a);

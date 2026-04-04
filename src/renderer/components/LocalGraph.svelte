@@ -500,7 +500,7 @@
 
 <style>
   .local-graph {
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    border-top: 1px solid var(--overlay-hover, rgba(255, 255, 255, 0.06));
     padding: 0;
   }
 
@@ -516,7 +516,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: rgba(228, 228, 231, 0.5);
+    color: var(--color-text-dim, rgba(228, 228, 231, 0.5));
   }
 
   .expand-button {
@@ -524,7 +524,7 @@
     border: none;
     cursor: pointer;
     padding: 2px;
-    color: rgba(228, 228, 231, 0.4);
+    color: var(--color-text-dim, rgba(228, 228, 231, 0.4));
     display: flex;
     align-items: center;
     border-radius: 4px;
@@ -547,7 +547,7 @@
     justify-content: center;
     height: 120px;
     gap: 8px;
-    color: rgba(228, 228, 231, 0.3);
+    color: var(--color-text-dim, rgba(228, 228, 231, 0.3));
   }
 
   .empty-icon {
@@ -595,8 +595,8 @@
     padding: 0;
     border: none;
     border-radius: 4px;
-    background: rgba(30, 30, 36, 0.85);
-    color: rgba(228, 228, 231, 0.5);
+    background: color-mix(in srgb, var(--color-surface-elevated, #1e1e24) 85%, transparent);
+    color: var(--color-text-dim, rgba(228, 228, 231, 0.5));
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -614,7 +614,7 @@
   }
 
   .graph-edge {
-    stroke: rgba(255, 255, 255, 0.15);
+    stroke: var(--overlay-active, rgba(255, 255, 255, 0.15));
   }
 
   .graph-edge.edge-out {
@@ -628,7 +628,7 @@
   }
 
   .graph-edge.edge-depth2 {
-    stroke: rgba(255, 255, 255, 0.08);
+    stroke: var(--overlay-border, rgba(255, 255, 255, 0.08));
   }
 
   .graph-edge.edge-hovered {
@@ -669,7 +669,7 @@
   }
 
   .graph-node.depth2-node circle {
-    fill: rgba(228, 228, 231, 0.2);
+    fill: var(--color-text-dim, rgba(228, 228, 231, 0.2));
   }
 
   .graph-node.node-hovered circle {
@@ -678,18 +678,18 @@
   }
 
   .node-label-bg {
-    fill: rgba(15, 15, 16, 0.85);
+    fill: color-mix(in srgb, var(--color-bg, #0f0f10) 85%, transparent);
     pointer-events: none;
   }
 
   .node-label {
     font-size: 11px;
-    fill: rgba(228, 228, 231, 0.85);
+    fill: var(--color-text-main, rgba(228, 228, 231, 0.85));
     pointer-events: none;
   }
 
   .node-label.center-label {
-    fill: #e4e4e7;
+    fill: var(--color-text, #e4e4e7);
     font-weight: 600;
   }
 
@@ -739,7 +739,7 @@
     padding: 6px 12px;
     border: none;
     background: none;
-    color: #e4e4e7;
+    color: var(--color-text, #e4e4e7);
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;

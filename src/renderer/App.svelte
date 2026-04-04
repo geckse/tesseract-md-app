@@ -12,7 +12,7 @@
   import Settings from './components/Settings.svelte';
   import UpdateNotification from './components/UpdateNotification.svelte';
   import { loadCollections, setActiveCollection, activeCollectionId } from './stores/collections';
-  import { fileContentLoading, resetFileState, syncFileStoresFromTab } from './stores/files';
+  import { fileContentLoading, resetFileState, syncFileStoresFromTab, loadAssetTree, loadFileTree } from './stores/files';
   import { searchOpen, clearSearch } from './stores/search';
   import { scrollToLine, editorMode, toggleEditorMode, requestSave, resetEditorState } from './stores/editor';
   import { loadFavorites } from './stores/favorites';
@@ -26,6 +26,8 @@
   import { loadAccentColors, loadCollectionAccentColor, primaryVariants } from './stores/accent-color';
   import { applyAccentColor } from './lib/apply-accent-color';
   import { reinitMermaid } from './lib/mermaid-renderer';
+  import { loadTheme, loadCollectionTheme, initSystemPreference, resolvedTheme, themeTokens } from './stores/theme';
+  import { applyTheme } from './lib/apply-theme';
   import { workspace } from './stores/workspace.svelte';
   import { closedTabs } from './stores/closed-tabs.svelte';
   import type { SearchResult } from './types/cli';
@@ -45,6 +47,10 @@
     // Load collections first, then restore tab session once the active collection is known.
     // restoreSession() validates file existence via the preload API, so it needs an active collection.
     loadCollections().then(async () => {
+      // Load file tree, asset tree, and graph data for the active collection
+      loadFileTree().catch(() => {});
+      loadAssetTree().catch(() => {});
+      loadGraphData().catch(() => {});
       try {
         const session = await window.api.getWindowSession();
         if (session) {
@@ -66,6 +72,18 @@
     loadOnboardingState();
     loadEditorFontSize();
     loadAccentColors();
+    loadTheme();
+
+    // System preference listener for auto theme mode
+    const cleanupSystemPref = initSystemPreference();
+
+    // Apply theme tokens to CSS custom properties reactively
+    let currentResolvedTheme: 'light' | 'dark' = 'dark';
+    const unsubTheme = resolvedTheme.subscribe((mode) => { currentResolvedTheme = mode; });
+    const unsubThemeTokens = themeTokens.subscribe((tokens) => {
+      applyTheme(tokens, currentResolvedTheme);
+      reinitMermaid();
+    });
 
     // Apply accent color variants to CSS custom properties reactively
     const unsubAccent = primaryVariants.subscribe((variants) => {
@@ -73,9 +91,10 @@
       reinitMermaid();
     });
 
-    // Re-load collection accent color when active collection changes
+    // Re-load collection accent color and theme when active collection changes
     const unsubCollectionColor = activeCollectionId.subscribe((id) => {
       loadCollectionAccentColor(id);
+      loadCollectionTheme(id);
     });
 
     // Listen for native menu "Open Recent" clicks
@@ -435,6 +454,9 @@
       unsub();
       unsubAccent();
       unsubCollectionColor();
+      unsubTheme();
+      unsubThemeTokens();
+      cleanupSystemPref();
     };
   });
 

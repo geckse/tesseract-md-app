@@ -116,7 +116,7 @@
 
   .conflict-btn-primary {
     background: #ef4444;
-    color: #ffffff;
+    color: var(--color-text-white, #ffffff);
     border-color: #ef4444;
   }
 

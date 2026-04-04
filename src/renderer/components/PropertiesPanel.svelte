@@ -495,7 +495,7 @@
     flex-direction: column;
     height: 100%;
     scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+    scrollbar-color: var(--overlay-active, rgba(255, 255, 255, 0.1)) transparent;
   }
 
   .properties-panel::-webkit-scrollbar {
@@ -505,11 +505,11 @@
     background: transparent;
   }
   .properties-panel::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--overlay-active, rgba(255, 255, 255, 0.1));
     border-radius: 3px;
   }
   .properties-panel::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.2);
+    background: var(--overlay-active, rgba(255, 255, 255, 0.2));
   }
 
   /* File header */
@@ -622,7 +622,7 @@
   }
 
   .section-header:hover {
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--overlay-hover, rgba(255, 255, 255, 0.03));
   }
 
   .section-chevron {

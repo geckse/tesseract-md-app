@@ -40,8 +40,8 @@ const ARRAY_RE = /^\[.*\]$/
 
 const frontmatterTheme = EditorView.theme({
   '.cm-fm-line': {
-    backgroundColor: '#0a0a0a',
-    borderLeft: '2px solid #27272a',
+    backgroundColor: 'var(--color-surface-dark, #0a0a0a)',
+    borderLeft: '2px solid var(--color-border, #27272a)',
     paddingLeft: '8px',
     fontFamily: 'JetBrains Mono, monospace',
   },
@@ -49,22 +49,22 @@ const frontmatterTheme = EditorView.theme({
     borderLeftColor: 'var(--color-primary, #00E5FF)',
   },
   '.cm-fm-delimiter': {
-    color: '#7b8a8d',
+    color: 'var(--color-text-dim, #7b8a8d)',
   },
   '.cm-fm-key': {
-    color: '#9ca3af',
+    color: 'var(--color-text-dim, #9ca3af)',
   },
   '.cm-fm-string': {
     color: 'var(--color-primary, #00E5FF)',
   },
   '.cm-fm-status': {
-    color: '#34d399',
+    color: 'var(--color-success, #34d399)',
   },
   '.cm-fm-array': {
-    color: '#60a5fa',
+    color: 'var(--color-info, #60a5fa)',
   },
   '.cm-fm-date': {
-    color: '#fdba74',
+    color: 'var(--color-warning, #fdba74)',
   },
 })
 

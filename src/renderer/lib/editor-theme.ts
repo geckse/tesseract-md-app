@@ -17,8 +17,8 @@ import type { Extension } from '@codemirror/state';
 const baseTheme = EditorView.theme(
   {
     '&': {
-      backgroundColor: '#0f0f10',
-      color: '#e4e4e7',
+      backgroundColor: 'var(--color-canvas, #0a0a0a)',
+      color: 'var(--color-text, #e4e4e7)',
       fontFamily: "'Space Grotesk', system-ui, sans-serif",
       fontSize: '0.875rem',
       lineHeight: '1.8',
@@ -39,18 +39,18 @@ const baseTheme = EditorView.theme(
     },
 
     '.cm-activeLine': {
-      backgroundColor: 'rgba(255, 255, 255, 0.03)',
+      backgroundColor: 'var(--overlay-hover, rgba(255, 255, 255, 0.03))',
     },
 
     '.cm-gutters': {
-      backgroundColor: '#0f0f10',
-      color: '#7b8a8d',
+      backgroundColor: 'var(--color-canvas, #0a0a0a)',
+      color: 'var(--color-text-dim, #7b8a8d)',
       border: 'none',
     },
 
     '.cm-activeLineGutter': {
-      backgroundColor: 'rgba(255, 255, 255, 0.03)',
-      color: '#e4e4e7',
+      backgroundColor: 'var(--overlay-hover, rgba(255, 255, 255, 0.03))',
+      color: 'var(--color-text, #e4e4e7)',
     },
 
     '.cm-lineNumbers .cm-gutterElement': {
@@ -63,13 +63,13 @@ const baseTheme = EditorView.theme(
     },
 
     '.cm-panels': {
-      backgroundColor: '#161617',
-      color: '#e4e4e7',
-      borderBottom: '1px solid #27272a',
+      backgroundColor: 'var(--color-surface, #161617)',
+      color: 'var(--color-text, #e4e4e7)',
+      borderBottom: '1px solid var(--color-border, #27272a)',
     },
 
     '.cm-panels.cm-panels-top': {
-      borderBottom: '1px solid #27272a',
+      borderBottom: '1px solid var(--color-border, #27272a)',
     },
 
     /* Search panel */
@@ -84,14 +84,14 @@ const baseTheme = EditorView.theme(
     },
 
     '.cm-search label': {
-      color: '#71717a',
+      color: 'var(--color-text-dim, #71717a)',
       fontSize: '10px',
     },
 
     '.cm-search input, .cm-search [type=checkbox]': {
-      backgroundColor: '#0a0a0a',
-      color: '#e4e4e7',
-      border: '1px solid #27272a',
+      backgroundColor: 'var(--color-surface-dark, #0a0a0a)',
+      color: 'var(--color-text, #e4e4e7)',
+      border: '1px solid var(--color-border, #27272a)',
       borderRadius: '4px',
       padding: '3px 8px',
       fontSize: '12px',
@@ -104,9 +104,9 @@ const baseTheme = EditorView.theme(
     },
 
     '.cm-search button': {
-      backgroundColor: '#0a0a0a',
-      color: '#e4e4e7',
-      border: '1px solid #27272a',
+      backgroundColor: 'var(--color-surface-dark, #0a0a0a)',
+      color: 'var(--color-text, #e4e4e7)',
+      border: '1px solid var(--color-border, #27272a)',
       borderRadius: '4px',
       padding: '3px 8px',
       fontSize: '10px',
@@ -115,17 +115,17 @@ const baseTheme = EditorView.theme(
     },
 
     '.cm-search button:hover': {
-      borderColor: '#3f3f46',
-      color: '#ffffff',
+      borderColor: 'var(--color-border-hover, #3f3f46)',
+      color: 'var(--color-text-white, #ffffff)',
     },
 
     'button[name="close"]': {
-      color: '#71717a',
+      color: 'var(--color-text-dim, #71717a)',
       cursor: 'pointer',
     },
 
     'button[name="close"]:hover': {
-      color: '#e4e4e7',
+      color: 'var(--color-text, #e4e4e7)',
     },
 
     /* Search match highlights */
@@ -139,9 +139,9 @@ const baseTheme = EditorView.theme(
     },
 
     '.cm-tooltip': {
-      backgroundColor: '#161617',
-      border: '1px solid #27272a',
-      color: '#e4e4e7',
+      backgroundColor: 'var(--color-surface, #161617)',
+      border: '1px solid var(--color-border, #27272a)',
+      color: 'var(--color-text, #e4e4e7)',
     },
   },
   { dark: true },
@@ -157,27 +157,27 @@ const markdownHighlightStyle = HighlightStyle.define([
     tag: tags.heading1,
     fontSize: '2.25rem',
     fontWeight: '700',
-    color: '#ffffff',
+    color: 'var(--color-text-white, #ffffff)',
     lineHeight: '1.2',
   },
   {
     tag: tags.heading2,
     fontSize: '1.5rem',
     fontWeight: '600',
-    color: '#e4e4e7',
+    color: 'var(--color-text, #e4e4e7)',
     lineHeight: '1.2',
   },
   {
     tag: tags.heading3,
     fontSize: '1.25rem',
     fontWeight: '500',
-    color: '#e4e4e7',
+    color: 'var(--color-text, #e4e4e7)',
     lineHeight: '1.2',
   },
 
   // Inline styles
-  { tag: tags.emphasis, fontStyle: 'italic', color: '#e4e4e7' },
-  { tag: tags.strong, fontWeight: '700', color: '#ffffff' },
+  { tag: tags.emphasis, fontStyle: 'italic', color: 'var(--color-text, #e4e4e7)' },
+  { tag: tags.strong, fontWeight: '700', color: 'var(--color-text-white, #ffffff)' },
 
   // Links
   { tag: tags.link, color: 'var(--color-primary, #00E5FF)', textDecoration: 'none' },
@@ -193,20 +193,20 @@ const markdownHighlightStyle = HighlightStyle.define([
   },
 
   // Meta (frontmatter delimiters, heading markers, etc.)
-  { tag: tags.meta, color: '#7b8a8d' },
-  { tag: tags.processingInstruction, color: '#7b8a8d' },
+  { tag: tags.meta, color: 'var(--color-text-dim, #7b8a8d)' },
+  { tag: tags.processingInstruction, color: 'var(--color-text-dim, #7b8a8d)' },
 
   // Blockquotes
-  { tag: tags.quote, color: '#b0b8bf', fontStyle: 'italic' },
+  { tag: tags.quote, color: 'var(--color-text-muted, #b0b8bf)', fontStyle: 'italic' },
 
   // Lists
-  { tag: tags.list, color: '#8c8c96' },
+  { tag: tags.list, color: 'var(--color-text-dim, #8c8c96)' },
 
   // Horizontal rule
-  { tag: tags.contentSeparator, color: '#3f3f46' },
+  { tag: tags.contentSeparator, color: 'var(--color-border-hover, #3f3f46)' },
 
   // Comments
-  { tag: tags.comment, color: '#7b8a8d', fontStyle: 'italic' },
+  { tag: tags.comment, color: 'var(--color-text-dim, #7b8a8d)', fontStyle: 'italic' },
 ]);
 
 /* -------------------------------------------------------------------------- */

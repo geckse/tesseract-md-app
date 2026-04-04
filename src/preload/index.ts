@@ -2,6 +2,22 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { MdvdbApi } from './api'
 
+// Flash prevention: synchronously apply theme before any renderer CSS paints.
+// ipcRenderer.sendSync blocks until main replies, so data-theme is set before DOM renders.
+try {
+  const theme = ipcRenderer.sendSync('store:get-theme-sync')
+  if (theme && (theme === 'light' || theme === 'dark' || theme === 'auto')) {
+    let resolved = theme
+    if (theme === 'auto') {
+      resolved = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+    }
+    document.documentElement.setAttribute('data-theme', resolved)
+    document.documentElement.style.setProperty('color-scheme', resolved)
+  }
+} catch {
+  // Ignore — default dark theme from CSS will apply
+}
+
 /**
  * Check if an IPC result is a serialized error from wrapHandler.
  * If so, throw it as a proper Error so renderer catch blocks work.
@@ -160,6 +176,12 @@ const api: MdvdbApi = {
   setPrimaryColor: (hex) => invoke('store:set-primary-color', hex),
   getCollectionColor: (collectionId) => invoke('store:get-collection-color', collectionId),
   setCollectionColor: (collectionId, hex) => invoke('store:set-collection-color', collectionId, hex),
+
+  // Theme
+  getTheme: () => invoke('store:get-theme'),
+  setTheme: (mode) => invoke('store:set-theme', mode),
+  getCollectionTheme: (collectionId) => invoke('store:get-collection-theme', collectionId),
+  setCollectionTheme: (collectionId, mode) => invoke('store:set-collection-theme', collectionId, mode),
 
   // Window session persistence
   saveWindowSession: (session) => invoke('session:save', session),

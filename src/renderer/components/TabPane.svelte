@@ -186,7 +186,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--color-background, #0f0f10);
+    background: var(--color-bg, #0f0f10);
   }
 
   .empty-state-content {

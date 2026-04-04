@@ -1,9 +1,8 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onDestroy } from 'svelte';
   import { BubbleMenuPlugin } from '@tiptap/extension-bubble-menu';
   import type { Editor } from '@tiptap/core';
   import type { Plugin } from '@tiptap/pm/state';
-  import { isValidUrl } from '../../lib/tiptap/url-validation';
 
   interface Props {
     editor: Editor;
@@ -13,6 +12,7 @@
 
   let menuEl: HTMLDivElement | undefined = $state(undefined);
   let pluginInstance: Plugin | null = null;
+  let registeredEditor: Editor | null = null;
 
   // Force re-render on selection/transaction changes
   let _tick = $state(0);
@@ -21,15 +21,15 @@
     _tick++;
   }
 
-  onMount(() => {
+  function registerPlugin(ed: Editor) {
     if (!menuEl) return;
+    unregisterPlugin();
 
     pluginInstance = BubbleMenuPlugin({
       pluginKey: 'bubbleMenu',
-      editor,
+      editor: ed,
       element: menuEl,
-      shouldShow: ({ editor: e, state: _state, from, to }) => {
-        // Don't show for empty selections or node selections (images, etc.)
+      shouldShow: ({ editor: e, from, to }) => {
         if (from === to) return false;
         if (e.isActive('image')) return false;
         if (e.isActive('codeBlock')) return false;
@@ -37,15 +37,34 @@
       },
     });
 
-    editor.registerPlugin(pluginInstance);
-    editor.on('transaction', handleTransaction);
+    ed.registerPlugin(pluginInstance);
+    ed.on('transaction', handleTransaction);
+    registeredEditor = ed;
+  }
+
+  function unregisterPlugin() {
+    if (registeredEditor) {
+      registeredEditor.off('transaction', handleTransaction);
+      try { registeredEditor.unregisterPlugin('bubbleMenu'); } catch { /* already gone */ }
+      registeredEditor = null;
+    }
+    pluginInstance = null;
+  }
+
+  // Re-register plugin when editor or menuEl changes
+  $effect(() => {
+    const ed = editor;
+    const el = menuEl;
+    if (ed && el) {
+      registerPlugin(ed);
+    }
+    return () => {
+      unregisterPlugin();
+    };
   });
 
   onDestroy(() => {
-    editor.off('transaction', handleTransaction);
-    if (pluginInstance) {
-      editor.unregisterPlugin('bubbleMenu');
-    }
+    unregisterPlugin();
   });
 
   function toggle(command: string) {
@@ -67,14 +86,7 @@
           if (editor.isActive('link')) {
             editor.chain().focus().unsetLink().run();
           } else {
-            const url = window.prompt('Enter URL:');
-            if (url) {
-              if (!isValidUrl(url)) {
-                window.alert('Invalid URL. Only http://, https://, mailto:, and relative paths are allowed.');
-                return;
-              }
-              editor.chain().focus().setLink({ href: url }).run();
-            }
+            editor.view.dom.dispatchEvent(new CustomEvent('open-link-modal', { bubbles: true }));
           }
           break;
         }
@@ -83,7 +95,6 @@
   }
 
   function isActive(mark: string): boolean {
-    // Reference _tick to trigger reactivity
     void _tick;
     return editor.isActive(mark);
   }
@@ -139,11 +150,11 @@
     class="bubble-btn"
     class:active={isActive('link')}
     onclick={toggle('link')}
-    title="Link"
+    title="Link (⌘K)"
     aria-label="Link"
     aria-pressed={isActive('link')}
   >
-    🔗
+    <span class="material-symbols-outlined" style="font-size: 16px;">link</span>
   </button>
 </div>
 

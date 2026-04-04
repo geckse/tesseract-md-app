@@ -54,12 +54,26 @@
   let isSelected = $derived(!node.is_dir && currentSelectedFilePath === node.path)
   let isFocused = $derived(focusedPath === node.path)
 
+  /** Check if a filename has an asset extension (image, pdf, video, audio). */
+  function isAssetByExtension(name: string): MimeCategory | null {
+    const ext = name.split('.').pop()?.toLowerCase() ?? ''
+    const map: Record<string, MimeCategory> = {
+      png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', svg: 'image', webp: 'image', bmp: 'image', ico: 'image',
+      pdf: 'pdf',
+      mp4: 'video', webm: 'video', mov: 'video', avi: 'video',
+      mp3: 'audio', wav: 'audio', ogg: 'audio', flac: 'audio',
+    }
+    return map[ext] ?? null
+  }
+
   function handleClick() {
     if (node.is_dir) {
       toggleExpanded(node.path)
       onfc?.(node.path)
-    } else if (node.isAsset) {
-      onassetselect?.({ path: node.path, mimeCategory: node.mimeCategory ?? 'other', fileSize: node.fileSize })
+    } else if (node.isAsset || isAssetByExtension(node.name)) {
+      // Route to asset preview — use node.mimeCategory if available, otherwise detect from extension
+      const mime = node.mimeCategory ?? isAssetByExtension(node.name) ?? 'other'
+      onassetselect?.({ path: node.path, mimeCategory: mime, fileSize: node.fileSize })
     } else {
       onfileselect?.({ path: node.path })
     }

@@ -194,7 +194,7 @@
   }
   .dtp-day:hover { background: var(--color-border, #27272a); }
   .dtp-day.outside { color: var(--color-text-dim, #71717a); opacity: 0.4; }
-  .dtp-day.selected { background: var(--color-primary, #00E5FF); color: #0a0a0a; font-weight: 600; }
+  .dtp-day.selected { background: var(--color-primary, #00E5FF); color: var(--color-surface-dark, #0a0a0a); font-weight: 600; }
   .dtp-day.today:not(.selected) { box-shadow: inset 0 0 0 1px var(--color-primary-glow, rgba(0, 229, 255, 0.4)); }
 
   .dtp-time-section {

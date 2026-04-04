@@ -177,7 +177,7 @@
     transition: border-color 150ms ease;
   }
   .apr-input:focus { border-color: var(--color-primary, #00E5FF); }
-  .apr-input::placeholder { color: #52525b; }
+  .apr-input::placeholder { color: var(--color-text-faint, #52525b); }
 
   @media (prefers-reduced-motion: reduce) {
     .apr-btn, .apr-input { transition: none; }

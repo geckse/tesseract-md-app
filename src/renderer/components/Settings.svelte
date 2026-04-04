@@ -8,6 +8,13 @@
     setCollectionAccentColor,
   } from '../stores/accent-color'
   import {
+    globalTheme,
+    collectionTheme,
+    setGlobalTheme,
+    setCollectionThemeOverride,
+  } from '../stores/theme'
+  import type { ThemeMode } from '../lib/theme-tokens'
+  import {
     userConfig,
     collectionConfig,
     userDraft,
@@ -80,9 +87,13 @@
   let fontSize = $state(14)
   let currentGlobalColor: string | null = $state(null)
   let currentCollectionColor: string | null = $state(null)
+  let currentGlobalTheme: ThemeMode = $state('dark')
+  let currentCollectionTheme: ThemeMode | null = $state(null)
 
   globalPrimaryColor.subscribe((v) => (currentGlobalColor = v))
   collectionPrimaryColor.subscribe((v) => (currentCollectionColor = v))
+  globalTheme.subscribe((v) => (currentGlobalTheme = v))
+  collectionTheme.subscribe((v) => (currentCollectionTheme = v))
 
   // Keyboard shortcuts modal
   let shortcutsOpen = $state(false)
@@ -787,6 +798,20 @@
           <h2 class="section-title">Appearance</h2>
           <p class="section-explainer">{sectionExplainers.appearance}</p>
           <div class="field-group">
+            <label class="field-label">Theme</label>
+            <div class="theme-picker">
+              <button class="theme-btn" class:active={currentGlobalTheme === 'light'} onclick={() => setGlobalTheme('light')}>
+                <span class="material-symbols-outlined">light_mode</span> Light
+              </button>
+              <button class="theme-btn" class:active={currentGlobalTheme === 'dark'} onclick={() => setGlobalTheme('dark')}>
+                <span class="material-symbols-outlined">dark_mode</span> Dark
+              </button>
+              <button class="theme-btn" class:active={currentGlobalTheme === 'auto'} onclick={() => setGlobalTheme('auto')}>
+                <span class="material-symbols-outlined">contrast</span> Auto
+              </button>
+            </div>
+          </div>
+          <div class="field-group">
             <label class="field-label">Editor Font Size</label>
             <div class="field-row font-size-row">
               <button class="font-btn" onclick={() => adjustFontSize(-1)} disabled={fontSize <= 10}>
@@ -814,6 +839,28 @@
         <div class="section">
           <h2 class="section-title">Appearance</h2>
           <p class="section-explainer">Visual preferences for this collection.</p>
+          <div class="field-group">
+            <label class="field-label">
+              Theme
+              <span class="annotation">{currentCollectionTheme ? '(overridden)' : '(inherited from global)'}</span>
+            </label>
+            <div class="theme-picker">
+              <button class="theme-btn" class:active={currentCollectionTheme === 'light'} onclick={() => targetCollection && setCollectionThemeOverride(targetCollection.id, 'light')}>
+                <span class="material-symbols-outlined">light_mode</span> Light
+              </button>
+              <button class="theme-btn" class:active={currentCollectionTheme === 'dark'} onclick={() => targetCollection && setCollectionThemeOverride(targetCollection.id, 'dark')}>
+                <span class="material-symbols-outlined">dark_mode</span> Dark
+              </button>
+              <button class="theme-btn" class:active={currentCollectionTheme === 'auto'} onclick={() => targetCollection && setCollectionThemeOverride(targetCollection.id, 'auto')}>
+                <span class="material-symbols-outlined">contrast</span> Auto
+              </button>
+              {#if currentCollectionTheme}
+                <button class="theme-btn reset" onclick={() => targetCollection && setCollectionThemeOverride(targetCollection.id, null)}>
+                  <span class="material-symbols-outlined">undo</span> Reset
+                </button>
+              {/if}
+            </div>
+          </div>
           <div class="field-group">
             <label class="field-label">
               Primary Accent Color
@@ -1373,6 +1420,46 @@
 
   .toggle-label input[type="checkbox"] {
     accent-color: var(--color-primary, #00E5FF);
+  }
+
+  .theme-picker {
+    display: flex;
+    gap: 6px;
+  }
+
+  .theme-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 12px;
+    background: var(--color-surface, #161617);
+    border: 1px solid var(--color-border, #27272a);
+    border-radius: var(--radius-sm, 4px);
+    color: var(--color-text-dim, #71717a);
+    font-size: var(--text-xs, 10px);
+    font-family: inherit;
+    cursor: pointer;
+    transition: all var(--transition-fast, 150ms ease);
+  }
+
+  .theme-btn:hover {
+    border-color: var(--color-border-hover, #3f3f46);
+    color: var(--color-text, #e4e4e7);
+  }
+
+  .theme-btn.active {
+    background: var(--color-primary-dim, rgba(0, 229, 255, 0.1));
+    border-color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00E5FF);
+  }
+
+  .theme-btn.reset {
+    color: var(--color-text-dim, #71717a);
+    border-style: dashed;
+  }
+
+  .theme-btn .material-symbols-outlined {
+    font-size: 16px;
   }
 
   .font-size-row {

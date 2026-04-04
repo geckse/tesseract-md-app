@@ -8,10 +8,12 @@
     onUpdateLink: (url: string, text: string) => void
     onRemoveLink: () => void
     onClose: () => void
+    onEdit: () => void
+    onNavigate: () => void
     anchorEl: Element
   }
 
-  let { url, text, onUpdateLink, onRemoveLink, onClose, anchorEl }: Props = $props()
+  let { url, text, onUpdateLink, onRemoveLink, onClose, onEdit, onNavigate, anchorEl }: Props = $props()
 
   let menuEl: HTMLDivElement | undefined = $state(undefined)
   let editing = $state(false)
@@ -107,18 +109,19 @@
     </div>
   {:else}
     <div class="link-bubble-preview">
-      <a
-        class="link-bubble-url"
-        href={url}
-        target="_blank"
-        rel="noopener noreferrer"
-        title={url}
-      >{url.length > 50 ? url.slice(0, 50) + '...' : url}</a>
+      <span class="link-bubble-url" title={url}>{url.length > 50 ? url.slice(0, 50) + '...' : url}</span>
       <div class="link-bubble-btns">
         <button
           class="link-bubble-icon-btn"
+          title="Open link"
+          onmousedown={(e) => { e.preventDefault(); onNavigate() }}
+        >
+          <span class="material-symbols-outlined">open_in_new</span>
+        </button>
+        <button
+          class="link-bubble-icon-btn"
           title="Edit link"
-          onmousedown={(e) => { e.preventDefault(); startEdit() }}
+          onmousedown={(e) => { e.preventDefault(); onEdit() }}
         >
           <span class="material-symbols-outlined">edit</span>
         </button>
@@ -190,7 +193,7 @@
     border: none;
     border-radius: 4px;
     background: transparent;
-    color: #a1a1aa;
+    color: var(--color-text-muted, #a1a1aa);
     cursor: pointer;
     transition: color 150ms ease, background-color 150ms ease;
   }
@@ -200,8 +203,8 @@
   }
 
   .link-bubble-icon-btn:hover {
-    color: #e4e4e7;
-    background: rgba(255, 255, 255, 0.08);
+    color: var(--color-text, #e4e4e7);
+    background: var(--overlay-border, rgba(255, 255, 255, 0.08));
   }
 
   .link-bubble-icon-btn.remove:hover {
@@ -222,13 +225,13 @@
 
   .label-text {
     font-size: 11px;
-    color: #71717a;
+    color: var(--color-text-dim, #71717a);
     text-transform: uppercase;
     letter-spacing: 0.05em;
   }
 
   .link-bubble-input {
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--overlay-hover, rgba(255, 255, 255, 0.05));
     border: 1px solid var(--color-border, #27272a);
     border-radius: 4px;
     color: var(--color-text, #e4e4e7);
@@ -253,7 +256,7 @@
     border: 1px solid var(--color-border, #27272a);
     border-radius: 4px;
     background: transparent;
-    color: #a1a1aa;
+    color: var(--color-text-muted, #a1a1aa);
     font-size: 12px;
     cursor: pointer;
     display: flex;
@@ -267,13 +270,13 @@
   }
 
   .link-bubble-btn:hover {
-    color: #e4e4e7;
-    background: rgba(255, 255, 255, 0.06);
+    color: var(--color-text, #e4e4e7);
+    background: var(--overlay-hover, rgba(255, 255, 255, 0.06));
   }
 
   .link-bubble-btn.save {
     background: var(--color-primary, #00e5ff);
-    color: #0a0a0a;
+    color: var(--color-surface-dark, #0a0a0a);
     border-color: var(--color-primary, #00e5ff);
   }
 

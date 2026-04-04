@@ -1,8 +1,9 @@
-import { Editor, Extension } from '@tiptap/core'
+import { Editor, Extension, getMarkRange } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import type { EditorView } from '@tiptap/pm/view'
 import { mount, unmount } from 'svelte'
 import LinkBubble from '../../components/wysiwyg/LinkBubble.svelte'
+import { navigateLink } from '../link-navigation'
 
 const linkBubblePluginKey = new PluginKey('linkBubble')
 
@@ -118,6 +119,19 @@ export const LinkBubbleExtension = Extension.create({
             editor.chain().focus().setTextSelection({ from, to }).unsetLink().run()
             closeBubble()
           },
+          onNavigate: () => {
+            closeBubble()
+            navigateLink(url)
+          },
+          onEdit: () => {
+            closeBubble()
+            // Select the link text so the modal can wrap it
+            editor.chain().focus().setTextSelection({ from, to }).run()
+            view.dom.dispatchEvent(new CustomEvent('open-link-modal', {
+              bubbles: true,
+              detail: { initialQuery: url },
+            }))
+          },
           onClose: closeBubble,
         },
       })
@@ -144,6 +158,12 @@ export const LinkBubbleExtension = Extension.create({
               const { selection } = state
               const { from, empty } = selection
 
+              // Don't show if the context menu is open
+              if (document.querySelector('.context-menu')) {
+                closeBubble()
+                return
+              }
+
               // Only show for cursor (not range selection)
               if (!empty) {
                 closeBubble()
@@ -163,31 +183,10 @@ export const LinkBubbleExtension = Extension.create({
                 return
               }
 
-              // Walk forward and backward from cursor to find link extent
-              const start = $pos.start()
-              let linkStart = from
-              let linkEnd = from
-
-              // Walk backward
-              for (let i = from - 1; i >= start; i--) {
-                const m = state.doc.resolve(i).marks()
-                if (m.some((mk) => mk.type === linkMark && mk.attrs.href === link.attrs.href)) {
-                  linkStart = i
-                } else {
-                  break
-                }
-              }
-
-              // Walk forward
-              const end = $pos.end()
-              for (let i = from; i <= end; i++) {
-                const m = state.doc.resolve(i).marks()
-                if (m.some((mk) => mk.type === linkMark && mk.attrs.href === link.attrs.href)) {
-                  linkEnd = i + 1
-                } else {
-                  break
-                }
-              }
+              // Use TipTap's getMarkRange for accurate link extent
+              const markRange = getMarkRange($pos, linkMark, link.attrs)
+              const linkStart = markRange?.from ?? from
+              const linkEnd = markRange?.to ?? from
 
               // Don't re-show if same link range
               if (linkStart === activeFrom && linkEnd === activeTo) return
@@ -218,11 +217,7 @@ export const LinkBubbleExtension = Extension.create({
   },
 })
 
-/** Prompt for a URL and apply as link to the current selection */
+/** Open the link modal by dispatching a custom event on the editor DOM. */
 function showLinkPrompt(editor: InstanceType<typeof Editor>) {
-  // For now, use a simple prompt. Can be replaced with inline UI later.
-  const url = window.prompt('Enter URL:')
-  if (url) {
-    editor.chain().focus().setLink({ href: url }).run()
-  }
+  editor.view.dom.dispatchEvent(new CustomEvent('open-link-modal', { bubbles: true }))
 }

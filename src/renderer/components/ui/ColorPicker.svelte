@@ -1,8 +1,8 @@
 <script lang="ts">
   import {
     PRESET_COLORS,
-    isLuminanceAcceptable,
-    adjustToMinLuminance,
+    resolveThemeAwareAccent,
+    type ThemeAwareAccent,
   } from '../../lib/color-utils'
 
   interface ColorPickerProps {
@@ -26,8 +26,7 @@
   let pickerRef: HTMLDivElement | undefined = $state()
 
   let displayColor = $derived(value ?? defaultColor)
-  let luminanceOk = $derived(isLuminanceAcceptable(displayColor))
-  let isPreset = $derived(PRESET_COLORS.some((p) => p.hex.toLowerCase() === displayColor.toLowerCase()))
+  let accent: ThemeAwareAccent = $derived(resolveThemeAwareAccent(displayColor))
 
   function togglePicker() {
     open = !open
@@ -53,12 +52,6 @@
     const hex = (e.target as HTMLInputElement).value
     onchange(hex)
     hexInput = hex
-  }
-
-  function handleAutoAdjust() {
-    const adjusted = adjustToMinLuminance(displayColor)
-    onchange(adjusted)
-    hexInput = adjusted
   }
 
   function handleReset() {
@@ -131,15 +124,29 @@
         </div>
       </div>
 
-      {#if !luminanceOk}
-        <div class="luminance-warning">
-          <span class="material-symbols-outlined warning-icon">warning</span>
-          <span class="warning-text">This color may be hard to see</span>
-          <button class="auto-adjust-btn" onclick={handleAutoAdjust}>
-            Auto-adjust
-          </button>
+      <div class="theme-preview">
+        <div class="theme-preview-label">Theme colors</div>
+        <div class="theme-preview-row">
+          <div class="theme-swatch-group">
+            <span class="theme-swatch dark-swatch" style="background-color: {accent.darkColor}"></span>
+            <span class="theme-swatch-label">Dark</span>
+            {#if accent.darkAdjusted}
+              <span class="theme-swatch-adjusted">{accent.darkColor}</span>
+            {:else}
+              <span class="theme-swatch-ok">exact</span>
+            {/if}
+          </div>
+          <div class="theme-swatch-group">
+            <span class="theme-swatch light-swatch" style="background-color: {accent.lightColor}"></span>
+            <span class="theme-swatch-label">Light</span>
+            {#if accent.lightAdjusted}
+              <span class="theme-swatch-adjusted">{accent.lightColor}</span>
+            {:else}
+              <span class="theme-swatch-ok">exact</span>
+            {/if}
+          </div>
         </div>
-      {/if}
+      </div>
 
       {#if showReset}
         <button class="reset-btn" onclick={handleReset}>
@@ -198,8 +205,8 @@
     border: 1px solid var(--color-border, #27272a);
     border-radius: var(--radius-lg, 8px);
     padding: var(--space-3, 12px);
-    min-width: 240px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    min-width: 260px;
+    box-shadow: 0 8px 24px var(--overlay-scrim, rgba(0, 0, 0, 0.4));
   }
 
   .preset-grid {
@@ -284,40 +291,65 @@
     border-color: var(--color-primary, #00E5FF);
   }
 
-  .luminance-warning {
-    display: flex;
-    align-items: center;
-    gap: var(--space-1, 4px);
-    padding: var(--space-2, 8px);
-    background: rgba(245, 158, 11, 0.1);
-    border-radius: var(--radius-sm, 4px);
+  .theme-preview {
+    border-top: 1px solid var(--color-border, #27272a);
+    padding-top: var(--space-2, 8px);
     margin-bottom: var(--space-2, 8px);
   }
 
-  .warning-icon {
-    font-size: 16px;
-    color: var(--color-warning, #f59e0b);
+  .theme-preview-label {
+    font-size: var(--text-xs, 10px);
+    color: var(--color-text-dim, #71717a);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 6px;
   }
 
-  .warning-text {
-    font-size: var(--text-xs, 10px);
-    color: var(--color-warning, #f59e0b);
+  .theme-preview-row {
+    display: flex;
+    gap: var(--space-2, 8px);
+  }
+
+  .theme-swatch-group {
     flex: 1;
-  }
-
-  .auto-adjust-btn {
-    font-size: var(--text-xs, 10px);
-    color: var(--color-text, #e4e4e7);
-    background: var(--color-surface-dark, #0a0a0a);
-    border: 1px solid var(--color-border, #27272a);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
     border-radius: var(--radius-sm, 4px);
-    padding: 2px 8px;
-    cursor: pointer;
-    white-space: nowrap;
+    background: var(--overlay-hover, rgba(255, 255, 255, 0.06));
   }
 
-  .auto-adjust-btn:hover {
-    border-color: var(--color-border-hover, #3f3f46);
+  .theme-swatch {
+    width: 16px;
+    height: 16px;
+    border-radius: var(--radius-full, 9999px);
+    flex-shrink: 0;
+  }
+
+  .dark-swatch {
+    border: 1px solid rgba(255, 255, 255, 0.2);
+  }
+
+  .light-swatch {
+    border: 1px solid rgba(0, 0, 0, 0.15);
+  }
+
+  .theme-swatch-label {
+    font-size: var(--text-xs, 10px);
+    color: var(--color-text-dim, #71717a);
+    font-weight: 600;
+  }
+
+  .theme-swatch-adjusted {
+    font-size: 9px;
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    color: var(--color-warning, #f59e0b);
+  }
+
+  .theme-swatch-ok {
+    font-size: 9px;
+    color: var(--color-success, #34d399);
   }
 
   .reset-btn {

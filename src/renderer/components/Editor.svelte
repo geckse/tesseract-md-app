@@ -81,15 +81,23 @@
   const unsubScrollToLine = scrollToLine.subscribe((v) => (currentScrollToLine = v));
 
   let saveCounter = $state(0);
+  let lastSaveCounter = 0;
   const unsubSave = saveRequested.subscribe((v) => (saveCounter = v));
   $effect(() => {
-    if (saveCounter > 0) handleSave();
+    if (saveCounter > 0 && saveCounter !== lastSaveCounter) {
+      lastSaveCounter = saveCounter;
+      handleSave();
+    }
   });
 
   let discardCounter = $state(0);
+  let lastDiscardCounter = 0;
   const unsubDiscard = discardRequested.subscribe((v) => (discardCounter = v));
   $effect(() => {
-    if (discardCounter > 0) handleDiscard();
+    if (discardCounter > 0 && discardCounter !== lastDiscardCounter) {
+      lastDiscardCounter = discardCounter;
+      handleDiscard();
+    }
   });
 
   let currentEditorMode = $state<EditorMode>('wysiwyg');
@@ -683,7 +691,7 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    background: #0f0f10;
+    background: var(--color-canvas, #0a0a0a);
   }
 
   .editor-content {
@@ -746,7 +754,7 @@
     align-items: center;
     justify-content: center;
     gap: 12px;
-    background: #0f0f10;
+    background: var(--color-canvas, #0a0a0a);
   }
 
   .empty-icon {

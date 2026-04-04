@@ -160,7 +160,8 @@ vi.mock('electron', () => ({
     getVersion: () => '1.0.0-test'
   },
   ipcMain: {
-    handle: (...args: unknown[]) => mockHandle(...args)
+    handle: (...args: unknown[]) => mockHandle(...args),
+    on: vi.fn()
   },
   shell: {
     showItemInFolder: vi.fn(),
@@ -278,7 +279,11 @@ describe('registerIpcHandlers', () => {
     expect(channels).toContain('store:set-primary-color')
     expect(channels).toContain('store:get-collection-color')
     expect(channels).toContain('store:set-collection-color')
-    expect(channels).toHaveLength(83)
+    expect(channels).toContain('store:get-theme')
+    expect(channels).toContain('store:set-theme')
+    expect(channels).toContain('store:get-collection-theme')
+    expect(channels).toContain('store:set-collection-theme')
+    expect(channels).toHaveLength(87)
   })
 })
 

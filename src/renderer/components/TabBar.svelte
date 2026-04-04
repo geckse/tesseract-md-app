@@ -175,7 +175,20 @@
         const { mimeCategory, fileSize } = JSON.parse(assetData)
         workspace.openAssetTab(droppedFilePath, mimeCategory, fileSize, paneId)
       } else {
-        workspace.openTab(droppedFilePath, paneId)
+        // Check extension — if it's an asset file, open as asset tab, not document
+        const ext = droppedFilePath.split('.').pop()?.toLowerCase() ?? ''
+        const assetExtMap: Record<string, import('../types/cli').MimeCategory> = {
+          png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', svg: 'image', webp: 'image', bmp: 'image', ico: 'image',
+          pdf: 'pdf',
+          mp4: 'video', webm: 'video', mov: 'video', avi: 'video',
+          mp3: 'audio', wav: 'audio', ogg: 'audio', flac: 'audio',
+        }
+        const detectedMime = assetExtMap[ext]
+        if (detectedMime) {
+          workspace.openAssetTab(droppedFilePath, detectedMime, undefined, paneId)
+        } else {
+          workspace.openTab(droppedFilePath, paneId)
+        }
       }
       syncFileStoresFromTab()
       resetDragState()
@@ -517,7 +530,7 @@
     align-items: stretch;
     height: 36px;
     min-height: 36px;
-    background: var(--color-surface-darker, #0a0a0a);
+    background: var(--color-surface-dark, #0a0a0a);
     border-bottom: 1px solid var(--color-border, #27272a);
     position: relative;
     overflow: hidden;
@@ -672,7 +685,7 @@
 
   .context-menu-item:hover {
     background: var(--color-surface-darker, #0a0a0a);
-    color: #fff;
+    color: var(--color-text-white, #fff);
   }
 
   .context-menu-item .material-symbols-outlined {

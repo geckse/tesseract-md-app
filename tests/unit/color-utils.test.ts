@@ -7,6 +7,12 @@ import {
   darken,
   isLuminanceAcceptable,
   adjustToMinLuminance,
+  contrastRatio,
+  checkAccentContrast,
+  isContrastAcceptable,
+  adjustForContrast,
+  suggestAccentForBackground,
+  THEME_BACKGROUNDS,
   derivePrimaryVariants,
   PRESET_COLORS,
   DEFAULT_PRIMARY,
@@ -239,5 +245,104 @@ describe('PRESET_COLORS', () => {
 describe('DEFAULT_PRIMARY', () => {
   it('is the cyan color', () => {
     expect(DEFAULT_PRIMARY).toBe('#00E5FF')
+  })
+})
+
+describe('contrastRatio', () => {
+  it('returns 21 for black vs white', () => {
+    expect(contrastRatio('#000000', '#FFFFFF')).toBeCloseTo(21, 0)
+  })
+
+  it('returns 1 for same color', () => {
+    expect(contrastRatio('#FF0000', '#FF0000')).toBeCloseTo(1, 0)
+  })
+
+  it('is symmetric', () => {
+    const r1 = contrastRatio('#00E5FF', '#0f0f10')
+    const r2 = contrastRatio('#0f0f10', '#00E5FF')
+    expect(r1).toBeCloseTo(r2, 5)
+  })
+})
+
+describe('THEME_BACKGROUNDS', () => {
+  it('has dark and light backgrounds', () => {
+    expect(THEME_BACKGROUNDS.dark).toBe('#0f0f10')
+    expect(THEME_BACKGROUNDS.light).toBe('#f6f6f6')
+  })
+})
+
+describe('isContrastAcceptable', () => {
+  it('accepts white on dark background', () => {
+    expect(isContrastAcceptable('#FFFFFF', '#0f0f10')).toBe(true)
+  })
+
+  it('rejects very similar colors', () => {
+    expect(isContrastAcceptable('#0f0f10', '#161617')).toBe(false)
+  })
+})
+
+describe('checkAccentContrast', () => {
+  it('cyan passes on dark, checks light', () => {
+    const result = checkAccentContrast('#00E5FF')
+    expect(result.darkOk).toBe(true)
+    expect(result.darkRatio).toBeGreaterThan(3)
+  })
+
+  it('very dark color fails on dark', () => {
+    const result = checkAccentContrast('#1e3a5f')
+    expect(result.darkOk).toBe(false)
+  })
+
+  it('returns ratio numbers', () => {
+    const result = checkAccentContrast('#00E5FF')
+    expect(typeof result.darkRatio).toBe('number')
+    expect(typeof result.lightRatio).toBe('number')
+    expect(result.darkRatio).toBeGreaterThan(1)
+    expect(result.lightRatio).toBeGreaterThan(1)
+  })
+})
+
+describe('adjustForContrast', () => {
+  it('returns same color if already acceptable', () => {
+    expect(adjustForContrast('#00E5FF', '#0f0f10')).toBe('#00E5FF')
+  })
+
+  it('brightens color for dark background', () => {
+    const adjusted = adjustForContrast('#1e3a5f', '#0f0f10')
+    expect(isContrastAcceptable(adjusted, '#0f0f10')).toBe(true)
+  })
+
+  it('darkens color for light background', () => {
+    const adjusted = adjustForContrast('#FBBF24', '#f6f6f6')
+    const ratio = contrastRatio(adjusted, '#f6f6f6')
+    expect(ratio).toBeGreaterThanOrEqual(3.0)
+  })
+
+  it('returns valid hex', () => {
+    const adjusted = adjustForContrast('#1e3a5f', '#0f0f10')
+    expect(adjusted).toMatch(/^#[0-9a-f]{6}$/i)
+  })
+})
+
+describe('suggestAccentForBackground', () => {
+  it('returns unchanged if already good', () => {
+    const result = suggestAccentForBackground('#00E5FF', '#0f0f10')
+    expect(result.adjusted).toBe(false)
+    expect(result.color).toBe('#00E5FF')
+  })
+
+  it('returns adjusted color when needed', () => {
+    const result = suggestAccentForBackground('#1e3a5f', '#0f0f10')
+    expect(result.adjusted).toBe(true)
+    expect(isContrastAcceptable(result.color, '#0f0f10')).toBe(true)
+  })
+})
+
+describe('PRESET_COLORS contrast validation', () => {
+  it('all presets have acceptable contrast on dark background', () => {
+    PRESET_COLORS.forEach((preset) => {
+      const ratio = contrastRatio(preset.hex, THEME_BACKGROUNDS.dark)
+      expect(ratio).toBeGreaterThanOrEqual(3.0)
+    })
   })
 })

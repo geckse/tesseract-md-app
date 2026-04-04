@@ -123,9 +123,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 0 16px;
-    background: rgba(15, 15, 16, 0.95);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    background: var(--color-bg, #0f0f10);
     z-index: 30;
   }
 
@@ -145,7 +143,7 @@
   }
 
   .breadcrumb-folder:hover {
-    color: #fff;
+    color: var(--color-text-white, #fff);
   }
 
   .breadcrumb-separator {

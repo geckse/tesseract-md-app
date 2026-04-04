@@ -2,12 +2,19 @@
  * Accent Color Store — mdvdb
  *
  * Manages the active primary accent color with global and per-collection overrides.
- * Subscribing to `primaryVariants` gives derived CSS variable values that can be
- * applied to the document root.
+ * Resolves per-theme colors: the user's chosen color is kept for modes where it has
+ * sufficient contrast, and independently adjusted only for the mode where it doesn't.
  */
 
 import { writable, derived } from 'svelte/store'
-import { derivePrimaryVariants, DEFAULT_PRIMARY, type PrimaryVariants } from '../lib/color-utils'
+import {
+  derivePrimaryVariants,
+  resolveThemeAwareAccent,
+  DEFAULT_PRIMARY,
+  type PrimaryVariants,
+  type ThemeAwareAccent,
+} from '../lib/color-utils'
+import { resolvedTheme } from './theme'
 
 /** The global primary color (null = default cyan) */
 export const globalPrimaryColor = writable<string | null>(null)
@@ -21,10 +28,26 @@ export const effectivePrimaryColor = derived(
   ([$coll, $global]) => $coll ?? $global ?? DEFAULT_PRIMARY
 )
 
-/** Derived CSS variable values from the effective color */
-export const primaryVariants = derived<typeof effectivePrimaryColor, PrimaryVariants>(
+/** Per-theme resolved accent: user's color + dark-mode color + light-mode color */
+export const themeAwareAccent = derived<typeof effectivePrimaryColor, ThemeAwareAccent>(
   effectivePrimaryColor,
-  ($color) => derivePrimaryVariants($color)
+  ($color) => resolveThemeAwareAccent($color)
+)
+
+/**
+ * CSS variable values for the current theme.
+ * Picks the right per-theme color (dark or light) based on the resolved theme,
+ * so the user's exact color is used when it works, and only the other mode gets adjusted.
+ */
+export const primaryVariants = derived<
+  [typeof themeAwareAccent, typeof resolvedTheme],
+  PrimaryVariants
+>(
+  [themeAwareAccent, resolvedTheme],
+  ([$accent, $theme]) => {
+    const color = $theme === 'light' ? $accent.lightColor : $accent.darkColor
+    return derivePrimaryVariants(color)
+  }
 )
 
 /** Load the global accent color from electron-store on startup */

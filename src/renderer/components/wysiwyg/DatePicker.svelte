@@ -287,7 +287,7 @@
   .dp-day.outside { color: var(--color-text-dim, #71717a); opacity: 0.4; }
   .dp-day.selected {
     background: var(--color-primary, #00E5FF);
-    color: #0a0a0a;
+    color: var(--color-surface-dark, #0a0a0a);
     font-weight: 600;
   }
   .dp-day.today:not(.selected) {
@@ -312,7 +312,7 @@
   .dp-month:hover { background: var(--color-border, #27272a); }
   .dp-month.selected {
     background: var(--color-primary, #00E5FF);
-    color: #0a0a0a;
+    color: var(--color-surface-dark, #0a0a0a);
     font-weight: 600;
   }
   @media (prefers-reduced-motion: reduce) {

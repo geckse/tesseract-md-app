@@ -189,7 +189,7 @@
     flex-direction: column;
     height: 100%;
     scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+    scrollbar-color: var(--overlay-active, rgba(255, 255, 255, 0.1)) transparent;
   }
 
   .graph-preview::-webkit-scrollbar {
@@ -199,11 +199,11 @@
     background: transparent;
   }
   .graph-preview::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--overlay-active, rgba(255, 255, 255, 0.1));
     border-radius: 3px;
   }
   .graph-preview::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.2);
+    background: var(--overlay-active, rgba(255, 255, 255, 0.2));
   }
 
   /* Header */

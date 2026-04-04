@@ -75,6 +75,8 @@ export interface AppStore {
   windowSessions: PersistedWindowState[]
   primaryColor: string | null
   collectionColors: Record<string, string>
+  themeMode: string
+  collectionThemes: Record<string, string>
 }
 
 /** electron-store schema definition for validation */
@@ -217,6 +219,15 @@ const schema = {
     default: null
   },
   collectionColors: {
+    type: 'object' as const,
+    default: {} as Record<string, string>
+  },
+  themeMode: {
+    type: 'string' as const,
+    default: 'dark',
+    enum: ['light', 'dark', 'auto']
+  },
+  collectionThemes: {
     type: 'object' as const,
     default: {} as Record<string, string>
   }
@@ -440,4 +451,35 @@ export function setCollectionColor(collectionId: string, hex: string | null): vo
 export function getCollectionColors(): Record<string, string> {
   const s = initStore()
   return s.get('collectionColors', {})
+}
+
+/** Get the global theme mode */
+export function getThemeMode(): string {
+  const s = initStore()
+  return s.get('themeMode', 'dark')
+}
+
+/** Set the global theme mode */
+export function setThemeMode(mode: string): void {
+  const s = initStore()
+  s.set('themeMode', mode)
+}
+
+/** Get a per-collection theme override, or null if none */
+export function getCollectionTheme(collectionId: string): string | null {
+  const s = initStore()
+  const themes = s.get('collectionThemes', {})
+  return themes[collectionId] ?? null
+}
+
+/** Set a per-collection theme override (null removes the override) */
+export function setCollectionTheme(collectionId: string, mode: string | null): void {
+  const s = initStore()
+  const themes = s.get('collectionThemes', {})
+  if (mode === null) {
+    delete themes[collectionId]
+  } else {
+    themes[collectionId] = mode
+  }
+  s.set('collectionThemes', themes)
 }

@@ -496,7 +496,7 @@
 
   .modal-btn-primary {
     background: var(--color-primary, #00E5FF);
-    color: #0a0a0a;
+    color: var(--color-surface-dark, #0a0a0a);
   }
 
   .modal-btn-primary:hover {
@@ -515,7 +515,7 @@
 
   .modal-btn-rebuild {
     background: #eab308;
-    color: #0a0a0a;
+    color: var(--color-surface-dark, #0a0a0a);
     font-weight: 700;
   }
 
@@ -614,7 +614,7 @@
 
   .badge-unchanged {
     background: rgba(113, 113, 122, 0.15);
-    color: #71717a;
+    color: var(--color-text-dim, #71717a);
     border: 1px solid rgba(113, 113, 122, 0.3);
   }
 </style>

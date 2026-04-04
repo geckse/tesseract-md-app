@@ -2159,7 +2159,7 @@
     })
       .width(initWidth)
       .height(initHeight)
-      .backgroundColor('#0a0a0b')
+      .backgroundColor(getComputedStyle(document.documentElement).getPropertyValue('--color-graph-bg').trim() || '#0a0a0b')
       .showNavInfo(false)
       .nodeOpacity(0.85)
       .linkOpacity(0.15)
@@ -2811,7 +2811,7 @@
     flex: 1;
     position: relative;
     overflow: hidden;
-    background: #0a0a0b;
+    background: var(--color-graph-bg, #0a0a0b);
     min-width: 0;
     min-height: 0;
   }
@@ -2829,7 +2829,7 @@
     transform: translate(-50%, -100%) translateY(-6px);
     font-family: var(--font-mono, 'JetBrains Mono', monospace);
     font-size: 12px;
-    color: rgba(228, 228, 231, 0.7);
+    color: var(--color-text-muted, rgba(228, 228, 231, 0.7));
     white-space: nowrap;
     text-shadow: 0 0 4px rgba(0, 0, 0, 0.9), 0 0 8px rgba(0, 0, 0, 0.6);
     transition: left 60ms linear, top 60ms linear, opacity 200ms ease;

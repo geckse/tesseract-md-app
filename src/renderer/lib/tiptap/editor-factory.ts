@@ -16,6 +16,7 @@ import { MermaidBlockExtension } from './mermaid-block-extension'
 import { LinkBubbleExtension } from './link-bubble-extension'
 import { TableUIExtension } from './table-ui-extension'
 import { ImageResolverExtension } from './image-resolver-extension'
+import { editorContextMenuState } from './editor-context-menu-state.svelte'
 
 const lowlight = createLowlight(commonGrammars)
 

@@ -212,7 +212,7 @@
 
   .close-btn:hover {
     color: var(--color-text-main, #e4e4e7);
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--overlay-hover, rgba(255, 255, 255, 0.05));
   }
 
   .dialog-search {
@@ -264,7 +264,7 @@
   }
 
   .asset-item:hover {
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--overlay-hover, rgba(255, 255, 255, 0.05));
   }
 
   .item-icon {

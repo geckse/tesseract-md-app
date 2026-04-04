@@ -182,7 +182,7 @@
 
   .dropdown-item:hover {
     background: var(--color-surface-darker, #0a0a0a);
-    color: #fff;
+    color: var(--color-text-white, #fff);
   }
 
   .dropdown-item:hover .item-icon {

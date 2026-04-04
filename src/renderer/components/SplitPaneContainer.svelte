@@ -2,6 +2,7 @@
   import { workspace } from '../stores/workspace.svelte'
   import { syncFileStoresFromTab } from '../stores/files'
   import { tabBarDropReceived } from './TabBar.svelte'
+  import { BLOCK_DRAG_MIME } from '../lib/tiptap/block-drag-extension'
   import TabPane from './TabPane.svelte'
 
   // ── Container ref for pixel-based ratio calculations ──────────────
@@ -104,7 +105,10 @@
   let dragOverSide: 'left' | 'right' | null = $state(null)
 
   function handleContainerDragOver(e: DragEvent) {
-    if (!e.dataTransfer?.types.includes('text/plain') && !e.dataTransfer?.types.includes('application/x-mdvdb-path')) return
+    if (!e.dataTransfer) return
+    // Never show split overlay for internal block drags
+    if (e.dataTransfer.types.includes(BLOCK_DRAG_MIME)) return
+    if (!e.dataTransfer.types.includes('text/plain') && !e.dataTransfer.types.includes('application/x-mdvdb-path')) return
     if (!containerEl) return
 
     // Don't show split overlay when cursor is over the tab bar area

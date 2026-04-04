@@ -38,7 +38,7 @@ export class WindowManager {
       minWidth: 800,
       minHeight: 600,
       show: false,
-      backgroundColor: '#0f0f10',
+      backgroundColor: store.get('themeMode', 'dark') === 'light' ? '#f2eeea' : '#0f0f10',
       titleBarStyle: 'hiddenInset',
       webPreferences: {
         preload: join(__dirname, '../preload/index.js'),

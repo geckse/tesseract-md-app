@@ -145,7 +145,7 @@
   }
 
   .update-btn-secondary:hover {
-    background: rgba(255, 255, 255, 0.15);
+    background: var(--overlay-active, rgba(255, 255, 255, 0.15));
     opacity: 1;
   }
 

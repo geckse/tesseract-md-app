@@ -64,7 +64,7 @@
   }
 
   .watcher-toggle:hover:not(:disabled) {
-    color: #fff;
+    color: var(--color-text-white, #fff);
   }
 
   .watcher-toggle:disabled {
@@ -80,7 +80,7 @@
   }
 
   .dot-stopped {
-    background: #71717a;
+    background: var(--color-text-dim, #71717a);
   }
 
   .dot-starting {

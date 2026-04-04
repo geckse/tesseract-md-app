@@ -23,7 +23,11 @@ import {
   getPrimaryColor,
   setPrimaryColor,
   getCollectionColor,
-  setCollectionColor
+  setCollectionColor,
+  getThemeMode,
+  setThemeMode,
+  getCollectionTheme,
+  setCollectionTheme
 } from './store'
 import type { PersistedWindowState } from './store'
 import type { TabTransferData } from '../preload/api'
@@ -360,6 +364,13 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
       if (id in colors) {
         delete colors[id]
         s.set('collectionColors', colors)
+      }
+
+      // Clean up theme override for this collection
+      const themes = s.get('collectionThemes', {})
+      if (id in themes) {
+        delete themes[id]
+        s.set('collectionThemes', themes)
       }
     })
   )
@@ -869,6 +880,32 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
       setCollectionColor(collectionId, hex)
     })
   )
+
+  // Theme
+  ipcMain.handle('store:get-theme', () =>
+    wrapHandler(async () => getThemeMode())
+  )
+
+  ipcMain.handle('store:set-theme', (_event, mode: string) =>
+    wrapHandler(async () => {
+      setThemeMode(mode)
+    })
+  )
+
+  ipcMain.handle('store:get-collection-theme', (_event, collectionId: string) =>
+    wrapHandler(async () => getCollectionTheme(collectionId))
+  )
+
+  ipcMain.handle('store:set-collection-theme', (_event, collectionId: string, mode: string | null) =>
+    wrapHandler(async () => {
+      setCollectionTheme(collectionId, mode)
+    })
+  )
+
+  // Synchronous theme read for flash prevention (preload calls this before DOM paints)
+  ipcMain.on('store:get-theme-sync', (event) => {
+    event.returnValue = getThemeMode()
+  })
 
   // Watcher management
   ipcMain.handle('watcher:start', (_event, root: string) =>

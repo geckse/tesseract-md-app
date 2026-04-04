@@ -27,8 +27,8 @@ body,
 
 body {
   font-family: 'Space Grotesk', sans-serif;
-  background-color: #0f0f10;
-  color: #e4e4e7;
+  background-color: var(--color-bg, #0f0f10);
+  color: var(--color-text, #e4e4e7);
 }
 
 /* ============================================================
@@ -37,12 +37,12 @@ body {
 
 ::selection {
   background-color: var(--color-primary, #00E5FF);
-  color: #0a0a0a;
+  color: var(--color-surface-dark, #0a0a0a);
 }
 
 ::-moz-selection {
   background-color: var(--color-primary, #00E5FF);
-  color: #0a0a0a;
+  color: var(--color-surface-dark, #0a0a0a);
 }
 
 /* ============================================================

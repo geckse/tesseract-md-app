@@ -153,7 +153,7 @@
 
   // Keyboard event handler
   function handleKeyDown(e: KeyboardEvent) {
-    if (!currentFileTree || flatNodes.length === 0) return
+    if ((!currentFileTree && !currentUnifiedTree) || flatNodes.length === 0) return
 
     // Ignore if we're in a text input or menu
     if (contextMenuPath || ingestMenuOpen) return
@@ -196,6 +196,8 @@
         if (currentNode && currentNode.isDir) {
           toggleExpanded(currentNode.path)
           handleFolderClick(currentNode.path)
+        } else if (currentNode && currentNode.isAsset) {
+          handleAssetSelect({ path: currentNode.path, mimeCategory: currentNode.node.mimeCategory ?? 'other', fileSize: currentNode.node.fileSize })
         } else if (currentNode) {
           onfileselect?.({ path: currentNode.path })
         }
@@ -867,13 +869,13 @@
     overflow-y: auto;
     overflow-x: hidden;
     scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.10) transparent;
+    scrollbar-color: var(--overlay-active, rgba(255, 255, 255, 0.10)) transparent;
   }
 
   .file-tree-content::-webkit-scrollbar { width: 6px; }
   .file-tree-content::-webkit-scrollbar-track { background: transparent; }
-  .file-tree-content::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.10); border-radius: 3px; }
-  .file-tree-content::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.20); }
+  .file-tree-content::-webkit-scrollbar-thumb { background: var(--overlay-active, rgba(255, 255, 255, 0.10)); border-radius: 3px; }
+  .file-tree-content::-webkit-scrollbar-thumb:hover { background: var(--overlay-active, rgba(255, 255, 255, 0.20)); }
 
   .tree-nodes {
     padding: 4px 0;
@@ -978,7 +980,7 @@
 
   .context-menu-item:hover {
     background: var(--color-surface-darker, #0a0a0a);
-    color: #fff;
+    color: var(--color-text-white, #fff);
   }
 
   .context-menu-item:disabled {
