@@ -247,7 +247,7 @@
   .open-button:hover {
     color: var(--color-primary, #00E5FF);
     border-color: var(--color-primary, #00E5FF);
-    background: rgba(0, 229, 255, 0.05);
+    background: var(--color-primary-dim, rgba(0, 229, 255, 0.05));
   }
 
   .open-button .material-symbols-outlined {

@@ -73,6 +73,8 @@ export interface AppStore {
   lastUpdateCheck: number | null
   skipVersion: string | null
   windowSessions: PersistedWindowState[]
+  primaryColor: string | null
+  collectionColors: Record<string, string>
 }
 
 /** electron-store schema definition for validation */
@@ -209,6 +211,14 @@ const schema = {
       },
       required: ['panes', 'splitEnabled', 'splitRatio'] as const
     }
+  },
+  primaryColor: {
+    type: ['string', 'null'] as const,
+    default: null
+  },
+  collectionColors: {
+    type: 'object' as const,
+    default: {} as Record<string, string>
   }
 }
 
@@ -393,4 +403,41 @@ export function getWindowSessions(): PersistedWindowState[] {
 export function setWindowSessions(sessions: PersistedWindowState[]): void {
   const s = initStore()
   s.set('windowSessions', sessions)
+}
+
+/** Get the global primary accent color, or null for default */
+export function getPrimaryColor(): string | null {
+  const s = initStore()
+  return s.get('primaryColor', null)
+}
+
+/** Set the global primary accent color (null resets to default) */
+export function setPrimaryColor(hex: string | null): void {
+  const s = initStore()
+  s.set('primaryColor', hex)
+}
+
+/** Get a per-collection accent color override, or null if none */
+export function getCollectionColor(collectionId: string): string | null {
+  const s = initStore()
+  const colors = s.get('collectionColors', {})
+  return colors[collectionId] ?? null
+}
+
+/** Set a per-collection accent color override (null removes the override) */
+export function setCollectionColor(collectionId: string, hex: string | null): void {
+  const s = initStore()
+  const colors = s.get('collectionColors', {})
+  if (hex === null) {
+    delete colors[collectionId]
+  } else {
+    colors[collectionId] = hex
+  }
+  s.set('collectionColors', colors)
+}
+
+/** Get all collection color overrides */
+export function getCollectionColors(): Record<string, string> {
+  const s = initStore()
+  return s.get('collectionColors', {})
 }

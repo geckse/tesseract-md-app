@@ -116,7 +116,7 @@
   .ingest-trigger:hover:not(.disabled) {
     background: var(--color-surface-darker, #0a0a0a);
     border-color: var(--color-primary, #00E5FF);
-    box-shadow: 0 0 8px rgba(0, 229, 255, 0.15);
+    box-shadow: 0 0 8px var(--color-primary-dim, rgba(0, 229, 255, 0.15));
   }
 
   .ingest-trigger.disabled {

@@ -27,8 +27,14 @@ const CLUSTER_COLORS: string[] = [
 /** Default node color for unclustered nodes or 'none' document mode. */
 const DEFAULT_NODE_COLOR = '#E4E4E7'
 
-/** Directional arrow color: outgoing edge from selected node. */
-const ARROW_CYAN = '#00E5FF'
+/** Directional arrow color: outgoing edge from selected node. Reads from CSS variable. */
+function getArrowCyan(): string {
+  if (typeof document !== 'undefined') {
+    const val = getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim()
+    if (val) return val
+  }
+  return '#00E5FF'
+}
 
 /** Directional arrow color: incoming edge to selected node. */
 const ARROW_RED = '#FF6B6B'
@@ -246,7 +252,7 @@ export function edgeArrowColor(
   if (!isSource && !isTarget) return ARROW_GRAY
 
   if (isBidirectional) return ARROW_GREEN
-  if (isSource) return ARROW_CYAN
+  if (isSource) return getArrowCyan()
   return ARROW_RED
 }
 

@@ -111,6 +111,7 @@ export interface TabTransferData {
   editorMode?: string
   isDirty?: boolean
   content?: string | null
+  savedContent?: string | null
 }
 
 /** Typed API exposed to the renderer process via contextBridge. */
@@ -129,7 +130,7 @@ export interface MdvdbApi {
   orphans(root: string): Promise<OrphansOutput>
   clusters(root: string): Promise<ClusterSummary[]>
   graphData(root: string, level?: GraphLevel, path?: string): Promise<GraphData>
-  schema(root: string): Promise<Schema>
+  schema(root: string, path?: string): Promise<Schema>
   config(root: string): Promise<Config>
   doctor(root: string): Promise<DoctorResult>
   init(root: string): Promise<void>
@@ -152,6 +153,7 @@ export interface MdvdbApi {
   fileInfo(absolutePath: string): Promise<{ size: number; mtime: string }>
   copyFile(sourcePath: string, destPath: string): Promise<void>
   isWithinCollection(absolutePath: string): Promise<{ within: boolean; collectionPath: string | null }>
+  renameFile(oldAbsolutePath: string, newAbsolutePath: string): Promise<void>
 
   // Asset scanning
   scanAssets(collectionPath: string): Promise<AssetScanResult>
@@ -228,6 +230,12 @@ export interface MdvdbApi {
   // Zoom
   getZoomLevel(): Promise<number>
   setZoomLevel(value: number): Promise<void>
+
+  // Accent color
+  getPrimaryColor(): Promise<string | null>
+  setPrimaryColor(hex: string | null): Promise<void>
+  getCollectionColor(collectionId: string): Promise<string | null>
+  setCollectionColor(collectionId: string, hex: string | null): Promise<void>
 
   // Window session persistence
   saveWindowSession(session: PersistedWindowState): Promise<void>

@@ -1,5 +1,12 @@
 <script lang="ts">
   import KeyboardShortcuts from './KeyboardShortcuts.svelte'
+  import ColorPicker from './ui/ColorPicker.svelte'
+  import {
+    globalPrimaryColor,
+    collectionPrimaryColor,
+    setGlobalAccentColor,
+    setCollectionAccentColor,
+  } from '../stores/accent-color'
   import {
     userConfig,
     collectionConfig,
@@ -44,6 +51,7 @@
     { id: 'embedding', label: 'Embedding Provider', icon: 'hub' },
     { id: 'search', label: 'Search Defaults', icon: 'search' },
     { id: 'chunking', label: 'Chunking', icon: 'content_cut' },
+    { id: 'appearance', label: 'Appearance', icon: 'palette' },
   ]
 
   const sectionExplainers: Record<Section, string> = {
@@ -70,6 +78,11 @@
 
   // Appearance state
   let fontSize = $state(14)
+  let currentGlobalColor: string | null = $state(null)
+  let currentCollectionColor: string | null = $state(null)
+
+  globalPrimaryColor.subscribe((v) => (currentGlobalColor = v))
+  collectionPrimaryColor.subscribe((v) => (currentCollectionColor = v))
 
   // Keyboard shortcuts modal
   let shortcutsOpen = $state(false)
@@ -245,6 +258,8 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<div class="settings-overlay" role="dialog" aria-modal="true" aria-label="Settings" onclick={(e) => { if (e.target === e.currentTarget) handleClose() }}>
 <div class="settings-panel">
   <div class="settings-header">
     <h1 class="settings-title">Settings</h1>
@@ -783,6 +798,39 @@
               </button>
             </div>
           </div>
+          <div class="field-group">
+            <label class="field-label">Primary Accent Color</label>
+            <p class="field-hint">Changes the accent color used throughout the app.</p>
+            <ColorPicker
+              value={currentGlobalColor}
+              defaultColor="#00E5FF"
+              onchange={(hex) => setGlobalAccentColor(hex)}
+              showReset={true}
+            />
+          </div>
+        </div>
+
+      {:else if currentSection === 'appearance' && !isGlobal}
+        <div class="section">
+          <h2 class="section-title">Appearance</h2>
+          <p class="section-explainer">Visual preferences for this collection.</p>
+          <div class="field-group">
+            <label class="field-label">
+              Primary Accent Color
+              <span class="annotation">{currentCollectionColor ? '(overridden)' : '(inherited from global)'}</span>
+            </label>
+            <ColorPicker
+              value={currentCollectionColor}
+              defaultColor={currentGlobalColor ?? '#00E5FF'}
+              onchange={(hex) => {
+                if (targetCollection) {
+                  setCollectionAccentColor(targetCollection.id, hex)
+                }
+              }}
+              showReset={true}
+              showInheritedHint={currentCollectionColor === null}
+            />
+          </div>
         </div>
 
       {:else if currentSection === 'about' && isGlobal}
@@ -836,16 +884,45 @@
     </div>
   </div>
 </div>
+</div>
 
 <KeyboardShortcuts open={shortcutsOpen} onclose={() => (shortcutsOpen = false)} />
 
 <style>
+  .settings-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-overlay, 40);
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+    animation: overlay-in 150ms ease-out;
+  }
+
+  @keyframes overlay-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .settings-overlay {
+      animation: none;
+    }
+  }
+
   .settings-panel {
     display: flex;
     flex-direction: column;
+    width: 100%;
     height: 100%;
     background: var(--color-bg, #09090b);
     color: var(--color-text, #e4e4e7);
+    border-radius: 12px;
+    border: 1px solid var(--color-border, #27272a);
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.4);
+    overflow: hidden;
   }
 
   .settings-header {
@@ -1386,7 +1463,7 @@
   }
 
   .field-slider:focus::-webkit-slider-thumb {
-    box-shadow: 0 0 0 3px rgba(0, 229, 255, 0.2);
+    box-shadow: 0 0 0 3px var(--color-primary-glow, rgba(0, 229, 255, 0.2));
   }
 
   .slider-label {

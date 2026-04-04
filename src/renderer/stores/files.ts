@@ -157,6 +157,7 @@ async function _autoLoadTabContent(tabId: string, filePath: string): Promise<voi
     const currentTab = workspace.tabs[tabId]
     if (currentTab && currentTab.kind === 'document') {
       currentTab.content = content
+      currentTab.savedContent = content
       currentTab.contentError = null
     }
     propertiesFileContent.set(content)
@@ -293,6 +294,7 @@ export async function selectFile(path: string | null): Promise<void> {
     const currentTab = workspace.tabs[tabId]
     if (currentTab && currentTab.kind === 'document') {
       currentTab.content = content
+      currentTab.savedContent = content
       currentTab.contentError = null
     }
     propertiesFileContent.set(content)

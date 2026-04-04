@@ -41,6 +41,12 @@
     const filename = node.name.replace(/\.[^.]+$/, '')
     event.dataTransfer.setData('text/plain', `[[${filename}]]`)
     event.dataTransfer.setData('application/x-mdvdb-path', node.path)
+    if (node.isAsset) {
+      event.dataTransfer.setData('application/x-mdvdb-asset', JSON.stringify({
+        mimeCategory: node.mimeCategory ?? 'other',
+        fileSize: node.fileSize,
+      }))
+    }
     event.dataTransfer.effectAllowed = 'link'
   }
 

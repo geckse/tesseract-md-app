@@ -10,9 +10,11 @@
   import { isDirty, wordCount, tokenCount, countWords, countTokens, saveRequested, discardRequested, editorMode, type EditorMode } from '../stores/editor';
   import { propertiesFileContent } from '../stores/properties';
   import ConflictNotification from './ConflictNotification.svelte';
-  import FrontmatterEditor from './wysiwyg/FrontmatterEditor.svelte';
+  import DocumentHeader from './wysiwyg/DocumentHeader.svelte';
   import { showConflict, dismissConflict } from '../stores/conflict';
   import { handleLinkClick } from '../lib/link-navigation';
+  import { schema, fetchSchema } from '../stores/schema';
+  import type { Schema } from '../types/cli';
 
   // ── Props ─────────────────────────────────────────────────────────────
   interface WysiwygEditorProps {
@@ -77,6 +79,20 @@
   // ── Store Subscriptions ───────────────────────────────────────────────
   let currentActiveCollection: import('../../preload/api').Collection | null = $state(null);
   const unsubCollection = activeCollection.subscribe((v) => (currentActiveCollection = v));
+
+  // Schema for frontmatter awareness
+  let currentSchema = $state<Schema | null>(null);
+  const unsubSchema = schema.subscribe((v) => (currentSchema = v));
+
+  // Fetch schema when the active document tab or collection changes
+  $effect(() => {
+    if (currentActiveCollection && activeDocTab) {
+      const filePath = activeDocTab.filePath;
+      const lastSlash = filePath.lastIndexOf('/');
+      const pathPrefix = lastSlash > 0 ? filePath.substring(0, lastSlash) : undefined;
+      fetchSchema(currentActiveCollection.path, pathPrefix);
+    }
+  });
 
   let saveCounter = $state(0);
   const unsubSave = saveRequested.subscribe((v) => (saveCounter = v));
@@ -180,6 +196,9 @@
     if (!entry) return;
 
     const fullContent = getFullContentForEntry(entry);
+    // Sync content to tab immediately so mode switches pick up latest edits
+    const tab = activeDocTab;
+    if (tab) tab.content = fullContent;
     isDirty.set(fullContent !== entry.lastSavedContent);
     wordCount.set(countWords(fullContent));
     tokenCount.set(countTokens(fullContent));
@@ -339,10 +358,10 @@
       // Sync frontmatter state for FrontmatterEditor
       currentFrontmatter = entry.frontmatter;
 
-      // Update lastSavedContent and dirty state for the tab
-      entry.lastSavedContent = tab.content!;
-      isDirty.set(false);
+      // Use savedContent (disk state) for dirty tracking across mode switches
+      entry.lastSavedContent = tab.savedContent ?? tab.content!;
       const fullContent = getFullContentForEntry(entry);
+      isDirty.set(fullContent !== entry.lastSavedContent);
       wordCount.set(countWords(fullContent));
       tokenCount.set(countTokens(fullContent));
 
@@ -406,6 +425,19 @@
     }
   }
 
+  // ── File Rename ────────────────────────────────────────────────────────
+
+  function handleFileRenamed(newPath: string) {
+    if (!activeDocTab) return;
+    // Update the tab's filePath and title
+    activeDocTab.filePath = newPath;
+    activeDocTab.title = newPath.split('/').pop() ?? newPath;
+    // Refresh file tree by reloading
+    import('../stores/files').then(({ loadFileTree }) => {
+      loadFileTree();
+    });
+  }
+
   // ── Save ──────────────────────────────────────────────────────────────
 
   function handleSave(): boolean {
@@ -421,6 +453,7 @@
 
     entry.lastSavedContent = content;
     tab.content = content;
+    tab.savedContent = content;
     isDirty.set(false);
     isSaving = true;
 
@@ -499,6 +532,14 @@
     stopFileWatcher();
     dismissConflict();
 
+    // Sync all pool entries' content to workspace tabs before destroying
+    for (const [id, entry] of pool) {
+      const tab = workspace.tabs[id];
+      if (tab && tab.kind === 'document') {
+        tab.content = getFullContentForEntry(entry);
+      }
+    }
+
     // Destroy all pooled TipTap editors
     for (const [, entry] of pool) {
       entry.container.removeEventListener('click', handleLinkClick);
@@ -514,6 +555,7 @@
     tokenCount.set(0);
 
     unsubCollection();
+    unsubSchema();
     unsubSave();
     unsubDiscard();
     unsubEditorMode();
@@ -700,7 +742,6 @@
 {#if activeDocTab}
   <div class="wysiwyg-editor-container">
     <ConflictNotification />
-    <FrontmatterEditor frontmatterYaml={currentFrontmatter} onUpdate={handleFrontmatterUpdate} />
     {#if largeFileWarning}
       <div class="large-file-warning">
         <span class="material-symbols-outlined warning-icon">warning</span>
@@ -715,12 +756,21 @@
     {/if}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
-      class="wysiwyg-content"
-      bind:this={editorHost}
+      class="wysiwyg-scroll"
       ondragover={handleEditorDragOver}
       ondrop={handleEditorDrop}
       onpaste={handleEditorPaste}
-    ></div>
+    >
+      <DocumentHeader
+        frontmatterYaml={currentFrontmatter}
+        onFrontmatterUpdate={handleFrontmatterUpdate}
+        schema={currentSchema}
+        filePath={activeDocTab.filePath}
+        collectionPath={currentActiveCollection?.path ?? ''}
+        onFileRenamed={handleFileRenamed}
+      />
+      <div class="wysiwyg-content" bind:this={editorHost}></div>
+    </div>
   </div>
 {:else}
   <div class="empty-state">
@@ -739,26 +789,43 @@
     background: #0f0f10;
   }
 
-  .wysiwyg-content {
+  .wysiwyg-scroll {
     flex: 1;
     min-height: 0;
+    overflow-y: auto;
+    position: relative;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.10) transparent;
+  }
+
+  .wysiwyg-scroll::-webkit-scrollbar {
+    width: 6px;
+  }
+  .wysiwyg-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .wysiwyg-scroll::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.10);
+    border-radius: 3px;
+  }
+  .wysiwyg-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.20);
+  }
+
+  .wysiwyg-content {
     display: flex;
     flex-direction: column;
-    overflow: hidden;
-    position: relative;
   }
 
   .wysiwyg-content :global(.wysiwyg-instance) {
     display: flex;
     flex-direction: column;
-    overflow: auto;
   }
 
   .wysiwyg-content :global(.ProseMirror) {
     flex: 1;
     min-height: 0;
     outline: none;
-    overflow-y: auto;
   }
 
   .empty-state {

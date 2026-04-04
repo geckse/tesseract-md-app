@@ -119,7 +119,7 @@ describe('Settings component', () => {
     expect(screen.getByText(/These settings override global defaults/)).toBeTruthy()
   })
 
-  it('collection view shows only embedding/search/chunking tabs', async () => {
+  it('collection view shows only embedding/search/chunking/appearance tabs', async () => {
     collections.set([
       { id: 'c1', name: 'My Notes', path: '/tmp/notes' },
     ])
@@ -136,9 +136,9 @@ describe('Settings component', () => {
     expect(tabTexts.some((t) => t.includes('Embedding Provider'))).toBe(true)
     expect(tabTexts.some((t) => t.includes('Search Defaults'))).toBe(true)
     expect(tabTexts.some((t) => t.includes('Chunking'))).toBe(true)
+    expect(tabTexts.some((t) => t.includes('Appearance'))).toBe(true)
     // These should NOT be present
     expect(tabTexts.some((t) => t.includes('CLI'))).toBe(false)
-    expect(tabTexts.some((t) => t.includes('Appearance'))).toBe(false)
     expect(tabTexts.some((t) => t.includes('About'))).toBe(false)
   })
 

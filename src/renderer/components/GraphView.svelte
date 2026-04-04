@@ -223,6 +223,16 @@
   let labelFrameId: number | null = null
   let labelFrameCount = 0
 
+  // ─── Keyboard Camera Controls State ─────────────────────────────────
+  /** Set of currently held camera control keys. */
+  const pressedCameraKeys = new Set<string>()
+  /** Animation frame ID for the camera movement loop. */
+  let cameraLoopFrameId: number | null = null
+  /** Translation speed as a fraction of camera-to-target distance per frame. */
+  const MOVE_SPEED_FACTOR = 0.007
+  /** Rotation speed (radians per frame). */
+  const ROTATE_SPEED = 0.02
+
   // ─── Graph Search State ─────────────────────────────────────────────
 
   /** Whether the graph search overlay panel is visible. */
@@ -992,6 +1002,117 @@
       { x: nx, y: ny, z: nz }, // Look-at target
       1000 // 1000ms transition duration
     )
+  }
+
+  // ─── Keyboard Camera Controls ───────────────────────────────────────
+
+  /** All keys that trigger the camera movement loop. */
+  const CAMERA_KEYS = new Set([
+    'w', 'a', 's', 'd',
+    'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+    'q', 'e',
+  ])
+
+  /**
+   * Continuous camera control loop. Translates (WASD/arrows) and rotates (Q/E)
+   * the camera each frame while keys are held. Both the camera and the orbit
+   * target move together for translation so the scene pans smoothly.
+   */
+  function cameraControlLoop() {
+    if (!graph || pressedCameraKeys.size === 0) {
+      cameraLoopFrameId = null
+      return
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const controls = graph.controls() as any
+    const camera = graph.camera() as THREE.PerspectiveCamera
+    if (!controls || !camera) {
+      cameraLoopFrameId = null
+      return
+    }
+
+    const target = controls.target as THREE.Vector3
+
+    // --- Translation (WASD / Arrows) ---
+    // Build a movement vector in camera-local space then transform to world space.
+    let moveX = 0 // strafe right/left
+    let moveZ = 0 // forward/back
+
+    if (pressedCameraKeys.has('w') || pressedCameraKeys.has('ArrowUp')) moveZ -= 1
+    if (pressedCameraKeys.has('s') || pressedCameraKeys.has('ArrowDown')) moveZ += 1
+    if (pressedCameraKeys.has('a') || pressedCameraKeys.has('ArrowLeft')) moveX -= 1
+    if (pressedCameraKeys.has('d') || pressedCameraKeys.has('ArrowRight')) moveX += 1
+
+    if (moveX !== 0 || moveZ !== 0) {
+      // Speed scales with zoom: far out = fast sweeping, zoomed in = precise
+      const dist = camera.position.distanceTo(target)
+      const speed = dist * MOVE_SPEED_FACTOR
+
+      // Get camera's forward and right vectors projected onto the XZ plane
+      const forward = new THREE.Vector3()
+      camera.getWorldDirection(forward)
+      forward.y = 0
+      forward.normalize()
+
+      const right = new THREE.Vector3()
+      right.crossVectors(forward, camera.up).normalize()
+
+      const delta = new THREE.Vector3()
+      delta.addScaledVector(right, moveX * speed)
+      delta.addScaledVector(forward, -moveZ * speed) // -z = forward
+
+      // Move both camera and target together (pan, not zoom)
+      camera.position.add(delta)
+      target.add(delta)
+    }
+
+    // --- Rotation (Q / E): yaw in place ---
+    // Rotate the camera around its own position (and swing the orbit target
+    // to match) so rotation always feels centered on the camera, not some
+    // distant anchor point.
+    if (pressedCameraKeys.has('q') || pressedCameraKeys.has('e')) {
+      const sign = pressedCameraKeys.has('q') ? 1 : -1
+      const toTarget = new THREE.Vector3().subVectors(target, camera.position)
+      const azimuth = Math.atan2(toTarget.x, toTarget.z) + sign * ROTATE_SPEED
+      const radius = Math.hypot(toTarget.x, toTarget.z)
+
+      toTarget.x = radius * Math.sin(azimuth)
+      toTarget.z = radius * Math.cos(azimuth)
+      // y stays the same — pure yaw, no pitch change
+
+      target.copy(camera.position).add(toTarget)
+      camera.lookAt(target)
+    }
+
+    controls.update?.()
+    cameraLoopFrameId = requestAnimationFrame(cameraControlLoop)
+  }
+
+  /** Start the camera loop if not already running. */
+  function startCameraLoop() {
+    if (cameraLoopFrameId == null) {
+      cameraLoopFrameId = requestAnimationFrame(cameraControlLoop)
+    }
+  }
+
+  /** Stop the camera loop and clear all pressed keys. */
+  function stopCameraLoop() {
+    pressedCameraKeys.clear()
+    if (cameraLoopFrameId != null) {
+      cancelAnimationFrame(cameraLoopFrameId)
+      cameraLoopFrameId = null
+    }
+  }
+
+  /** Recenter the camera to fit the entire graph in view. */
+  function recenterCamera() {
+    if (!graph) return
+    graph.zoomToFit(600, 80)
+  }
+
+  function handleKeyUp(e: KeyboardEvent) {
+    pressedCameraKeys.delete(e.key)
   }
 
   // ─── Data Feeding ───────────────────────────────────────────────────
@@ -1786,14 +1907,23 @@
       return
     }
 
-    // Arrow key navigation between connected nodes
-    if (
-      currentSelected &&
-      graph &&
-      ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)
-    ) {
-      e.preventDefault()
-      navigateToConnectedNode(e.key)
+    // Camera controls: WASD/arrows to move, Q/E to rotate (when no node selected)
+    // Arrow keys navigate connected nodes when a node IS selected
+    if (graph && CAMERA_KEYS.has(e.key)) {
+      // Skip if user is typing in an input
+      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase()
+      const isEditable = tag === 'input' || tag === 'textarea' || (e.target as HTMLElement)?.hasAttribute('contenteditable')
+      if (isEditable) return
+
+      if (currentSelected && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        // Arrow keys navigate between connected nodes when a node is selected
+        e.preventDefault()
+        navigateToConnectedNode(e.key)
+      } else if (!currentSelected) {
+        e.preventDefault()
+        pressedCameraKeys.add(e.key)
+        startCameraLoop()
+      }
     }
   }
 
@@ -2187,6 +2317,8 @@
 
     // 3. Add keyboard and mouse listeners
     window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('keyup', handleKeyUp)
+    window.addEventListener('blur', stopCameraLoop)
     containerEl?.addEventListener('mousemove', handleMouseMove)
   })
 
@@ -2241,8 +2373,13 @@
       graph = null
     }
 
-    // Remove keyboard listener
+    // Stop orbit loop
+    stopCameraLoop()
+
+    // Remove keyboard listeners
     window.removeEventListener('keydown', handleKeyDown)
+    window.removeEventListener('keyup', handleKeyUp)
+    window.removeEventListener('blur', stopCameraLoop)
 
     // Remove mouse tracking listener
     containerEl?.removeEventListener('mousemove', handleMouseMove)
@@ -2444,6 +2581,15 @@
         Large graph ({nodeCount} nodes). Some effects disabled for performance.
       </div>
     {/if}
+
+    <!-- Recenter camera button -->
+    <button
+      class="graph-recenter-btn"
+      onclick={recenterCamera}
+      title="Recenter camera (fit all nodes)"
+    >
+      <span class="material-symbols-outlined">center_focus_strong</span>
+    </button>
 
     <!-- Node tooltip (populated by hover handler in subtask 2-2) -->
     {#if hoveredNode}
@@ -2997,7 +3143,7 @@
   }
 
   .context-menu-item:hover {
-    background: rgba(0, 229, 255, 0.08);
+    background: var(--color-primary-dim, rgba(0, 229, 255, 0.08));
     color: var(--color-primary, #00e5ff);
   }
 
@@ -3158,7 +3304,7 @@
   }
 
   .legend-item-active {
-    background: rgba(0, 229, 255, 0.1);
+    background: var(--color-primary-dim, rgba(0, 229, 255, 0.1));
     border-radius: 4px;
   }
 
@@ -3202,7 +3348,7 @@
 
   .level-tab.active {
     color: var(--color-primary, #00e5ff);
-    background: rgba(0, 229, 255, 0.08);
+    background: var(--color-primary-dim, rgba(0, 229, 255, 0.08));
   }
 
   .graph-path-badge {
@@ -3263,7 +3409,7 @@
     gap: var(--space-2, 0.5rem);
     padding: var(--space-1, 0.25rem) var(--space-3, 0.75rem);
     background: var(--color-surface, #161617);
-    border: 1px solid #00e5ff40;
+    border: 1px solid var(--color-primary-glow, #00e5ff40);
     border-radius: var(--radius-md, 0.375rem);
     z-index: var(--z-base, 10);
     font-family: var(--font-mono, 'JetBrains Mono', monospace);
@@ -3277,7 +3423,7 @@
 
   .folder-badge-icon {
     font-size: 14px;
-    color: #00e5ff;
+    color: var(--color-primary, #00e5ff);
   }
 
   .folder-badge-text {
@@ -3369,6 +3515,33 @@
     font-size: var(--text-xs, 0.625rem);
     color: var(--color-text-dim, #71717a);
     white-space: nowrap;
+  }
+
+  .graph-recenter-btn {
+    position: absolute;
+    bottom: var(--space-4, 1rem);
+    right: var(--space-4, 1rem);
+    z-index: var(--z-base, 10);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    background: var(--color-surface, #161617);
+    border: 1px solid var(--color-border, #27272a);
+    border-radius: var(--radius-md, 0.375rem);
+    color: var(--color-text-dim, #71717a);
+    cursor: pointer;
+    transition: color var(--transition-fast, 150ms ease), background var(--transition-fast, 150ms ease);
+  }
+
+  .graph-recenter-btn:hover {
+    color: var(--color-text-main, #e4e4e7);
+    background: var(--color-surface-hover, #1e1e20);
+  }
+
+  .graph-recenter-btn .material-symbols-outlined {
+    font-size: 20px;
   }
 
   @keyframes spin {

@@ -532,8 +532,8 @@
   }
 
   .expand-button:hover {
-    color: #00e5ff;
-    background: rgba(0, 229, 255, 0.08);
+    color: var(--color-primary, #00e5ff);
+    background: var(--color-primary-dim, rgba(0, 229, 255, 0.08));
   }
 
   .expand-button .material-symbols-outlined {
@@ -605,8 +605,8 @@
   }
 
   .control-btn:hover {
-    color: #00e5ff;
-    background: rgba(0, 229, 255, 0.12);
+    color: var(--color-primary, #00e5ff);
+    background: var(--color-primary-dim, rgba(0, 229, 255, 0.12));
   }
 
   .control-btn .material-symbols-outlined {
@@ -748,8 +748,8 @@
   }
 
   .context-menu-item:hover {
-    background: rgba(0, 229, 255, 0.08);
-    color: #00e5ff;
+    background: var(--color-primary-dim, rgba(0, 229, 255, 0.08));
+    color: var(--color-primary, #00e5ff);
   }
 
   .context-menu-item .material-symbols-outlined {

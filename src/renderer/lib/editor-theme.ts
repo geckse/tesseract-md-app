@@ -25,17 +25,17 @@ const baseTheme = EditorView.theme(
     },
 
     '.cm-content': {
-      caretColor: '#00E5FF',
+      caretColor: 'var(--color-primary, #00E5FF)',
       padding: '1rem 0',
     },
 
     '.cm-cursor, .cm-dropCursor': {
-      borderLeftColor: '#00E5FF',
+      borderLeftColor: 'var(--color-primary, #00E5FF)',
       borderLeftWidth: '2px',
     },
 
     '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
-      backgroundColor: 'rgba(0, 229, 255, 0.1)',
+      backgroundColor: 'var(--color-primary-dim, rgba(0, 229, 255, 0.1))',
     },
 
     '.cm-activeLine': {
@@ -100,7 +100,7 @@ const baseTheme = EditorView.theme(
     },
 
     '.cm-search input:focus': {
-      borderColor: '#00E5FF',
+      borderColor: 'var(--color-primary, #00E5FF)',
     },
 
     '.cm-search button': {
@@ -130,12 +130,12 @@ const baseTheme = EditorView.theme(
 
     /* Search match highlights */
     '.cm-searchMatch': {
-      backgroundColor: 'rgba(0, 229, 255, 0.15)',
+      backgroundColor: 'var(--color-primary-dim, rgba(0, 229, 255, 0.15))',
       borderRadius: '2px',
     },
 
     '.cm-searchMatch-selected': {
-      backgroundColor: 'rgba(0, 229, 255, 0.35)',
+      backgroundColor: 'var(--color-primary-glow, rgba(0, 229, 255, 0.35))',
     },
 
     '.cm-tooltip': {
@@ -180,15 +180,15 @@ const markdownHighlightStyle = HighlightStyle.define([
   { tag: tags.strong, fontWeight: '700', color: '#ffffff' },
 
   // Links
-  { tag: tags.link, color: '#00E5FF', textDecoration: 'none' },
-  { tag: tags.url, color: '#00E5FF' },
+  { tag: tags.link, color: 'var(--color-primary, #00E5FF)', textDecoration: 'none' },
+  { tag: tags.url, color: 'var(--color-primary, #00E5FF)' },
 
   // Code / monospace
   {
     tag: tags.monospace,
     fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-    color: '#00E5FF',
-    backgroundColor: 'rgba(0, 229, 255, 0.1)',
+    color: 'var(--color-primary, #00E5FF)',
+    backgroundColor: 'var(--color-primary-dim, rgba(0, 229, 255, 0.1))',
     borderRadius: '0.25rem',
   },
 

@@ -135,11 +135,11 @@
   }
 
   .resize-handle:hover {
-    background: rgba(0, 229, 255, 0.05);
+    background: var(--color-primary-dim, rgba(0, 229, 255, 0.05));
   }
 
   .resize-handle.dragging {
-    background: rgba(0, 229, 255, 0.1);
+    background: var(--color-primary-dim, rgba(0, 229, 255, 0.1));
   }
 
   @media (prefers-reduced-motion: reduce) {

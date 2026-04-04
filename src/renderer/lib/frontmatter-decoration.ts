@@ -46,7 +46,7 @@ const frontmatterTheme = EditorView.theme({
     fontFamily: 'JetBrains Mono, monospace',
   },
   '.cm-fm-line:hover': {
-    borderLeftColor: '#00E5FF',
+    borderLeftColor: 'var(--color-primary, #00E5FF)',
   },
   '.cm-fm-delimiter': {
     color: '#7b8a8d',
@@ -55,7 +55,7 @@ const frontmatterTheme = EditorView.theme({
     color: '#9ca3af',
   },
   '.cm-fm-string': {
-    color: '#00E5FF',
+    color: 'var(--color-primary, #00E5FF)',
   },
   '.cm-fm-status': {
     color: '#34d399',

@@ -59,6 +59,6 @@
   .badge-primary {
     background: var(--color-primary-dim, rgba(0, 229, 255, 0.1));
     color: var(--color-primary, #00E5FF);
-    border: 1px solid rgba(0, 229, 255, 0.2);
+    border: 1px solid var(--color-primary-glow, rgba(0, 229, 255, 0.2));
   }
 </style>

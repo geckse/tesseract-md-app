@@ -189,7 +189,7 @@
 
   .tab-item.active-dimmed {
     color: var(--color-text, #e4e4e7);
-    border-bottom-color: rgba(0, 229, 255, 0.3);
+    border-bottom-color: var(--color-primary-glow, rgba(0, 229, 255, 0.3));
   }
 
   .tab-item.graph {
@@ -212,7 +212,7 @@
   }
 
   .tab-item.active-dimmed .tab-icon {
-    color: rgba(0, 229, 255, 0.4);
+    color: var(--color-primary-glow, rgba(0, 229, 255, 0.4));
   }
 
   /* --- Title --- */

@@ -23,6 +23,9 @@
   import { goBack, goForward, setNavigating, clearNavigation, recordNavigation } from './stores/navigation';
   import { settingsOpen, onboardingComplete, loadOnboardingState, editorFontSize, loadEditorFontSize } from './stores/ui';
   import { setupUpdateListener, teardownUpdateListener } from './stores/updater';
+  import { loadAccentColors, loadCollectionAccentColor, primaryVariants } from './stores/accent-color';
+  import { applyAccentColor } from './lib/apply-accent-color';
+  import { reinitMermaid } from './lib/mermaid-renderer';
   import { workspace } from './stores/workspace.svelte';
   import { closedTabs } from './stores/closed-tabs.svelte';
   import type { SearchResult } from './types/cli';
@@ -62,6 +65,18 @@
     fetchWatcherStatus();
     loadOnboardingState();
     loadEditorFontSize();
+    loadAccentColors();
+
+    // Apply accent color variants to CSS custom properties reactively
+    const unsubAccent = primaryVariants.subscribe((variants) => {
+      applyAccentColor(variants);
+      reinitMermaid();
+    });
+
+    // Re-load collection accent color when active collection changes
+    const unsubCollectionColor = activeCollectionId.subscribe((id) => {
+      loadCollectionAccentColor(id);
+    });
 
     // Listen for native menu "Open Recent" clicks
     window.api.onMenuOpenRecent(({ collectionId, filePath }) => {
@@ -418,6 +433,8 @@
       teardownUpdateListener();
       window.api.removeMenuOpenRecentListener();
       unsub();
+      unsubAccent();
+      unsubCollectionColor();
     };
   });
 
@@ -521,11 +538,6 @@
 
     <main class="main-area">
       <div class="content-area">
-        {#if $settingsOpen}
-          <div class="settings-region" role="main" aria-label="Settings">
-            <Settings />
-          </div>
-        {:else}
           <div id="main-content" class="tab-pane-region" bind:this={editorEl} tabindex="-1">
             <SplitPaneContainer />
           </div>
@@ -534,13 +546,15 @@
               <PropertiesPanel onfileselect={(detail) => handleFileSelect({ folderId: '', fileId: detail.path })} />
             </div>
           {/if}
-        {/if}
       </div>
 
       <StatusBar />
     </main>
   </div>
 
+  {#if $settingsOpen}
+    <Settings onclose={() => settingsOpen.set(false)} />
+  {/if}
   <IngestModal />
   <QuickOpen />
 </div>
@@ -643,12 +657,4 @@
     height: 100%;
   }
 
-  .settings-region {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    min-height: 0;
-    overflow: hidden;
-  }
 </style>

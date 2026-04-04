@@ -167,6 +167,21 @@
     // Signal to TabItem that a drop was received in this window
     tabBarDropReceived.value = true
 
+    // Handle file tree drops — open the file in this pane
+    const droppedFilePath = e.dataTransfer?.getData('application/x-mdvdb-path')
+    if (droppedFilePath && pane) {
+      const assetData = e.dataTransfer?.getData('application/x-mdvdb-asset')
+      if (assetData) {
+        const { mimeCategory, fileSize } = JSON.parse(assetData)
+        workspace.openAssetTab(droppedFilePath, mimeCategory, fileSize, paneId)
+      } else {
+        workspace.openTab(droppedFilePath, paneId)
+      }
+      syncFileStoresFromTab()
+      resetDragState()
+      return
+    }
+
     const draggedTabId = e.dataTransfer?.getData('text/plain')
     if (!draggedTabId || !pane) {
       resetDragState()
@@ -241,7 +256,8 @@
   const contextTab = $derived(contextMenuTabId ? workspace.tabs[contextMenuTabId] : null)
   const isContextTabGraph = $derived(contextTab?.kind === 'graph')
   const isContextTabDocument = $derived(contextTab?.kind === 'document')
-  const canSplit = $derived(isContextTabDocument)
+  const isContextTabCloseable = $derived(contextTab?.kind !== 'graph')
+  const canSplit = $derived(isContextTabCloseable)
   const canDetach = $derived(isContextTabDocument)
   const hasTabsToLeft = $derived(
     contextMenuTabId ? workspace.getTabIdsToLeft(contextMenuTabId, paneId).length > 0 : false

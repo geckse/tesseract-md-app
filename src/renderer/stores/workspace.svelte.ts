@@ -34,6 +34,8 @@ export interface DocumentTab {
   isDirty: boolean
   editorMode: EditorMode
   content: string | null
+  /** Content as last read from or written to disk — used for dirty tracking across editor mode switches. */
+  savedContent: string | null
   contentLoading: boolean
   contentError: string | null
   scrollPosition: number
@@ -107,6 +109,7 @@ function createDocumentTab(filePath: string): DocumentTab {
     isDirty: false,
     editorMode: 'wysiwyg',
     content: null,
+    savedContent: null,
     contentLoading: false,
     contentError: null,
     scrollPosition: 0,
@@ -265,6 +268,7 @@ class WorkspaceStore {
     activeTab.title = fileNameFromPath(filePath)
     activeTab.isDirty = false
     activeTab.content = null
+    activeTab.savedContent = null
     activeTab.contentLoading = false
     activeTab.contentError = null
     activeTab.scrollPosition = 0
@@ -434,15 +438,13 @@ class WorkspaceStore {
     // Remove tab from pane order
     pane.tabOrder = pane.tabOrder.filter((id) => id !== tabId)
 
-    // If this was the active tab, activate the nearest tab
+    // If this was the active tab, activate the nearest closable tab
     if (pane.activeTabId === tabId) {
-      const documentTabs = pane.tabOrder.filter((id) => this.tabs[id]?.kind === 'document')
-      if (documentTabs.length > 0) {
-        // Pick the tab at the same index or the last document tab
-        const newIndex = Math.min(tabIndex, documentTabs.length - 1)
-        pane.activeTabId = documentTabs[newIndex]
+      const closableTabs = pane.tabOrder.filter((id) => this.tabs[id]?.kind !== 'graph')
+      if (closableTabs.length > 0) {
+        const newIndex = Math.min(tabIndex, closableTabs.length - 1)
+        pane.activeTabId = closableTabs[newIndex]
       } else {
-        // No document tabs left — set active to null (empty state)
         pane.activeTabId = null
       }
     }
@@ -583,8 +585,8 @@ class WorkspaceStore {
 
     // If it was active in the source pane, pick a new active tab
     if (fromPane.activeTabId === tabId) {
-      const documentTabs = fromPane.tabOrder.filter((id) => this.tabs[id]?.kind === 'document')
-      fromPane.activeTabId = documentTabs.length > 0 ? documentTabs[documentTabs.length - 1] : null
+      const closableTabs = fromPane.tabOrder.filter((id) => this.tabs[id]?.kind !== 'graph')
+      fromPane.activeTabId = closableTabs.length > 0 ? closableTabs[closableTabs.length - 1] : null
     }
 
     // Insert: graph tab always goes last, other tabs go before the graph tab
@@ -628,7 +630,7 @@ class WorkspaceStore {
    */
   splitAndMoveTab(tabId: string, targetSide: 'left' | 'right'): boolean {
     const tab = this.tabs[tabId]
-    if (!tab || tab.kind !== 'document') return false
+    if (!tab || tab.kind === 'graph') return false
 
     const fromPaneId = this._findPaneForTab(tabId)
     if (!fromPaneId) return false
@@ -804,6 +806,7 @@ class WorkspaceStore {
       editorMode: tab.editorMode,
       isDirty: tab.isDirty,
       content: tab.isDirty ? tab.content : null,
+      savedContent: tab.isDirty ? tab.savedContent : null,
     }
   }
 
@@ -836,6 +839,9 @@ class WorkspaceStore {
     }
     if (data.content !== undefined && data.content !== null) {
       tab.content = data.content
+    }
+    if (data.savedContent !== undefined && data.savedContent !== null) {
+      tab.savedContent = data.savedContent
     }
 
     this.tabs[tab.id] = tab

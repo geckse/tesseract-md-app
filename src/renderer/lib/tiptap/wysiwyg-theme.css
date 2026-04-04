@@ -15,7 +15,8 @@
   line-height: 1.7;
   /* Generous padding: large left gutter for drag handles + breathing room */
   padding: 2rem 4rem 4rem 4rem;
-  max-width: 52rem;
+  max-width: 60rem;
+  min-width: 20rem;
   margin: 0 auto;
   caret-color: var(--color-primary);
   outline: none;
@@ -141,15 +142,15 @@
 /* -------------------------------------------------------------------------- */
 
 .ProseMirror a {
-  color: #00e5ff;
+  color: var(--color-primary, #00e5ff);
   text-decoration: underline;
-  text-decoration-color: rgba(0, 229, 255, 0.3);
+  text-decoration-color: var(--color-primary-glow, rgba(0, 229, 255, 0.3));
   text-underline-offset: 2px;
   transition: text-decoration-color 150ms ease;
 }
 
 .ProseMirror a:hover {
-  text-decoration-color: #00e5ff;
+  text-decoration-color: var(--color-primary, #00e5ff);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -296,12 +297,12 @@
 }
 
 .ProseMirror ul[data-type='taskList'] li > label input[type='checkbox']:hover {
-  border-color: #00e5ff;
+  border-color: var(--color-primary, #00e5ff);
 }
 
 .ProseMirror ul[data-type='taskList'] li > label input[type='checkbox']:checked {
-  background-color: #00e5ff;
-  border-color: #00e5ff;
+  background-color: var(--color-primary, #00e5ff);
+  border-color: var(--color-primary, #00e5ff);
 }
 
 .ProseMirror ul[data-type='taskList'] li > label input[type='checkbox']:checked::after {
@@ -370,7 +371,7 @@
 }
 
 .ProseMirror .selectedCell {
-  background-color: rgba(0, 229, 255, 0.08);
+  background-color: var(--color-primary-dim, rgba(0, 229, 255, 0.08));
 }
 
 .ProseMirror tr:hover td {
@@ -378,7 +379,7 @@
 }
 
 .ProseMirror td a {
-  color: #00e5ff;
+  color: var(--color-primary, #00e5ff);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -394,7 +395,7 @@
 }
 
 .ProseMirror img.ProseMirror-selectednode {
-  outline: 2px solid #00e5ff;
+  outline: 2px solid var(--color-primary, #00e5ff);
   outline-offset: 2px;
   border-radius: 8px;
 }
@@ -437,7 +438,7 @@
 .ProseMirror .footnote-ref {
   font-size: 0.75em;
   vertical-align: super;
-  color: #00e5ff;
+  color: var(--color-primary, #00e5ff);
   cursor: pointer;
 }
 
@@ -514,21 +515,26 @@
 /*  Scrollbar                                                                 */
 /* -------------------------------------------------------------------------- */
 
-.ProseMirror::-webkit-scrollbar {
-  width: var(--scrollbar-width);
+.ProseMirror::-webkit-scrollbar,
+.wysiwyg-instance::-webkit-scrollbar {
+  width: var(--scrollbar-width, 6px);
+  height: var(--scrollbar-width, 6px);
 }
 
-.ProseMirror::-webkit-scrollbar-track {
-  background: var(--scrollbar-track);
+.ProseMirror::-webkit-scrollbar-track,
+.wysiwyg-instance::-webkit-scrollbar-track {
+  background: var(--scrollbar-track, transparent);
 }
 
-.ProseMirror::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb);
-  border-radius: var(--radius-full);
+.ProseMirror::-webkit-scrollbar-thumb,
+.wysiwyg-instance::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb, rgba(255, 255, 255, 0.10));
+  border-radius: var(--radius-full, 3px);
 }
 
-.ProseMirror::-webkit-scrollbar-thumb:hover {
-  background: var(--scrollbar-thumb-hover);
+.ProseMirror::-webkit-scrollbar-thumb:hover,
+.wysiwyg-instance::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover, rgba(255, 255, 255, 0.20));
 }
 
 /* -------------------------------------------------------------------------- */

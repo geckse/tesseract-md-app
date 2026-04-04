@@ -19,7 +19,11 @@ import {
   setZoomLevel,
   setCliInfo,
   getWindowSessions,
-  setWindowSessions
+  setWindowSessions,
+  getPrimaryColor,
+  setPrimaryColor,
+  getCollectionColor,
+  setCollectionColor
 } from './store'
 import type { PersistedWindowState } from './store'
 import type { TabTransferData } from '../preload/api'
@@ -271,9 +275,11 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
   })
 
   // Schema
-  ipcMain.handle('cli:schema', (_event, root: string) =>
-    wrapHandler(() => execCommand<Schema>('schema', [], root))
-  )
+  ipcMain.handle('cli:schema', (_event, root: string, path?: string) => {
+    const args: string[] = []
+    if (path) args.push('--path', path)
+    return wrapHandler(() => execCommand<Schema>('schema', args, root))
+  })
 
   // Config
   ipcMain.handle('cli:config', (_event, root: string) =>
@@ -348,6 +354,13 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
       const recents = s.get('recentFiles', [])
       s.set('recentFiles', recents.filter((r) => r.collectionId !== id))
       refreshRecentMenu()
+
+      // Clean up accent color override for this collection
+      const colors = s.get('collectionColors', {})
+      if (id in colors) {
+        delete colors[id]
+        s.set('collectionColors', colors)
+      }
     })
   )
 
@@ -631,6 +644,37 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
     })
   )
 
+  // Rename/move a file within a collection
+  ipcMain.handle('fs:rename-file', (_event, oldPath: string, newPath: string) =>
+    wrapHandler(async () => {
+      const { resolve, sep, dirname } = await import('node:path')
+      const normalizedOld = resolve(oldPath)
+      const normalizedNew = resolve(newPath)
+      const collections = getCollections()
+      const oldCollection = collections.find(
+        (c) => normalizedOld === c.path || normalizedOld.startsWith(c.path + sep)
+      )
+      if (!oldCollection) {
+        throw new Error('Access denied: source path is not within a known collection')
+      }
+      const isNewWithinSame =
+        normalizedNew === oldCollection.path || normalizedNew.startsWith(oldCollection.path + sep)
+      if (!isNewWithinSame) {
+        throw new Error('Access denied: destination must be within the same collection')
+      }
+      // Check target doesn't already exist
+      try {
+        await fs.access(normalizedNew)
+        throw new Error('A file with that name already exists')
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
+      }
+      // Ensure parent dir exists
+      await fs.mkdir(dirname(normalizedNew), { recursive: true })
+      await fs.rename(normalizedOld, normalizedNew)
+    })
+  )
+
   // Window state persistence
   ipcMain.handle('store:set-sidebar-width', (_event, width: number) =>
     wrapHandler(async () => {
@@ -802,6 +846,27 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
       if (win && !win.isDestroyed()) {
         win.webContents.setZoomFactor(value)
       }
+    })
+  )
+
+  // Accent color
+  ipcMain.handle('store:get-primary-color', () =>
+    wrapHandler(async () => getPrimaryColor())
+  )
+
+  ipcMain.handle('store:set-primary-color', (_event, hex: string | null) =>
+    wrapHandler(async () => {
+      setPrimaryColor(hex)
+    })
+  )
+
+  ipcMain.handle('store:get-collection-color', (_event, collectionId: string) =>
+    wrapHandler(async () => getCollectionColor(collectionId))
+  )
+
+  ipcMain.handle('store:set-collection-color', (_event, collectionId: string, hex: string | null) =>
+    wrapHandler(async () => {
+      setCollectionColor(collectionId, hex)
     })
   )
 

@@ -1,13 +1,21 @@
 <script lang="ts">
-  import type { JsonValue } from '../../types/cli'
+  import type { JsonValue, Schema, SchemaField, FieldType } from '../../types/cli'
   import { parseFrontmatterData, serializeFrontmatter } from '../../lib/tiptap/markdown-bridge'
+  import AutocompleteDropdown from './AutocompleteDropdown.svelte'
 
   interface Props {
     frontmatterYaml: string | null
     onUpdate: (newYaml: string | null) => void
+    schema: Schema | null
   }
 
-  let { frontmatterYaml, onUpdate }: Props = $props()
+  let { frontmatterYaml, onUpdate, schema }: Props = $props()
+
+  /** Look up schema field definition by key name. */
+  function getSchemaField(key: string): SchemaField | null {
+    if (!schema?.fields) return null
+    return schema.fields.find((f) => f.name === key) ?? null
+  }
 
   interface FrontmatterRow {
     key: string
@@ -20,12 +28,164 @@
   let newTagInputs = $state<Record<number, string>>({})
   let collapsed = $state(true)
 
-  // Sync rows from frontmatterYaml prop
-  $effect(() => {
-    if (frontmatterYaml === null) {
-      rows = []
+  /** Track the last YAML we emitted so the sync effect skips our own updates. */
+  let lastEmittedYaml: string | null = null
+
+  // Autocomplete state for field name suggestions
+  let autocompleteRowId = $state<number | null>(null)
+  let autocompleteAnchorEl = $state<HTMLElement | null>(null)
+
+  // Autocomplete state for value suggestions (sample_values)
+  let valueAutocompleteRowId = $state<number | null>(null)
+  let valueAutocompleteAnchorEl = $state<HTMLElement | null>(null)
+  let valueAutocompleteFilter = $state('')
+
+  // Autocomplete state for tag (array field) suggestions
+  let tagAutocompleteRowId = $state<number | null>(null)
+  let tagAutocompleteAnchorEl = $state<HTMLElement | null>(null)
+  let tagAutocompleteFilter = $state('')
+
+  /** Get schema field names not already used in current rows. */
+  function getUnusedSchemaFields(): string[] {
+    if (!schema?.fields) return []
+    const usedKeys = new Set(rows.map((r) => r.key.trim()).filter(Boolean))
+    return schema.fields
+      .map((f) => f.name)
+      .filter((name) => !usedKeys.has(name))
+  }
+
+  /** Get a type-appropriate default value for a schema field type. */
+  function getDefaultValueForType(fieldType: FieldType): JsonValue {
+    switch (fieldType) {
+      case 'Boolean': return false
+      case 'Number': return 0
+      case 'List': return []
+      case 'Date': return new Date().toISOString().slice(0, 10)
+      default: return ''
+    }
+  }
+
+  /** Map of field name → field type label for secondary display in autocomplete. */
+  let fieldTypeLabels = $derived(new Map(
+    schema?.fields.map((f) => [f.name, f.field_type.charAt(0).toUpperCase() + f.field_type.slice(1).toLowerCase()]) ?? []
+  ))
+
+  function showFieldAutocomplete(rowId: number, anchorEl: HTMLElement) {
+    const unused = getUnusedSchemaFields()
+    if (unused.length === 0) {
+      autocompleteRowId = null
       return
     }
+    autocompleteRowId = rowId
+    autocompleteAnchorEl = anchorEl
+  }
+
+  function handleFieldSelect(suggestion: string) {
+    const row = rows.find((r) => r.id === autocompleteRowId)
+    if (row) {
+      const schemaField = getSchemaField(suggestion)
+      row.key = suggestion
+      if (schemaField) {
+        row.value = getDefaultValueForType(schemaField.field_type)
+      }
+      emitUpdate()
+    }
+    autocompleteRowId = null
+    autocompleteAnchorEl = null
+  }
+
+  function dismissAutocomplete() {
+    autocompleteRowId = null
+    autocompleteAnchorEl = null
+  }
+
+  /** Get sample values for a field, filtered by current input text. */
+  function getFilteredSampleValues(fieldKey: string): string[] {
+    const field = getSchemaField(fieldKey)
+    if (!field || !field.sample_values || field.sample_values.length === 0) return []
+    if (field.allowed_values && field.allowed_values.length > 0) return []
+    const filter = valueAutocompleteFilter.toLowerCase()
+    return field.sample_values.filter((v) => v.toLowerCase().includes(filter))
+  }
+
+  function showValueAutocomplete(rowId: number, anchorEl: HTMLElement, currentValue: string) {
+    const row = rows.find((r) => r.id === rowId)
+    if (!row) return
+    const field = getSchemaField(row.key)
+    if (!field || !field.sample_values || field.sample_values.length === 0) return
+    if (field.allowed_values && field.allowed_values.length > 0) return
+    valueAutocompleteRowId = rowId
+    valueAutocompleteAnchorEl = anchorEl
+    valueAutocompleteFilter = currentValue
+  }
+
+  function handleValueSelect(suggestion: string) {
+    const row = rows.find((r) => r.id === valueAutocompleteRowId)
+    if (row) {
+      updateValue(row, suggestion)
+    }
+    dismissValueAutocomplete()
+  }
+
+  function dismissValueAutocomplete() {
+    valueAutocompleteRowId = null
+    valueAutocompleteAnchorEl = null
+    valueAutocompleteFilter = ''
+  }
+
+  /** Get sample values for a List field, excluding already-used tags and filtered by input. */
+  function getFilteredTagSuggestions(row: FrontmatterRow): string[] {
+    const field = getSchemaField(row.key)
+    if (!field || field.field_type !== 'List' || !field.sample_values || field.sample_values.length === 0) return []
+    const existing = new Set(
+      Array.isArray(row.value) ? (row.value as JsonValue[]).map((v) => String(v)) : []
+    )
+    const filter = tagAutocompleteFilter.toLowerCase()
+    return field.sample_values
+      .filter((v) => !existing.has(v))
+      .filter((v) => v.toLowerCase().includes(filter))
+  }
+
+  function showTagAutocomplete(rowId: number, anchorEl: HTMLElement, currentInput: string) {
+    const row = rows.find((r) => r.id === rowId)
+    if (!row) return
+    const field = getSchemaField(row.key)
+    if (!field || field.field_type !== 'List' || !field.sample_values || field.sample_values.length === 0) return
+    tagAutocompleteRowId = rowId
+    tagAutocompleteAnchorEl = anchorEl
+    tagAutocompleteFilter = currentInput
+  }
+
+  function handleTagAutocompleteSelect(suggestion: string) {
+    const row = rows.find((r) => r.id === tagAutocompleteRowId)
+    if (row) {
+      if (Array.isArray(row.value)) {
+        row.value = [...row.value, suggestion]
+      } else {
+        row.value = [suggestion]
+      }
+      newTagInputs[row.id] = ''
+      emitUpdate()
+    }
+    dismissTagAutocomplete()
+  }
+
+  function dismissTagAutocomplete() {
+    tagAutocompleteRowId = null
+    tagAutocompleteAnchorEl = null
+    tagAutocompleteFilter = ''
+  }
+
+  // Sync rows from frontmatterYaml prop (only on external changes, not our own emits)
+  $effect(() => {
+    if (frontmatterYaml === null) {
+      if (lastEmittedYaml === null && rows.length === 0) return
+      rows = []
+      lastEmittedYaml = null
+      return
+    }
+    // Skip re-sync when the YAML matches what we just emitted (prevents focus loss)
+    if (frontmatterYaml === lastEmittedYaml) return
     const data = parseFrontmatterData(frontmatterYaml)
     rows = Object.entries(data).map(([key, value]) => ({
       key,
@@ -36,6 +196,7 @@
 
   function emitUpdate() {
     if (rows.length === 0) {
+      lastEmittedYaml = null
       onUpdate(null)
       return
     }
@@ -45,7 +206,9 @@
         data[row.key.trim()] = row.value
       }
     }
-    onUpdate(Object.keys(data).length > 0 ? serializeFrontmatter(data) : null)
+    const yaml = Object.keys(data).length > 0 ? serializeFrontmatter(data) : null
+    lastEmittedYaml = yaml
+    onUpdate(yaml)
   }
 
   function detectType(value: JsonValue): 'text' | 'number' | 'boolean' | 'date' | 'array' | 'complex' {
@@ -68,8 +231,17 @@
   }
 
   function addProperty() {
-    rows.push({ key: '', value: '', id: nextId++ })
+    const id = nextId++
+    rows.push({ key: '', value: '', id })
     collapsed = false
+    // Show autocomplete after DOM updates via microtask
+    queueMicrotask(() => {
+      const input = document.querySelector(`[data-fm-key-id="${id}"]`) as HTMLElement | null
+      if (input) {
+        input.focus()
+        showFieldAutocomplete(id, input)
+      }
+    })
   }
 
   function removeProperty(id: number) {
@@ -133,15 +305,34 @@
       <div class="fm-body">
         {#each rows as row (row.id)}
           {@const type = detectType(row.value)}
-          <div class="fm-row">
-            <input
-              class="fm-key"
-              type="text"
-              value={row.key}
-              placeholder="key"
-              aria-label="Property name"
-              oninput={(e) => updateKey(row, (e.target as HTMLInputElement).value)}
-            />
+          {@const schemaField = getSchemaField(row.key)}
+          <div class="fm-row" class:fm-required={schemaField?.required} style="position: relative;">
+            <div class="fm-key-cell">
+              {#if schemaField?.required}
+                <span class="fm-required-indicator">*</span>
+              {/if}
+              <input
+                class="fm-key"
+                type="text"
+                value={row.key}
+                placeholder="key"
+                aria-label="Property name"
+                title={schemaField?.description ?? ''}
+                data-fm-key-id={row.id}
+                oninput={(e) => updateKey(row, (e.target as HTMLInputElement).value)}
+                onfocus={(e) => {
+                  if (!row.key.trim()) {
+                    showFieldAutocomplete(row.id, e.target as HTMLElement)
+                  }
+                }}
+                onblur={(e: FocusEvent) => {
+                  // Check if focus moved to the dropdown; if so, don't dismiss
+                  const related = e.relatedTarget as HTMLElement | null
+                  if (related?.closest?.('.autocomplete-dropdown')) return
+                  dismissAutocomplete()
+                }}
+              />
+            </div>
             <div class="fm-value-cell">
               {#if type === 'boolean'}
                 <button
@@ -182,8 +373,17 @@
                     placeholder="+ tag"
                     aria-label="Add tag to {row.key}"
                     bind:value={newTagInputs[row.id]}
+                    data-fm-tag-id={row.id}
                     onkeydown={(e) => handleTagKeydown(e, row)}
-                    onblur={() => addTag(row)}
+                    oninput={(e) => {
+                      const val = (e.target as HTMLInputElement).value
+                      tagAutocompleteFilter = val
+                      if (tagAutocompleteRowId !== row.id) {
+                        showTagAutocomplete(row.id, e.target as HTMLElement, val)
+                      }
+                    }}
+                    onfocus={(e) => showTagAutocomplete(row.id, e.target as HTMLElement, newTagInputs[row.id] ?? '')}
+                    onblur={(e: FocusEvent) => { const related = e.relatedTarget as HTMLElement | null; if (!related?.closest?.('.autocomplete-dropdown')) dismissTagAutocomplete(); addTag(row) }}
                   />
                 </div>
               {:else if type === 'complex'}
@@ -200,24 +400,61 @@
                   }}
                 ></textarea>
               {:else}
-                {@const statusColor = typeof row.value === 'string' ? getStatusColor(row.value) : null}
-                {#if statusColor}
-                  <input
-                    class="fm-val fm-status"
-                    style="color: {statusColor}; border-color: {statusColor}40;"
-                    type="text"
-                    value={String(row.value ?? '')}
+                {@const allowedValues = getSchemaField(row.key)?.allowed_values}
+                {#if allowedValues && allowedValues.length > 0}
+                  {@const currentVal = String(row.value ?? '')}
+                  <select
+                    class="fm-val fm-select"
                     aria-label="{row.key} value"
-                    oninput={(e) => updateValue(row, (e.target as HTMLInputElement).value)}
-                  />
+                    onchange={(e) => updateValue(row, (e.target as HTMLSelectElement).value)}
+                  >
+                    {#if currentVal && !allowedValues.includes(currentVal)}
+                      <option value={currentVal}>{currentVal}</option>
+                    {/if}
+                    {#each allowedValues as opt}
+                      <option value={opt} selected={opt === currentVal}>{opt}</option>
+                    {/each}
+                  </select>
                 {:else}
-                  <input
-                    class="fm-val"
-                    type="text"
-                    value={String(row.value ?? '')}
-                    aria-label="{row.key} value"
-                    oninput={(e) => updateValue(row, (e.target as HTMLInputElement).value)}
-                  />
+                  {@const statusColor = typeof row.value === 'string' ? getStatusColor(row.value) : null}
+                  {#if statusColor}
+                    <input
+                      class="fm-val fm-status"
+                      style="color: {statusColor}; border-color: {statusColor}40;"
+                      type="text"
+                      value={String(row.value ?? '')}
+                      aria-label="{row.key} value"
+                      data-fm-val-id={row.id}
+                      oninput={(e) => {
+                        const val = (e.target as HTMLInputElement).value
+                        updateValue(row, val)
+                        valueAutocompleteFilter = val
+                        if (valueAutocompleteRowId !== row.id) {
+                          showValueAutocomplete(row.id, e.target as HTMLElement, val)
+                        }
+                      }}
+                      onfocus={(e) => showValueAutocomplete(row.id, e.target as HTMLElement, String(row.value ?? ''))}
+                      onblur={(e: FocusEvent) => { const related = e.relatedTarget as HTMLElement | null; if (!related?.closest?.('.autocomplete-dropdown')) dismissValueAutocomplete() }}
+                    />
+                  {:else}
+                    <input
+                      class="fm-val"
+                      type="text"
+                      value={String(row.value ?? '')}
+                      aria-label="{row.key} value"
+                      data-fm-val-id={row.id}
+                      oninput={(e) => {
+                        const val = (e.target as HTMLInputElement).value
+                        updateValue(row, val)
+                        valueAutocompleteFilter = val
+                        if (valueAutocompleteRowId !== row.id) {
+                          showValueAutocomplete(row.id, e.target as HTMLElement, val)
+                        }
+                      }}
+                      onfocus={(e) => showValueAutocomplete(row.id, e.target as HTMLElement, String(row.value ?? ''))}
+                      onblur={(e: FocusEvent) => { const related = e.relatedTarget as HTMLElement | null; if (!related?.closest?.('.autocomplete-dropdown')) dismissValueAutocomplete() }}
+                    />
+                  {/if}
                 {/if}
               {/if}
             </div>
@@ -227,6 +464,46 @@
           </div>
         {/each}
       </div>
+    {/if}
+
+    {#if autocompleteRowId !== null && autocompleteAnchorEl}
+      <AutocompleteDropdown
+        suggestions={getUnusedSchemaFields()}
+        onSelect={handleFieldSelect}
+        anchorEl={autocompleteAnchorEl}
+        secondaryLabels={fieldTypeLabels}
+        onDismiss={dismissAutocomplete}
+      />
+    {/if}
+
+    {#if valueAutocompleteRowId !== null && valueAutocompleteAnchorEl}
+      {@const valueRow = rows.find((r) => r.id === valueAutocompleteRowId)}
+      {#if valueRow}
+        {@const filteredSamples = getFilteredSampleValues(valueRow.key)}
+        {#if filteredSamples.length > 0}
+          <AutocompleteDropdown
+            suggestions={filteredSamples}
+            onSelect={handleValueSelect}
+            anchorEl={valueAutocompleteAnchorEl}
+            onDismiss={dismissValueAutocomplete}
+          />
+        {/if}
+      {/if}
+    {/if}
+
+    {#if tagAutocompleteRowId !== null && tagAutocompleteAnchorEl}
+      {@const tagRow = rows.find((r) => r.id === tagAutocompleteRowId)}
+      {#if tagRow}
+        {@const tagSuggestions = getFilteredTagSuggestions(tagRow)}
+        {#if tagSuggestions.length > 0}
+          <AutocompleteDropdown
+            suggestions={tagSuggestions}
+            onSelect={handleTagAutocompleteSelect}
+            anchorEl={tagAutocompleteAnchorEl}
+            onDismiss={dismissTagAutocomplete}
+          />
+        {/if}
+      {/if}
     {/if}
   </div>
 {/if}
@@ -315,9 +592,25 @@
     padding: 3px 0;
   }
 
-  .fm-key {
+  .fm-key-cell {
+    display: flex;
+    align-items: baseline;
+    gap: 2px;
     width: 110px;
     flex-shrink: 0;
+  }
+
+  .fm-required-indicator {
+    color: var(--color-primary, #00E5FF);
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+
+  .fm-key {
+    flex: 1;
+    min-width: 0;
     background: transparent;
     border: 1px solid transparent;
     border-radius: 4px;
@@ -374,6 +667,20 @@
     text-align: center;
   }
 
+  .fm-select {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 6px center;
+    padding-right: 22px;
+    cursor: pointer;
+  }
+
+  .fm-select:hover,
+  .fm-select:focus {
+    border-color: #3f3f46;
+  }
+
   .fm-textarea {
     min-height: 60px;
     resize: vertical;
@@ -395,7 +702,7 @@
   }
 
   .fm-toggle-on {
-    background: #00E5FF;
+    background: var(--color-primary, #00E5FF);
   }
 
   .fm-toggle-knob {
@@ -430,22 +737,22 @@
     gap: 3px;
     padding: 2px 8px;
     border-radius: 9999px;
-    border: 1px solid rgba(0, 229, 255, 0.25);
+    border: 1px solid var(--color-primary-glow, rgba(0, 229, 255, 0.25));
     background: transparent;
-    color: #00E5FF;
+    color: var(--color-primary, #00E5FF);
     font-size: 10px;
     font-family: 'JetBrains Mono', monospace;
     transition: border-color 150ms ease;
   }
 
   .fm-tag:hover {
-    border-color: rgba(0, 229, 255, 0.5);
+    border-color: var(--color-primary-glow, rgba(0, 229, 255, 0.5));
   }
 
   .fm-tag-remove {
     background: none;
     border: none;
-    color: #00E5FF;
+    color: var(--color-primary, #00E5FF);
     cursor: pointer;
     padding: 0;
     font-size: 12px;

@@ -329,10 +329,10 @@
         }
       });
 
-      // Update lastSavedContent and dirty state for the tab
-      entry.lastSavedContent = tab.content!;
-      isDirty.set(false);
+      // Use savedContent (disk state) for dirty tracking across mode switches
+      entry.lastSavedContent = tab.savedContent ?? tab.content!;
       const content = entry.view.state.doc.toString();
+      isDirty.set(content !== entry.lastSavedContent);
       wordCount.set(countWords(content));
       tokenCount.set(countTokens(content));
 
@@ -381,6 +381,9 @@
     if (initializing) return;
     if (update.docChanged) {
       const content = update.state.doc.toString();
+      // Sync content to tab immediately so mode switches pick up latest edits
+      const tab = activeDocTab;
+      if (tab) tab.content = content;
       // Find which pool entry this view belongs to
       const entry = activeTabId ? pool.get(activeTabId) : null;
       const savedContent = entry?.lastSavedContent ?? '';
@@ -432,6 +435,7 @@
 
     entry.lastSavedContent = content;
     tab.content = content;
+    tab.savedContent = content;
     isDirty.set(false);
     isSaving = true;
 
@@ -509,6 +513,14 @@
     if (debounceTimer) clearTimeout(debounceTimer);
     stopFileWatcher();
     dismissConflict();
+
+    // Sync all pool entries' content to workspace tabs before destroying
+    for (const [id, entry] of pool) {
+      const tab = workspace.tabs[id];
+      if (tab && tab.kind === 'document') {
+        tab.content = entry.view.state.doc.toString();
+      }
+    }
 
     // Destroy all pooled EditorViews
     for (const [, entry] of pool) {

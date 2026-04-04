@@ -274,7 +274,11 @@ describe('registerIpcHandlers', () => {
     expect(channels).toContain('store:set-zoom-level')
     expect(channels).toContain('cli:reset-index')
     expect(channels).toContain('cli:neighborhood')
-    expect(channels).toHaveLength(70)
+    expect(channels).toContain('store:get-primary-color')
+    expect(channels).toContain('store:set-primary-color')
+    expect(channels).toContain('store:get-collection-color')
+    expect(channels).toContain('store:set-collection-color')
+    expect(channels).toHaveLength(83)
   })
 })
 

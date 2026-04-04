@@ -13,18 +13,28 @@ let initPromise: Promise<void> | null = null
 let counter = 0
 let renderQueue: Promise<unknown> = Promise.resolve()
 
+/** Read the current primary color from the CSS custom property */
+function getCurrentPrimaryColor(): string {
+  if (typeof document !== 'undefined') {
+    const val = getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim()
+    if (val) return val
+  }
+  return '#00E5FF'
+}
+
 /** Initialize mermaid with dark theme config. Called automatically on first render. */
 export async function initMermaid(): Promise<void> {
   if (initPromise) return initPromise
   initPromise = (async () => {
     mermaidModule = await import('mermaid')
+    const primaryColor = getCurrentPrimaryColor()
     mermaidModule.default.initialize({
       startOnLoad: false,
       theme: 'dark',
       themeVariables: {
         darkMode: true,
         background: '#0f0f10',
-        primaryColor: '#00E5FF',
+        primaryColor,
         primaryTextColor: '#e4e4e7',
         primaryBorderColor: '#27272a',
         secondaryColor: '#161617',
@@ -113,6 +123,12 @@ function makeScalableSvg(svg: string): string {
   svgEl.style.height = '100%'
 
   return svgEl.outerHTML
+}
+
+/** Re-initialize mermaid with updated accent color. Call when the primary color changes. */
+export function reinitMermaid(): void {
+  mermaidModule = null
+  initPromise = null
 }
 
 /**

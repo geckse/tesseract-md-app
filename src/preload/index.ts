@@ -42,7 +42,7 @@ const api: MdvdbApi = {
   orphans: (root) => invoke('cli:orphans', root),
   clusters: (root) => invoke('cli:clusters', root),
   graphData: (root, level?, path?) => invoke('cli:graph', root, level, path),
-  schema: (root) => invoke('cli:schema', root),
+  schema: (root, path?) => invoke('cli:schema', root, path),
   config: (root) => invoke('cli:config', root),
   doctor: (root) => invoke('cli:doctor', root),
   init: (root) => invoke('cli:init', root),
@@ -65,6 +65,7 @@ const api: MdvdbApi = {
   fileInfo: (absolutePath) => invoke('fs:file-info', absolutePath),
   copyFile: (sourcePath, destPath) => invoke('fs:copy-file', sourcePath, destPath),
   isWithinCollection: (absolutePath) => invoke('fs:is-within-collection', absolutePath),
+  renameFile: (oldPath, newPath) => invoke('fs:rename-file', oldPath, newPath),
 
   // Asset scanning
   scanAssets: (collectionPath) => invoke('fs:scan-assets', collectionPath),
@@ -153,6 +154,12 @@ const api: MdvdbApi = {
   // Zoom
   getZoomLevel: () => invoke('store:get-zoom-level'),
   setZoomLevel: (value) => invoke('store:set-zoom-level', value),
+
+  // Accent color
+  getPrimaryColor: () => invoke('store:get-primary-color'),
+  setPrimaryColor: (hex) => invoke('store:set-primary-color', hex),
+  getCollectionColor: (collectionId) => invoke('store:get-collection-color', collectionId),
+  setCollectionColor: (collectionId, hex) => invoke('store:set-collection-color', collectionId, hex),
 
   // Window session persistence
   saveWindowSession: (session) => invoke('session:save', session),

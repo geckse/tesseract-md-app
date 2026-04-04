@@ -427,7 +427,7 @@
   }
 
   .result-item.selected {
-    background: rgba(0, 229, 255, 0.1);
+    background: var(--color-primary-dim, rgba(0, 229, 255, 0.1));
   }
 
   .file-icon {
@@ -472,7 +472,7 @@
   }
 
   .state-new {
-    background: rgba(0, 229, 255, 0.15);
+    background: var(--color-primary-dim, rgba(0, 229, 255, 0.15));
     color: var(--color-primary, #00E5FF);
   }
 

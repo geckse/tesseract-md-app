@@ -12,6 +12,10 @@
   padding: 0;
 }
 
+html {
+  color-scheme: dark;
+}
+
 html,
 body,
 #app {
@@ -32,12 +36,12 @@ body {
    ============================================================ */
 
 ::selection {
-  background-color: #00E5FF;
+  background-color: var(--color-primary, #00E5FF);
   color: #0a0a0a;
 }
 
 ::-moz-selection {
-  background-color: #00E5FF;
+  background-color: var(--color-primary, #00E5FF);
   color: #0a0a0a;
 }
 
@@ -114,7 +118,7 @@ body {
 
 /* Default focus ring for all interactive elements */
 :focus-visible {
-  outline: 2px solid #00E5FF;
+  outline: 2px solid var(--color-primary, #00E5FF);
   outline-offset: 2px;
   border-radius: 2px;
 }
@@ -122,14 +126,14 @@ body {
 /* Enhanced focus for buttons */
 button:focus-visible,
 [role="button"]:focus-visible {
-  outline: 2px solid #00E5FF;
+  outline: 2px solid var(--color-primary, #00E5FF);
   outline-offset: 2px;
-  box-shadow: 0 0 0 4px rgba(0, 229, 255, 0.1);
+  box-shadow: 0 0 0 4px var(--color-primary-dim, rgba(0, 229, 255, 0.1));
 }
 
 /* Focus for links */
 a:focus-visible {
-  outline: 2px solid #00E5FF;
+  outline: 2px solid var(--color-primary, #00E5FF);
   outline-offset: 2px;
   border-radius: 2px;
 }
@@ -138,9 +142,9 @@ a:focus-visible {
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {
-  outline: 2px solid #00E5FF;
+  outline: 2px solid var(--color-primary, #00E5FF);
   outline-offset: 2px;
-  box-shadow: 0 0 0 4px rgba(0, 229, 255, 0.1);
+  box-shadow: 0 0 0 4px var(--color-primary-dim, rgba(0, 229, 255, 0.1));
 }
 
 /* Focus for custom interactive elements */
@@ -148,9 +152,9 @@ select:focus-visible {
 [role="tab"]:focus-visible,
 [role="menuitem"]:focus-visible,
 [role="option"]:focus-visible {
-  outline: 2px solid #00E5FF;
+  outline: 2px solid var(--color-primary, #00E5FF);
   outline-offset: 2px;
-  box-shadow: 0 0 0 4px rgba(0, 229, 255, 0.1);
+  box-shadow: 0 0 0 4px var(--color-primary-dim, rgba(0, 229, 255, 0.1));
 }
 
 /* ============================================================
@@ -158,12 +162,12 @@ select:focus-visible {
    ============================================================ */
 
 a {
-  color: #00E5FF;
+  color: var(--color-primary, #00E5FF);
   text-decoration: none;
 }
 
 a:hover {
-  color: #00B8CC;
+  color: var(--color-primary-dark, #00B8CC);
 }
 
 /* ============================================================

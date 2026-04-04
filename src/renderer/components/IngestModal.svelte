@@ -500,7 +500,7 @@
   }
 
   .modal-btn-primary:hover {
-    background: #00B8CC;
+    background: var(--color-primary-dark, #00B8CC);
   }
 
   .modal-btn-cancel {
