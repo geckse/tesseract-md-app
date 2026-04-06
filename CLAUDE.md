@@ -28,7 +28,6 @@ Desktop GUI for markdown-vdb. Electron + Svelte 5 + CodeMirror 6. Bridges to the
 ## Project Structure
 
 ```
-app/
 ├── src/
 │   ├── main/                       # Electron main process
 │   │   ├── index.ts                # BrowserWindow creation, app lifecycle
@@ -142,8 +141,6 @@ Key details:
 - **Error serialization**: Electron IPC can't transport Error instances. Custom error classes serialize to `{ error: true, type, message }` objects. Preload deserializes them back to thrown Errors.
 
 ## Development Workflow
-
-All commands run from the `app/` directory:
 
 ```bash
 npm run dev              # Start Electron with HMR (main + renderer hot reload)

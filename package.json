@@ -7,9 +7,9 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/nickarino/markdown-vdb"
+    "url": "https://github.com/geckse/tesseract-md-app"
   },
-  "homepage": "https://github.com/nickarino/markdown-vdb",
+  "homepage": "https://github.com/geckse/tesseract-md-app",
   "private": true,
   "main": "./out/main/index.js",
   "scripts": {
