@@ -204,9 +204,11 @@
           <div class="error-box">
             <p class="error-message">{currentError}</p>
           </div>
+          <p class="rebuild-hint">If the issue persists, try deleting the index and re-indexing from scratch.</p>
         </div>
         <div class="modal-footer">
-          <button class="modal-btn modal-btn-primary" onclick={closeIngestModal}>Close</button>
+          <button class="modal-btn modal-btn-cancel" onclick={closeIngestModal}>Close</button>
+          <button class="modal-btn modal-btn-rebuild" onclick={handleRebuild}>Delete Index & Rebuild</button>
         </div>
 
       {:else if currentResult}
@@ -528,6 +530,12 @@
     color: var(--color-text-dim, #71717a);
     line-height: 1.5;
     margin: 0;
+  }
+
+  .rebuild-hint {
+    font-size: 12px;
+    color: var(--color-text-dim, #71717a);
+    margin: 12px 0 0;
   }
 
   /* Preview table styles */
