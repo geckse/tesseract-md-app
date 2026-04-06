@@ -10,6 +10,7 @@ import {
 } from '@renderer/lib/graph-3d-bridge'
 import type { Graph3DNode, Graph3DLink, BuildGraph3DOptions } from '@renderer/lib/graph-3d-bridge'
 import type { GraphData, GraphNode, GraphEdge, GraphCluster } from '@renderer/types/cli'
+import { generateHarmonicPalette } from '@renderer/lib/harmonic-palette'
 
 // ─── Test Helpers ───────────────────────────────────────────────────
 
@@ -53,12 +54,18 @@ function makeGraphData(overrides: Partial<GraphData> = {}): GraphData {
   }
 }
 
+/** Default test palettes matching the old hardcoded color count */
+const testClusterPalette = generateHarmonicPalette('#00E5FF', 12)
+const testEdgePalette = generateHarmonicPalette('#00E5FF', 8)
+
 function defaultOptions(overrides: Partial<BuildGraph3DOptions> = {}): BuildGraph3DOptions {
   return {
     coloringMode: 'cluster',
     edgeFilter: null,
     weakThreshold: 0.3,
     level: 'document',
+    clusterPalette: testClusterPalette,
+    edgePalette: testEdgePalette,
     ...overrides
   }
 }

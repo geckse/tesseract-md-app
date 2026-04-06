@@ -3,29 +3,15 @@
  * All functions are pure — no side effects or external dependencies.
  */
 
-/**
- * 8 pastel colors for edge clusters, matching --color-edge-cluster-N CSS tokens.
- * IDs >= 8 cycle via modulo.
- */
-const EDGE_CLUSTER_COLORS: string[] = [
-  '#A78BFA',
-  '#67E8F9',
-  '#FCA5A1',
-  '#86EFAC',
-  '#FDE68A',
-  '#F9A8D4',
-  '#FDBA74',
-  '#93C5FD'
-]
+import { paletteColor, type HarmonicPalette } from './harmonic-palette'
 
 /**
- * Return the pastel color for a given edge cluster ID.
- * Cycles through the 8-color palette via modulo for IDs >= 8.
- * Negative IDs are mapped to a valid index using absolute value.
+ * Return the color for a given edge cluster ID from the provided palette.
+ * Cycles through the palette via modulo for IDs >= palette size.
+ * Negative IDs are mapped to a valid index.
  */
-export function edgeClusterColor(clusterId: number): string {
-  const idx = ((clusterId % 8) + 8) % 8
-  return EDGE_CLUSTER_COLORS[idx]
+export function edgeClusterColor(clusterId: number, palette: HarmonicPalette): string {
+  return paletteColor(palette, clusterId)
 }
 
 /**
@@ -79,7 +65,7 @@ export function edgeLinkWidth(strength: number): number {
  * Compute the 3D link color for an edge based on its cluster ID and weakness.
  *
  * Returns the edge cluster palette color from `edgeClusterColor()`.
- * For edges with no cluster ID, returns the last palette color (#93C5FD).
+ * For edges with no cluster ID, returns the last palette color.
  * For weak edges (strength below threshold), returns an rgba() string at ~25% opacity
  * to visually de-emphasize them. Uses rgba() because THREE.Color does not support
  * 8-digit hex (e.g. #RRGGBBAA).
@@ -87,12 +73,15 @@ export function edgeLinkWidth(strength: number): number {
 export function edgeLinkColor(
   edgeClusterId: number | null | undefined,
   strength: number,
-  weakThreshold: number
+  weakThreshold: number,
+  palette: HarmonicPalette
 ): string {
-  const baseColor = edgeClusterId != null ? edgeClusterColor(edgeClusterId) : '#93C5FD'
+  const baseColor =
+    edgeClusterId != null
+      ? edgeClusterColor(edgeClusterId, palette)
+      : paletteColor(palette, palette.colors.length - 1)
 
   if (strength < weakThreshold) {
-    // Convert hex to rgba with 25% opacity (THREE.Color doesn't support #RRGGBBAA)
     const r = parseInt(baseColor.slice(1, 3), 16)
     const g = parseInt(baseColor.slice(3, 5), 16)
     const b = parseInt(baseColor.slice(5, 7), 16)

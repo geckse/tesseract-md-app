@@ -5,24 +5,20 @@
 
 import type { GraphCluster, GraphData, GraphEdge, GraphLevel, GraphNode } from '../types/cli'
 import { edgeLinkColor, edgeLinkWidth, isEdgeVisible } from './edge-utils'
+import { paletteColor, type HarmonicPalette } from './harmonic-palette'
 
 // ─── Constants ───────────────────────────────────────────────────────
 
-/** 12-color cluster palette, matching GraphView 2D cluster colors. */
-const CLUSTER_COLORS: string[] = [
-  '#E879F9',
-  '#FF6B6B',
-  '#51CF66',
-  '#FFD43B',
-  '#845EF7',
-  '#FF922B',
-  '#20C997',
-  '#F06595',
-  '#339AF0',
-  '#B2F2BB',
-  '#D0BFFF',
-  '#FFC078'
-]
+/** Directional arrow color: no selection or non-neighbor edge. Reads from CSS variable. */
+function getArrowGray(): string {
+  if (typeof document !== 'undefined') {
+    const val = getComputedStyle(document.documentElement)
+      .getPropertyValue('--color-text-dim')
+      .trim()
+    if (val) return val
+  }
+  return '#555555'
+}
 
 /** Default node color for unclustered nodes or 'none' document mode. Reads from CSS variable. */
 function getDefaultNodeColor(): string {
@@ -32,24 +28,6 @@ function getDefaultNodeColor(): string {
   }
   return '#E4E4E7'
 }
-
-/** Directional arrow color: outgoing edge from selected node. Reads from CSS variable. */
-function getArrowCyan(): string {
-  if (typeof document !== 'undefined') {
-    const val = getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim()
-    if (val) return val
-  }
-  return '#00E5FF'
-}
-
-/** Directional arrow color: incoming edge to selected node. */
-const ARROW_RED = '#FF6B6B'
-
-/** Directional arrow color: bidirectional edge with selected node. */
-const ARROW_GREEN = '#51CF66'
-
-/** Directional arrow color: no selection or non-neighbor edge. */
-const ARROW_GRAY = '#555555'
 
 // ─── Interfaces ──────────────────────────────────────────────────────
 
@@ -104,20 +82,24 @@ export interface BuildGraph3DOptions {
   edgeFilter: Set<number> | null
   weakThreshold: number
   level: GraphLevel
+  /** Harmonic palette for cluster/folder/file-hash node colors */
+  clusterPalette: HarmonicPalette
+  /** Harmonic palette for edge cluster colors */
+  edgePalette: HarmonicPalette
 }
 
 // ─── Private Helpers ─────────────────────────────────────────────────
 
 /**
  * Deterministic hash-based color for a file path.
- * Maps any string to one of the 12 cluster palette colors via djb2 hash.
+ * Maps any string to one of the palette colors via djb2 hash.
  */
-function fileColor(path: string): string {
+function fileColor(path: string, palette: HarmonicPalette): string {
   let hash = 0
   for (let i = 0; i < path.length; i++) {
     hash = ((hash << 5) - hash + path.charCodeAt(i)) | 0
   }
-  return CLUSTER_COLORS[Math.abs(hash) % CLUSTER_COLORS.length]
+  return paletteColor(palette, Math.abs(hash))
 }
 
 /**
@@ -136,13 +118,14 @@ function nodeColor(
   node: GraphNode,
   mode: ColoringMode,
   folderColorMap: Map<string, string> | null,
-  isChunk: boolean
+  isChunk: boolean,
+  palette: HarmonicPalette
 ): string {
   if (mode === 'cluster') {
     if (node.cluster_id != null) {
-      return CLUSTER_COLORS[node.cluster_id % CLUSTER_COLORS.length]
+      return paletteColor(palette, node.cluster_id)
     }
-    return isChunk ? fileColor(node.path) : getDefaultNodeColor()
+    return isChunk ? fileColor(node.path, palette) : getDefaultNodeColor()
   }
 
   if (mode === 'folder') {
@@ -150,7 +133,7 @@ function nodeColor(
   }
 
   // 'none' mode: per-file hash color for chunks, default for documents
-  return isChunk ? fileColor(node.path) : getDefaultNodeColor()
+  return isChunk ? fileColor(node.path, palette) : getDefaultNodeColor()
 }
 
 /**
@@ -237,29 +220,38 @@ export function edgeTooltipHtml(_link: Graph3DLink): string {
 /**
  * Determine the directional arrow color for an edge relative to the selected node.
  *
- * Color logic:
- * - No selection: gray (#555555)
- * - Bidirectional (selected node on either end): green (#51CF66)
- * - Outgoing (source === selected): cyan (#00E5FF)
- * - Incoming (target === selected): red (#FF6B6B)
- * - Non-neighbor (selected but edge not connected): gray (#555555)
+ * Color logic (using 3-color arrow palette):
+ * - No selection: gray (from CSS --color-text-dim)
+ * - Bidirectional (selected node on either end): arrowPalette[2]
+ * - Outgoing (source === selected): arrowPalette[0] (primary)
+ * - Incoming (target === selected): arrowPalette[1]
+ * - Non-neighbor (selected but edge not connected): gray
  */
 export function edgeArrowColor(
   sourceId: string,
   targetId: string,
   selectedNodeId: string | null,
-  isBidirectional: boolean
+  isBidirectional: boolean,
+  arrowPalette?: HarmonicPalette
 ): string {
-  if (selectedNodeId == null) return ARROW_GRAY
+  const gray = getArrowGray()
+  if (selectedNodeId == null) return gray
 
   const isSource = sourceId === selectedNodeId
   const isTarget = targetId === selectedNodeId
 
-  if (!isSource && !isTarget) return ARROW_GRAY
+  if (!isSource && !isTarget) return gray
 
-  if (isBidirectional) return ARROW_GREEN
-  if (isSource) return getArrowCyan()
-  return ARROW_RED
+  if (arrowPalette) {
+    if (isBidirectional) return paletteColor(arrowPalette, 2)
+    if (isSource) return paletteColor(arrowPalette, 0)
+    return paletteColor(arrowPalette, 1)
+  }
+
+  // Fallback when no palette provided (e.g., in tests)
+  if (isBidirectional) return '#51CF66'
+  if (isSource) return '#00E5FF'
+  return '#FF6B6B'
 }
 
 /**
@@ -349,7 +341,7 @@ export function buildGraph3DData(data: GraphData, options: BuildGraph3DOptions):
     const folders = new Set(data.nodes.map((n) => getTopLevelFolder(n.path)))
     let i = 0
     for (const folder of folders) {
-      folderColorMap.set(folder, CLUSTER_COLORS[i % CLUSTER_COLORS.length])
+      folderColorMap.set(folder, paletteColor(options.clusterPalette, i))
       i++
     }
   }
@@ -360,7 +352,7 @@ export function buildGraph3DData(data: GraphData, options: BuildGraph3DOptions):
   const nodes: Graph3DNode[] = data.nodes.map((node) => {
     const degree = degreeMap.get(node.id) ?? 0
     const val = nodeSizeValue(options.level, degree, node.size ?? 0, maxSize)
-    const color = nodeColor(node, options.coloringMode, folderColorMap, isChunk)
+    const color = nodeColor(node, options.coloringMode, folderColorMap, isChunk, options.clusterPalette)
 
     return {
       id: node.id,
@@ -382,7 +374,7 @@ export function buildGraph3DData(data: GraphData, options: BuildGraph3DOptions):
     strength: edge.strength ?? null,
     context_text: edge.context_text ?? null,
     edge_cluster_id: edge.edge_cluster_id ?? null,
-    color: edgeLinkColor(edge.edge_cluster_id, edge.strength ?? 0.5, options.weakThreshold),
+    color: edgeLinkColor(edge.edge_cluster_id, edge.strength ?? 0.5, options.weakThreshold, options.edgePalette),
     width: edgeLinkWidth(edge.strength ?? 0.5)
   }))
 

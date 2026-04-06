@@ -61,6 +61,8 @@
   import { workspace } from '../stores/workspace.svelte'
   import GraphPreview from './GraphPreview.svelte'
   import { edgeClusterColor } from '../lib/edge-utils'
+  import { paletteColor, type HarmonicPalette } from '../lib/harmonic-palette'
+  import { clusterPalette, edgePalette, arrowPalette } from '../stores/palette'
   import {
     buildSearchScoreMap,
     buildGraphContextMap,
@@ -92,26 +94,16 @@
     paneId ? workspace.panes[paneId]?.graphTabId ?? null : null
   )
 
-  // ─── Constants ───────────────────────────────────────────────────────
+  // ─── Palette State ───────────────────────────────────────────────────
 
-  /** Cluster color palette (12 colors, cycling). */
-  const CLUSTER_COLORS = [
-    '#E879F9',
-    '#FF6B6B',
-    '#51CF66',
-    '#FFD43B',
-    '#845EF7',
-    '#FF922B',
-    '#20C997',
-    '#F06595',
-    '#339AF0',
-    '#B2F2BB',
-    '#D0BFFF',
-    '#FFC078'
-  ]
+  /** Current cluster palette (reactive, updated via store subscription). */
+  let currentClusterPalette: HarmonicPalette = get(clusterPalette)
 
-  /** Default node color for unclustered or uncolored nodes. */
-  const DEFAULT_NODE_COLOR = '#E4E4E7'
+  /** Current edge palette (reactive). */
+  let currentEdgePalette: HarmonicPalette = get(edgePalette)
+
+  /** Current arrow palette (reactive). */
+  let currentArrowPalette: HarmonicPalette = get(arrowPalette)
 
   // ─── 3D Graph Types ─────────────────────────────────────────────────
 
@@ -168,6 +160,9 @@
   let unsubError: (() => void) | null = null
   let unsubLevel: (() => void) | null = null
   let unsubOpenedNode: (() => void) | null = null
+  let unsubClusterPalette: (() => void) | null = null
+  let unsubEdgePalette: (() => void) | null = null
+  let unsubArrowPalette: (() => void) | null = null
 
   // Reactive local copies for template use
   let currentData: GraphData | null = $state(null)
@@ -468,14 +463,14 @@
 
   /**
    * Deterministic hash-based color for a file path.
-   * Maps any string to one of the 12 cluster palette colors via djb2 hash.
+   * Maps any string to one of the palette colors via djb2 hash.
    */
   function fileHashColor(path: string): string {
     let hash = 0
     for (let i = 0; i < path.length; i++) {
       hash = ((hash << 5) - hash + path.charCodeAt(i)) | 0
     }
-    return CLUSTER_COLORS[Math.abs(hash) % CLUSTER_COLORS.length]
+    return paletteColor(currentClusterPalette, Math.abs(hash))
   }
 
   /**
@@ -483,25 +478,34 @@
    * Called by the nodeColor accessor on each render/refresh so that
    * mode switches only require a graph.refresh() instead of full data rebuild.
    *
-   * - cluster: 12-color CLUSTER_COLORS palette by cluster_id
+   * - cluster: harmonic palette by cluster_id
    * - folder: folderColorMap by top-level directory
    * - none: per-file djb2 hash color
    */
   function getNodeColor(node: ForceNode): string {
     if (currentColoringMode === 'cluster') {
       if (node.cluster_id != null) {
-        return CLUSTER_COLORS[node.cluster_id % CLUSTER_COLORS.length]
+        return paletteColor(currentClusterPalette, node.cluster_id)
       }
-      // Unclustered: chunks get file hash color, documents get default
-      return isChunkMode() ? fileHashColor(node.path) : DEFAULT_NODE_COLOR
+      // Unclustered: chunks get file hash color, documents get default from CSS
+      return isChunkMode() ? fileHashColor(node.path) : getDefaultNodeColor()
     }
 
     if (currentColoringMode === 'folder') {
-      return folderColorMap.get(getTopLevelFolder(node.path)) ?? DEFAULT_NODE_COLOR
+      return folderColorMap.get(getTopLevelFolder(node.path)) ?? getDefaultNodeColor()
     }
 
     // 'none' mode: per-file hash color
     return fileHashColor(node.path)
+  }
+
+  /** Read the default node color from CSS variable. */
+  function getDefaultNodeColor(): string {
+    if (typeof document !== 'undefined') {
+      const val = getComputedStyle(document.documentElement).getPropertyValue('--color-text').trim()
+      if (val) return val
+    }
+    return '#E4E4E7'
   }
 
   // ─── WebGL Detection ──────────────────────────────────────────────
@@ -571,7 +575,7 @@
 
     // Neighbor edge → directional coloring
     const isBidi = bidirectionalPairs.has(`${srcId}->${tgtId}`)
-    return edgeArrowColor(srcId, tgtId, selectedId, isBidi)
+    return edgeArrowColor(srcId, tgtId, selectedId, isBidi, currentArrowPalette)
   }
 
   // ─── Selection Dimming & Hub Glow ──────────────────────────────────
@@ -1128,7 +1132,9 @@
       coloringMode: currentColoringMode,
       edgeFilter: currentEdgeFilter.size > 0 ? currentEdgeFilter : null,
       weakThreshold: currentEdgeWeakThreshold,
-      level: currentLevel
+      level: currentLevel,
+      clusterPalette: currentClusterPalette,
+      edgePalette: currentEdgePalette
     }
 
     const graph3DData = buildGraph3DData(data, options)
@@ -1274,7 +1280,7 @@
     const sorted = [...folders].sort()
     folderColorMap = new Map()
     for (let i = 0; i < sorted.length; i++) {
-      folderColorMap.set(sorted[i], CLUSTER_COLORS[i % CLUSTER_COLORS.length])
+      folderColorMap.set(sorted[i], paletteColor(currentClusterPalette, i))
     }
   }
 
@@ -1370,7 +1376,7 @@
       // Add padding (minimum sphere radius of 10 for single-node clusters)
       const radius = Math.max(maxDist + 20, 10)
 
-      const clusterColor = new THREE.Color(CLUSTER_COLORS[clusterId % CLUSTER_COLORS.length])
+      const clusterColor = new THREE.Color(paletteColor(currentClusterPalette, clusterId))
       const center = new THREE.Vector3(cx, cy, cz)
 
       // ── Volumetric convex hull: shape-conforming multi-shell + Fresnel ──
@@ -1805,6 +1811,28 @@
     unsubOpenedNode = graphOpenedNode.subscribe((v) => {
       currentOpenedNode = v
     })
+
+    // Palette changes → refresh colors without full data rebuild
+    unsubClusterPalette = clusterPalette.subscribe((p) => {
+      currentClusterPalette = p
+      if (currentColoringMode === 'folder' && currentGraph3DData) {
+        rebuildFolderColorMap(currentGraph3DData.nodes)
+      }
+      if (currentColoringMode === 'cluster') {
+        updateClusterSpheres()
+      }
+      if (graph) graph.refresh()
+    })
+
+    unsubEdgePalette = edgePalette.subscribe((p) => {
+      currentEdgePalette = p
+      if (currentData && graph) feedData(currentData)
+    })
+
+    unsubArrowPalette = arrowPalette.subscribe((p) => {
+      currentArrowPalette = p
+      if (graph) graph.refresh()
+    })
   }
 
   // ─── Resize Handling ────────────────────────────────────────────────
@@ -2082,7 +2110,7 @@
     return currentData.clusters.map((c) => ({
       id: c.id,
       label: c.label,
-      color: CLUSTER_COLORS[c.id % CLUSTER_COLORS.length],
+      color: paletteColor(currentClusterPalette, c.id),
       member_count: c.member_count
     }))
   }
@@ -2121,7 +2149,7 @@
     return Array.from(counts.entries())
       .map(([id, info]) => ({
         id,
-        color: edgeClusterColor(id),
+        color: edgeClusterColor(id, currentEdgePalette),
         label: info.label,
         count: info.count
       }))
@@ -2402,6 +2430,9 @@
     unsubError?.()
     unsubLevel?.()
     unsubOpenedNode?.()
+    unsubClusterPalette?.()
+    unsubEdgePalette?.()
+    unsubArrowPalette?.()
   })
 </script>
 
@@ -2558,9 +2589,10 @@
         {#if label.visible}
           <div
             class="cluster-label"
-            style="left: {label.screenX}px; top: {label.screenY}px; color: {CLUSTER_COLORS[
-              label.id % CLUSTER_COLORS.length
-            ]}"
+            style="left: {label.screenX}px; top: {label.screenY}px; color: {paletteColor(
+              currentClusterPalette,
+              label.id
+            )}"
           >
             {label.label}
           </div>
@@ -2626,7 +2658,7 @@
             <span
               class="edge-tooltip-dot"
               style="background: {hoveredEdge.edge_cluster_id != null
-                ? edgeClusterColor(hoveredEdge.edge_cluster_id)
+                ? edgeClusterColor(hoveredEdge.edge_cluster_id, currentEdgePalette)
                 : 'rgba(255,255,255,0.5)'}"
             ></span>
             {hoveredEdge.relationship_type}

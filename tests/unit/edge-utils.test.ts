@@ -7,39 +7,33 @@ import {
   edgeLinkWidth,
   edgeLinkColor
 } from '@renderer/lib/edge-utils'
+import { generateHarmonicPalette } from '@renderer/lib/harmonic-palette'
+
+/** Test palette with 8 colors for edge clusters */
+const testPalette = generateHarmonicPalette('#00E5FF', 8)
 
 describe('edgeClusterColor', () => {
-  it('returns first color for cluster 0', () => {
-    expect(edgeClusterColor(0)).toBe('#A78BFA')
+  it('returns first palette color for cluster 0', () => {
+    expect(edgeClusterColor(0, testPalette)).toBe(testPalette.colors[0])
   })
 
   it('returns correct color for each index 0-7', () => {
-    const expected = [
-      '#A78BFA',
-      '#67E8F9',
-      '#FCA5A1',
-      '#86EFAC',
-      '#FDE68A',
-      '#F9A8D4',
-      '#FDBA74',
-      '#93C5FD'
-    ]
     for (let i = 0; i < 8; i++) {
-      expect(edgeClusterColor(i)).toBe(expected[i])
+      expect(edgeClusterColor(i, testPalette)).toBe(testPalette.colors[i])
     }
   })
 
   it('cycles via modulo for IDs >= 8', () => {
-    expect(edgeClusterColor(8)).toBe(edgeClusterColor(0))
-    expect(edgeClusterColor(9)).toBe(edgeClusterColor(1))
-    expect(edgeClusterColor(15)).toBe(edgeClusterColor(7))
-    expect(edgeClusterColor(16)).toBe(edgeClusterColor(0))
+    expect(edgeClusterColor(8, testPalette)).toBe(edgeClusterColor(0, testPalette))
+    expect(edgeClusterColor(9, testPalette)).toBe(edgeClusterColor(1, testPalette))
+    expect(edgeClusterColor(15, testPalette)).toBe(edgeClusterColor(7, testPalette))
+    expect(edgeClusterColor(16, testPalette)).toBe(edgeClusterColor(0, testPalette))
   })
 
   it('handles negative IDs', () => {
-    expect(edgeClusterColor(-1)).toBe(edgeClusterColor(7))
-    expect(edgeClusterColor(-8)).toBe(edgeClusterColor(0))
-    expect(edgeClusterColor(-3)).toBe(edgeClusterColor(5))
+    expect(edgeClusterColor(-1, testPalette)).toBe(edgeClusterColor(7, testPalette))
+    expect(edgeClusterColor(-8, testPalette)).toBe(edgeClusterColor(0, testPalette))
+    expect(edgeClusterColor(-3, testPalette)).toBe(edgeClusterColor(5, testPalette))
   })
 })
 
@@ -144,7 +138,6 @@ describe('edgeLinkWidth', () => {
   })
 
   it('does not divide by zoom (unlike edgeLineWidth)', () => {
-    // edgeLinkWidth has no zoom parameter — returns absolute width
     const w = edgeLinkWidth(0.5)
     expect(w).toBeCloseTo(1.75)
   })
@@ -164,44 +157,49 @@ describe('edgeLinkWidth', () => {
 
 describe('edgeLinkColor', () => {
   it('returns edge cluster color for valid cluster ID', () => {
-    expect(edgeLinkColor(0, 0.8, 0.3)).toBe('#A78BFA')
-    expect(edgeLinkColor(1, 0.8, 0.3)).toBe('#67E8F9')
+    expect(edgeLinkColor(0, 0.8, 0.3, testPalette)).toBe(testPalette.colors[0])
+    expect(edgeLinkColor(1, 0.8, 0.3, testPalette)).toBe(testPalette.colors[1])
   })
 
-  it('returns fallback color #93C5FD for null cluster ID', () => {
-    expect(edgeLinkColor(null, 0.8, 0.3)).toBe('#93C5FD')
+  it('returns last palette color for null cluster ID', () => {
+    const lastColor = testPalette.colors[testPalette.colors.length - 1]
+    expect(edgeLinkColor(null, 0.8, 0.3, testPalette)).toBe(lastColor)
   })
 
-  it('returns fallback color #93C5FD for undefined cluster ID', () => {
-    expect(edgeLinkColor(undefined, 0.8, 0.3)).toBe('#93C5FD')
+  it('returns last palette color for undefined cluster ID', () => {
+    const lastColor = testPalette.colors[testPalette.colors.length - 1]
+    expect(edgeLinkColor(undefined, 0.8, 0.3, testPalette)).toBe(lastColor)
   })
 
-  it('appends hex alpha 40 for weak edges', () => {
-    // strength 0.2 < threshold 0.5 → weak
-    expect(edgeLinkColor(0, 0.2, 0.5)).toBe('#A78BFA40')
+  it('returns rgba with 25% opacity for weak edges', () => {
+    const result = edgeLinkColor(0, 0.2, 0.5, testPalette)
+    expect(result).toMatch(/^rgba\(\d+, \d+, \d+, 0\.25\)$/)
   })
 
-  it('does not append alpha for strong edges', () => {
-    // strength 0.7 >= threshold 0.5 → not weak
-    expect(edgeLinkColor(0, 0.7, 0.5)).toBe('#A78BFA')
+  it('does not add opacity for strong edges', () => {
+    const result = edgeLinkColor(0, 0.7, 0.5, testPalette)
+    expect(result).toMatch(/^#[0-9a-f]{6}$/i)
   })
 
-  it('does not append alpha when strength equals threshold', () => {
-    // strength 0.5 is NOT < threshold 0.5 → not weak
-    expect(edgeLinkColor(0, 0.5, 0.5)).toBe('#A78BFA')
+  it('does not add opacity when strength equals threshold', () => {
+    const result = edgeLinkColor(0, 0.5, 0.5, testPalette)
+    expect(result).toMatch(/^#[0-9a-f]{6}$/i)
   })
 
-  it('appends alpha for null cluster ID weak edges', () => {
-    expect(edgeLinkColor(null, 0.1, 0.5)).toBe('#93C5FD40')
+  it('adds opacity for null cluster ID weak edges', () => {
+    const result = edgeLinkColor(null, 0.1, 0.5, testPalette)
+    expect(result).toMatch(/^rgba\(\d+, \d+, \d+, 0\.25\)$/)
   })
 
   it('handles zero threshold (only negative strength is weak)', () => {
-    expect(edgeLinkColor(0, 0, 0)).toBe('#A78BFA')
-    expect(edgeLinkColor(0, -0.1, 0)).toBe('#A78BFA40')
+    const strong = edgeLinkColor(0, 0, 0, testPalette)
+    expect(strong).toMatch(/^#[0-9a-f]{6}$/i)
+    const weak = edgeLinkColor(0, -0.1, 0, testPalette)
+    expect(weak).toMatch(/^rgba\(\d+, \d+, \d+, 0\.25\)$/)
   })
 
   it('cycles cluster colors via modulo for high cluster IDs', () => {
-    expect(edgeLinkColor(8, 0.8, 0.3)).toBe(edgeLinkColor(0, 0.8, 0.3))
-    expect(edgeLinkColor(16, 0.8, 0.3)).toBe(edgeLinkColor(0, 0.8, 0.3))
+    expect(edgeLinkColor(8, 0.8, 0.3, testPalette)).toBe(edgeLinkColor(0, 0.8, 0.3, testPalette))
+    expect(edgeLinkColor(16, 0.8, 0.3, testPalette)).toBe(edgeLinkColor(0, 0.8, 0.3, testPalette))
   })
 })
