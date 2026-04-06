@@ -61,7 +61,7 @@
   import { workspace } from '../stores/workspace.svelte'
   import GraphPreview from './GraphPreview.svelte'
   import { edgeClusterColor } from '../lib/edge-utils'
-  import { paletteColor, type HarmonicPalette } from '../lib/harmonic-palette'
+  import { paletteColor, paletteTextColor, type HarmonicPalette } from '../lib/harmonic-palette'
   import { clusterPalette, edgePalette, arrowPalette } from '../stores/palette'
   import {
     buildSearchScoreMap,
@@ -506,6 +506,15 @@
       if (val) return val
     }
     return '#E4E4E7'
+  }
+
+  /** Read the current background color from CSS variable. */
+  function getBackgroundColor(): string {
+    if (typeof document !== 'undefined') {
+      const val = getComputedStyle(document.documentElement).getPropertyValue('--color-bg').trim()
+      if (val) return val
+    }
+    return '#0f0f10'
   }
 
   // ─── WebGL Detection ──────────────────────────────────────────────
@@ -2589,9 +2598,10 @@
         {#if label.visible}
           <div
             class="cluster-label"
-            style="left: {label.screenX}px; top: {label.screenY}px; color: {paletteColor(
+            style="left: {label.screenX}px; top: {label.screenY}px; color: {paletteTextColor(
               currentClusterPalette,
-              label.id
+              label.id,
+              getBackgroundColor()
             )}"
           >
             {label.label}

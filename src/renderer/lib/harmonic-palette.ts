@@ -7,7 +7,7 @@
  * Produces visually cohesive palettes that adapt to any accent color and theme.
  */
 
-import { hexToHsl, hslToHex } from './color-utils'
+import { hexToHsl, hslToHex, contrastRatio } from './color-utils'
 
 /** A generated harmonic color palette */
 export interface HarmonicPalette {
@@ -79,4 +79,29 @@ export function generateHarmonicPalette(
 export function paletteColor(palette: HarmonicPalette, index: number): string {
   const len = palette.colors.length
   return palette.colors[((index % len) + len) % len]
+}
+
+/**
+ * Get a palette color adjusted for use as text on the current background.
+ * Brightens dark colors on dark backgrounds, darkens light colors on light backgrounds,
+ * ensuring a minimum contrast ratio of 3:1 (WCAG AA for large text / UI elements).
+ */
+export function paletteTextColor(
+  palette: HarmonicPalette,
+  index: number,
+  backgroundHex: string
+): string {
+  const hex = paletteColor(palette, index)
+  if (contrastRatio(hex, backgroundHex) >= 3.0) return hex
+
+  const hsl = hexToHsl(hex)
+  const bgHsl = hexToHsl(backgroundHex)
+  const shouldBrighten = bgHsl.l < 50
+
+  for (let step = 0; step < 40; step++) {
+    hsl.l = shouldBrighten ? Math.min(95, hsl.l + 2) : Math.max(5, hsl.l - 2)
+    const candidate = hslToHex(hsl.h, hsl.s, hsl.l)
+    if (contrastRatio(candidate, backgroundHex) >= 3.0) return candidate
+  }
+  return hslToHex(hsl.h, hsl.s, hsl.l)
 }

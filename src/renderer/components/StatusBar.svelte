@@ -3,7 +3,7 @@
   import { isDirty, wordCount as wordCountStore, tokenCount as tokenCountStore } from '../stores/editor';
   import { workspace, type AssetTab } from '../stores/workspace.svelte';
   import WatcherToggle from './WatcherToggle.svelte';
-  import logoIcon from '../../../resources/icon.png';
+  import mdvdbIcon from '../../../resources/mdvdb.png';
   import type { MimeCategory } from '../types/cli';
 
   interface StatusBarProps {
@@ -118,7 +118,7 @@
         CLI not found
       {/if}
     </span>
-    <img class="status-logo" src={logoIcon} alt="Tesseract" />
+    <img class="status-logo" src={mdvdbIcon} alt="Tesseract" />
   </div>
 </div>
 

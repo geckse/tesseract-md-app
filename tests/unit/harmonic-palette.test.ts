@@ -2,9 +2,10 @@ import { describe, it, expect } from 'vitest'
 import {
   generateHarmonicPalette,
   paletteColor,
+  paletteTextColor,
   type HarmonicPalette
 } from '@renderer/lib/harmonic-palette'
-import { hexToHsl } from '@renderer/lib/color-utils'
+import { hexToHsl, contrastRatio } from '@renderer/lib/color-utils'
 
 describe('generateHarmonicPalette', () => {
   it('returns the correct number of colors', () => {
@@ -169,5 +170,77 @@ describe('paletteColor', () => {
 
   it('handles zero index', () => {
     expect(paletteColor(palette, 0)).toBe('#AA0000')
+  })
+})
+
+describe('paletteTextColor', () => {
+  const darkBg = '#0f0f10'
+  const lightBg = '#f5f0eb'
+
+  it('returns the original color when it already has sufficient contrast', () => {
+    // Bright cyan on dark bg should pass as-is
+    const palette = generateHarmonicPalette('#00E5FF', 3)
+    const result = paletteTextColor(palette, 0, darkBg)
+    expect(contrastRatio(result, darkBg)).toBeGreaterThanOrEqual(3.0)
+  })
+
+  it('lightens dark colors on dark backgrounds to meet 3:1 contrast', () => {
+    // Force a very dark blue palette color
+    const palette: HarmonicPalette = {
+      colors: ['#1a1a80'],
+      baseHue: 240,
+      saturation: 70,
+      lightness: 30
+    }
+    const result = paletteTextColor(palette, 0, darkBg)
+    expect(contrastRatio(result, darkBg)).toBeGreaterThanOrEqual(3.0)
+    // Result should be lighter than the input
+    const inputL = hexToHsl('#1a1a80').l
+    const resultL = hexToHsl(result).l
+    expect(resultL).toBeGreaterThan(inputL)
+  })
+
+  it('darkens light colors on light backgrounds to meet 3:1 contrast', () => {
+    const palette: HarmonicPalette = {
+      colors: ['#e0e0ff'],
+      baseHue: 240,
+      saturation: 100,
+      lightness: 94
+    }
+    const result = paletteTextColor(palette, 0, lightBg)
+    expect(contrastRatio(result, lightBg)).toBeGreaterThanOrEqual(3.0)
+    const resultL = hexToHsl(result).l
+    const inputL = hexToHsl('#e0e0ff').l
+    expect(resultL).toBeLessThan(inputL)
+  })
+
+  it('preserves hue when adjusting', () => {
+    const palette: HarmonicPalette = {
+      colors: ['#1a1a80'],
+      baseHue: 240,
+      saturation: 70,
+      lightness: 30
+    }
+    const result = paletteTextColor(palette, 0, darkBg)
+    const originalHue = hexToHsl('#1a1a80').h
+    const resultHue = hexToHsl(result).h
+    const diff = Math.abs(resultHue - originalHue)
+    expect(Math.min(diff, 360 - diff)).toBeLessThan(5)
+  })
+
+  it('all 12 cluster colors are readable on dark background', () => {
+    const palette = generateHarmonicPalette('#00E5FF', 12, 3)
+    for (let i = 0; i < 12; i++) {
+      const text = paletteTextColor(palette, i, darkBg)
+      expect(contrastRatio(text, darkBg)).toBeGreaterThanOrEqual(3.0)
+    }
+  })
+
+  it('all 12 cluster colors are readable on light background', () => {
+    const palette = generateHarmonicPalette('#00E5FF', 12, 3)
+    for (let i = 0; i < 12; i++) {
+      const text = paletteTextColor(palette, i, lightBg)
+      expect(contrastRatio(text, lightBg)).toBeGreaterThanOrEqual(3.0)
+    }
   })
 })
