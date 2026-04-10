@@ -2,10 +2,11 @@
   interface Props {
     filePath: string
     collectionPath: string
+    isUntitled?: boolean
     onFileRenamed: (newPath: string) => void
   }
 
-  let { filePath, collectionPath, onFileRenamed }: Props = $props()
+  let { filePath, collectionPath, isUntitled = false, onFileRenamed }: Props = $props()
 
   let error = $state<string | null>(null)
   let isEditing = $state(false)
@@ -62,6 +63,13 @@
     const dir = getDir(filePath)
     const ext = getExt(filePath) || '.md'
     const newPath = dir ? `${dir}/${trimmed}${ext}` : `${trimmed}${ext}`
+
+    if (isUntitled) {
+      // Untitled files don't exist on disk yet — just update the in-memory name
+      error = null
+      onFileRenamed(newPath)
+      return
+    }
 
     try {
       // Build absolute paths for the IPC call

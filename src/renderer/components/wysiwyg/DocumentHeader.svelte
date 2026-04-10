@@ -11,10 +11,11 @@
     schema: Schema | null
     filePath: string
     collectionPath: string
+    isUntitled?: boolean
     onFileRenamed: (newPath: string) => void
   }
 
-  let { frontmatterYaml, onFrontmatterUpdate, schema, filePath, collectionPath, onFileRenamed }: Props = $props()
+  let { frontmatterYaml, onFrontmatterUpdate, schema, filePath, collectionPath, isUntitled = false, onFileRenamed }: Props = $props()
 
   interface FrontmatterRow {
     key: string
@@ -130,7 +131,7 @@
 </script>
 
 <div class="dh">
-  <FileNameEditor {filePath} {collectionPath} {onFileRenamed} />
+  <FileNameEditor {filePath} {collectionPath} {isUntitled} {onFileRenamed} />
 
   {#if rows.length > 0}
     <div class="dh-divider"></div>

@@ -154,6 +154,7 @@ export interface MdvdbApi {
   copyFile(sourcePath: string, destPath: string): Promise<void>
   isWithinCollection(absolutePath: string): Promise<{ within: boolean; collectionPath: string | null }>
   renameFile(oldAbsolutePath: string, newAbsolutePath: string): Promise<void>
+  deleteFile(absolutePath: string): Promise<void>
 
   // Asset scanning
   scanAssets(collectionPath: string): Promise<AssetScanResult>

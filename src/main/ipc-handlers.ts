@@ -686,6 +686,25 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
     })
   )
 
+  ipcMain.handle('fs:delete', (_event, absolutePath: string) =>
+    wrapHandler(async () => {
+      const { resolve, sep } = await import('node:path')
+      const normalizedPath = resolve(absolutePath)
+      const collections = getCollections()
+      const collection = collections.find(
+        (c) => normalizedPath.startsWith(c.path + sep)
+      )
+      if (!collection) {
+        throw new Error('Access denied: path is not within a known collection')
+      }
+      // Prevent deleting the collection root itself
+      if (normalizedPath === collection.path) {
+        throw new Error('Cannot delete the collection root directory')
+      }
+      await shell.trashItem(normalizedPath)
+    })
+  )
+
   // Window state persistence
   ipcMain.handle('store:set-sidebar-width', (_event, width: number) =>
     wrapHandler(async () => {

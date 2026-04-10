@@ -24,6 +24,7 @@
     onactivate?: (tabId: string) => void
     onclose?: (tabId: string) => void
     onclosemany?: (tabIds: string[]) => void
+    oncreate?: () => void
   }
 
   let {
@@ -31,6 +32,7 @@
     onactivate,
     onclose,
     onclosemany,
+    oncreate,
   }: TabBarProps = $props()
 
   // ── Reactive tab data ───────────────────────────────────────────────
@@ -412,10 +414,15 @@
       </div>
     {/each}
 
-    <!-- Divider before graph tab -->
-    {#if graphTab && documentTabs.length > 0}
-      <div class="graph-divider"></div>
-    {/if}
+    <!-- New tab button -->
+    <button
+      class="new-tab-btn"
+      onclick={() => oncreate?.()}
+      title="New file"
+      aria-label="Create new file"
+    >
+      <span class="material-symbols-outlined">add</span>
+    </button>
 
     <!-- Pinned graph tab -->
     {#if graphTab}
@@ -603,6 +610,35 @@
     flex-shrink: 0;
   }
 
+  /* ── New tab button ──────────────────────────────────────────── */
+
+  .new-tab-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    border-left: 1px solid var(--color-border, #27272a);
+    border-right: 1px solid var(--color-border, #27272a);
+    color: var(--color-text-dim, #71717a);
+    cursor: pointer;
+    padding: 0;
+    margin: 0;
+    transition: color var(--transition-fast, 150ms ease),
+                background var(--transition-fast, 150ms ease);
+  }
+
+  .new-tab-btn:hover {
+    color: var(--color-text, #e4e4e7);
+    background: var(--color-surface, #161617);
+  }
+
+  .new-tab-btn .material-symbols-outlined {
+    font-size: 18px;
+  }
+
   /* ── Graph divider ────────────────────────────────────────────── */
 
   .graph-divider {
@@ -717,6 +753,10 @@
     }
 
     .context-menu-item {
+      transition: none;
+    }
+
+    .new-tab-btn {
       transition: none;
     }
   }

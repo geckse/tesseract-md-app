@@ -16,6 +16,8 @@
     showAssets,
     createNewFile,
     createNewDirectory,
+    removeTreeNode,
+    removeAssetNode,
   } from '../stores/files'
   import { activeCollection, activeCollectionId } from '../stores/collections'
   import { runIngest, ingestRunning } from '../stores/ingest'
@@ -406,6 +408,60 @@
     await window.api.writeToClipboard(ref)
   }
 
+  async function handleDelete() {
+    if (!contextMenuPath || !currentActiveCollection) return
+    const path = contextMenuPath
+    const isDir = contextMenuIsDir
+    const name = path.split('/').pop() ?? path
+    closeContextMenu()
+
+    const kind = isDir ? 'folder' : 'file'
+    const confirmed = window.confirm(
+      `Are you sure you want to delete "${name}"?\n\nThe ${kind} will be moved to the Trash.`
+    )
+    if (!confirmed) return
+
+    const absolutePath = `${currentActiveCollection.path}/${path}`
+    try {
+      await window.api.deleteFile(absolutePath)
+
+      // Close any open tabs for this file (or files inside a deleted directory)
+      for (const [tabId, tab] of Object.entries(workspace.tabs)) {
+        if (tab.kind === 'document' || tab.kind === 'asset') {
+          const tabPath = tab.filePath
+          if (tabPath === path || (isDir && tabPath.startsWith(path + '/'))) {
+            const paneId = workspace.findPaneForTab(tabId)
+            if (paneId) workspace.closeTab(tabId, paneId)
+          }
+        }
+      }
+
+      // Remove from tree locally — no full reload needed
+      removeTreeNode(path)
+      removeAssetNode(path)
+
+      // Remove from favorites if it was favorited
+      const collectionId = currentActiveCollectionId
+      if (collectionId) {
+        const currentFavorites = get(favorites)
+        const favPaths = isDir
+          ? currentFavorites.filter((f) => f.collectionId === collectionId && (f.filePath === path || f.filePath.startsWith(path + '/')))
+          : currentFavorites.filter((f) => f.collectionId === collectionId && f.filePath === path)
+        for (const fav of favPaths) {
+          window.api.removeFavorite(collectionId, fav.filePath).catch(() => {})
+        }
+        if (favPaths.length > 0) {
+          import('../stores/favorites').then(({ loadFavorites }) => loadFavorites())
+        }
+      }
+
+      syncFileStoresFromTab()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      window.alert(`Failed to delete "${name}": ${msg}`)
+    }
+  }
+
   function toggleShowAssets() {
     showAssets.update((v) => !v)
   }
@@ -663,6 +719,11 @@
           {reindexingFile === contextMenuPath ? 'Reindexing...' : 'Reindex File'}
         </button>
       {/if}
+      <div class="context-menu-separator"></div>
+      <button class="context-menu-item context-menu-item-danger" onclick={handleDelete}>
+        <span class="material-symbols-outlined">delete</span>
+        Delete
+      </button>
     </div>
   </div>
 {/if}
@@ -986,6 +1047,15 @@
   .context-menu-item:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+
+  .context-menu-item-danger {
+    color: var(--color-error, #ef4444);
+  }
+
+  .context-menu-item-danger:hover {
+    background: color-mix(in srgb, var(--color-error, #ef4444) 12%, transparent);
+    color: var(--color-error, #ef4444);
   }
 
   .context-menu-item .material-symbols-outlined {

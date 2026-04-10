@@ -15,9 +15,11 @@
   line-height: 1.7;
   /* Generous padding: large left gutter for drag handles + breathing room */
   padding: 2rem 4rem 4rem 4rem;
+  width: 100%;
   max-width: 60rem;
   min-width: 20rem;
   margin: 0 auto;
+  box-sizing: border-box;
   caret-color: var(--color-primary);
   outline: none;
 }

@@ -2,6 +2,7 @@
   import { workspace } from '../stores/workspace.svelte'
   import { closedTabs } from '../stores/closed-tabs.svelte'
   import { syncFileStoresFromTab } from '../stores/files'
+  import { saveAsTabId, dismissSaveAs } from '../stores/save-as'
   import TabBar from './TabBar.svelte'
   import ModeBar from './ModeBar.svelte'
   import Editor from './Editor.svelte'
@@ -10,6 +11,7 @@
   import ImageViewer from './ImageViewer.svelte'
   import PdfViewer from './PdfViewer.svelte'
   import AssetInfoCard from './AssetInfoCard.svelte'
+  import SaveAsModal from './SaveAsModal.svelte'
 
   interface TabPaneProps {
     paneId: string
@@ -84,6 +86,35 @@
       handleTabClose(tabId)
     }
   }
+
+  function handleTabCreate() {
+    workspace.createUntitledTab(paneId)
+    // Focus this pane if not already focused
+    if (!isFocused) {
+      workspace.setActivePane(paneId)
+      onfocus?.(paneId)
+    }
+    syncFileStoresFromTab()
+  }
+
+  // ── Save As modal state ──────────────────────────────────────────
+  let currentSaveAsTabId: string | null = $state(null)
+  saveAsTabId.subscribe((v) => (currentSaveAsTabId = v))
+
+  // Only show modal if the tab belongs to this pane
+  const showSaveAsModal = $derived(
+    currentSaveAsTabId !== null &&
+    pane !== undefined &&
+    pane.tabOrder.includes(currentSaveAsTabId)
+  )
+
+  function handleSaveAsClose() {
+    dismissSaveAs()
+  }
+
+  function handleSaveAsSaved(filePath: string) {
+    syncFileStoresFromTab()
+  }
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -99,6 +130,7 @@
     onactivate={handleTabActivate}
     onclose={handleTabClose}
     onclosemany={handleTabCloseMany}
+    oncreate={handleTabCreate}
   />
 
   <!-- Mode bar (context-aware: document mode toggle or graph level switcher) -->
@@ -148,6 +180,14 @@
       </div>
     {/if}
   </div>
+
+  {#if showSaveAsModal && currentSaveAsTabId}
+    <SaveAsModal
+      tabId={currentSaveAsTabId}
+      onclose={handleSaveAsClose}
+      onsaved={handleSaveAsSaved}
+    />
+  {/if}
 </div>
 
 <style>

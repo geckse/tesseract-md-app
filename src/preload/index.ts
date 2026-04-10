@@ -82,6 +82,7 @@ const api: MdvdbApi = {
   copyFile: (sourcePath, destPath) => invoke('fs:copy-file', sourcePath, destPath),
   isWithinCollection: (absolutePath) => invoke('fs:is-within-collection', absolutePath),
   renameFile: (oldPath, newPath) => invoke('fs:rename-file', oldPath, newPath),
+  deleteFile: (absolutePath) => invoke('fs:delete', absolutePath),
 
   // Asset scanning
   scanAssets: (collectionPath) => invoke('fs:scan-assets', collectionPath),

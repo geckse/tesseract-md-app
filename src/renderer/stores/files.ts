@@ -1,6 +1,6 @@
 import { writable, derived, get } from 'svelte/store'
 import type { Writable } from 'svelte/store'
-import type { FileTree, FileTreeNode, FileState, AssetScanResult, UnifiedTreeNode } from '../types/cli'
+import type { FileTree, FileTreeNode, FileState, AssetScanResult, AssetFileNode, UnifiedTreeNode } from '../types/cli'
 import { activeCollection } from './collections'
 import { loadProperties, clearProperties, propertiesFileContent } from './properties'
 import { editorMode, syncEditorStoresFromTab } from './editor'
@@ -415,6 +415,168 @@ export async function loadAssetTree(): Promise<void> {
   }
 }
 
+// ─── Local tree mutations ──────────────────────────────────────────────
+//
+// These mutate the in-memory tree stores directly, avoiding a full CLI
+// round-trip + asset rescan for simple add/remove operations.
+
+/**
+ * Insert a file node into the file tree at the given relative path.
+ * Creates intermediate directory nodes as needed.
+ */
+export function insertFileNode(relativePath: string, state: FileState | null = 'new'): void {
+  fileTree.update((tree) => {
+    if (!tree) return tree
+    const parts = relativePath.split('/')
+    const fileName = parts.pop()!
+    let parent = tree.root
+
+    // Walk / create intermediate directories
+    for (const dirName of parts) {
+      const dirPath = parent.path ? `${parent.path}/${dirName}` : dirName
+      let child = parent.children.find((c) => c.is_dir && c.name === dirName)
+      if (!child) {
+        child = { name: dirName, path: dirPath, is_dir: true, state: null, children: [] }
+        parent.children.push(child)
+        parent.children.sort((a, b) => {
+          if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1
+          return a.name.localeCompare(b.name)
+        })
+      }
+      parent = child
+    }
+
+    // Insert the file node (skip if it already exists)
+    if (!parent.children.some((c) => c.name === fileName && !c.is_dir)) {
+      parent.children.push({
+        name: fileName,
+        path: relativePath,
+        is_dir: false,
+        state,
+        children: [],
+      })
+      parent.children.sort((a, b) => {
+        if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1
+        return a.name.localeCompare(b.name)
+      })
+      tree.total_files++
+      if (state === 'new') tree.new_count++
+    }
+
+    return { ...tree, root: { ...tree.root } }
+  })
+}
+
+/**
+ * Insert a directory node into the file tree at the given relative path.
+ */
+export function insertDirNode(relativePath: string): void {
+  fileTree.update((tree) => {
+    if (!tree) return tree
+    const parts = relativePath.split('/')
+    let parent = tree.root
+
+    for (const dirName of parts) {
+      const dirPath = parent.path ? `${parent.path}/${dirName}` : dirName
+      let child = parent.children.find((c) => c.is_dir && c.name === dirName)
+      if (!child) {
+        child = { name: dirName, path: dirPath, is_dir: true, state: null, children: [] }
+        parent.children.push(child)
+        parent.children.sort((a, b) => {
+          if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1
+          return a.name.localeCompare(b.name)
+        })
+      }
+      parent = child
+    }
+
+    return { ...tree, root: { ...tree.root } }
+  })
+}
+
+/**
+ * Remove a node (file or directory) from the file tree by relative path.
+ */
+export function removeTreeNode(relativePath: string): void {
+  fileTree.update((tree) => {
+    if (!tree) return tree
+
+    function remove(parent: FileTreeNode): boolean {
+      const idx = parent.children.findIndex((c) => c.path === relativePath)
+      if (idx >= 0) {
+        const removed = parent.children[idx]
+        parent.children.splice(idx, 1)
+        // Update counts
+        if (!removed.is_dir) {
+          tree!.total_files--
+          if (removed.state === 'new') tree!.new_count--
+          else if (removed.state === 'modified') tree!.modified_count--
+          else if (removed.state === 'indexed') tree!.indexed_count--
+        } else {
+          // For directories, subtract all contained files
+          const subtract = (node: FileTreeNode) => {
+            for (const child of node.children) {
+              if (!child.is_dir) {
+                tree!.total_files--
+                if (child.state === 'new') tree!.new_count--
+                else if (child.state === 'modified') tree!.modified_count--
+                else if (child.state === 'indexed') tree!.indexed_count--
+              } else {
+                subtract(child)
+              }
+            }
+          }
+          subtract(removed)
+        }
+        return true
+      }
+      for (const child of parent.children) {
+        if (child.is_dir && remove(child)) return true
+      }
+      return false
+    }
+
+    remove(tree.root)
+    return { ...tree, root: { ...tree.root } }
+  })
+}
+
+/**
+ * Remove an asset node from the asset tree by relative path.
+ */
+export function removeAssetNode(relativePath: string): void {
+  assetTree.update((tree) => {
+    if (!tree) return tree
+
+    function remove(parent: AssetFileNode): boolean {
+      const idx = parent.children.findIndex((c) => c.path === relativePath)
+      if (idx >= 0) {
+        const removed = parent.children[idx]
+        parent.children.splice(idx, 1)
+        if (!removed.is_dir) tree!.totalAssets--
+        else {
+          const countAssets = (node: AssetFileNode): number => {
+            let n = 0
+            for (const c of node.children) {
+              n += c.is_dir ? countAssets(c) : 1
+            }
+            return n
+          }
+          tree!.totalAssets -= countAssets(removed)
+        }
+        return true
+      }
+      for (const child of parent.children) {
+        if (child.is_dir && remove(child)) return true
+      }
+      return false
+    }
+
+    remove(tree.root)
+    return { ...tree, root: { ...tree.root } }
+  })
+}
+
 // ─── File creation ──────────────────────────────────────────────────────
 
 /**
@@ -448,9 +610,8 @@ export async function createNewFile(
 
   try {
     await window.api.createFile(absolutePath, content)
-    // Refresh tree and open the new file
-    await loadFileTree()
-    await loadAssetTree()
+    // Insert into tree locally instead of full reload
+    insertFileNode(relativePath, 'new')
     await selectFile(relativePath)
     return relativePath
   } catch (err) {
@@ -474,8 +635,8 @@ export async function createNewDirectory(dirPath: string, name: string): Promise
 
   try {
     await window.api.createDirectory(absolutePath)
-    await loadFileTree()
-    await loadAssetTree()
+    // Insert into tree locally instead of full reload
+    insertDirNode(relativePath)
     // Expand the parent directory
     if (dirPath) {
       expandedPaths.update((set) => {

@@ -48,6 +48,8 @@ export interface DocumentTab {
   filePath: string
   title: string
   isDirty: boolean
+  /** Whether this tab represents a new unsaved file that doesn't exist on disk yet. */
+  isUntitled: boolean
   editorMode: EditorMode
   content: string | null
   /** Content as last read from or written to disk — used for dirty tracking across editor mode switches. */
@@ -116,13 +118,14 @@ function createGraphTab(): GraphTab {
 }
 
 /** Create a new document tab for a file path. */
-function createDocumentTab(filePath: string): DocumentTab {
+function createDocumentTab(filePath: string, isUntitled = false): DocumentTab {
   return {
     id: crypto.randomUUID(),
     kind: 'document',
     filePath,
     title: fileNameFromPath(filePath),
     isDirty: false,
+    isUntitled,
     editorMode: 'wysiwyg',
     content: null,
     savedContent: null,
@@ -151,6 +154,11 @@ function createPane(): { pane: PaneState; graphTab: GraphTab } {
   }
   return { pane, graphTab }
 }
+
+// ─── Untitled file counter ────────────────────────────────────────────
+
+/** Global counter for untitled file names (Untitled-1, Untitled-2, ...). */
+let untitledCounter = 0
 
 // ─── Auto-save Debounce ────────────────────────────────────────────────
 
@@ -383,6 +391,63 @@ class WorkspaceStore {
     this.activePaneId = pane2Id
 
     return tabId
+  }
+
+  /**
+   * Create a new untitled document tab with empty content.
+   * The tab is marked as `isUntitled` and pre-loaded with empty content
+   * so it doesn't attempt to read from disk.
+   * Returns the tab ID.
+   */
+  createUntitledTab(paneId?: string): string {
+    const targetPaneId = paneId ?? this.activePaneId
+    const pane = this.panes[targetPaneId]
+    if (!pane) return ''
+
+    untitledCounter++
+    const fileName = `Untitled-${untitledCounter}.md`
+
+    const tab = createDocumentTab(fileName, true)
+    // Pre-load with empty content so auto-load doesn't try to read from disk
+    tab.content = ''
+    tab.savedContent = ''
+    tab.isDirty = true
+    this.tabs[tab.id] = tab
+
+    // Insert before the graph tab
+    const graphIdx = pane.tabOrder.indexOf(pane.graphTabId)
+    if (graphIdx >= 0) {
+      pane.tabOrder = [
+        ...pane.tabOrder.slice(0, graphIdx),
+        tab.id,
+        ...pane.tabOrder.slice(graphIdx),
+      ]
+    } else {
+      pane.tabOrder = [...pane.tabOrder, tab.id]
+    }
+
+    pane.activeTabId = tab.id
+    this.panes[targetPaneId] = { ...pane }
+
+    this._scheduleSave()
+    return tab.id
+  }
+
+  /**
+   * Finalize an untitled tab after the user has chosen a filename.
+   * Updates the tab's file path, title, and clears the untitled flag.
+   */
+  finalizeUntitledTab(tabId: string, filePath: string): void {
+    const tab = this.tabs[tabId]
+    if (!tab || tab.kind !== 'document' || !tab.isUntitled) return
+
+    tab.filePath = filePath
+    tab.title = fileNameFromPath(filePath)
+    tab.isUntitled = false
+    tab.navigation.current = filePath
+
+    this.tabs[tabId] = { ...tab }
+    this._scheduleSave()
   }
 
   /**
@@ -926,6 +991,8 @@ class WorkspaceStore {
         if (!tab) continue
 
         if (tab.kind === 'document') {
+          // Don't persist untitled tabs — they can't be restored from disk
+          if (tab.isUntitled) continue
           tabs.push({ kind: 'document', filePath: tab.filePath })
         } else if (tab.kind === 'graph') {
           tabs.push({ kind: 'graph', graphLevel: tab.graphLevel })

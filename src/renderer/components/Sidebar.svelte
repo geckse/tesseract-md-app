@@ -30,6 +30,12 @@
 
   let contextMenuCollection: Collection | null = $state(null)
   let contextMenuPosition = $state({ x: 0, y: 0 })
+  let dropdownOpen = $state(false)
+
+  // Derived active collection for the dropdown display
+  let currentActiveCollection: Collection | null = $derived(
+    currentCollections.find((c) => c.id === currentActiveCollectionId) ?? null
+  )
 
   function handleNavClick(id: string) {
     onnavigate?.({ id })
@@ -58,6 +64,24 @@
 
   function closeContextMenu() {
     contextMenuCollection = null
+  }
+
+  function toggleDropdown() {
+    dropdownOpen = !dropdownOpen
+  }
+
+  function closeDropdown() {
+    dropdownOpen = false
+  }
+
+  async function handleDropdownSelect(collection: Collection) {
+    dropdownOpen = false
+    await handleCollectionClick(collection)
+  }
+
+  async function handleDropdownAdd() {
+    dropdownOpen = false
+    await handleAddCollection()
   }
 
   const isMac = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().includes('MAC')
@@ -135,58 +159,82 @@
   class="sidebar"
   style:width="{sidebarWidth}px"
   style:min-width="{sidebarWidth}px"
-  onclick={closeContextMenu}
+  onclick={() => { closeContextMenu(); closeDropdown(); }}
 >
   <!-- Scrollable content -->
   <div class="nav-content">
     <!-- Favorites -->
     <Favorites />
 
-    <!-- Collections -->
+    <!-- Collection Switcher -->
     <div class="nav-section collections-section">
-      <div class="section-header-row">
-        <h3 class="section-header">Collections</h3>
-        <button class="add-collection-btn" onclick={handleAddCollection} title="Add Collection">
-          <span class="material-symbols-outlined">add</span>
-        </button>
-      </div>
-
-      {#if currentCollectionsLoading}
-        <div class="empty-state">
-          <span class="material-symbols-outlined empty-icon">hourglass_empty</span>
-          <span class="empty-text">Loading...</span>
-        </div>
-      {:else if currentCollections.length === 0}
-        <div class="empty-state">
-          <span class="material-symbols-outlined empty-icon">folder_off</span>
-          <span class="empty-text">No collections yet</span>
-          <button class="add-folder-btn" onclick={handleAddCollection}>
-            <span class="material-symbols-outlined">create_new_folder</span>
-            Add Folder
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="collection-switcher" onclick={(e) => e.stopPropagation()}>
+        {#if currentCollectionsLoading}
+          <div class="switcher-trigger disabled">
+            <span class="material-symbols-outlined switcher-icon">hourglass_empty</span>
+            <span class="switcher-label">Loading...</span>
+          </div>
+        {:else if currentCollections.length === 0}
+          <button class="switcher-trigger empty" onclick={handleAddCollection}>
+            <span class="material-symbols-outlined switcher-icon">create_new_folder</span>
+            <span class="switcher-label">Add Collection</span>
+            <span class="material-symbols-outlined switcher-chevron">add</span>
           </button>
-        </div>
-      {:else}
-        <nav class="nav-list">
-          {#each currentCollections as collection}
-            <button
-              class="nav-item collection-item"
-              class:active={currentActiveCollectionId === collection.id}
-              onclick={() => handleCollectionClick(collection)}
-              oncontextmenu={(e) => handleCollectionContextMenu(e, collection)}
-            >
-              <span class="material-symbols-outlined nav-icon">
-                {currentActiveCollectionId === collection.id ? 'folder_open' : 'folder'}
-              </span>
-              <div class="collection-info">
-                <span class="nav-label">{collection.name}</span>
-                {#if currentActiveCollectionId === collection.id && currentCollectionStatus}
-                  <span class="collection-stats">{formatStats(currentCollectionStatus)}</span>
-                {/if}
-              </div>
-            </button>
-          {/each}
-        </nav>
-      {/if}
+        {:else}
+          <button
+            class="switcher-trigger"
+            class:open={dropdownOpen}
+            onclick={toggleDropdown}
+            oncontextmenu={(e) => {
+              if (currentActiveCollection) handleCollectionContextMenu(e, currentActiveCollection)
+            }}
+          >
+            <span class="material-symbols-outlined switcher-icon">folder_open</span>
+            <div class="switcher-info">
+              <span class="switcher-label">{currentActiveCollection?.name ?? 'Select collection'}</span>
+              {#if currentActiveCollection && currentCollectionStatus}
+                <span class="switcher-stats">{formatStats(currentCollectionStatus)}</span>
+              {:else if currentActiveCollection}
+                <span class="switcher-stats-skeleton"></span>
+              {/if}
+            </div>
+            <span class="material-symbols-outlined switcher-chevron">
+              {dropdownOpen ? 'expand_less' : 'expand_more'}
+            </span>
+          </button>
+
+          {#if dropdownOpen}
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div class="dropdown-overlay" onclick={closeDropdown}></div>
+            <div class="dropdown-menu">
+              {#each currentCollections as collection}
+                <button
+                  class="dropdown-item"
+                  class:active={currentActiveCollectionId === collection.id}
+                  onclick={() => handleDropdownSelect(collection)}
+                  oncontextmenu={(e) => handleCollectionContextMenu(e, collection)}
+                >
+                  <span class="material-symbols-outlined dropdown-item-icon">
+                    {currentActiveCollectionId === collection.id ? 'folder_open' : 'folder'}
+                  </span>
+                  <span class="dropdown-item-label">{collection.name}</span>
+                  {#if currentActiveCollectionId === collection.id}
+                    <span class="material-symbols-outlined dropdown-check">check</span>
+                  {/if}
+                </button>
+              {/each}
+              <div class="dropdown-separator"></div>
+              <button class="dropdown-item add-item" onclick={handleDropdownAdd}>
+                <span class="material-symbols-outlined dropdown-item-icon">create_new_folder</span>
+                <span class="dropdown-item-label">Add Collection</span>
+              </button>
+            </div>
+          {/if}
+        {/if}
+      </div>
     </div>
 
     <!-- File Tree -->
@@ -289,7 +337,7 @@
 
   .nav-section {
     padding: 0 12px;
-    margin-bottom: 24px;
+    margin-bottom: 8px;
   }
 
   .file-tree-section {
@@ -301,111 +349,63 @@
     flex-direction: column;
   }
 
-  .section-header-row {
+  /* Collection Switcher Dropdown */
+  .collection-switcher {
+    position: relative;
+  }
+
+  .switcher-trigger {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 0 12px;
-    margin-bottom: 12px;
-  }
-
-  .section-header {
-    font-size: 11px;
-    font-weight: 700;
-    color: var(--color-text-dim, #71717a);
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    margin: 0;
-    padding: 0;
-  }
-
-  .add-collection-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 20px;
-    height: 20px;
-    border-radius: 4px;
-    background: none;
-    border: none;
-    color: var(--color-text-dim, #71717a);
-    cursor: pointer;
-    transition: all 0.15s ease;
-    padding: 0;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .add-collection-btn {
-      transition: none;
-    }
-  }
-
-  .add-collection-btn:hover {
-    background: var(--color-surface, #161617);
-    color: var(--color-primary, #00E5FF);
-  }
-
-  .add-collection-btn .material-symbols-outlined {
-    font-size: 16px;
-  }
-
-  .nav-list {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .nav-item {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 8px 12px;
-    border-radius: 6px;
-    background: none;
-    border: none;
-    color: var(--color-text-dim, #71717a);
-    cursor: pointer;
+    gap: 8px;
     width: 100%;
-    text-align: left;
-    transition: all 0.15s ease;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: var(--color-surface, #161617);
+    border: 1px solid var(--color-border, #27272a);
+    color: var(--color-text-main, #e4e4e7);
+    cursor: pointer;
     font-family: inherit;
+    transition: all 0.15s ease;
+  }
+
+  .switcher-trigger.disabled {
+    cursor: default;
+    opacity: 0.6;
+  }
+
+  .switcher-trigger.empty {
+    color: var(--color-text-dim, #71717a);
+    border-style: dashed;
+  }
+
+  .switcher-trigger.empty:hover {
+    color: var(--color-primary, #00E5FF);
+    border-color: var(--color-primary, #00E5FF);
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .nav-item {
+    .switcher-trigger {
       transition: none;
     }
   }
 
-  .nav-item:hover {
-    background: var(--color-surface, #161617);
-    color: var(--color-text-white, #fff);
+  .switcher-trigger:not(.disabled):hover {
+    border-color: rgba(255, 255, 255, 0.15);
   }
 
-  .nav-item:hover .nav-icon {
-    color: var(--color-primary, #00E5FF);
+  .switcher-trigger.open {
+    border-color: var(--color-primary, #00E5FF);
+    background: var(--color-surface-darker, #0a0a0a);
   }
 
-  .nav-icon {
+  .switcher-icon {
     font-size: 18px;
-    transition: color 0.15s;
-  }
-
-  .nav-label {
-    font-size: 14px;
-  }
-
-  .collection-item.active {
-    background: var(--color-surface, #161617);
-    color: var(--color-text-white, #fff);
-    border: 1px solid rgba(39, 39, 42, 0.5);
-  }
-
-  .collection-item.active .nav-icon {
     color: var(--color-primary, #00E5FF);
+    flex-shrink: 0;
   }
 
-  .collection-info {
+  .switcher-info {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
@@ -413,61 +413,160 @@
     min-width: 0;
   }
 
-  .collection-info .nav-label {
+  .switcher-label {
+    font-size: 13px;
+    font-weight: 500;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     width: 100%;
+    text-align: left;
   }
 
-  .collection-stats {
+  .switcher-stats {
     font-size: 11px;
     color: var(--color-text-dim, #71717a);
     margin-top: 1px;
   }
 
-  .empty-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 24px 12px;
-    gap: 8px;
+  .switcher-stats-skeleton {
+    display: inline-block;
+    width: 48px;
+    height: 11px;
+    margin-top: 2px;
+    border-radius: 3px;
+    background: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.04) 25%,
+      rgba(255, 255, 255, 0.08) 50%,
+      rgba(255, 255, 255, 0.04) 75%
+    );
+    background-size: 200% 100%;
+    animation: skeleton-shimmer 1.5s ease-in-out infinite;
   }
 
-  .empty-icon {
-    font-size: 32px;
+  @keyframes skeleton-shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .switcher-stats-skeleton {
+      animation: none;
+      background: rgba(255, 255, 255, 0.06);
+    }
+  }
+
+  .switcher-chevron {
+    font-size: 18px;
     color: var(--color-text-dim, #71717a);
-    opacity: 0.5;
+    flex-shrink: 0;
+    transition: color 0.15s;
   }
 
-  .empty-text {
-    font-size: 13px;
-    color: var(--color-text-dim, #71717a);
+  .switcher-trigger:hover .switcher-chevron {
+    color: var(--color-text-main, #e4e4e7);
   }
 
-  .add-folder-btn {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 8px;
-    padding: 8px 16px;
-    border-radius: 6px;
+  @media (prefers-reduced-motion: reduce) {
+    .switcher-chevron {
+      transition: none;
+    }
+  }
+
+  .dropdown-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 99;
+  }
+
+  .dropdown-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
     background: var(--color-surface, #161617);
     border: 1px solid var(--color-border, #27272a);
-    color: var(--color-primary, #00E5FF);
-    cursor: pointer;
+    border-radius: 8px;
+    padding: 4px;
+    z-index: 100;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    max-height: 280px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--overlay-active, rgba(255, 255, 255, 0.10)) transparent;
+  }
+
+  .dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 7px 10px;
+    border: none;
+    background: none;
+    border-radius: 4px;
+    color: var(--color-text-dim, #71717a);
     font-size: 13px;
+    cursor: pointer;
     font-family: inherit;
     transition: all 0.15s;
+    text-align: left;
   }
 
-  .add-folder-btn:hover {
+  @media (prefers-reduced-motion: reduce) {
+    .dropdown-item {
+      transition: none;
+    }
+  }
+
+  .dropdown-item:hover {
     background: var(--color-surface-darker, #0a0a0a);
-    border-color: var(--color-primary, #00E5FF);
+    color: var(--color-text-white, #fff);
   }
 
-  .add-folder-btn .material-symbols-outlined {
-    font-size: 18px;
+  .dropdown-item.active {
+    color: var(--color-text-white, #fff);
+  }
+
+  .dropdown-item-icon {
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+
+  .dropdown-item.active .dropdown-item-icon {
+    color: var(--color-primary, #00E5FF);
+  }
+
+  .dropdown-item-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .dropdown-check {
+    font-size: 16px;
+    color: var(--color-primary, #00E5FF);
+    flex-shrink: 0;
+  }
+
+  .dropdown-separator {
+    height: 1px;
+    background: var(--color-border, #27272a);
+    margin: 4px 0;
+  }
+
+  .dropdown-item.add-item {
+    color: var(--color-primary, #00E5FF);
+  }
+
+  .dropdown-item.add-item:hover {
+    color: var(--color-primary, #00E5FF);
   }
 
   .context-menu-overlay {

@@ -16,6 +16,7 @@
   import { propertiesFileContent, outline } from '../stores/properties';
   import ConflictNotification from './ConflictNotification.svelte';
   import { showConflict, dismissConflict } from '../stores/conflict';
+  import { requestSaveAs } from '../stores/save-as';
 
   // ── Props ─────────────────────────────────────────────────────────────
   interface EditorProps {
@@ -438,6 +439,15 @@
     const tab = activeDocTab;
     if (!tab) return true;
 
+    // Untitled files need a "Save As" dialog to pick a filename
+    if (tab.isUntitled) {
+      // Update tab content before requesting save-as
+      const content = entry.view.state.doc.toString();
+      tab.content = content;
+      requestSaveAs(activeTabId);
+      return true;
+    }
+
     const content = entry.view.state.doc.toString();
     const fullPath = `${currentActiveCollection.path}/${tab.filePath}`;
 
@@ -478,7 +488,7 @@
     if (isSaving || Date.now() < saveGraceUntil) return;
 
     const tab = activeDocTab;
-    if (!tab) return;
+    if (!tab || tab.isUntitled) return;
 
     const fullPath = `${currentActiveCollection.path}/${tab.filePath}`;
 

@@ -12,6 +12,7 @@
   import ConflictNotification from './ConflictNotification.svelte';
   import DocumentHeader from './wysiwyg/DocumentHeader.svelte';
   import { showConflict, dismissConflict } from '../stores/conflict';
+  import { requestSaveAs } from '../stores/save-as';
   import { schema, fetchSchema } from '../stores/schema';
   import type { Schema } from '../types/cli';
   import BubbleMenu from './wysiwyg/BubbleMenu.svelte';
@@ -483,10 +484,12 @@
     // Update the tab's filePath and title
     activeDocTab.filePath = newPath;
     activeDocTab.title = newPath.split('/').pop() ?? newPath;
-    // Refresh file tree by reloading
-    import('../stores/files').then(({ loadFileTree }) => {
-      loadFileTree();
-    });
+    // Only refresh file tree for on-disk files (not untitled)
+    if (!activeDocTab.isUntitled) {
+      import('../stores/files').then(({ loadFileTree }) => {
+        loadFileTree();
+      });
+    }
   }
 
   // ── Save ──────────────────────────────────────────────────────────────
@@ -498,6 +501,14 @@
 
     const tab = activeDocTab;
     if (!tab) return true;
+
+    // Untitled files need a "Save As" dialog to pick a filename
+    if (tab.isUntitled) {
+      const content = getFullContentForEntry(entry);
+      tab.content = content;
+      requestSaveAs(activeTabId);
+      return true;
+    }
 
     const content = getFullContentForEntry(entry);
     const fullPath = `${currentActiveCollection.path}/${tab.filePath}`;
@@ -539,7 +550,7 @@
     if (isSaving || Date.now() < saveGraceUntil) return;
 
     const tab = activeDocTab;
-    if (!tab) return;
+    if (!tab || tab.isUntitled) return;
 
     const fullPath = `${currentActiveCollection.path}/${tab.filePath}`;
 
@@ -817,6 +828,7 @@
         schema={currentSchema}
         filePath={activeDocTab.filePath}
         collectionPath={currentActiveCollection?.path ?? ''}
+        isUntitled={activeDocTab.isUntitled}
         onFileRenamed={handleFileRenamed}
       />
       <div class="wysiwyg-content" bind:this={editorHost}></div>
@@ -879,11 +891,16 @@
   .wysiwyg-content {
     display: flex;
     flex-direction: column;
+    width: 100%;
+    flex: 1;
+    min-height: 0;
   }
 
   .wysiwyg-content :global(.wysiwyg-instance) {
     display: flex;
     flex-direction: column;
+    flex: 1;
+    min-height: 0;
   }
 
   .wysiwyg-content :global(.ProseMirror) {
