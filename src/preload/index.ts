@@ -200,6 +200,26 @@ const api: MdvdbApi = {
     ipcRenderer.removeAllListeners('tab:attach')
   },
 
+  // Cross-window file sync
+  onFileSavedExternally: (callback) => {
+    ipcRenderer.on('file:saved-externally', (_event, data) => callback(data))
+  },
+  removeFileSavedExternallyListener: () => {
+    ipcRenderer.removeAllListeners('file:saved-externally')
+  },
+
+  // Popup windows
+  openPopup: (options) => invoke('popup:open', options),
+  onPopupInit: (callback) => {
+    ipcRenderer.on('popup:init', (_event, data) => callback(data))
+  },
+  removePopupInitListener: () => {
+    ipcRenderer.removeAllListeners('popup:init')
+  },
+  updatePopupTitle: (title) => invoke('popup:title-update', title),
+  setPopupAlwaysOnTop: (enabled) => invoke('popup:set-always-on-top', enabled),
+  popBack: (tabData) => invoke('popup:pop-back', tabData),
+
   // Auto-updater
   checkForUpdates: () => invoke('updater:check'),
   downloadUpdate: () => invoke('updater:download'),

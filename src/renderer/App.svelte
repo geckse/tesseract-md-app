@@ -11,7 +11,7 @@
   import Onboarding from './components/Onboarding.svelte';
   import Settings from './components/Settings.svelte';
   import UpdateNotification from './components/UpdateNotification.svelte';
-  import { loadCollections, setActiveCollection, activeCollectionId } from './stores/collections';
+  import { loadCollections, setActiveCollection, activeCollectionId, activeCollection } from './stores/collections';
   import { fileContentLoading, resetFileState, syncFileStoresFromTab, loadAssetTree, loadFileTree } from './stores/files';
   import { searchOpen, clearSearch } from './stores/search';
   import { scrollToLine, editorMode, toggleEditorMode, requestSave, resetEditorState } from './stores/editor';
@@ -30,8 +30,12 @@
   import { applyTheme } from './lib/apply-theme';
   import { workspace } from './stores/workspace.svelte';
   import { closedTabs } from './stores/closed-tabs.svelte';
+  import PopupShell from './components/PopupShell.svelte';
   import type { SearchResult } from './types/cli';
 
+  // ── Popup Mode Detection ──────────────────────────────────────────
+  const popupParams = new URLSearchParams(window.location.search);
+  const isPopupMode = popupParams.get('mode') === 'popup';
 
   let propertiesOpen = $state(localStorage.getItem('mdvdb-properties-open') === 'true');
   let searchAreaEl: HTMLElement | undefined = $state(undefined);
@@ -44,6 +48,9 @@
   // Split pane state is managed by workspace + SplitPaneContainer
 
   onMount(() => {
+    // Popup windows render PopupShell — skip all heavyweight initialization
+    if (isPopupMode) return;
+
     // Load collections first, then restore tab session once the active collection is known.
     // restoreSession() validates file existence via the preload API, so it needs an active collection.
     loadCollections().then(async () => {
@@ -95,6 +102,23 @@
     const unsubCollectionColor = activeCollectionId.subscribe((id) => {
       loadCollectionAccentColor(id);
       loadCollectionTheme(id);
+    });
+
+    // Listen for cross-window file saves — silently update matching open tabs
+    window.api.onFileSavedExternally(({ path: savedPath, content }) => {
+      for (const tab of Object.values(workspace.tabs)) {
+        if (tab.kind !== 'document') continue;
+        const coll = get(activeCollection);
+        if (!coll) continue;
+        const absTabPath = `${coll.path}/${tab.filePath}`;
+        if (savedPath !== absTabPath) continue;
+
+        // Silently update this tab's content — it was saved by another window in the same app
+        tab.content = content;
+        tab.savedContent = content;
+        tab.isDirty = false;
+      }
+      syncFileStoresFromTab();
     });
 
     // Listen for native menu "Open Recent" clicks
@@ -451,6 +475,7 @@
       teardownWatcherListener();
       teardownUpdateListener();
       window.api.removeMenuOpenRecentListener();
+      window.api.removeFileSavedExternallyListener();
       unsub();
       unsubAccent();
       unsubCollectionColor();
@@ -534,7 +559,9 @@
 
 </script>
 
-{#if !$onboardingComplete}
+{#if isPopupMode}
+  <PopupShell urlParams={popupParams} />
+{:else if !$onboardingComplete}
   <Onboarding />
 {:else}
 <!-- Skip navigation link for accessibility -->

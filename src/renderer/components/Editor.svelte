@@ -352,11 +352,13 @@
       previousActiveTabId = currentTabId;
       startFileWatcher();
     } else {
-      // Same tab — check if content was externally reloaded (e.g., conflict resolution)
+      // Same tab — check if content was externally reloaded (e.g., conflict resolution or cross-window sync)
       const viewContent = entry.view.state.doc.toString();
       if (tab.content !== entry.lastSavedContent && tab.content !== viewContent) {
-        // External content change — replace content in the editor
+        // External content change — replace content in the editor and update saved baseline
         replaceContent(entry, tab.content);
+        entry.lastSavedContent = tab.savedContent ?? tab.content!;
+        isDirty.set(false);
       }
     }
   });
@@ -438,6 +440,9 @@
 
     const tab = activeDocTab;
     if (!tab) return true;
+
+    // Skip save if already clean (e.g., SaveAsModal already handled it)
+    if (!tab.isDirty && !tab.isUntitled) return true;
 
     // Untitled files need a "Save As" dialog to pick a filename
     if (tab.isUntitled) {

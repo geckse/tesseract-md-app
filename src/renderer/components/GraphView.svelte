@@ -56,7 +56,7 @@
   import type { GraphLevel } from '../types/cli'
   import type { GraphNode, GraphData } from '../types/cli'
   import { selectedFilePath, syncFileStoresFromTab } from '../stores/files'
-  import { activeCollection } from '../stores/collections'
+  import { activeCollection, activeCollectionId } from '../stores/collections'
   import { get } from 'svelte/store'
   import { workspace } from '../stores/workspace.svelte'
   import GraphPreview from './GraphPreview.svelte'
@@ -2494,7 +2494,7 @@
   {/if}
 
   {#if currentData && currentData.nodes.length > 0 && !currentError && webglSupported}
-    <!-- Level tab switcher -->
+    <!-- Level tab switcher + pop-out button -->
     <div class="graph-level-switcher" role="tablist">
       <button
         class="level-tab"
@@ -2506,6 +2506,25 @@
         class:active={currentLevel === 'chunk'}
         onclick={() => setGraphLevel('chunk')}>Chunks</button
       >
+      {#if !workspace.isPopup}
+        <button
+          class="level-tab graph-popout-btn"
+          title="Pop out graph"
+          onclick={() => {
+            const collection = get(activeCollection)
+            const colId = get(activeCollectionId)
+            window.api.openPopup({
+              kind: 'graph',
+              collectionId: colId ?? undefined,
+              collectionPath: collection?.path,
+              graphLevel: currentLevel,
+              graphColoringMode: currentColoringMode,
+            })
+          }}
+        >
+          <span class="material-symbols-outlined" style="font-size: 16px;">picture_in_picture_alt</span>
+        </button>
+      {/if}
     </div>
 
     <!-- Graph search overlay -->
@@ -3391,6 +3410,14 @@
   .level-tab.active {
     color: var(--color-primary, #00e5ff);
     background: var(--color-primary-dim, rgba(0, 229, 255, 0.08));
+  }
+
+  .graph-popout-btn {
+    padding: var(--space-1, 0.25rem) var(--space-2, 0.5rem);
+  }
+
+  .graph-popout-btn:hover {
+    color: var(--color-text-main, #e4e4e7);
   }
 
   .graph-path-badge {

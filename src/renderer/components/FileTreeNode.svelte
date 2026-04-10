@@ -8,7 +8,7 @@
     depth?: number
     onfileselect?: (detail: { path: string; forceNewTab?: boolean }) => void
     onassetselect?: (detail: { path: string; mimeCategory: MimeCategory; fileSize?: number }) => void
-    oncontextmenu?: (detail: { path: string; isDir: boolean; isAsset: boolean; x: number; y: number }) => void
+    oncontextmenu?: (detail: { path: string; isDir: boolean; isAsset: boolean; mimeCategory?: string; x: number; y: number }) => void
     onfolderclick?: (folderPath: string) => void
     focusedPath?: string
     noRecursiveRender?: boolean // If true, don't render children recursively (for virtual lists)
@@ -33,7 +33,7 @@
 
   function handleContextMenu(event: MouseEvent) {
     event.preventDefault()
-    onctx?.({ path: node.path, isDir: node.is_dir, isAsset: node.isAsset, x: event.clientX, y: event.clientY })
+    onctx?.({ path: node.path, isDir: node.is_dir, isAsset: node.isAsset, mimeCategory: node.mimeCategory, x: event.clientX, y: event.clientY })
   }
 
   function handleDragStart(event: DragEvent) {

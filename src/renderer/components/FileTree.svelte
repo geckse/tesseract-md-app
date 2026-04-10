@@ -87,6 +87,7 @@
   let contextMenuPath: string | null = $state(null)
   let contextMenuIsDir: boolean = $state(false)
   let contextMenuIsAsset: boolean = $state(false)
+  let contextMenuMimeCategory: string | undefined = $state(undefined)
   let contextMenuPosition = $state({ x: 0, y: 0 })
   let reindexingFile: string | null = $state(null)
 
@@ -250,10 +251,11 @@
     }
   })
 
-  function handleNodeContextMenu(detail: { path: string; isDir: boolean; isAsset: boolean; x: number; y: number }) {
+  function handleNodeContextMenu(detail: { path: string; isDir: boolean; isAsset: boolean; mimeCategory?: string; x: number; y: number }) {
     contextMenuPath = detail.path
     contextMenuIsDir = detail.isDir
     contextMenuIsAsset = detail.isAsset
+    contextMenuMimeCategory = detail.mimeCategory
     contextMenuPosition = { x: detail.x, y: detail.y }
   }
 
@@ -266,6 +268,21 @@
     const filePath = contextMenuPath
     closeContextMenu()
     onfileselect?.({ path: filePath, forceNewTab: true })
+  }
+
+  function handleOpenInPopup() {
+    if (!contextMenuPath || contextMenuIsDir) return
+    const filePath = contextMenuPath
+    const isAsset = contextMenuIsAsset
+    const mime = contextMenuMimeCategory
+    closeContextMenu()
+    window.api.openPopup({
+      kind: isAsset ? 'asset' : 'document',
+      filePath,
+      collectionId: currentActiveCollectionId ?? undefined,
+      collectionPath: currentActiveCollection?.path,
+      mimeCategory: isAsset ? (mime ?? 'other') : undefined,
+    })
   }
 
   async function handleRevealInFolder() {
@@ -654,6 +671,12 @@
         <button class="context-menu-item" onclick={handleOpenInNewTab}>
           <span class="material-symbols-outlined">tab</span>
           Open in New Tab
+        </button>
+      {/if}
+      {#if !contextMenuIsDir}
+        <button class="context-menu-item" onclick={handleOpenInPopup}>
+          <span class="material-symbols-outlined">picture_in_picture_alt</span>
+          Open in Popup Window
         </button>
       {/if}
       <button class="context-menu-item" onclick={handleRevealInFolder}>

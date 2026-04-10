@@ -30,7 +30,7 @@ import {
   setCollectionTheme
 } from './store'
 import type { PersistedWindowState } from './store'
-import type { TabTransferData } from '../preload/api'
+import type { TabTransferData, PopupOpenOptions } from '../preload/api'
 import { WatcherManager, type WatcherState } from './watcher'
 import { AppUpdater } from './updater'
 import type { WindowManager } from './window-manager'
@@ -506,7 +506,7 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
   )
 
   // File writing (with security validation)
-  ipcMain.handle('fs:write-file', (_event, absolutePath: string, content: string) =>
+  ipcMain.handle('fs:write-file', (event, absolutePath: string, content: string) =>
     wrapHandler(async () => {
       const { resolve, sep } = await import('node:path')
       const normalizedPath = resolve(absolutePath)
@@ -518,6 +518,15 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
         throw new Error('Access denied: path is not within a known collection')
       }
       await fs.writeFile(normalizedPath, content, 'utf-8')
+
+      // Notify all OTHER windows that this file was saved, so they can
+      // silently reload it instead of showing a conflict prompt.
+      const senderId = event.sender.id
+      for (const win of windowManager.getAllWindows()) {
+        if (win.webContents.id !== senderId && !win.isDestroyed()) {
+          win.webContents.send('file:saved-externally', { path: normalizedPath, content })
+        }
+      }
     })
   )
 
@@ -1032,16 +1041,27 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
   // Cross-window tab transfer
   //
   // tab:detach: Serialized tab data from the source window.
-  // Spawns a new BrowserWindow and sends the tab data to it
-  // once the renderer has finished loading (did-finish-load).
+  // Spawns a popup window (lightweight, chrome-free) and sends
+  // dirty content via popup:init once the renderer has loaded.
   ipcMain.handle('tab:detach', (_event, tabData: TabTransferData) =>
     wrapHandler(async () => {
-      const newWin = windowManager.createWindow()
-      newWin.webContents.once('did-finish-load', () => {
-        if (!newWin.isDestroyed()) {
-          newWin.webContents.send('tab:attach', tabData)
-        }
-      })
+      // Convert TabTransferData to PopupWindowOptions
+      const activeCollection = getActiveCollection()
+      const popupOpts = {
+        kind: tabData.kind as 'document' | 'asset' | 'graph',
+        filePath: tabData.filePath,
+        editorMode: tabData.editorMode,
+        isUntitled: tabData.isUntitled,
+        collectionId: activeCollection?.id,
+        collectionPath: activeCollection?.path,
+        mimeCategory: tabData.mimeCategory,
+        graphLevel: tabData.graphLevel,
+        graphColoringMode: tabData.graphColoringMode,
+        isDirty: tabData.isDirty,
+        content: tabData.content,
+        savedContent: tabData.savedContent,
+      }
+      windowManager.createPopupWindow(popupOpts)
     })
   )
 
@@ -1054,6 +1074,57 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
       const win = BrowserWindow.fromWebContents(event.sender)
       if (win && !win.isDestroyed()) {
         win.webContents.send('tab:attach', tabData)
+      }
+    })
+  )
+
+  // Popup windows
+  //
+  // popup:open: Create a new popup window from context menus or other triggers.
+  ipcMain.handle('popup:open', (_event, options: PopupOpenOptions) =>
+    wrapHandler(async () => {
+      windowManager.createPopupWindow(options)
+    })
+  )
+
+  // popup:title-update: Update the OS window title from the popup renderer.
+  ipcMain.handle('popup:title-update', (event, title: string) =>
+    wrapHandler(async () => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      if (win && !win.isDestroyed()) {
+        win.setTitle(title)
+      }
+    })
+  )
+
+  // popup:set-always-on-top: Toggle always-on-top for the calling window.
+  ipcMain.handle('popup:set-always-on-top', (event, enabled: boolean) =>
+    wrapHandler(async () => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      if (win && !win.isDestroyed()) {
+        win.setAlwaysOnTop(enabled, 'floating')
+      }
+    })
+  )
+
+  // popup:pop-back: Send the popup's document back to the main window, then close the popup.
+  ipcMain.handle('popup:pop-back', (event, tabData: TabTransferData) =>
+    wrapHandler(async () => {
+      // Find a non-popup window to send the tab to
+      const allWindows = windowManager.getAllWindows()
+      const senderWin = BrowserWindow.fromWebContents(event.sender)
+      const targetWin = allWindows.find(
+        (w) => w !== senderWin && !windowManager.isPopup(w.webContents.id)
+      )
+
+      if (targetWin && !targetWin.isDestroyed()) {
+        targetWin.webContents.send('tab:attach', tabData)
+        targetWin.focus()
+      }
+
+      // Close the popup
+      if (senderWin && !senderWin.isDestroyed()) {
+        senderWin.close()
       }
     })
   )

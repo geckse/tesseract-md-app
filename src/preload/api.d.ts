@@ -106,12 +106,39 @@ export interface PersistedWindowState {
  * Clean tabs reload content from disk in the target window.
  */
 export interface TabTransferData {
-  kind: 'document'
-  filePath: string
+  kind: 'document' | 'asset' | 'graph'
+  filePath?: string
   editorMode?: string
+  isDirty?: boolean
+  isUntitled?: boolean
+  content?: string | null
+  savedContent?: string | null
+  mimeCategory?: string
+  graphLevel?: string
+  graphColoringMode?: string
+}
+
+/** Options for opening a popup window (renderer → main). */
+export interface PopupOpenOptions {
+  kind: 'document' | 'asset' | 'graph'
+  filePath?: string
+  editorMode?: string
+  isUntitled?: boolean
+  collectionId?: string
+  collectionPath?: string
+  mimeCategory?: string
+  graphLevel?: string
+  graphColoringMode?: string
   isDirty?: boolean
   content?: string | null
   savedContent?: string | null
+}
+
+/** Data sent to popup renderer for dirty document transfer (main → renderer). */
+export interface PopupInitData {
+  content: string | null
+  savedContent: string | null
+  isDirty: boolean
 }
 
 /** Typed API exposed to the renderer process via contextBridge. */
@@ -255,6 +282,18 @@ export interface MdvdbApi {
   detachTab(tabData: TabTransferData): Promise<void>
   onTabAttach(callback: (data: TabTransferData) => void): void
   removeTabAttachListener(): void
+
+  // Cross-window file sync
+  onFileSavedExternally(callback: (data: { path: string; content: string }) => void): void
+  removeFileSavedExternallyListener(): void
+
+  // Popup windows
+  openPopup(options: PopupOpenOptions): Promise<void>
+  onPopupInit(callback: (data: PopupInitData) => void): void
+  removePopupInitListener(): void
+  updatePopupTitle(title: string): Promise<void>
+  setPopupAlwaysOnTop(enabled: boolean): Promise<void>
+  popBack(tabData: TabTransferData): Promise<void>
 
   // Auto-updater
   checkForUpdates(): Promise<UpdateCheckResult>

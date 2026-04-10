@@ -502,6 +502,9 @@
     const tab = activeDocTab;
     if (!tab) return true;
 
+    // Skip save if already clean (e.g., SaveAsModal already handled it)
+    if (!tab.isDirty && !tab.isUntitled) return true;
+
     // Untitled files need a "Save As" dialog to pick a filename
     if (tab.isUntitled) {
       const content = getFullContentForEntry(entry);

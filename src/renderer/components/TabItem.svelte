@@ -106,8 +106,8 @@
       clientX >= window.innerWidth ||
       clientY >= window.innerHeight
 
-    if (isOutsideWindow && tab.kind === 'document') {
-      // Detach this tab to a new window
+    if (isOutsideWindow) {
+      // Detach this tab to a popup window
       workspace.detachTab(tab.id).then(() => {
         syncFileStoresFromTab()
       })

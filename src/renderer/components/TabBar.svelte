@@ -273,7 +273,7 @@
   const isContextTabDocument = $derived(contextTab?.kind === 'document')
   const isContextTabCloseable = $derived(contextTab?.kind !== 'graph')
   const canSplit = $derived(isContextTabCloseable)
-  const canDetach = $derived(isContextTabDocument)
+  const canDetach = $derived(contextTab != null)
   const hasTabsToLeft = $derived(
     contextMenuTabId ? workspace.getTabIdsToLeft(contextMenuTabId, paneId).length > 0 : false
   )
@@ -449,6 +449,8 @@
       <span class="material-symbols-outlined">chevron_right</span>
     </button>
   {/if}
+
+
 </div>
 
 {#if contextMenuTabId && contextTab}
@@ -523,8 +525,8 @@
       {#if canDetach}
         <div class="context-menu-separator"></div>
         <button class="context-menu-item" onclick={handleCtxMoveToNewWindow}>
-          <span class="material-symbols-outlined">open_in_new</span>
-          Move into New Window
+          <span class="material-symbols-outlined">picture_in_picture_alt</span>
+          Pop Out
         </button>
       {/if}
     </div>

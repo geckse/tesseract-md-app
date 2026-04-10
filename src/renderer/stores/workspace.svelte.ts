@@ -189,6 +189,9 @@ class WorkspaceStore {
   /** Debounce timer for session auto-save. */
   private _saveTimer: ReturnType<typeof setTimeout> | null = null
 
+  /** Whether this workspace is running in popup mode (single-content, no chrome). */
+  isPopup = $state<boolean>(false)
+
   /** Whether session persistence is enabled (set after initial restore). */
   private _persistenceEnabled = false
 
@@ -880,76 +883,135 @@ class WorkspaceStore {
 
   /**
    * Serialize a tab for cross-window transfer.
-   * Only document tabs can be transferred (graph tabs are pinned per pane).
+   * All tab kinds can be serialized for popup window transfer.
    * Content is only included when the tab is dirty to avoid unnecessary data.
    */
   serializeTab(tabId: string): TabTransferData | null {
     const tab = this.tabs[tabId]
-    if (!tab || tab.kind !== 'document') return null
+    if (!tab) return null
 
-    return {
-      kind: 'document',
-      filePath: tab.filePath,
-      editorMode: tab.editorMode,
-      isDirty: tab.isDirty,
-      content: tab.isDirty ? tab.content : null,
-      savedContent: tab.isDirty ? tab.savedContent : null,
+    if (tab.kind === 'document') {
+      const includeContent = tab.isDirty || tab.isUntitled
+      return {
+        kind: 'document',
+        filePath: tab.filePath,
+        editorMode: tab.editorMode,
+        isDirty: tab.isDirty,
+        isUntitled: tab.isUntitled || undefined,
+        content: includeContent ? (tab.content ?? '') : null,
+        savedContent: includeContent ? (tab.savedContent ?? '') : null,
+      }
     }
+
+    if (tab.kind === 'asset') {
+      return {
+        kind: 'asset',
+        filePath: tab.filePath,
+        mimeCategory: tab.mimeCategory,
+      }
+    }
+
+    if (tab.kind === 'graph') {
+      return {
+        kind: 'graph',
+        graphLevel: tab.graphLevel,
+        graphColoringMode: tab.graphColoringMode,
+      }
+    }
+
+    return null
   }
 
   /**
    * Add a tab from cross-window transfer data.
-   * Creates a new document tab in the target pane and makes it active.
+   * Supports document, asset, and graph tab kinds.
    * Returns the new tab ID, or empty string if the data is invalid.
    */
   attachTab(data: TabTransferData, paneId?: string): string {
-    if (data.kind !== 'document' || !data.filePath) return ''
-
     const targetPaneId = paneId ?? this.activePaneId
     const pane = this.panes[targetPaneId]
     if (!pane) return ''
 
-    // Check if the file is already open in this pane — switch to it instead
-    const existingTabId = this._findTabByFilePath(data.filePath, targetPaneId)
-    if (existingTabId) {
-      this.switchTab(existingTabId, targetPaneId)
-      return existingTabId
+    if (data.kind === 'document') {
+      if (!data.filePath) return ''
+
+      // Check if the file is already open in this pane — switch to it instead
+      const existingTabId = this._findTabByFilePath(data.filePath, targetPaneId)
+      if (existingTabId) {
+        this.switchTab(existingTabId, targetPaneId)
+        return existingTabId
+      }
+
+      const tab = createDocumentTab(data.filePath, data.isUntitled)
+      if (data.editorMode) {
+        tab.editorMode = data.editorMode as EditorMode
+      }
+      if (data.isUntitled) {
+        tab.content = data.content ?? ''
+        tab.savedContent = data.savedContent ?? ''
+        tab.isDirty = true
+      } else {
+        if (data.isDirty) {
+          tab.isDirty = true
+        }
+        if (data.content !== undefined && data.content !== null) {
+          tab.content = data.content
+        }
+        if (data.savedContent !== undefined && data.savedContent !== null) {
+          tab.savedContent = data.savedContent
+        }
+      }
+
+      this.tabs[tab.id] = tab
+      this._insertTabBeforeGraph(pane, tab.id)
+      pane.activeTabId = tab.id
+      this.panes[targetPaneId] = { ...pane }
+      this._scheduleSave()
+      return tab.id
     }
 
-    // Create a new document tab from the transfer data
-    const tab = createDocumentTab(data.filePath)
-    if (data.editorMode) {
-      tab.editorMode = data.editorMode as EditorMode
-    }
-    if (data.isDirty) {
-      tab.isDirty = true
-    }
-    if (data.content !== undefined && data.content !== null) {
-      tab.content = data.content
-    }
-    if (data.savedContent !== undefined && data.savedContent !== null) {
-      tab.savedContent = data.savedContent
+    if (data.kind === 'asset' && data.filePath) {
+      const parts = data.filePath.split('/')
+      const title = parts[parts.length - 1] || data.filePath
+      const tab: AssetTab = {
+        id: crypto.randomUUID(),
+        kind: 'asset',
+        filePath: data.filePath,
+        title,
+        mimeCategory: (data.mimeCategory as MimeCategory) ?? 'other',
+      }
+      this.tabs[tab.id] = tab
+      this._insertTabBeforeGraph(pane, tab.id)
+      pane.activeTabId = tab.id
+      this.panes[targetPaneId] = { ...pane }
+      this._scheduleSave()
+      return tab.id
     }
 
-    this.tabs[tab.id] = tab
+    if (data.kind === 'graph') {
+      // For graph, just switch to the existing graph tab in this pane
+      if (pane.graphTabId) {
+        this.switchTab(pane.graphTabId, targetPaneId)
+        return pane.graphTabId
+      }
+      return ''
+    }
 
-    // Insert before the graph tab (graph is always last)
+    return ''
+  }
+
+  /** Insert a tab ID before the graph tab in a pane's tab order. */
+  private _insertTabBeforeGraph(pane: PaneState, tabId: string): void {
     const graphIdx = pane.tabOrder.indexOf(pane.graphTabId)
     if (graphIdx >= 0) {
       pane.tabOrder = [
         ...pane.tabOrder.slice(0, graphIdx),
-        tab.id,
+        tabId,
         ...pane.tabOrder.slice(graphIdx),
       ]
     } else {
-      pane.tabOrder = [...pane.tabOrder, tab.id]
+      pane.tabOrder = [...pane.tabOrder, tabId]
     }
-
-    pane.activeTabId = tab.id
-    this.panes[targetPaneId] = { ...pane }
-
-    this._scheduleSave()
-    return tab.id
   }
 
   /**
@@ -962,10 +1024,12 @@ class WorkspaceStore {
     const data = this.serializeTab(tabId)
     if (!data) return null
 
-    // Remove the tab from the source pane
-    this.closeTab(tabId, paneId)
+    // Remove the tab from the source pane (graph tabs are pinned so closeTab is a no-op for them)
+    if (data.kind !== 'graph') {
+      this.closeTab(tabId, paneId)
+    }
 
-    // Spawn a new window with the detached tab via IPC
+    // Spawn a popup window with the detached tab via IPC
     await window.api.detachTab(data)
 
     return data
@@ -1207,6 +1271,92 @@ class WorkspaceStore {
    */
   enablePersistence(): void {
     this._persistenceEnabled = true
+  }
+
+  // ── Popup Mode ────────────────────────────────────────────────────
+
+  /**
+   * Initialize workspace in popup mode with a single pane and single tab.
+   * Popup windows show one piece of content with no chrome. Session
+   * persistence is disabled — popups are ephemeral.
+   */
+  initAsPopup(kind: 'document' | 'asset' | 'graph', options: {
+    filePath?: string
+    editorMode?: EditorMode
+    isUntitled?: boolean
+    content?: string | null
+    savedContent?: string | null
+    mimeCategory?: MimeCategory
+    graphLevel?: GraphLevel
+    graphColoringMode?: GraphColoringMode
+  }): string {
+    this.isPopup = true
+    // Do not enable session persistence for popups
+    this._persistenceEnabled = false
+
+    // Create a single pane without a graph tab
+    const pane: PaneState = {
+      id: 'popup-pane',
+      tabOrder: [],
+      activeTabId: null,
+      graphTabId: null,
+    }
+
+    let tab: TabState
+
+    if (kind === 'document') {
+      const docTab = createDocumentTab(options.filePath ?? 'Untitled', options.isUntitled)
+      if (options.editorMode) {
+        docTab.editorMode = options.editorMode
+      }
+      if (options.isUntitled) {
+        // Untitled files need empty content so the editor mounts immediately
+        docTab.content = options.content ?? ''
+        docTab.savedContent = options.savedContent ?? ''
+        docTab.isDirty = true
+      } else {
+        if (options.content !== undefined && options.content !== null) {
+          docTab.content = options.content
+        }
+        if (options.savedContent !== undefined && options.savedContent !== null) {
+          docTab.savedContent = options.savedContent
+        }
+        if (options.content != null && options.savedContent != null && options.content !== options.savedContent) {
+          docTab.isDirty = true
+        }
+      }
+      tab = docTab
+    } else if (kind === 'asset') {
+      const parts = (options.filePath ?? '').split('/')
+      const title = parts[parts.length - 1] || 'Asset'
+      tab = {
+        id: crypto.randomUUID(),
+        kind: 'asset',
+        filePath: options.filePath ?? '',
+        title,
+        mimeCategory: options.mimeCategory ?? 'other',
+      } as AssetTab
+    } else {
+      // Graph tab
+      tab = {
+        id: crypto.randomUUID(),
+        kind: 'graph',
+        title: 'Graph',
+        graphLevel: options.graphLevel ?? 'document',
+        graphPathFilter: null,
+        graphColoringMode: options.graphColoringMode ?? 'cluster',
+      } as GraphTab
+    }
+
+    pane.tabOrder = [tab.id]
+    pane.activeTabId = tab.id
+
+    this.tabs = { [tab.id]: tab }
+    this.panes = { [pane.id]: pane }
+    this.paneOrder = [pane.id]
+    this.activePaneId = pane.id
+
+    return tab.id
   }
 
   // ── Private Helpers ────────────────────────────────────────────────
