@@ -41,8 +41,13 @@
     onnavigate?.({ id })
   }
 
-  async function handleAddCollection() {
-    await addCollection()
+  async function handleAddCollection(): Promise<Collection | null> {
+    const collection = await addCollection()
+    if (collection) {
+      await setActiveCollection(collection.id)
+      await Promise.all([loadFileTree(), loadAssetTree()])
+    }
+    return collection
   }
 
   async function handleCollectionClick(collection: Collection) {

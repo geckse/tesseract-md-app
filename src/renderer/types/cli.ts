@@ -193,6 +193,22 @@ export interface ClusterSummary {
   keywords: string[];
 }
 
+// ─── Custom Clusters ────────────────────────────────────────────
+
+/** User-defined cluster definition (from config, not computed). */
+export interface CustomClusterDef {
+  name: string;
+  seeds: string[];
+}
+
+/** Computed custom cluster summary (from index after ingest). */
+export interface CustomClusterSummary {
+  id: number;
+  name: string;
+  seed_phrases: string[];
+  document_count: number;
+}
+
 // ─── Graph ───────────────────────────────────────────────────────
 
 /** Graph level controlling node granularity. */
@@ -204,6 +220,8 @@ export interface GraphNode {
   path: string;
   label: string | null;
   cluster_id: number | null;
+  /** Custom cluster assignment (separate layer from auto-clusters). */
+  custom_cluster_id: number | null;
   chunk_index: number | null;
   /** Optional size metric (e.g. content length for chunks). */
   size?: number | null;
@@ -247,6 +265,8 @@ export interface GraphData {
   level: GraphLevel;
   /** Edge clusters discovered by semantic analysis. */
   edge_clusters?: GraphEdgeCluster[];
+  /** User-defined custom clusters, if available. */
+  custom_clusters?: GraphCluster[];
 }
 
 // ─── File Tree ───────────────────────────────────────────────────────

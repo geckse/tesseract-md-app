@@ -62,7 +62,7 @@
   import GraphPreview from './GraphPreview.svelte'
   import { edgeClusterColor } from '../lib/edge-utils'
   import { paletteColor, paletteTextColor, type HarmonicPalette } from '../lib/harmonic-palette'
-  import { clusterPalette, edgePalette, arrowPalette } from '../stores/palette'
+  import { clusterPalette, customClusterPalette, edgePalette, arrowPalette } from '../stores/palette'
   import {
     buildSearchScoreMap,
     buildGraphContextMap,
@@ -98,6 +98,9 @@
 
   /** Current cluster palette (reactive, updated via store subscription). */
   let currentClusterPalette: HarmonicPalette = get(clusterPalette)
+
+  /** Current custom cluster palette (reactive). */
+  let currentCustomClusterPalette: HarmonicPalette = get(customClusterPalette)
 
   /** Current edge palette (reactive). */
   let currentEdgePalette: HarmonicPalette = get(edgePalette)
@@ -161,6 +164,7 @@
   let unsubLevel: (() => void) | null = null
   let unsubOpenedNode: (() => void) | null = null
   let unsubClusterPalette: (() => void) | null = null
+  let unsubCustomClusterPalette: (() => void) | null = null
   let unsubEdgePalette: (() => void) | null = null
   let unsubArrowPalette: (() => void) | null = null
 
@@ -1143,6 +1147,7 @@
       weakThreshold: currentEdgeWeakThreshold,
       level: currentLevel,
       clusterPalette: currentClusterPalette,
+      customClusterPalette: currentCustomClusterPalette,
       edgePalette: currentEdgePalette
     }
 
@@ -1833,6 +1838,11 @@
       if (graph) graph.refresh()
     })
 
+    unsubCustomClusterPalette = customClusterPalette.subscribe((p) => {
+      currentCustomClusterPalette = p
+      if (currentColoringMode === 'custom-cluster' && graph) graph.refresh()
+    })
+
     unsubEdgePalette = edgePalette.subscribe((p) => {
       currentEdgePalette = p
       if (currentData && graph) feedData(currentData)
@@ -2120,6 +2130,17 @@
       id: c.id,
       label: c.label,
       color: paletteColor(currentClusterPalette, c.id),
+      member_count: c.member_count
+    }))
+  }
+
+  /** Get custom cluster items for legend display. */
+  function getCustomClusters(): { id: number; label: string; color: string; member_count: number }[] {
+    if (!currentData?.custom_clusters) return []
+    return currentData.custom_clusters.map((c) => ({
+      id: c.id,
+      label: c.label,
+      color: paletteColor(currentCustomClusterPalette, c.id),
       member_count: c.member_count
     }))
   }
@@ -2440,6 +2461,7 @@
     unsubLevel?.()
     unsubOpenedNode?.()
     unsubClusterPalette?.()
+    unsubCustomClusterPalette?.()
     unsubEdgePalette?.()
     unsubArrowPalette?.()
   })
@@ -2748,26 +2770,26 @@
       </div>
     {/if}
 
-    <!-- Legend: tri-state coloring mode -->
+    <!-- Legend: coloring mode -->
     {#if currentColoringMode === 'none'}
       <div class="graph-legend-collapsed">
         <button class="legend-toggle" onclick={cycleColoringMode} title="Color by clusters">
           <span class="material-symbols-outlined">visibility_off</span>
         </button>
       </div>
-    {:else if (currentColoringMode === 'cluster' && getClusters().length > 0) || (currentColoringMode === 'folder' && folderColorMap.size > 0)}
+    {:else if (currentColoringMode === 'cluster' && getClusters().length > 0) || (currentColoringMode === 'custom-cluster' && getCustomClusters().length > 0) || (currentColoringMode === 'folder' && folderColorMap.size > 0)}
       <div class="graph-legend">
         <div class="legend-header">
           <span class="legend-title"
-            >{currentColoringMode === 'cluster' ? 'Clusters' : 'Folders'}</span
+            >{currentColoringMode === 'cluster' ? 'Clusters' : currentColoringMode === 'custom-cluster' ? 'Custom Clusters' : 'Folders'}</span
           >
           <button
             class="legend-toggle"
             onclick={cycleColoringMode}
-            title={currentColoringMode === 'cluster' ? 'Color by folders' : 'No coloring'}
+            title={currentColoringMode === 'cluster' ? 'Color by custom clusters' : currentColoringMode === 'custom-cluster' ? 'Color by folders' : 'No coloring'}
           >
             <span class="material-symbols-outlined"
-              >{currentColoringMode === 'cluster' ? 'category' : 'folder'}</span
+              >{currentColoringMode === 'cluster' ? 'category' : currentColoringMode === 'custom-cluster' ? 'folder' : 'folder'}</span
             >
           </button>
           <button
@@ -2784,6 +2806,14 @@
           <div class="legend-items">
             {#if currentColoringMode === 'cluster'}
               {#each getClusters() as cluster}
+                <div class="legend-item">
+                  <span class="legend-dot" style="background: {cluster.color}"></span>
+                  <span class="legend-label">{cluster.label}</span>
+                  <span class="legend-count">{cluster.member_count}</span>
+                </div>
+              {/each}
+            {:else if currentColoringMode === 'custom-cluster'}
+              {#each getCustomClusters() as cluster}
                 <div class="legend-item">
                   <span class="legend-dot" style="background: {cluster.color}"></span>
                   <span class="legend-label">{cluster.label}</span>

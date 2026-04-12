@@ -10,6 +10,8 @@ import type {
   OrphansOutput,
   NeighborhoodResult,
   ClusterSummary,
+  CustomClusterSummary,
+  CustomClusterDef,
   GraphData,
   GraphLevel,
   Schema,
@@ -156,6 +158,8 @@ export interface MdvdbApi {
   neighborhood(root: string, filePath: string, depth: number): Promise<NeighborhoodResult>
   orphans(root: string): Promise<OrphansOutput>
   clusters(root: string): Promise<ClusterSummary[]>
+  customClusters(root: string): Promise<CustomClusterSummary[]>
+  clusterDefinitions(root: string): Promise<CustomClusterDef[]>
   graphData(root: string, level?: GraphLevel, path?: string): Promise<GraphData>
   schema(root: string, path?: string): Promise<Schema>
   config(root: string): Promise<Config>

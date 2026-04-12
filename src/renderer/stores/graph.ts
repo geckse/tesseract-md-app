@@ -281,13 +281,22 @@ export function openGraphNode(node: GraphNode): void {
   graphOpenedNode.set(node)
 }
 
-/** Cycle graph coloring mode: cluster → folder → none → cluster. */
+/** Cycle graph coloring mode: cluster → custom-cluster → folder → none → cluster.
+ *  Skips custom-cluster if no custom clusters are defined. */
 export function cycleColoringMode(): void {
   const current = get(graphColoringMode)
-  const next: GraphColoringMode =
-    current === 'cluster' ? 'folder' :
-    current === 'folder' ? 'none' :
-    'cluster'
+  const data = get(graphData)
+  const hasCustomClusters = (data?.custom_clusters?.length ?? 0) > 0
+  let next: GraphColoringMode
+  if (current === 'cluster') {
+    next = hasCustomClusters ? 'custom-cluster' : 'folder'
+  } else if (current === 'custom-cluster') {
+    next = 'folder'
+  } else if (current === 'folder') {
+    next = 'none'
+  } else {
+    next = 'cluster'
+  }
   graphColoringMode.set(next)
 }
 

@@ -62,6 +62,8 @@ import type {
   OrphansOutput,
   NeighborhoodResult,
   ClusterSummary,
+  CustomClusterSummary,
+  CustomClusterDef,
   GraphData,
   Schema,
   Config,
@@ -268,6 +270,16 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
   // Clusters
   ipcMain.handle('cli:clusters', (_event, root: string) =>
     wrapHandler(() => execCommand<ClusterSummary[]>('clusters', [], root))
+  )
+
+  // Custom clusters (computed assignments from index)
+  ipcMain.handle('cli:custom-clusters', (_event, root: string) =>
+    wrapHandler(() => execCommand<CustomClusterSummary[]>('clusters', ['--custom'], root))
+  )
+
+  // Custom cluster definitions (from config, no index needed)
+  ipcMain.handle('cli:clusters-list', (_event, root: string) =>
+    wrapHandler(() => execCommand<CustomClusterDef[]>('clusters', ['list', '--json'], root))
   )
 
   // Graph data

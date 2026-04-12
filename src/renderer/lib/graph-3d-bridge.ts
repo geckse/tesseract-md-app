@@ -74,7 +74,7 @@ export interface Graph3DData {
 // ─── Types ───────────────────────────────────────────────────────────
 
 /** Coloring mode controlling node color assignment. */
-export type ColoringMode = 'cluster' | 'folder' | 'none'
+export type ColoringMode = 'cluster' | 'custom-cluster' | 'folder' | 'none'
 
 /** Options for buildGraph3DData conversion. */
 export interface BuildGraph3DOptions {
@@ -84,6 +84,8 @@ export interface BuildGraph3DOptions {
   level: GraphLevel
   /** Harmonic palette for cluster/folder/file-hash node colors */
   clusterPalette: HarmonicPalette
+  /** Harmonic palette for custom cluster node colors */
+  customClusterPalette: HarmonicPalette
   /** Harmonic palette for edge cluster colors */
   edgePalette: HarmonicPalette
 }
@@ -119,11 +121,19 @@ function nodeColor(
   mode: ColoringMode,
   folderColorMap: Map<string, string> | null,
   isChunk: boolean,
-  palette: HarmonicPalette
+  palette: HarmonicPalette,
+  customPalette: HarmonicPalette
 ): string {
   if (mode === 'cluster') {
     if (node.cluster_id != null) {
       return paletteColor(palette, node.cluster_id)
+    }
+    return isChunk ? fileColor(node.path, palette) : getDefaultNodeColor()
+  }
+
+  if (mode === 'custom-cluster') {
+    if (node.custom_cluster_id != null) {
+      return paletteColor(customPalette, node.custom_cluster_id)
     }
     return isChunk ? fileColor(node.path, palette) : getDefaultNodeColor()
   }
@@ -352,7 +362,7 @@ export function buildGraph3DData(data: GraphData, options: BuildGraph3DOptions):
   const nodes: Graph3DNode[] = data.nodes.map((node) => {
     const degree = degreeMap.get(node.id) ?? 0
     const val = nodeSizeValue(options.level, degree, node.size ?? 0, maxSize)
-    const color = nodeColor(node, options.coloringMode, folderColorMap, isChunk, options.clusterPalette)
+    const color = nodeColor(node, options.coloringMode, folderColorMap, isChunk, options.clusterPalette, options.customClusterPalette)
 
     return {
       id: node.id,

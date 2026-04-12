@@ -21,6 +21,16 @@ export const clusterPalette = derived<typeof primaryVariants, HarmonicPalette>(
 )
 
 /**
+ * 12-color palette for custom (user-defined) cluster nodes.
+ * Offset by 9 so custom cluster colors are visually distinct from auto-cluster
+ * colors (which start at offset 3).
+ */
+export const customClusterPalette = derived<typeof primaryVariants, HarmonicPalette>(
+  primaryVariants,
+  ($v) => generateHarmonicPalette($v.primary, 12, 9)
+)
+
+/**
  * 8-color palette for edge clusters.
  * Offset by 3 to skip the arrow palette slots.
  */

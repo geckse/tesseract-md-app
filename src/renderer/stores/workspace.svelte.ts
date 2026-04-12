@@ -32,7 +32,7 @@ function detectAssetMime(filePath: string): MimeCategory | null {
 // ─── Tab Types ─────────────────────────────────────────────────────────
 
 /** Graph coloring mode (duplicated from graph.ts to avoid circular deps). */
-export type GraphColoringMode = 'cluster' | 'folder' | 'none'
+export type GraphColoringMode = 'cluster' | 'custom-cluster' | 'folder' | 'none'
 
 /** Per-tab navigation history. */
 export interface TabNavigation {

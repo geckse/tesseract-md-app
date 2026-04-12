@@ -36,6 +36,9 @@
   import { settingsOpen } from '../stores/ui'
   import { collections, activeCollection } from '../stores/collections'
   import type { Collection } from '../../preload/api'
+  import type { CustomClusterDef, CustomClusterSummary } from '../types/cli'
+  import { parseCustomClusters, encodeCustomClusters } from '../lib/custom-clusters'
+  import CustomClusterModal from './CustomClusterModal.svelte'
 
   interface SettingsProps {
     onclose: () => void
@@ -43,7 +46,7 @@
 
   let { onclose }: SettingsProps = $props()
 
-  type Section = 'cli' | 'embedding' | 'search' | 'chunking' | 'appearance' | 'about'
+  type Section = 'cli' | 'embedding' | 'search' | 'chunking' | 'clusters' | 'appearance' | 'about'
 
   const globalSections: { id: Section; label: string; icon: string }[] = [
     { id: 'cli', label: 'CLI', icon: 'terminal' },
@@ -58,6 +61,7 @@
     { id: 'embedding', label: 'Embedding Provider', icon: 'hub' },
     { id: 'search', label: 'Search Defaults', icon: 'search' },
     { id: 'chunking', label: 'Chunking', icon: 'content_cut' },
+    { id: 'clusters', label: 'Custom Clusters', icon: 'category' },
     { id: 'appearance', label: 'Appearance', icon: 'palette' },
   ]
 
@@ -66,6 +70,7 @@
     embedding: 'Configure which AI model generates vector embeddings for your documents.',
     search: 'Default parameters for search queries.',
     chunking: 'Control how documents are split into chunks before embedding.',
+    clusters: 'Define your own semantic clusters with seed phrases. Documents are assigned by similarity.',
     appearance: 'Visual preferences for the app.',
     about: 'Version information and resources.',
   }
@@ -76,6 +81,13 @@
   let currentCollectionConfig: Record<string, string> = $state({})
   let currentLoading = $state(false)
   let allCollections: Collection[] = $state([])
+
+  // Custom clusters state
+  let customClusterDefs: CustomClusterDef[] = $state([])
+  let customClusterSummaries: CustomClusterSummary[] = $state([])
+  let clusterModalOpen = $state(false)
+  let clusterEditIndex: number | null = $state(null)
+  let clusterNeedsIngest = $state(false)
 
   // CLI state
   let cliPath = $state('')
@@ -214,6 +226,61 @@
       loadCollectionConfig(targetCollection.path)
     }
   })
+
+  // Load custom cluster definitions + summaries when collection config changes
+  $effect(() => {
+    if (!isGlobal && targetCollection) {
+      const raw = getConfigValue('MDVDB_CUSTOM_CLUSTERS')
+      customClusterDefs = parseCustomClusters(raw)
+      // Load computed summaries (needs index, may fail)
+      window.api
+        .customClusters(targetCollection.path)
+        .then((s) => (customClusterSummaries = s))
+        .catch(() => (customClusterSummaries = []))
+    } else {
+      customClusterDefs = []
+      customClusterSummaries = []
+    }
+  })
+
+  function getClusterDocCount(name: string): number | null {
+    const s = customClusterSummaries.find((c) => c.name === name)
+    return s ? s.document_count : null
+  }
+
+  function handleAddCluster() {
+    clusterEditIndex = null
+    clusterModalOpen = true
+  }
+
+  function handleEditCluster(index: number) {
+    clusterEditIndex = index
+    clusterModalOpen = true
+  }
+
+  function handleRemoveCluster(index: number) {
+    const updated = customClusterDefs.filter((_, i) => i !== index)
+    customClusterDefs = updated
+    const encoded = encodeCustomClusters(updated)
+    stageCollectionConfig('MDVDB_CUSTOM_CLUSTERS', encoded)
+  }
+
+  function handleClusterModalSave(def: CustomClusterDef) {
+    let updated: CustomClusterDef[]
+    if (clusterEditIndex !== null) {
+      updated = customClusterDefs.map((d, i) => (i === clusterEditIndex ? def : d))
+    } else {
+      updated = [...customClusterDefs, def]
+    }
+    customClusterDefs = updated
+    const encoded = encodeCustomClusters(updated)
+    stageCollectionConfig('MDVDB_CUSTOM_CLUSTERS', encoded)
+    clusterModalOpen = false
+  }
+
+  function handleClusterModalClose() {
+    clusterModalOpen = false
+  }
 
   async function checkForUpdate() {
     checkingUpdate = true
@@ -792,6 +859,54 @@
             {/if}
           </div>
         </div>
+
+      {:else if currentSection === 'clusters' && !isGlobal}
+        <div class="section">
+          <div class="section-header-row">
+            <h2 class="section-title">Custom Clusters</h2>
+            <button class="btn-icon" onclick={handleAddCluster} title="Add cluster">
+              <span class="material-symbols-outlined">add</span>
+            </button>
+          </div>
+          <p class="section-explainer">{sectionExplainers.clusters}</p>
+
+          {#if customClusterDefs.length === 0}
+            <p class="empty-state">No custom clusters defined. Click + to add one.</p>
+          {:else}
+            <div class="cluster-list">
+              {#each customClusterDefs as def, i}
+                <div class="cluster-card">
+                  <div class="cluster-card-header">
+                    <span class="cluster-name">{def.name}</span>
+                    <div class="cluster-actions">
+                      <button class="btn-icon btn-icon-sm" onclick={() => handleEditCluster(i)} title="Edit">
+                        <span class="material-symbols-outlined">edit</span>
+                      </button>
+                      <button class="btn-icon btn-icon-sm" onclick={() => handleRemoveCluster(i)} title="Remove">
+                        <span class="material-symbols-outlined">close</span>
+                      </button>
+                    </div>
+                  </div>
+                  <div class="cluster-seeds">Seeds: {def.seeds.join(', ')}</div>
+                  {#if getClusterDocCount(def.name) !== null}
+                    <div class="cluster-doc-count">Documents: {getClusterDocCount(def.name)}</div>
+                  {/if}
+                </div>
+              {/each}
+            </div>
+          {/if}
+
+          <p class="field-hint" style="margin-top: 12px;">Changes require re-ingest to take effect.</p>
+        </div>
+
+        {#if clusterModalOpen}
+          <CustomClusterModal
+            existingDef={clusterEditIndex !== null ? customClusterDefs[clusterEditIndex] : null}
+            existingNames={customClusterDefs.map((d) => d.name).filter((_, i) => i !== clusterEditIndex)}
+            onsave={handleClusterModalSave}
+            onclose={handleClusterModalClose}
+          />
+        {/if}
 
       {:else if currentSection === 'appearance' && isGlobal}
         <div class="section">
@@ -1582,5 +1697,72 @@
 
   .notice-icon {
     font-size: 14px;
+  }
+
+  /* Custom Clusters */
+  .section-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .cluster-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .cluster-card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+
+  .cluster-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 4px;
+  }
+
+  .cluster-name {
+    font-weight: 600;
+    color: var(--color-text-main);
+    font-size: 13px;
+  }
+
+  .cluster-actions {
+    display: flex;
+    gap: 2px;
+  }
+
+  .cluster-seeds {
+    font-size: 11px;
+    color: var(--color-text-dim);
+    line-height: 1.4;
+  }
+
+  .cluster-doc-count {
+    font-size: 11px;
+    color: var(--color-text-dim);
+    margin-top: 2px;
+  }
+
+  .btn-icon-sm {
+    width: 24px;
+    height: 24px;
+  }
+
+  .btn-icon-sm .material-symbols-outlined {
+    font-size: 16px;
+  }
+
+  .empty-state {
+    font-size: 12px;
+    color: var(--color-text-dim);
+    font-style: italic;
+    padding: 16px 0;
   }
 </style>
