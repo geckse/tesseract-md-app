@@ -46,6 +46,14 @@ export class WindowManager {
   /** Set of webContents.id values that are popup windows. */
   private popups: Set<number> = new Set()
 
+  /** Callbacks invoked (with webContents.id) when a tracked window is closed. */
+  private closeListeners: ((webContentsId: number) => void)[] = []
+
+  /** Register a callback fired when any tracked window closes. */
+  onWindowClosed(cb: (webContentsId: number) => void): void {
+    this.closeListeners.push(cb)
+  }
+
   /**
    * Create a new BrowserWindow, register it for tracking, and set up
    * standard event handlers (zoom, bounds persistence, external links).
@@ -80,6 +88,13 @@ export class WindowManager {
     // Remove from tracking when the window is closed
     win.on('closed', () => {
       this.windows.delete(id)
+      for (const cb of this.closeListeners) {
+        try {
+          cb(id)
+        } catch {
+          // ignore listener errors
+        }
+      }
     })
 
     win.on('ready-to-show', () => {
@@ -181,6 +196,13 @@ export class WindowManager {
     win.on('closed', () => {
       this.windows.delete(id)
       this.popups.delete(id)
+      for (const cb of this.closeListeners) {
+        try {
+          cb(id)
+        } catch {
+          // ignore listener errors
+        }
+      }
     })
 
     win.on('ready-to-show', () => {

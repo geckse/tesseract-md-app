@@ -37,9 +37,14 @@ export type UpdateChannel = 'stable' | 'beta'
 
 /** A persisted tab — only file paths and layout, never file content. */
 export interface PersistedTab {
-  kind: 'document' | 'graph'
+  kind: 'document' | 'graph' | 'terminal'
   filePath?: string // Only for document tabs
   graphLevel?: string // Only for graph tabs: 'document' | 'chunk'
+  /** For terminal tabs: the saved shell path + cwd used to respawn */
+  terminalShell?: string
+  terminalCwd?: string
+  /** Optional user-set title for terminal tabs */
+  terminalTitle?: string
 }
 
 /** A persisted pane within a window session. */
@@ -48,11 +53,27 @@ export interface PersistedPane {
   activeTabIndex: number
 }
 
+/** A terminal slot persisted in the bottom panel — shell + cwd only, no PTY state. */
+export interface PersistedTerminalSlot {
+  shell: string
+  cwd: string
+  title?: string
+}
+
+/** Persisted bottom panel state per window. */
+export interface PersistedBottomPanel {
+  open: boolean
+  height: number
+  slots: PersistedTerminalSlot[]
+  activeIndex: number
+}
+
 /** Persisted window state — restored on app restart. */
 export interface PersistedWindowState {
   panes: PersistedPane[]
   splitEnabled: boolean
   splitRatio: number // 0-1 fraction for left pane width
+  bottomPanel?: PersistedBottomPanel
 }
 
 /** Schema for the persistent store */
@@ -77,6 +98,9 @@ export interface AppStore {
   collectionColors: Record<string, string>
   themeMode: string
   collectionThemes: Record<string, string>
+  terminalShellPath: string
+  terminalShellArgs: string
+  terminalFontSize: number
 }
 
 /** electron-store schema definition for validation */
@@ -195,10 +219,13 @@ const schema = {
                   properties: {
                     kind: {
                       type: 'string' as const,
-                      enum: ['document', 'graph']
+                      enum: ['document', 'graph', 'terminal']
                     },
                     filePath: { type: 'string' as const },
-                    graphLevel: { type: 'string' as const }
+                    graphLevel: { type: 'string' as const },
+                    terminalShell: { type: 'string' as const },
+                    terminalCwd: { type: 'string' as const },
+                    terminalTitle: { type: 'string' as const }
                   },
                   required: ['kind'] as const
                 }
@@ -209,7 +236,27 @@ const schema = {
           }
         },
         splitEnabled: { type: 'boolean' as const },
-        splitRatio: { type: 'number' as const }
+        splitRatio: { type: 'number' as const },
+        bottomPanel: {
+          type: 'object' as const,
+          properties: {
+            open: { type: 'boolean' as const },
+            height: { type: 'number' as const },
+            activeIndex: { type: 'number' as const },
+            slots: {
+              type: 'array' as const,
+              items: {
+                type: 'object' as const,
+                properties: {
+                  shell: { type: 'string' as const },
+                  cwd: { type: 'string' as const },
+                  title: { type: 'string' as const }
+                },
+                required: ['shell', 'cwd'] as const
+              }
+            }
+          }
+        }
       },
       required: ['panes', 'splitEnabled', 'splitRatio'] as const
     }
@@ -230,6 +277,18 @@ const schema = {
   collectionThemes: {
     type: 'object' as const,
     default: {} as Record<string, string>
+  },
+  terminalShellPath: {
+    type: 'string' as const,
+    default: ''
+  },
+  terminalShellArgs: {
+    type: 'string' as const,
+    default: ''
+  },
+  terminalFontSize: {
+    type: 'number' as const,
+    default: 14
   }
 }
 
@@ -482,4 +541,40 @@ export function setCollectionTheme(collectionId: string, mode: string | null): v
     themes[collectionId] = mode
   }
   s.set('collectionThemes', themes)
+}
+
+/** Get the user-configured shell path override (empty string = use default) */
+export function getTerminalShellPath(): string {
+  const s = initStore()
+  return s.get('terminalShellPath', '')
+}
+
+/** Set the user-configured shell path override */
+export function setTerminalShellPath(value: string): void {
+  const s = initStore()
+  s.set('terminalShellPath', value)
+}
+
+/** Get the user-configured shell arguments as a space-separated string */
+export function getTerminalShellArgs(): string {
+  const s = initStore()
+  return s.get('terminalShellArgs', '')
+}
+
+/** Set the user-configured shell arguments string */
+export function setTerminalShellArgs(value: string): void {
+  const s = initStore()
+  s.set('terminalShellArgs', value)
+}
+
+/** Get the terminal font size */
+export function getTerminalFontSize(): number {
+  const s = initStore()
+  return s.get('terminalFontSize', 14)
+}
+
+/** Set the terminal font size */
+export function setTerminalFontSize(value: number): void {
+  const s = initStore()
+  s.set('terminalFontSize', value)
 }

@@ -12,6 +12,7 @@
   import PdfViewer from './PdfViewer.svelte'
   import AssetInfoCard from './AssetInfoCard.svelte'
   import SaveAsModal from './SaveAsModal.svelte'
+  import Terminal from './Terminal.svelte'
 
   interface TabPaneProps {
     paneId: string
@@ -153,6 +154,13 @@
           {:else}
             <AssetInfoCard filePath={assetTab.filePath} mimeCategory={assetTab.mimeCategory} fileSize={assetTab.fileSize} />
           {/if}
+        </div>
+      {/if}
+    {:else if tabKind === 'terminal'}
+      {@const termTab = activeTab?.kind === 'terminal' ? activeTab : null}
+      {#if termTab}
+        <div class="content-region" role="main" aria-label="Terminal">
+          <Terminal terminalId={termTab.terminalId} />
         </div>
       {/if}
     {:else if tabKind === 'document'}

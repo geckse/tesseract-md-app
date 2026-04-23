@@ -5,10 +5,16 @@
 /** Known CLI error types for discriminated unions. */
 export type CliErrorType = 'CliNotFoundError' | 'CliExecutionError' | 'CliParseError' | 'CliTimeoutError'
 
+/** Known terminal error types for discriminated unions. */
+export type TerminalErrorType = 'TerminalSpawnError' | 'TerminalNotFoundError'
+
+/** All known error types */
+export type ErrorType = CliErrorType | TerminalErrorType
+
 /** Serialized error shape for IPC transport */
 export interface SerializedError {
   error: true
-  type: CliErrorType
+  type: ErrorType
   message: string
   exitCode?: number
   stderr?: string
@@ -70,6 +76,32 @@ export class CliTimeoutError extends Error {
   }
 }
 
+/** Thrown when a terminal cannot be spawned (shell missing, cwd invalid, etc.) */
+export class TerminalSpawnError extends Error {
+  name = 'TerminalSpawnError' as const
+
+  constructor(message: string) {
+    super(message)
+  }
+
+  serialize(): SerializedError {
+    return { error: true, type: 'TerminalSpawnError', message: this.message }
+  }
+}
+
+/** Thrown when a terminal id is not found in the PtyManager */
+export class TerminalNotFoundError extends Error {
+  name = 'TerminalNotFoundError' as const
+
+  constructor(id: string) {
+    super(`Terminal not found: ${id}`)
+  }
+
+  serialize(): SerializedError {
+    return { error: true, type: 'TerminalNotFoundError', message: this.message }
+  }
+}
+
 /** Type guard to check if an unknown error is a serialized CLI error */
 export function isSerializedError(value: unknown): value is SerializedError {
   return (
@@ -95,7 +127,11 @@ export function deserializeError(err: SerializedError): Error {
       return new CliParseError(err.message)
     case 'CliTimeoutError':
       return new CliTimeoutError(err.message)
+    case 'TerminalSpawnError':
+      return new TerminalSpawnError(err.message)
+    case 'TerminalNotFoundError':
+      return new TerminalNotFoundError(err.message)
     default:
-      return new Error(err.message)
+      return new Error((err as SerializedError).message)
   }
 }

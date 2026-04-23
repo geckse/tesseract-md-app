@@ -83,8 +83,17 @@ export interface AssetTab {
   fileSize?: number
 }
 
+/** A terminal tab — hosts a PTY rendered via xterm. */
+export interface TerminalTab {
+  id: string
+  kind: 'terminal'
+  /** Foreign key into the terminal store. */
+  terminalId: string
+  title: string
+}
+
 /** Discriminated union of all tab types. */
-export type TabState = DocumentTab | GraphTab | AssetTab
+export type TabState = DocumentTab | GraphTab | AssetTab | TerminalTab
 
 // ─── Pane Types ────────────────────────────────────────────────────────
 
@@ -195,8 +204,63 @@ class WorkspaceStore {
   /** Whether session persistence is enabled (set after initial restore). */
   private _persistenceEnabled = false
 
+  /** Listeners notified when a tab is closed (used by terminal store to dispose PTY). */
+  private _tabClosedListeners: ((tab: TabState) => void)[] = []
+
+  /**
+   * Optional lookup hook for persisting terminal tab slots. The terminal
+   * store registers this at init so serialize knows the shell/cwd for
+   * each terminalId without a circular store import.
+   */
+  private _terminalSlotLookup: ((terminalId: string) => { shell: string; cwd: string } | null) | null = null
+
+  /**
+   * Optional restore hook invoked for each persisted terminal tab during
+   * restoreSession. Returns the terminalId that the tab should reference.
+   */
+  private _terminalSlotRestore: ((slot: { shell: string; cwd: string; title?: string }, location: 'tab') => string | null) | null = null
+
+  /** Hook that returns the bottom-panel snapshot for persistence. */
+  private _bottomPanelSerializer: (() => import('../../preload/api').PersistedBottomPanel | null) | null = null
+
+  /** Hook invoked during session restore with the saved bottom-panel snapshot. */
+  private _bottomPanelRestorer: ((state: import('../../preload/api').PersistedBottomPanel) => void) | null = null
+
+  /** Register terminal-store hooks for session persistence. */
+  registerTerminalHooks(
+    lookup: (terminalId: string) => { shell: string; cwd: string } | null,
+    restore: (slot: { shell: string; cwd: string; title?: string }, location: 'tab') => string | null,
+    bottomPanelSerializer?: () => import('../../preload/api').PersistedBottomPanel | null,
+    bottomPanelRestorer?: (state: import('../../preload/api').PersistedBottomPanel) => void
+  ): void {
+    this._terminalSlotLookup = lookup
+    this._terminalSlotRestore = restore
+    if (bottomPanelSerializer) this._bottomPanelSerializer = bottomPanelSerializer
+    if (bottomPanelRestorer) this._bottomPanelRestorer = bottomPanelRestorer
+  }
+
+  /** Trigger a debounced session save (used by terminal store when panel state changes). */
+  requestSave(): void {
+    this._scheduleSave()
+  }
+
   constructor() {
     this._initDefaultPane()
+  }
+
+  /** Register a listener invoked after a tab is removed from the workspace. */
+  onTabClosed(cb: (tab: TabState) => void): void {
+    this._tabClosedListeners.push(cb)
+  }
+
+  private _notifyTabClosed(tab: TabState): void {
+    for (const cb of this._tabClosedListeners) {
+      try {
+        cb(tab)
+      } catch {
+        // ignore listener errors
+      }
+    }
   }
 
   // ── Computed Getters ───────────────────────────────────────────────
@@ -505,6 +569,64 @@ class WorkspaceStore {
   }
 
   /**
+   * Open a terminal tab hosting a PTY. The terminalId is a foreign key into
+   * the terminal store, where the PTY session is tracked.
+   */
+  openTerminalTab(terminalId: string, title: string, paneId?: string): string {
+    const targetPaneId = paneId ?? this.activePaneId
+    const pane = this.panes[targetPaneId]
+    if (!pane) return ''
+
+    const tab: TerminalTab = {
+      id: crypto.randomUUID(),
+      kind: 'terminal',
+      terminalId,
+      title,
+    }
+    this.tabs[tab.id] = tab
+
+    // Insert before the graph tab
+    const graphIdx = pane.graphTabId ? pane.tabOrder.indexOf(pane.graphTabId) : -1
+    if (graphIdx >= 0) {
+      pane.tabOrder = [
+        ...pane.tabOrder.slice(0, graphIdx),
+        tab.id,
+        ...pane.tabOrder.slice(graphIdx),
+      ]
+    } else {
+      pane.tabOrder = [...pane.tabOrder, tab.id]
+    }
+
+    pane.activeTabId = tab.id
+    this.panes[targetPaneId] = { ...pane }
+
+    this._scheduleSave()
+    return tab.id
+  }
+
+  /** Update a terminal tab's title in response to foreground-process changes. */
+  setTerminalTabTitle(terminalId: string, title: string): void {
+    for (const tabId of Object.keys(this.tabs)) {
+      const tab = this.tabs[tabId]
+      if (tab.kind === 'terminal' && tab.terminalId === terminalId) {
+        tab.title = title
+        this.tabs[tabId] = { ...tab }
+      }
+    }
+  }
+
+  /** Find the workspace tab that hosts a given terminalId (if any). */
+  findTabByTerminalId(terminalId: string): string | null {
+    for (const tabId of Object.keys(this.tabs)) {
+      const tab = this.tabs[tabId]
+      if (tab.kind === 'terminal' && tab.terminalId === terminalId) {
+        return tabId
+      }
+    }
+    return null
+  }
+
+  /**
    * Close a tab by ID. If it's the active tab, activate the nearest tab.
    * Returns the closed tab state (for undo/reopen), or null if not found
    * or if the tab is a pinned graph tab.
@@ -553,6 +675,7 @@ class WorkspaceStore {
       }
     }
 
+    if (closedTab) this._notifyTabClosed(closedTab)
     this._scheduleSave()
     return closedTab
   }
@@ -1062,6 +1185,17 @@ class WorkspaceStore {
           tabs.push({ kind: 'graph', graphLevel: tab.graphLevel })
         } else if (tab.kind === 'asset') {
           tabs.push({ kind: 'asset', filePath: tab.filePath, mimeCategory: tab.mimeCategory })
+        } else if (tab.kind === 'terminal') {
+          // Persist terminal slots via terminal store lookup — tab itself
+          // only remembers that this slot is a terminal; shell/cwd live in
+          // the terminal store and are captured here by the restore hook.
+          const lookup = this._terminalSlotLookup?.(tab.terminalId)
+          tabs.push({
+            kind: 'terminal',
+            terminalShell: lookup?.shell,
+            terminalCwd: lookup?.cwd,
+            terminalTitle: tab.title,
+          })
         }
 
         if (tabId === pane.activeTabId) {
@@ -1076,6 +1210,7 @@ class WorkspaceStore {
       panes,
       splitEnabled: this.splitEnabled,
       splitRatio: this.splitRatio,
+      bottomPanel: this._bottomPanelSerializer?.() ?? undefined,
     }
   }
 
@@ -1129,6 +1264,41 @@ class WorkspaceStore {
 
       for (let i = 0; i < persistedPane.tabs.length; i++) {
         const persistedTab = persistedPane.tabs[i]
+
+        if (persistedTab.kind === 'terminal') {
+          // Ask the terminal store to respawn a PTY for this slot.
+          const slot = {
+            shell: persistedTab.terminalShell ?? '',
+            cwd: persistedTab.terminalCwd ?? '',
+            title: persistedTab.terminalTitle,
+          }
+          const terminalId = this._terminalSlotRestore?.(slot, 'tab') ?? null
+          if (!terminalId) continue
+
+          const tab: TerminalTab = {
+            id: crypto.randomUUID(),
+            kind: 'terminal',
+            terminalId,
+            title: persistedTab.terminalTitle ?? 'Terminal',
+          }
+          this.tabs[tab.id] = tab
+
+          const graphIdx = pane.graphTabId ? pane.tabOrder.indexOf(pane.graphTabId) : -1
+          if (graphIdx >= 0) {
+            pane.tabOrder = [
+              ...pane.tabOrder.slice(0, graphIdx),
+              tab.id,
+              ...pane.tabOrder.slice(graphIdx),
+            ]
+          } else {
+            pane.tabOrder = [...pane.tabOrder, tab.id]
+          }
+
+          if (i === persistedPane.activeTabIndex) {
+            activeTabId = tab.id
+          }
+          continue
+        }
 
         if (persistedTab.kind === 'asset' && persistedTab.filePath) {
           // Restore asset tab — validate file exists via fileInfo
@@ -1239,6 +1409,15 @@ class WorkspaceStore {
     // If no panes were restored, init a default one
     if (this.paneOrder.length === 0) {
       this._initDefaultPane()
+    }
+
+    // Restore bottom panel (terminals) if the terminal store has registered a restorer
+    if (session.bottomPanel && this._bottomPanelRestorer) {
+      try {
+        this._bottomPanelRestorer(session.bottomPanel)
+      } catch {
+        // best-effort; ignore terminal restore failures
+      }
     }
 
     // Enable persistence now that we've restored

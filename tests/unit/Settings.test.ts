@@ -25,6 +25,12 @@ const mockApi = {
   installCli: vi.fn().mockResolvedValue(undefined),
   getEditorFontSize: vi.fn().mockResolvedValue(14),
   setEditorFontSize: vi.fn().mockResolvedValue(undefined),
+  getTerminalShellPath: vi.fn().mockResolvedValue(''),
+  setTerminalShellPath: vi.fn().mockResolvedValue(undefined),
+  getTerminalShellArgs: vi.fn().mockResolvedValue(''),
+  setTerminalShellArgs: vi.fn().mockResolvedValue(undefined),
+  getTerminalFontSize: vi.fn().mockResolvedValue(14),
+  setTerminalFontSize: vi.fn().mockResolvedValue(undefined),
   openPath: vi.fn(),
 }
 

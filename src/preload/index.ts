@@ -43,6 +43,13 @@ async function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
   return unwrapResult(result) as T
 }
 
+// Maps from user callback -> wrapped ipcRenderer handler so removeTerminal*Listener
+// can remove the exact listener without touching others.
+type TerminalListener = (event: Electron.IpcRendererEvent, payload: unknown) => void
+const terminalDataMap = new WeakMap<(payload: never) => void, TerminalListener>()
+const terminalExitMap = new WeakMap<(payload: never) => void, TerminalListener>()
+const terminalTitleMap = new WeakMap<(payload: never) => void, TerminalListener>()
+
 const api: MdvdbApi = {
   findCli: () => invoke('cli:find'),
   getCliVersion: () => invoke('cli:version'),
@@ -233,7 +240,72 @@ const api: MdvdbApi = {
   },
   removeUpdateEventListener: () => {
     ipcRenderer.removeAllListeners('updater:event')
-  }
+  },
+
+  // Terminal (embedded PTY)
+  terminalCreate: (opts) => invoke('terminal:create', opts),
+  terminalWrite: (id, data) => invoke('terminal:write', { id, data }),
+  terminalResize: (id, cols, rows) => invoke('terminal:resize', { id, cols, rows }),
+  terminalDispose: (id) => invoke('terminal:dispose', { id }),
+  terminalList: () => invoke('terminal:list'),
+  onTerminalData: (callback) => {
+    // Wrap so listeners can be removed individually by returning a handle
+    // that maps 1:1 to the Electron listener we register.
+    const wrapped = (_event: Electron.IpcRendererEvent, payload: unknown): void => {
+      callback(payload as Parameters<typeof callback>[0])
+    }
+    terminalDataMap.set(callback, wrapped)
+    ipcRenderer.on('terminal:data', wrapped)
+    return callback
+  },
+  onTerminalExit: (callback) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, payload: unknown): void => {
+      callback(payload as Parameters<typeof callback>[0])
+    }
+    terminalExitMap.set(callback, wrapped)
+    ipcRenderer.on('terminal:exit', wrapped)
+    return callback
+  },
+  onTerminalTitle: (callback) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, payload: unknown): void => {
+      callback(payload as Parameters<typeof callback>[0])
+    }
+    terminalTitleMap.set(callback, wrapped)
+    ipcRenderer.on('terminal:title', wrapped)
+    return callback
+  },
+  removeTerminalDataListener: (handler) => {
+    const wrapped = terminalDataMap.get(handler)
+    if (wrapped) {
+      ipcRenderer.off('terminal:data', wrapped)
+      terminalDataMap.delete(handler)
+    }
+  },
+  removeTerminalExitListener: (handler) => {
+    const wrapped = terminalExitMap.get(handler)
+    if (wrapped) {
+      ipcRenderer.off('terminal:exit', wrapped)
+      terminalExitMap.delete(handler)
+    }
+  },
+  removeTerminalTitleListener: (handler) => {
+    const wrapped = terminalTitleMap.get(handler)
+    if (wrapped) {
+      ipcRenderer.off('terminal:title', wrapped)
+      terminalTitleMap.delete(handler)
+    }
+  },
+
+  // Terminal settings
+  getTerminalShellPath: () => invoke('store:get-terminal-shell-path'),
+  setTerminalShellPath: (value) => invoke('store:set-terminal-shell-path', value),
+  getTerminalShellArgs: () => invoke('store:get-terminal-shell-args'),
+  setTerminalShellArgs: (value) => invoke('store:set-terminal-shell-args', value),
+  getTerminalFontSize: () => invoke('store:get-terminal-font-size'),
+  setTerminalFontSize: (value) => invoke('store:set-terminal-font-size', value),
+
+  // Home directory (fallback cwd)
+  getHomeDir: () => invoke('os:homedir')
 }
 
 if (process.contextIsolated) {

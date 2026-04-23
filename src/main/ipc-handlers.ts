@@ -27,7 +27,13 @@ import {
   getThemeMode,
   setThemeMode,
   getCollectionTheme,
-  setCollectionTheme
+  setCollectionTheme,
+  getTerminalShellPath,
+  setTerminalShellPath,
+  getTerminalShellArgs,
+  setTerminalShellArgs,
+  getTerminalFontSize,
+  setTerminalFontSize
 } from './store'
 import type { PersistedWindowState } from './store'
 import type { TabTransferData, PopupOpenOptions } from '../preload/api'
@@ -74,7 +80,9 @@ import {
   CliNotFoundError,
   CliExecutionError,
   CliParseError,
-  CliTimeoutError
+  CliTimeoutError,
+  TerminalSpawnError,
+  TerminalNotFoundError
 } from './errors'
 
 /** Ingest timeout: 5 minutes */
@@ -84,12 +92,14 @@ const INGEST_TIMEOUT_MS = 300_000
  * Serialize any error into an IPC-safe object.
  * IPC strips Error prototypes, so we convert to plain objects.
  */
-function serializeError(error: unknown): SerializedError {
+export function serializeError(error: unknown): SerializedError {
   if (
     error instanceof CliNotFoundError ||
     error instanceof CliExecutionError ||
     error instanceof CliParseError ||
-    error instanceof CliTimeoutError
+    error instanceof CliTimeoutError ||
+    error instanceof TerminalSpawnError ||
+    error instanceof TerminalNotFoundError
   ) {
     return error.serialize()
   }
@@ -104,7 +114,7 @@ function serializeError(error: unknown): SerializedError {
 /**
  * Wrap an async handler so errors are serialized for IPC transport.
  */
-function wrapHandler<T>(fn: () => Promise<T>): Promise<T | SerializedError> {
+export function wrapHandler<T>(fn: () => Promise<T>): Promise<T | SerializedError> {
   return fn().catch((error: unknown) => {
     return serializeError(error)
   })
@@ -1116,6 +1126,45 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
       if (win && !win.isDestroyed()) {
         win.setAlwaysOnTop(enabled, 'floating')
       }
+    })
+  )
+
+  // Terminal settings
+  ipcMain.handle('store:get-terminal-shell-path', () =>
+    wrapHandler(async () => getTerminalShellPath())
+  )
+
+  ipcMain.handle('store:set-terminal-shell-path', (_event, value: string) =>
+    wrapHandler(async () => {
+      setTerminalShellPath(value)
+    })
+  )
+
+  ipcMain.handle('store:get-terminal-shell-args', () =>
+    wrapHandler(async () => getTerminalShellArgs())
+  )
+
+  ipcMain.handle('store:set-terminal-shell-args', (_event, value: string) =>
+    wrapHandler(async () => {
+      setTerminalShellArgs(value)
+    })
+  )
+
+  ipcMain.handle('store:get-terminal-font-size', () =>
+    wrapHandler(async () => getTerminalFontSize())
+  )
+
+  ipcMain.handle('store:set-terminal-font-size', (_event, value: number) =>
+    wrapHandler(async () => {
+      setTerminalFontSize(value)
+    })
+  )
+
+  // Home directory (fallback cwd for terminals)
+  ipcMain.handle('os:homedir', () =>
+    wrapHandler(async (): Promise<string> => {
+      const { homedir } = await import('node:os')
+      return homedir()
     })
   )
 

@@ -83,10 +83,13 @@ export interface CliInstallResult {
 
 /** A persisted tab — only file paths and layout, never file content. */
 export interface PersistedTab {
-  kind: 'document' | 'graph' | 'asset'
+  kind: 'document' | 'graph' | 'asset' | 'terminal'
   filePath?: string
   graphLevel?: string
   mimeCategory?: string
+  terminalShell?: string
+  terminalCwd?: string
+  terminalTitle?: string
 }
 
 /** A persisted pane within a window session. */
@@ -95,11 +98,27 @@ export interface PersistedPane {
   activeTabIndex: number
 }
 
+/** A persisted slot in the bottom panel (terminal) — shell + cwd only. */
+export interface PersistedTerminalSlot {
+  shell: string
+  cwd: string
+  title?: string
+}
+
+/** Persisted bottom panel state per window. */
+export interface PersistedBottomPanel {
+  open: boolean
+  height: number
+  slots: PersistedTerminalSlot[]
+  activeIndex: number
+}
+
 /** Persisted window state — restored on app restart. */
 export interface PersistedWindowState {
   panes: PersistedPane[]
   splitEnabled: boolean
   splitRatio: number
+  bottomPanel?: PersistedBottomPanel
 }
 
 /**
@@ -307,6 +326,30 @@ export interface MdvdbApi {
   getAppVersion(): Promise<string>
   onUpdateEvent(callback: (event: UpdateEvent) => void): void
   removeUpdateEventListener(): void
+
+  // Terminal (embedded PTY)
+  terminalCreate(opts: TerminalCreateOpts): Promise<TerminalCreateResult>
+  terminalWrite(id: string, data: string): Promise<void>
+  terminalResize(id: string, cols: number, rows: number): Promise<void>
+  terminalDispose(id: string): Promise<void>
+  terminalList(): Promise<TerminalInfo[]>
+  onTerminalData(callback: (payload: TerminalDataPayload) => void): (payload: TerminalDataPayload) => void
+  onTerminalExit(callback: (payload: TerminalExitPayload) => void): (payload: TerminalExitPayload) => void
+  onTerminalTitle(callback: (payload: TerminalTitlePayload) => void): (payload: TerminalTitlePayload) => void
+  removeTerminalDataListener(handler: (payload: TerminalDataPayload) => void): void
+  removeTerminalExitListener(handler: (payload: TerminalExitPayload) => void): void
+  removeTerminalTitleListener(handler: (payload: TerminalTitlePayload) => void): void
+
+  // Terminal settings (persisted via electron-store)
+  getTerminalShellPath(): Promise<string>
+  setTerminalShellPath(value: string): Promise<void>
+  getTerminalShellArgs(): Promise<string>
+  setTerminalShellArgs(value: string): Promise<void>
+  getTerminalFontSize(): Promise<number>
+  setTerminalFontSize(value: number): Promise<void>
+
+  // Home directory (fallback cwd)
+  getHomeDir(): Promise<string>
 }
 
 /** Result of checking for updates. */
@@ -334,6 +377,51 @@ export interface UpdateEvent {
 export interface WatcherStatus {
   state: 'stopped' | 'starting' | 'running' | 'stopping' | 'error'
   root: string | null
+}
+
+/** Options for creating a new terminal PTY (renderer → main). */
+export interface TerminalCreateOpts {
+  id: string
+  cwd: string
+  shell?: string
+  args?: string[]
+  env?: Record<string, string>
+  cols: number
+  rows: number
+}
+
+/** Result of creating a terminal PTY (main → renderer). */
+export interface TerminalCreateResult {
+  pid: number
+  shell: string
+}
+
+/** Info about a live terminal PTY. */
+export interface TerminalInfo {
+  id: string
+  pid: number
+  shell: string
+  cwd: string
+  status: 'running' | 'exited'
+}
+
+/** Payload pushed from main when a PTY emits stdout/stderr. */
+export interface TerminalDataPayload {
+  id: string
+  data: string
+}
+
+/** Payload pushed from main when a PTY exits. */
+export interface TerminalExitPayload {
+  id: string
+  code: number
+  signal?: number
+}
+
+/** Payload pushed from main when a PTY's foreground title changes. */
+export interface TerminalTitlePayload {
+  id: string
+  title: string
 }
 
 /** Watcher event forwarded from the main process. */

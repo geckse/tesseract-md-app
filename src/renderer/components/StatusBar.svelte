@@ -3,6 +3,7 @@
   import { isDirty, wordCount as wordCountStore, tokenCount as tokenCountStore } from '../stores/editor';
   import { workspace, type AssetTab } from '../stores/workspace.svelte';
   import WatcherToggle from './WatcherToggle.svelte';
+  import { terminalStore } from '../stores/terminal.svelte';
   import mdvdbIcon from '../../../resources/mdvdb.png';
   import type { MimeCategory } from '../types/cli';
 
@@ -109,6 +110,20 @@
   </div>
 
   <div class="status-group">
+    <button
+      type="button"
+      class="status-item interactive terminal-toggle"
+      class:active={terminalStore.panel.open}
+      title={terminalStore.panel.open ? 'Hide terminal panel' : 'Show terminal panel'}
+      aria-label="Toggle terminal panel"
+      aria-pressed={terminalStore.panel.open}
+      onclick={() => void terminalStore.togglePanel()}
+    >
+      <span class="material-symbols-outlined status-icon">terminal</span>
+      {#if terminalStore.terminalCount > 0}
+        <span class="terminal-count">{terminalStore.terminalCount}</span>
+      {/if}
+    </button>
     <WatcherToggle />
     <span class="status-item cli-indicator" class:cli-found={cliFound} class:cli-missing={!cliFound}>
       <span class="cli-dot" class:cli-dot-found={cliFound} class:cli-dot-missing={!cliFound}></span>
@@ -200,6 +215,31 @@
 
   .cli-dot-missing {
     background: #ef4444;
+  }
+
+  .terminal-toggle {
+    background: transparent;
+    border: none;
+    color: inherit;
+    font: inherit;
+    padding: 0 6px;
+    height: 22px;
+    border-radius: 4px;
+  }
+
+  .terminal-toggle.active {
+    color: var(--color-primary, #60a5fa);
+    background: var(--overlay-active, rgba(255, 255, 255, 0.08));
+  }
+
+  .terminal-count {
+    font-size: 10px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: var(--overlay-active, rgba(255, 255, 255, 0.1));
+    line-height: 14px;
+    min-width: 14px;
+    text-align: center;
   }
 
   .status-logo {

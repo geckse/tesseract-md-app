@@ -46,13 +46,14 @@
 
   let { onclose }: SettingsProps = $props()
 
-  type Section = 'cli' | 'embedding' | 'search' | 'chunking' | 'clusters' | 'appearance' | 'about'
+  type Section = 'cli' | 'embedding' | 'search' | 'chunking' | 'clusters' | 'terminal' | 'appearance' | 'about'
 
   const globalSections: { id: Section; label: string; icon: string }[] = [
     { id: 'cli', label: 'CLI', icon: 'terminal' },
     { id: 'embedding', label: 'Embedding Provider', icon: 'hub' },
     { id: 'search', label: 'Search Defaults', icon: 'search' },
     { id: 'chunking', label: 'Chunking', icon: 'content_cut' },
+    { id: 'terminal', label: 'Terminal', icon: 'terminal' },
     { id: 'appearance', label: 'Appearance', icon: 'palette' },
     { id: 'about', label: 'About', icon: 'info' },
   ]
@@ -71,6 +72,7 @@
     search: 'Default parameters for search queries.',
     chunking: 'Control how documents are split into chunks before embedding.',
     clusters: 'Define your own semantic clusters with seed phrases. Documents are assigned by similarity.',
+    terminal: 'Configure the embedded terminal. Leave the shell path blank to use your system default.',
     appearance: 'Visual preferences for the app.',
     about: 'Version information and resources.',
   }
@@ -212,13 +214,37 @@
     activeSection.set(id)
   }
 
+  // Terminal settings state (stored via electron-store, separate from config files)
+  let terminalShellPath = $state('')
+  let terminalShellArgs = $state('')
+  let terminalFontSize = $state(14)
+
   // Load configs on mount
   $effect(() => {
     loadUserConfig()
     window.api.findCli().then((p) => (cliPath = p)).catch(() => {})
     window.api.getCliVersion().then((v) => (cliVersion = v)).catch(() => {})
     window.api.getEditorFontSize().then((s) => (fontSize = s)).catch(() => {})
+    window.api.getTerminalShellPath().then((v) => (terminalShellPath = v)).catch(() => {})
+    window.api.getTerminalShellArgs().then((v) => (terminalShellArgs = v)).catch(() => {})
+    window.api.getTerminalFontSize().then((v) => (terminalFontSize = v)).catch(() => {})
   })
+
+  function saveTerminalShellPath(value: string): void {
+    terminalShellPath = value
+    window.api.setTerminalShellPath(value).catch(() => {})
+  }
+
+  function saveTerminalShellArgs(value: string): void {
+    terminalShellArgs = value
+    window.api.setTerminalShellArgs(value).catch(() => {})
+  }
+
+  function adjustTerminalFontSize(delta: number): void {
+    const next = Math.max(10, Math.min(24, terminalFontSize + delta))
+    terminalFontSize = next
+    window.api.setTerminalFontSize(next).catch(() => {})
+  }
 
   // Load collection config when target changes to a collection
   $effect(() => {
@@ -907,6 +933,51 @@
             onclose={handleClusterModalClose}
           />
         {/if}
+
+      {:else if currentSection === 'terminal' && isGlobal}
+        <div class="section">
+          <h2 class="section-title">Terminal</h2>
+          <p class="section-explainer">{sectionExplainers.terminal}</p>
+
+          <div class="field-group">
+            <label class="field-label" for="terminal-shell-path">Shell Path</label>
+            <p class="field-hint">Absolute path to the shell binary. Leave blank to use your system default.</p>
+            <input
+              id="terminal-shell-path"
+              type="text"
+              class="field-input"
+              placeholder="/bin/zsh"
+              value={terminalShellPath}
+              oninput={(e) => saveTerminalShellPath((e.currentTarget as HTMLInputElement).value)}
+            />
+          </div>
+
+          <div class="field-group">
+            <label class="field-label" for="terminal-shell-args">Shell Arguments</label>
+            <p class="field-hint">Space-separated arguments passed to the shell on launch.</p>
+            <input
+              id="terminal-shell-args"
+              type="text"
+              class="field-input"
+              placeholder="-l"
+              value={terminalShellArgs}
+              oninput={(e) => saveTerminalShellArgs((e.currentTarget as HTMLInputElement).value)}
+            />
+          </div>
+
+          <div class="field-group">
+            <label class="field-label">Terminal Font Size</label>
+            <div class="field-row font-size-row">
+              <button class="font-btn" onclick={() => adjustTerminalFontSize(-1)} disabled={terminalFontSize <= 10}>
+                <span class="material-symbols-outlined">remove</span>
+              </button>
+              <span class="font-size-value">{terminalFontSize}px</span>
+              <button class="font-btn" onclick={() => adjustTerminalFontSize(1)} disabled={terminalFontSize >= 24}>
+                <span class="material-symbols-outlined">add</span>
+              </button>
+            </div>
+          </div>
+        </div>
 
       {:else if currentSection === 'appearance' && isGlobal}
         <div class="section">

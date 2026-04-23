@@ -31,6 +31,8 @@
   import { workspace } from './stores/workspace.svelte';
   import { closedTabs } from './stores/closed-tabs.svelte';
   import PopupShell from './components/PopupShell.svelte';
+  import BottomPanel from './components/BottomPanel.svelte';
+  import { terminalStore } from './stores/terminal.svelte';
   import type { SearchResult } from './types/cli';
 
   // ── Popup Mode Detection ──────────────────────────────────────────
@@ -429,6 +431,33 @@
         },
         preventDefault: true,
       }),
+
+      // Cmd+` / Ctrl+`: Toggle the embedded terminal panel
+      shortcutManager.register({
+        key: '`',
+        meta: true,
+        handler: () => {
+          void terminalStore.togglePanel();
+        },
+        preventDefault: true,
+      }),
+
+      // Cmd+Shift+` / Ctrl+Shift+`: New terminal in the bottom panel
+      shortcutManager.register({
+        key: '`',
+        meta: true,
+        shift: true,
+        handler: () => {
+          void (async () => {
+            if (!terminalStore.panel.open) {
+              await terminalStore.openPanel();
+            } else {
+              await terminalStore.createTerminal({ location: 'panel' });
+            }
+          })();
+        },
+        preventDefault: true,
+      }),
     ];
 
     // Attach shortcut manager to document
@@ -596,6 +625,8 @@
             </div>
           {/if}
       </div>
+
+      <BottomPanel />
 
       <StatusBar />
     </main>

@@ -8,9 +8,14 @@ import {
 } from './ipc-handlers'
 import { buildAppMenu } from './menu'
 import { WindowManager } from './window-manager'
+import { PtyManager } from './pty'
+import { registerTerminalHandlers } from './pty-handlers'
 
 /** Singleton WindowManager for centralized multi-window lifecycle. */
 export const windowManager = new WindowManager()
+
+/** Singleton PtyManager for embedded terminal PTYs. */
+export const ptyManager = new PtyManager()
 
 // Set the app name explicitly so macOS menu and About dialog show "Tesseract"
 // (in dev mode, Electron defaults to the package.json "name" field)
@@ -23,9 +28,15 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window, { escToCloseWindow: false, zoom: true })
   })
 
+  // Kill a window's terminals when it closes to avoid leaked PTYs.
+  windowManager.onWindowClosed((webContentsId) => {
+    ptyManager.disposeByWindow(webContentsId)
+  })
+
   windowManager.createWindow()
 
   registerIpcHandlers(windowManager)
+  registerTerminalHandlers(ptyManager)
   buildAppMenu(windowManager)
 
   // Initialize auto-updater via the singleton (same instance used by IPC handlers)
@@ -43,6 +54,9 @@ app.whenReady().then(() => {
 app.on('before-quit', () => {
   // Clean up auto-updater
   destroyAppUpdater()
+
+  // Kill all PTYs before quit so no zombie shell processes are left behind
+  ptyManager.disposeAll()
 
   // Kill any spawned CLI child processes on quit
   destroyWatcherManager().catch(() => {

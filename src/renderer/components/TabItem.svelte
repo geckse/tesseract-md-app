@@ -28,9 +28,11 @@
 
   const isGraph = $derived(tab.kind === 'graph')
   const isAsset = $derived(tab.kind === 'asset')
+  const isTerminal = $derived(tab.kind === 'terminal')
   const isDirty = $derived(tab.kind === 'document' && tab.isDirty)
   const icon = $derived(
     isGraph ? 'hub' :
+    isTerminal ? 'terminal' :
     isAsset && tab.kind === 'asset' ? (
       tab.mimeCategory === 'image' ? 'image' :
       tab.mimeCategory === 'pdf' ? 'picture_as_pdf' :
