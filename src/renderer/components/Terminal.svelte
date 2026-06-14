@@ -40,13 +40,30 @@
       ])
       await import('@xterm/xterm/css/xterm.css')
 
+      // xterm measures the character cell by assigning fontFamily to a canvas
+      // `ctx.font`, which cannot parse CSS `var()`. Resolve the variable to a
+      // concrete stack, and wait for the webfont to load before measuring so
+      // the cell geometry matches the rendered glyphs (otherwise letters render
+      // with wide, misaligned spacing from a proportional fallback).
+      const resolvedMono =
+        getComputedStyle(document.documentElement).getPropertyValue('--font-mono').trim() ||
+        '"JetBrains Mono", ui-monospace, Menlo, monospace'
+      try {
+        // Force the webfont to load so fonts.ready actually waits for it
+        // (it resolves immediately if nothing has requested the font yet).
+        await document.fonts.load(`${effectiveFontSize}px ${resolvedMono}`).catch(() => {})
+        await document.fonts.ready
+      } catch {
+        // Font loading API unavailable — proceed with whatever is available
+      }
+
       const xterm = new XTerm({
         cursorBlink: false,
         cursorStyle: 'block',
         macOptionIsMeta: true,
         allowTransparency: false,
         fontSize: effectiveFontSize,
-        fontFamily: 'var(--font-mono, "JetBrains Mono", Menlo, monospace)',
+        fontFamily: resolvedMono,
         theme: getTerminalTheme(),
         scrollback: 10000,
         screenReaderMode: false,

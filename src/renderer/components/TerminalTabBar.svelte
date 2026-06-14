@@ -36,15 +36,21 @@
 <div class="terminal-tabbar" role="tablist" aria-label="Terminal sessions">
   <div class="tab-list">
     {#each tabs as t (t.id)}
-      <button
-        type="button"
+      <div
         class="tab-item"
         class:active={t.id === activeId}
         class:exited={t.status === 'exited'}
         role="tab"
+        tabindex="0"
         aria-selected={t.id === activeId}
         title={`${t.shell}\ncwd: ${t.cwd}`}
         onclick={() => handleSwitch(t.id)}
+        onkeydown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            handleSwitch(t.id)
+          }
+        }}
       >
         <span class="material-symbols-outlined tab-icon">terminal</span>
         <span class="tab-label">{t.title}</span>
@@ -56,7 +62,7 @@
         >
           <span class="material-symbols-outlined">close</span>
         </button>
-      </button>
+      </div>
     {/each}
   </div>
 
