@@ -8,117 +8,117 @@
 // ─── Search ──────────────────────────────────────────────────────────
 
 /** Search mode controlling retrieval signals. */
-export type SearchMode = 'hybrid' | 'semantic' | 'lexical';
+export type SearchMode = 'hybrid' | 'semantic' | 'lexical'
 
 /** Metadata filter for narrowing search results by frontmatter fields. */
 export type MetadataFilter =
   | { type: 'equals'; field: string; value: JsonValue }
   | { type: 'in'; field: string; values: JsonValue[] }
   | { type: 'range'; field: string; min?: JsonValue; max?: JsonValue }
-  | { type: 'exists'; field: string };
+  | { type: 'exists'; field: string }
 
 /** Chunk-level data within a search result. */
 export interface SearchResultChunk {
-  chunk_id: string;
-  heading_hierarchy: string[];
-  content: string;
-  start_line: number;
-  end_line: number;
+  chunk_id: string
+  heading_hierarchy: string[]
+  content: string
+  start_line: number
+  end_line: number
 }
 
 /** File-level metadata within a search result. */
 export interface SearchResultFile {
-  path: string;
-  frontmatter: JsonValue | null;
-  file_size: number;
-  path_components: string[];
-  modified_at: number | null;
+  path: string
+  frontmatter: JsonValue | null
+  file_size: number
+  path_components: string[]
+  modified_at: number | null
 }
 
 /** A single search result with relevance score, chunk, and file context. */
 export interface SearchResult {
-  score: number;
-  chunk: SearchResultChunk;
-  file: SearchResultFile;
+  score: number
+  chunk: SearchResultChunk
+  file: SearchResultFile
 }
 
 /** A supplementary chunk from a linked file, surfaced via graph expansion. */
 export interface GraphContextItem {
-  chunk: SearchResultChunk;
-  file: SearchResultFile;
-  linked_from: string;
-  hop_distance: number;
+  chunk: SearchResultChunk
+  file: SearchResultFile
+  linked_from: string
+  hop_distance: number
 }
 
 /** Wrapped search output for JSON mode (from main.rs SearchOutput). */
 export interface SearchOutput {
-  results: SearchResult[];
-  query: string;
-  total_results: number;
-  mode: SearchMode;
-  graph_context?: GraphContextItem[];
+  results: SearchResult[]
+  query: string
+  total_results: number
+  mode: SearchMode
+  graph_context?: GraphContextItem[]
 }
 
 // ─── Index Status ────────────────────────────────────────────────────
 
 /** Embedding configuration snapshot. */
 export interface EmbeddingConfig {
-  provider: string;
-  model: string;
-  dimensions: number;
+  provider: string
+  model: string
+  dimensions: number
 }
 
 /** Status snapshot returned by Index::status(). */
 export interface IndexStatus {
-  document_count: number;
-  chunk_count: number;
-  vector_count: number;
-  last_updated: number;
-  file_size: number;
-  embedding_config: EmbeddingConfig;
+  document_count: number
+  chunk_count: number
+  vector_count: number
+  last_updated: number
+  file_size: number
+  embedding_config: EmbeddingConfig
 }
 
 // ─── Ingestion ───────────────────────────────────────────────────────
 
 /** Result of an ingestion operation. */
 export interface IngestResult {
-  files_indexed: number;
-  files_skipped: number;
-  files_removed: number;
-  chunks_created: number;
-  api_calls: number;
-  files_failed: number;
-  errors: IngestError[];
-  duration_secs: number;
-  cancelled: boolean;
+  files_indexed: number
+  files_skipped: number
+  files_removed: number
+  chunks_created: number
+  api_calls: number
+  files_failed: number
+  errors: IngestError[]
+  duration_secs: number
+  cancelled: boolean
 }
 
 /** A single ingestion error for a specific file. */
 export interface IngestError {
-  path: string;
-  message: string;
+  path: string
+  message: string
 }
 
 /** Status of a file in an ingest preview. */
-export type PreviewFileStatus = 'New' | 'Changed' | 'Unchanged';
+export type PreviewFileStatus = 'New' | 'Changed' | 'Unchanged'
 
 /** Information about a single file in an ingest preview. */
 export interface PreviewFileInfo {
-  path: string;
-  status: PreviewFileStatus;
-  chunks: number;
-  estimated_tokens: number;
+  path: string
+  status: PreviewFileStatus
+  chunks: number
+  estimated_tokens: number
 }
 
 /** Preview of what an ingestion would do. */
 export interface IngestPreview {
-  files: PreviewFileInfo[];
-  total_files: number;
-  files_to_process: number;
-  files_unchanged: number;
-  total_chunks: number;
-  estimated_tokens: number;
-  estimated_api_calls: number;
+  files: PreviewFileInfo[]
+  total_files: number
+  files_to_process: number
+  files_unchanged: number
+  total_chunks: number
+  estimated_tokens: number
+  estimated_api_calls: number
 }
 
 /** Phase of the ingestion pipeline, reported via progress callbacks. */
@@ -130,376 +130,421 @@ export type IngestPhase =
   | { phase: 'Saving' }
   | { phase: 'Clustering' }
   | { phase: 'Cleaning' }
-  | { phase: 'Done' };
+  | { phase: 'Done' }
 
 // ─── Document ────────────────────────────────────────────────────────
 
 /** Information about an indexed document. */
 export interface DocumentInfo {
-  path: string;
-  content_hash: string;
-  frontmatter: JsonValue | null;
-  chunk_count: number;
-  file_size: number;
-  indexed_at: number;
-  modified_at: number | null;
+  path: string
+  content_hash: string
+  frontmatter: JsonValue | null
+  chunk_count: number
+  file_size: number
+  indexed_at: number
+  modified_at: number | null
 }
 
 // ─── Schema ──────────────────────────────────────────────────────────
 
 /** The type of a frontmatter field. */
-export type FieldType = 'String' | 'Number' | 'Boolean' | 'List' | 'Date' | 'Mixed';
+export type FieldType = 'String' | 'Number' | 'Boolean' | 'List' | 'Date' | 'Mixed'
 
 /** A merged schema field combining inferred data with overlay annotations. */
 export interface SchemaField {
-  name: string;
-  field_type: FieldType;
-  description: string | null;
-  occurrence_count: number;
-  sample_values: string[];
-  allowed_values: string[] | null;
-  required: boolean;
+  name: string
+  field_type: FieldType
+  description: string | null
+  occurrence_count: number
+  sample_values: string[]
+  allowed_values: string[] | null
+  required: boolean
 }
 
 /** The complete metadata schema. */
 export interface Schema {
-  fields: SchemaField[];
-  last_updated: number;
+  fields: SchemaField[]
+  last_updated: number
+}
+
+// ─── Collection (folder-as-table, phase-29 contract) ─────────────────
+
+/** How a collection row's title was derived. */
+export type TitleSource = 'frontmatter' | 'filename'
+
+/**
+ * One table column. Mirrors the canonical `mdvdb collection` contract.
+ * Note: the field is `name` (NOT `key`); `field_type` is PascalCase.
+ */
+export interface CollectionColumn {
+  name: string // == frontmatter key
+  field_type: FieldType // PascalCase: String|Number|Boolean|List|Date|Mixed
+  description: string | null
+  occurrence_count: number
+  sample_values: string[]
+  allowed_values: string[] | null
+  required: boolean
+  in_schema: boolean // false = key found only in a row's frontmatter, not the scoped schema
+}
+
+/** One table row = one Markdown document. */
+export interface CollectionRow {
+  path: string
+  title: string
+  title_source: TitleSource
+  /** Always a JSON object (`{}` when none) — never null. */
+  frontmatter: Record<string, JsonValue>
+  content_hash: string | null // null for state:'new'
+  file_size: number
+  modified_at: number | null
+  indexed_at: number | null // null for state:'new'
+  state: FileState
+}
+
+/** Top-level `mdvdb collection <PATH> --json` response. */
+export interface CollectionOutput {
+  scope: string
+  recursive: boolean
+  columns: CollectionColumn[]
+  rows: CollectionRow[]
+  total_rows: number // post-filter, pre-limit/offset (NOT "total")
+  limit?: number // omitted when None
+  offset: number
 }
 
 // ─── Clustering ──────────────────────────────────────────────────────
 
 /** Information about a single cluster. */
 export interface ClusterInfo {
-  id: number;
-  label: string;
-  centroid: number[];
-  members: string[];
-  keywords: string[];
+  id: number
+  label: string
+  centroid: number[]
+  members: string[]
+  keywords: string[]
 }
 
 /** Cluster state persisted in the index. */
 export interface ClusterState {
-  clusters: ClusterInfo[];
-  docs_since_rebalance: number;
-  docs_at_last_rebalance: number;
+  clusters: ClusterInfo[]
+  docs_since_rebalance: number
+  docs_at_last_rebalance: number
 }
 
 /** Summary of a cluster (from lib.rs ClusterSummary). */
 export interface ClusterSummary {
-  id: number;
-  document_count: number;
-  label: string | null;
-  keywords: string[];
+  id: number
+  document_count: number
+  label: string | null
+  keywords: string[]
 }
 
 // ─── Custom Clusters ────────────────────────────────────────────
 
 /** User-defined cluster definition (from config, not computed). */
 export interface CustomClusterDef {
-  name: string;
-  seeds: string[];
+  name: string
+  seeds: string[]
 }
 
 /** Computed custom cluster summary (from index after ingest). */
 export interface CustomClusterSummary {
-  id: number;
-  name: string;
-  seed_phrases: string[];
-  document_count: number;
+  id: number
+  name: string
+  seed_phrases: string[]
+  document_count: number
 }
 
 // ─── Graph ───────────────────────────────────────────────────────
 
 /** Graph level controlling node granularity. */
-export type GraphLevel = 'document' | 'chunk';
+export type GraphLevel = 'document' | 'chunk'
 
 /** A node in the graph representing an indexed file or chunk. */
 export interface GraphNode {
-  id: string;
-  path: string;
-  label: string | null;
-  cluster_id: number | null;
+  id: string
+  path: string
+  label: string | null
+  cluster_id: number | null
   /** Custom cluster assignment (separate layer from auto-clusters). */
-  custom_cluster_id: number | null;
-  chunk_index: number | null;
+  custom_cluster_id: number | null
+  chunk_index: number | null
   /** Optional size metric (e.g. content length for chunks). */
-  size?: number | null;
+  size?: number | null
 }
 
 /** An edge in the graph representing a link between two indexed files or chunks. */
 export interface GraphEdge {
-  source: string;
-  target: string;
-  weight: number | null;
+  source: string
+  target: string
+  weight: number | null
   /** Semantic relationship type label (e.g. "references", "extends"). */
-  relationship_type?: string | null;
+  relationship_type?: string | null
   /** Semantic strength score in [0, 1]. */
-  strength?: number | null;
+  strength?: number | null
   /** Context text excerpt describing the relationship. */
-  context_text?: string | null;
+  context_text?: string | null
   /** ID of the edge cluster this edge belongs to. */
-  edge_cluster_id?: number | null;
+  edge_cluster_id?: number | null
 }
 
 /** A cluster of semantically similar edges. */
 export interface GraphEdgeCluster {
-  id: number;
-  label: string;
-  count: number;
+  id: number
+  label: string
+  count: number
 }
 
 /** A cluster summary for graph visualization. */
 export interface GraphCluster {
-  id: number;
-  label: string;
-  keywords: string[];
-  member_count: number;
+  id: number
+  label: string
+  keywords: string[]
+  member_count: number
 }
 
 /** Complete graph topology combining nodes, edges, and clusters. */
 export interface GraphData {
-  nodes: GraphNode[];
-  edges: GraphEdge[];
-  clusters: GraphCluster[];
-  level: GraphLevel;
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+  clusters: GraphCluster[]
+  level: GraphLevel
   /** Edge clusters discovered by semantic analysis. */
-  edge_clusters?: GraphEdgeCluster[];
+  edge_clusters?: GraphEdgeCluster[]
   /** User-defined custom clusters, if available. */
-  custom_clusters?: GraphCluster[];
+  custom_clusters?: GraphCluster[]
 }
 
 // ─── File Tree ───────────────────────────────────────────────────────
 
 /** Sync state of a file relative to the index. */
-export type FileState = 'indexed' | 'modified' | 'new' | 'deleted';
+export type FileState = 'indexed' | 'modified' | 'new' | 'deleted'
 
 /** A node in the file tree (directory or file). */
 export interface FileTreeNode {
-  name: string;
-  path: string;
-  is_dir: boolean;
-  state: FileState | null;
-  children: FileTreeNode[];
+  name: string
+  path: string
+  is_dir: boolean
+  state: FileState | null
+  children: FileTreeNode[]
 }
 
 /** Complete file tree with summary counts. */
 export interface FileTree {
-  root: FileTreeNode;
-  total_files: number;
-  indexed_count: number;
-  modified_count: number;
-  new_count: number;
-  deleted_count: number;
+  root: FileTreeNode
+  total_files: number
+  indexed_count: number
+  modified_count: number
+  new_count: number
+  deleted_count: number
 }
 
 // ─── Asset Discovery (App-Only Types — NOT mirroring Rust) ──────────
 
 /** Mime category for display purposes. */
-export type MimeCategory = 'image' | 'pdf' | 'video' | 'audio' | 'other';
+export type MimeCategory = 'image' | 'pdf' | 'video' | 'audio' | 'other'
 
 /** A non-markdown asset file discovered by the app scanner. */
 export interface AssetFileNode {
-  name: string;
-  path: string;
-  is_dir: boolean;
-  children: AssetFileNode[];
-  fileSize?: number;
-  mimeCategory?: MimeCategory;
+  name: string
+  path: string
+  is_dir: boolean
+  children: AssetFileNode[]
+  fileSize?: number
+  mimeCategory?: MimeCategory
 }
 
 /** Result of app-level asset scanning. */
 export interface AssetScanResult {
-  root: AssetFileNode;
-  totalAssets: number;
-  scanDurationMs: number;
+  root: AssetFileNode
+  totalAssets: number
+  scanDurationMs: number
 }
 
 /** Unified tree node combining CLI markdown nodes and app asset nodes. */
 export interface UnifiedTreeNode {
-  name: string;
-  path: string;
-  is_dir: boolean;
-  children: UnifiedTreeNode[];
-  state: FileState | null;
-  isAsset: boolean;
-  mimeCategory?: MimeCategory;
-  fileSize?: number;
+  name: string
+  path: string
+  is_dir: boolean
+  children: UnifiedTreeNode[]
+  state: FileState | null
+  isAsset: boolean
+  mimeCategory?: MimeCategory
+  fileSize?: number
 }
 
 // ─── Links ───────────────────────────────────────────────────────────
 
 /** A single link extracted from a markdown file. */
 export interface LinkEntry {
-  source: string;
-  target: string;
-  text: string;
-  line_number: number;
-  is_wikilink: boolean;
+  source: string
+  target: string
+  text: string
+  line_number: number
+  is_wikilink: boolean
 }
 
 /** Whether a link target is valid or broken. */
-export type LinkState = 'Valid' | 'Broken';
+export type LinkState = 'Valid' | 'Broken'
 
 /** A resolved link with validity status. */
 export interface ResolvedLink {
-  entry: LinkEntry;
-  state: LinkState;
+  entry: LinkEntry
+  state: LinkState
 }
 
 /** Result of querying links for a specific file. */
 export interface LinkQueryResult {
-  file: string;
-  outgoing: ResolvedLink[];
-  incoming: LinkEntry[];
+  file: string
+  outgoing: ResolvedLink[]
+  incoming: LinkEntry[]
 }
 
 /** A file with no incoming or outgoing links. */
 export interface OrphanFile {
-  path: string;
+  path: string
 }
 
 /** Wrapped links output for JSON mode (from main.rs). */
 export interface LinksOutput {
-  file: string;
-  links: LinkQueryResult;
+  file: string
+  links: LinkQueryResult
 }
 
 /** Wrapped backlinks output for JSON mode (from main.rs). */
 export interface BacklinksOutput {
-  file: string;
-  backlinks: ResolvedLink[];
-  total_backlinks: number;
+  file: string
+  backlinks: ResolvedLink[]
+  total_backlinks: number
 }
 
 /** Wrapped orphans output for JSON mode (from main.rs). */
 export interface OrphansOutput {
-  orphans: OrphanFile[];
-  total_orphans: number;
+  orphans: OrphanFile[]
+  total_orphans: number
 }
 
 /** A node in a multi-hop neighborhood tree (recursive). */
 export interface NeighborhoodNode {
-  path: string;
-  state: LinkState;
-  children: NeighborhoodNode[];
+  path: string
+  state: LinkState
+  children: NeighborhoodNode[]
 }
 
 /** Result of querying the multi-hop link neighborhood of a file. */
 export interface NeighborhoodResult {
-  file: string;
-  outgoing: NeighborhoodNode[];
-  incoming: NeighborhoodNode[];
-  outgoing_count: number;
-  incoming_count: number;
-  outgoing_depth_count: number;
-  incoming_depth_count: number;
+  file: string
+  outgoing: NeighborhoodNode[]
+  incoming: NeighborhoodNode[]
+  outgoing_count: number
+  incoming_count: number
+  outgoing_depth_count: number
+  incoming_depth_count: number
 }
 
 // ─── Link Graph ──────────────────────────────────────────────────────
 
 /** The complete link graph stored in the index. */
 export interface LinkGraph {
-  forward: Record<string, LinkEntry[]>;
-  last_updated: number;
+  forward: Record<string, LinkEntry[]>
+  last_updated: number
 }
 
 // ─── Doctor ──────────────────────────────────────────────────────────
 
 /** Status of a diagnostic check. */
-export type CheckStatus = 'Pass' | 'Fail' | 'Warn';
+export type CheckStatus = 'Pass' | 'Fail' | 'Warn'
 
 /** A single diagnostic check. */
 export interface DoctorCheck {
-  name: string;
-  status: CheckStatus;
-  detail: string;
+  name: string
+  status: CheckStatus
+  detail: string
 }
 
 /** Result of a doctor diagnostic. */
 export interface DoctorResult {
-  checks: DoctorCheck[];
-  passed: number;
-  total: number;
+  checks: DoctorCheck[]
+  passed: number
+  total: number
 }
 
 // ─── Config ──────────────────────────────────────────────────────────
 
 /** Supported embedding provider backends. */
-export type EmbeddingProviderType = 'OpenAI' | 'Ollama' | 'Custom' | 'Mock';
+export type EmbeddingProviderType = 'OpenAI' | 'Ollama' | 'Custom' | 'Mock'
 
 /** Full configuration for mdvdb. */
 export interface Config {
-  embedding_provider: EmbeddingProviderType;
-  embedding_model: string;
-  embedding_dimensions: number;
-  embedding_batch_size: number;
-  openai_api_key: string | null;
-  ollama_host: string;
-  embedding_endpoint: string | null;
-  source_dirs: string[];
-  ignore_patterns: string[];
-  watch_enabled: boolean;
-  watch_debounce_ms: number;
-  chunk_max_tokens: number;
-  chunk_overlap_tokens: number;
-  clustering_enabled: boolean;
-  clustering_rebalance_threshold: number;
-  search_default_limit: number;
-  search_min_score: number;
-  search_default_mode: SearchMode;
-  search_rrf_k: number;
-  bm25_norm_k: number;
-  search_decay_enabled: boolean;
-  search_decay_half_life: number;
+  embedding_provider: EmbeddingProviderType
+  embedding_model: string
+  embedding_dimensions: number
+  embedding_batch_size: number
+  openai_api_key: string | null
+  ollama_host: string
+  embedding_endpoint: string | null
+  source_dirs: string[]
+  ignore_patterns: string[]
+  watch_enabled: boolean
+  watch_debounce_ms: number
+  chunk_max_tokens: number
+  chunk_overlap_tokens: number
+  clustering_enabled: boolean
+  clustering_rebalance_threshold: number
+  search_default_limit: number
+  search_min_score: number
+  search_default_mode: SearchMode
+  search_rrf_k: number
+  bm25_norm_k: number
+  search_decay_enabled: boolean
+  search_decay_half_life: number
 }
 
 // ─── Watcher ─────────────────────────────────────────────────────────
 
 /** Type of filesystem event from file watcher. */
-export type WatchEventType = 'Created' | 'Modified' | 'Deleted' | 'Renamed';
+export type WatchEventType = 'Created' | 'Modified' | 'Deleted' | 'Renamed'
 
 /** Report generated after processing a single watch event. */
 export interface WatchEventReport {
-  event_type: WatchEventType;
-  path: string;
-  chunks_processed: number;
-  duration_ms: number;
+  event_type: WatchEventType
+  path: string
+  chunks_processed: number
+  duration_ms: number
 }
 
 // ─── Index Storage Types ─────────────────────────────────────────────
 
 /** A chunk stored in the index. */
 export interface StoredChunk {
-  source_path: string;
-  heading_hierarchy: string[];
-  content: string;
-  start_line: number;
-  end_line: number;
-  chunk_index: number;
-  is_sub_split: boolean;
+  source_path: string
+  heading_hierarchy: string[]
+  content: string
+  start_line: number
+  end_line: number
+  chunk_index: number
+  is_sub_split: boolean
 }
 
 /** A file entry stored in the index. */
 export interface StoredFile {
-  relative_path: string;
-  content_hash: string;
-  frontmatter: string | null;
-  file_size: number;
-  chunk_ids: string[];
-  indexed_at: number;
+  relative_path: string
+  content_hash: string
+  frontmatter: string | null
+  file_size: number
+  chunk_ids: string[]
+  indexed_at: number
 }
 
 /** Serialized metadata region of the index file. */
 export interface IndexMetadata {
-  chunks: Record<string, StoredChunk>;
-  files: Record<string, StoredFile>;
-  embedding_config: EmbeddingConfig;
-  last_updated: number;
-  schema: Schema | null;
-  cluster_state: ClusterState | null;
-  link_graph: LinkGraph | null;
-  file_mtimes: Record<string, number> | null;
+  chunks: Record<string, StoredChunk>
+  files: Record<string, StoredFile>
+  embedding_config: EmbeddingConfig
+  last_updated: number
+  schema: Schema | null
+  cluster_state: ClusterState | null
+  link_graph: LinkGraph | null
+  file_mtimes: Record<string, number> | null
 }
 
 // ─── Error Types ─────────────────────────────────────────────────────
@@ -521,12 +566,12 @@ export type MdvdbErrorKind =
   | 'ConfigAlreadyExists'
   | 'Clustering'
   | 'LinkGraphNotBuilt'
-  | 'Fts';
+  | 'Fts'
 
 /** Structured error from the CLI. */
 export interface MdvdbError {
-  kind: MdvdbErrorKind;
-  message: string;
+  kind: MdvdbErrorKind
+  message: string
 }
 
 // ─── Utility Types ───────────────────────────────────────────────────
@@ -538,33 +583,33 @@ export type JsonValue =
   | boolean
   | null
   | JsonValue[]
-  | { [key: string]: JsonValue };
+  | { [key: string]: JsonValue }
 
 // ─── CLI Command Result Types ────────────────────────────────────────
 
 /** Generic wrapper for CLI JSON output with optional error. */
 export interface CliResult<T> {
-  data?: T;
-  error?: MdvdbError;
+  data?: T
+  error?: MdvdbError
 }
 
 /** Result type for the status command. */
-export type StatusResult = IndexStatus;
+export type StatusResult = IndexStatus
 
 /** Result type for the schema command. */
-export type SchemaResult = Schema;
+export type SchemaResult = Schema
 
 /** Result type for the clusters command. */
-export type ClustersResult = ClusterSummary[];
+export type ClustersResult = ClusterSummary[]
 
 /** Result type for the tree command. */
-export type TreeResult = FileTree;
+export type TreeResult = FileTree
 
 /** Result type for the get command. */
-export type GetResult = DocumentInfo;
+export type GetResult = DocumentInfo
 
 /** Result type for the doctor command. */
-export type DoctorCheckResult = DoctorResult;
+export type DoctorCheckResult = DoctorResult
 
 /** Result type for the config command. */
-export type ConfigResult = Config;
+export type ConfigResult = Config

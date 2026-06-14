@@ -892,7 +892,7 @@ describe('WorkspaceStore', () => {
         filePath: 'transferred.md',
         editorMode: 'editor',
         isDirty: true,
-        content: '# Hello',
+        content: '# Hello'
       })
 
       expect(tabId).toBeTruthy()
@@ -907,7 +907,7 @@ describe('WorkspaceStore', () => {
       const originalId = workspace.openTab('existing.md')
       const attachedId = workspace.attachTab({
         kind: 'document',
-        filePath: 'existing.md',
+        filePath: 'existing.md'
       })
 
       expect(attachedId).toBe(originalId)
@@ -916,7 +916,7 @@ describe('WorkspaceStore', () => {
     it('returns empty string for invalid data', () => {
       const result = workspace.attachTab({
         kind: 'document',
-        filePath: '',
+        filePath: ''
       })
       expect(result).toBe('')
     })
@@ -1156,6 +1156,76 @@ describe('WorkspaceStore', () => {
 
       const result = workspace.getSavedTabIds(paneId)
       expect(result).not.toContain(graphTabId)
+    })
+  })
+
+  // ─── Table tabs (phase-39) ────────────────────────────────────────────
+
+  describe('table tabs', () => {
+    it('openTableTab inserts a table tab before the graph tab and activates it', () => {
+      const paneId = getDefaultPaneId()
+      const graphTabId = getGraphTabId(paneId)
+      const tabId = workspace.openTableTab('blog')
+
+      const tab = workspace.tabs[tabId]
+      expect(tab?.kind).toBe('table')
+      expect(getPane(paneId).activeTabId).toBe(tabId)
+      const order = getPane(paneId).tabOrder
+      expect(order.indexOf(tabId)).toBeLessThan(order.indexOf(graphTabId))
+      if (tab?.kind === 'table') {
+        expect(tab.folderPath).toBe('blog')
+        expect(tab.title).toBe('blog')
+        expect(tab.recursive).toBe(false)
+        expect(tab.activeViewId).toBeNull()
+      }
+    })
+
+    it('derives the Root title for the empty (root) folder path', () => {
+      const tabId = workspace.openTableTab('')
+      const tab = workspace.tabs[tabId]
+      expect(tab?.kind === 'table' && tab.title).toBe('Root')
+    })
+
+    it('dedupes: opening the same folder twice switches to the existing tab', () => {
+      const first = workspace.openTableTab('blog')
+      const second = workspace.openTableTab('blog')
+      expect(second).toBe(first)
+      const tableTabs = Object.values(workspace.tabs).filter((t) => t.kind === 'table')
+      expect(tableTabs).toHaveLength(1)
+    })
+
+    it('setTableRecursive / setTableActiveView / setTableEphemeral mutate the tab', () => {
+      const tabId = workspace.openTableTab('blog')
+      workspace.setTableRecursive(tabId, true)
+      workspace.setTableActiveView(tabId, 'view-1')
+      workspace.setTableEphemeral(tabId, { groupBy: 'status' })
+
+      const tab = workspace.tabs[tabId]
+      if (tab?.kind === 'table') {
+        expect(tab.recursive).toBe(true)
+        // setting an active view clears ephemeral; then we set a new ephemeral patch
+        expect(tab.activeViewId).toBe('view-1')
+        expect(tab.ephemeral?.groupBy).toBe('status')
+      }
+    })
+
+    it('setTableActiveView(null) clears ephemeral edits', () => {
+      const tabId = workspace.openTableTab('blog')
+      workspace.setTableEphemeral(tabId, { groupBy: 'status' })
+      workspace.setTableActiveView(tabId, null)
+      const tab = workspace.tabs[tabId]
+      expect(tab?.kind === 'table' && tab.ephemeral).toBeNull()
+    })
+
+    it('serializeSession persists a table tab as kind:table with folder + recursive', () => {
+      const tabId = workspace.openTableTab('blog', { recursive: true })
+      workspace.setTableActiveView(tabId, 'view-1')
+      const session = workspace.serializeSession()
+      const persisted = session.panes.flatMap((p) => p.tabs).find((t) => t.kind === 'table')
+      expect(persisted).toBeDefined()
+      expect(persisted?.filePath).toBe('blog')
+      expect(persisted?.recursive).toBe(true)
+      expect(persisted?.tableViewId).toBe('view-1')
     })
   })
 })

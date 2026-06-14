@@ -11,16 +11,44 @@
 
 import type { EditorMode } from './editor'
 import type { GraphLevel, MimeCategory } from '../types/cli'
-import type { PersistedWindowState, PersistedPane, PersistedTab, TabTransferData } from '../../preload/api'
+import type {
+  PersistedWindowState,
+  PersistedPane,
+  PersistedTab,
+  TabTransferData,
+  TableViewConfig
+} from '../../preload/api'
+
+// Re-export shared table-view config types for renderer consumers.
+export type {
+  TableViewConfig,
+  TableSort,
+  TableColumnLayout,
+  TableColumnFilter,
+  SavedTableView
+} from '../../preload/api'
 
 // ─── Asset Detection ──────────────────────────────────────────────────
 
 /** Map of file extensions to MimeCategory for asset detection. */
 const ASSET_EXT_MAP: Record<string, MimeCategory> = {
-  png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', svg: 'image', webp: 'image', bmp: 'image', ico: 'image',
+  png: 'image',
+  jpg: 'image',
+  jpeg: 'image',
+  gif: 'image',
+  svg: 'image',
+  webp: 'image',
+  bmp: 'image',
+  ico: 'image',
   pdf: 'pdf',
-  mp4: 'video', webm: 'video', mov: 'video', avi: 'video',
-  mp3: 'audio', wav: 'audio', ogg: 'audio', flac: 'audio',
+  mp4: 'video',
+  webm: 'video',
+  mov: 'video',
+  avi: 'video',
+  mp3: 'audio',
+  wav: 'audio',
+  ogg: 'audio',
+  flac: 'audio'
 }
 
 /** Detect if a file path is an asset by extension. Returns MimeCategory or null. */
@@ -92,8 +120,24 @@ export interface TerminalTab {
   title: string
 }
 
+/** A table tab — editable frontmatter grid over a folder. */
+export interface TableTab {
+  id: string
+  kind: 'table'
+  /** Relative to collection root; '' = root (sent to the CLI as '.'). */
+  folderPath: string
+  /** Display title — folder name (or 'Root'). */
+  title: string
+  /** Include nested subfolders. */
+  recursive: boolean
+  /** Id of the saved view applied (null = ad-hoc/default). */
+  activeViewId: string | null
+  /** Ephemeral, unsaved table state overlaid on top of the active saved view. */
+  ephemeral: TableViewConfig | null
+}
+
 /** Discriminated union of all tab types. */
-export type TabState = DocumentTab | GraphTab | AssetTab | TerminalTab
+export type TabState = DocumentTab | GraphTab | AssetTab | TerminalTab | TableTab
 
 // ─── Pane Types ────────────────────────────────────────────────────────
 
@@ -122,7 +166,7 @@ function createGraphTab(): GraphTab {
     title: 'Graph',
     graphLevel: 'document',
     graphPathFilter: null,
-    graphColoringMode: 'cluster',
+    graphColoringMode: 'cluster'
   }
 }
 
@@ -147,8 +191,8 @@ function createDocumentTab(filePath: string, isUntitled = false): DocumentTab {
     navigation: {
       backStack: [],
       forwardStack: [],
-      current: filePath,
-    },
+      current: filePath
+    }
   }
 }
 
@@ -159,7 +203,7 @@ function createPane(): { pane: PaneState; graphTab: GraphTab } {
     id: crypto.randomUUID(),
     tabOrder: [graphTab.id],
     activeTabId: null,
-    graphTabId: graphTab.id,
+    graphTabId: graphTab.id
   }
   return { pane, graphTab }
 }
@@ -212,24 +256,35 @@ class WorkspaceStore {
    * store registers this at init so serialize knows the shell/cwd for
    * each terminalId without a circular store import.
    */
-  private _terminalSlotLookup: ((terminalId: string) => { shell: string; cwd: string } | null) | null = null
+  private _terminalSlotLookup:
+    | ((terminalId: string) => { shell: string; cwd: string } | null)
+    | null = null
 
   /**
    * Optional restore hook invoked for each persisted terminal tab during
    * restoreSession. Returns the terminalId that the tab should reference.
    */
-  private _terminalSlotRestore: ((slot: { shell: string; cwd: string; title?: string }, location: 'tab') => string | null) | null = null
+  private _terminalSlotRestore:
+    | ((slot: { shell: string; cwd: string; title?: string }, location: 'tab') => string | null)
+    | null = null
 
   /** Hook that returns the bottom-panel snapshot for persistence. */
-  private _bottomPanelSerializer: (() => import('../../preload/api').PersistedBottomPanel | null) | null = null
+  private _bottomPanelSerializer:
+    | (() => import('../../preload/api').PersistedBottomPanel | null)
+    | null = null
 
   /** Hook invoked during session restore with the saved bottom-panel snapshot. */
-  private _bottomPanelRestorer: ((state: import('../../preload/api').PersistedBottomPanel) => void) | null = null
+  private _bottomPanelRestorer:
+    | ((state: import('../../preload/api').PersistedBottomPanel) => void)
+    | null = null
 
   /** Register terminal-store hooks for session persistence. */
   registerTerminalHooks(
     lookup: (terminalId: string) => { shell: string; cwd: string } | null,
-    restore: (slot: { shell: string; cwd: string; title?: string }, location: 'tab') => string | null,
+    restore: (
+      slot: { shell: string; cwd: string; title?: string },
+      location: 'tab'
+    ) => string | null,
     bottomPanelSerializer?: () => import('../../preload/api').PersistedBottomPanel | null,
     bottomPanelRestorer?: (state: import('../../preload/api').PersistedBottomPanel) => void
   ): void {
@@ -318,7 +373,7 @@ class WorkspaceStore {
       pane.tabOrder = [
         ...pane.tabOrder.slice(0, graphIdx),
         tab.id,
-        ...pane.tabOrder.slice(graphIdx),
+        ...pane.tabOrder.slice(graphIdx)
       ]
     } else {
       pane.tabOrder = [...pane.tabOrder, tab.id]
@@ -487,7 +542,7 @@ class WorkspaceStore {
       pane.tabOrder = [
         ...pane.tabOrder.slice(0, graphIdx),
         tab.id,
-        ...pane.tabOrder.slice(graphIdx),
+        ...pane.tabOrder.slice(graphIdx)
       ]
     } else {
       pane.tabOrder = [...pane.tabOrder, tab.id]
@@ -522,7 +577,12 @@ class WorkspaceStore {
    * If the file is already open, switch to that tab.
    * Returns the tab ID.
    */
-  openAssetTab(filePath: string, mimeCategory: MimeCategory, fileSize?: number, paneId?: string): string {
+  openAssetTab(
+    filePath: string,
+    mimeCategory: MimeCategory,
+    fileSize?: number,
+    paneId?: string
+  ): string {
     const targetPaneId = paneId ?? this.activePaneId
     const pane = this.panes[targetPaneId]
     if (!pane) return ''
@@ -545,7 +605,7 @@ class WorkspaceStore {
       filePath,
       title,
       mimeCategory,
-      fileSize,
+      fileSize
     }
     this.tabs[tab.id] = tab
 
@@ -555,7 +615,7 @@ class WorkspaceStore {
       pane.tabOrder = [
         ...pane.tabOrder.slice(0, graphIdx),
         tab.id,
-        ...pane.tabOrder.slice(graphIdx),
+        ...pane.tabOrder.slice(graphIdx)
       ]
     } else {
       pane.tabOrder = [...pane.tabOrder, tab.id]
@@ -581,7 +641,7 @@ class WorkspaceStore {
       id: crypto.randomUUID(),
       kind: 'terminal',
       terminalId,
-      title,
+      title
     }
     this.tabs[tab.id] = tab
 
@@ -591,7 +651,7 @@ class WorkspaceStore {
       pane.tabOrder = [
         ...pane.tabOrder.slice(0, graphIdx),
         tab.id,
-        ...pane.tabOrder.slice(graphIdx),
+        ...pane.tabOrder.slice(graphIdx)
       ]
     } else {
       pane.tabOrder = [...pane.tabOrder, tab.id]
@@ -602,6 +662,90 @@ class WorkspaceStore {
 
     this._scheduleSave()
     return tab.id
+  }
+
+  /**
+   * Open a folder as an editable frontmatter table. If a table tab for the same
+   * folder already exists in the target pane, switch to it. Returns the tab ID.
+   */
+  openTableTab(folderPath: string, opts?: { recursive?: boolean; paneId?: string }): string {
+    const targetPaneId = opts?.paneId ?? this.activePaneId
+    const pane = this.panes[targetPaneId]
+    if (!pane) return ''
+
+    // Dedupe: switch to an existing table tab for the same folder in this pane.
+    for (const tabId of pane.tabOrder) {
+      const tab = this.tabs[tabId]
+      if (tab && tab.kind === 'table' && tab.folderPath === folderPath) {
+        this.switchTab(tabId, targetPaneId)
+        return tabId
+      }
+    }
+
+    const parts = folderPath.split('/').filter(Boolean)
+    const title = parts.length > 0 ? parts[parts.length - 1] : 'Root'
+    const tab: TableTab = {
+      id: crypto.randomUUID(),
+      kind: 'table',
+      folderPath,
+      title,
+      recursive: opts?.recursive ?? false,
+      activeViewId: null,
+      ephemeral: null
+    }
+    this.tabs[tab.id] = tab
+
+    // Insert before the graph tab
+    const graphIdx = pane.graphTabId ? pane.tabOrder.indexOf(pane.graphTabId) : -1
+    if (graphIdx >= 0) {
+      pane.tabOrder = [
+        ...pane.tabOrder.slice(0, graphIdx),
+        tab.id,
+        ...pane.tabOrder.slice(graphIdx)
+      ]
+    } else {
+      pane.tabOrder = [...pane.tabOrder, tab.id]
+    }
+
+    pane.activeTabId = tab.id
+    this.panes[targetPaneId] = { ...pane }
+
+    this._scheduleSave()
+    return tab.id
+  }
+
+  /** Toggle recursive scope on a table tab. */
+  setTableRecursive(tabId: string, recursive: boolean): void {
+    const tab = this.tabs[tabId]
+    if (tab && tab.kind === 'table') {
+      this.tabs[tabId] = { ...tab, recursive }
+      this._scheduleSave()
+    }
+  }
+
+  /** Set the active saved view for a table tab (null = ad-hoc). Clears ephemeral edits. */
+  setTableActiveView(tabId: string, viewId: string | null): void {
+    const tab = this.tabs[tabId]
+    if (tab && tab.kind === 'table') {
+      this.tabs[tabId] = { ...tab, activeViewId: viewId, ephemeral: null }
+      this._scheduleSave()
+    }
+  }
+
+  /** Merge a patch into a table tab's ephemeral (unsaved) view config. */
+  setTableEphemeral(tabId: string, patch: Partial<TableViewConfig>): void {
+    const tab = this.tabs[tabId]
+    if (tab && tab.kind === 'table') {
+      const base: TableViewConfig = tab.ephemeral ?? {
+        sort: [],
+        filters: [],
+        columns: [],
+        groupBy: null,
+        collapsedGroups: []
+      }
+      this.tabs[tabId] = { ...tab, ephemeral: { ...base, ...patch } }
+      this._scheduleSave()
+    }
   }
 
   /** Update a terminal tab's title in response to foreground-process changes. */
@@ -811,7 +955,7 @@ class WorkspaceStore {
         toPane.tabOrder = [
           ...toPane.tabOrder.slice(0, graphIdx),
           tabId,
-          ...toPane.tabOrder.slice(graphIdx),
+          ...toPane.tabOrder.slice(graphIdx)
         ]
       } else {
         toPane.tabOrder = [...toPane.tabOrder, tabId]
@@ -1022,7 +1166,7 @@ class WorkspaceStore {
         isDirty: tab.isDirty,
         isUntitled: tab.isUntitled || undefined,
         content: includeContent ? (tab.content ?? '') : null,
-        savedContent: includeContent ? (tab.savedContent ?? '') : null,
+        savedContent: includeContent ? (tab.savedContent ?? '') : null
       }
     }
 
@@ -1030,7 +1174,7 @@ class WorkspaceStore {
       return {
         kind: 'asset',
         filePath: tab.filePath,
-        mimeCategory: tab.mimeCategory,
+        mimeCategory: tab.mimeCategory
       }
     }
 
@@ -1038,7 +1182,7 @@ class WorkspaceStore {
       return {
         kind: 'graph',
         graphLevel: tab.graphLevel,
-        graphColoringMode: tab.graphColoringMode,
+        graphColoringMode: tab.graphColoringMode
       }
     }
 
@@ -1101,7 +1245,7 @@ class WorkspaceStore {
         kind: 'asset',
         filePath: data.filePath,
         title,
-        mimeCategory: (data.mimeCategory as MimeCategory) ?? 'other',
+        mimeCategory: (data.mimeCategory as MimeCategory) ?? 'other'
       }
       this.tabs[tab.id] = tab
       this._insertTabBeforeGraph(pane, tab.id)
@@ -1127,11 +1271,7 @@ class WorkspaceStore {
   private _insertTabBeforeGraph(pane: PaneState, tabId: string): void {
     const graphIdx = pane.tabOrder.indexOf(pane.graphTabId)
     if (graphIdx >= 0) {
-      pane.tabOrder = [
-        ...pane.tabOrder.slice(0, graphIdx),
-        tabId,
-        ...pane.tabOrder.slice(graphIdx),
-      ]
+      pane.tabOrder = [...pane.tabOrder.slice(0, graphIdx), tabId, ...pane.tabOrder.slice(graphIdx)]
     } else {
       pane.tabOrder = [...pane.tabOrder, tabId]
     }
@@ -1185,6 +1325,13 @@ class WorkspaceStore {
           tabs.push({ kind: 'graph', graphLevel: tab.graphLevel })
         } else if (tab.kind === 'asset') {
           tabs.push({ kind: 'asset', filePath: tab.filePath, mimeCategory: tab.mimeCategory })
+        } else if (tab.kind === 'table') {
+          tabs.push({
+            kind: 'table',
+            filePath: tab.folderPath,
+            recursive: tab.recursive,
+            tableViewId: tab.activeViewId ?? undefined
+          })
         } else if (tab.kind === 'terminal') {
           // Persist terminal slots via terminal store lookup — tab itself
           // only remembers that this slot is a terminal; shell/cwd live in
@@ -1194,7 +1341,7 @@ class WorkspaceStore {
             kind: 'terminal',
             terminalShell: lookup?.shell,
             terminalCwd: lookup?.cwd,
-            terminalTitle: tab.title,
+            terminalTitle: tab.title
           })
         }
 
@@ -1210,7 +1357,7 @@ class WorkspaceStore {
       panes,
       splitEnabled: this.splitEnabled,
       splitRatio: this.splitRatio,
-      bottomPanel: this._bottomPanelSerializer?.() ?? undefined,
+      bottomPanel: this._bottomPanelSerializer?.() ?? undefined
     }
   }
 
@@ -1252,7 +1399,7 @@ class WorkspaceStore {
           id: crypto.randomUUID(),
           tabOrder: [],
           activeTabId: null,
-          graphTabId: null,
+          graphTabId: null
         }
       }
 
@@ -1270,7 +1417,7 @@ class WorkspaceStore {
           const slot = {
             shell: persistedTab.terminalShell ?? '',
             cwd: persistedTab.terminalCwd ?? '',
-            title: persistedTab.terminalTitle,
+            title: persistedTab.terminalTitle
           }
           const terminalId = this._terminalSlotRestore?.(slot, 'tab') ?? null
           if (!terminalId) continue
@@ -1279,7 +1426,7 @@ class WorkspaceStore {
             id: crypto.randomUUID(),
             kind: 'terminal',
             terminalId,
-            title: persistedTab.terminalTitle ?? 'Terminal',
+            title: persistedTab.terminalTitle ?? 'Terminal'
           }
           this.tabs[tab.id] = tab
 
@@ -1288,7 +1435,7 @@ class WorkspaceStore {
             pane.tabOrder = [
               ...pane.tabOrder.slice(0, graphIdx),
               tab.id,
-              ...pane.tabOrder.slice(graphIdx),
+              ...pane.tabOrder.slice(graphIdx)
             ]
           } else {
             pane.tabOrder = [...pane.tabOrder, tab.id]
@@ -1323,7 +1470,7 @@ class WorkspaceStore {
             kind: 'asset',
             filePath: persistedTab.filePath,
             title,
-            mimeCategory: (persistedTab.mimeCategory ?? 'other') as MimeCategory,
+            mimeCategory: (persistedTab.mimeCategory ?? 'other') as MimeCategory
           }
           this.tabs[tab.id] = tab
 
@@ -1332,7 +1479,55 @@ class WorkspaceStore {
             pane.tabOrder = [
               ...pane.tabOrder.slice(0, graphIdx),
               tab.id,
-              ...pane.tabOrder.slice(graphIdx),
+              ...pane.tabOrder.slice(graphIdx)
+            ]
+          } else {
+            pane.tabOrder = [...pane.tabOrder, tab.id]
+          }
+
+          if (i === persistedPane.activeTabIndex) {
+            activeTabId = tab.id
+          }
+          continue
+        }
+
+        if (persistedTab.kind === 'table') {
+          // Restore table tab — folderPath '' is the (always-valid) root.
+          const folderPath = persistedTab.filePath ?? ''
+          if (folderPath) {
+            let folderExists = true
+            try {
+              const activeCollection = await api.getActiveCollection()
+              if (activeCollection) {
+                await api.fileInfo(`${activeCollection.path}/${folderPath}`)
+              } else {
+                folderExists = false
+              }
+            } catch {
+              folderExists = false
+            }
+            if (!folderExists) continue
+          }
+
+          const parts = folderPath.split('/').filter(Boolean)
+          const title = parts.length > 0 ? parts[parts.length - 1] : 'Root'
+          const tab: TableTab = {
+            id: crypto.randomUUID(),
+            kind: 'table',
+            folderPath,
+            title,
+            recursive: persistedTab.recursive ?? false,
+            activeViewId: persistedTab.tableViewId ?? null,
+            ephemeral: null
+          }
+          this.tabs[tab.id] = tab
+
+          const graphIdx = pane.tabOrder.indexOf(pane.graphTabId)
+          if (graphIdx >= 0) {
+            pane.tabOrder = [
+              ...pane.tabOrder.slice(0, graphIdx),
+              tab.id,
+              ...pane.tabOrder.slice(graphIdx)
             ]
           } else {
             pane.tabOrder = [...pane.tabOrder, tab.id]
@@ -1373,7 +1568,7 @@ class WorkspaceStore {
           pane.tabOrder = [
             ...pane.tabOrder.slice(0, graphIdx),
             tab.id,
-            ...pane.tabOrder.slice(graphIdx),
+            ...pane.tabOrder.slice(graphIdx)
           ]
         } else {
           pane.tabOrder = [...pane.tabOrder, tab.id]
@@ -1459,16 +1654,19 @@ class WorkspaceStore {
    * Popup windows show one piece of content with no chrome. Session
    * persistence is disabled — popups are ephemeral.
    */
-  initAsPopup(kind: 'document' | 'asset' | 'graph', options: {
-    filePath?: string
-    editorMode?: EditorMode
-    isUntitled?: boolean
-    content?: string | null
-    savedContent?: string | null
-    mimeCategory?: MimeCategory
-    graphLevel?: GraphLevel
-    graphColoringMode?: GraphColoringMode
-  }): string {
+  initAsPopup(
+    kind: 'document' | 'asset' | 'graph',
+    options: {
+      filePath?: string
+      editorMode?: EditorMode
+      isUntitled?: boolean
+      content?: string | null
+      savedContent?: string | null
+      mimeCategory?: MimeCategory
+      graphLevel?: GraphLevel
+      graphColoringMode?: GraphColoringMode
+    }
+  ): string {
     this.isPopup = true
     // Do not enable session persistence for popups
     this._persistenceEnabled = false
@@ -1478,7 +1676,7 @@ class WorkspaceStore {
       id: 'popup-pane',
       tabOrder: [],
       activeTabId: null,
-      graphTabId: null,
+      graphTabId: null
     }
 
     let tab: TabState
@@ -1500,7 +1698,11 @@ class WorkspaceStore {
         if (options.savedContent !== undefined && options.savedContent !== null) {
           docTab.savedContent = options.savedContent
         }
-        if (options.content != null && options.savedContent != null && options.content !== options.savedContent) {
+        if (
+          options.content != null &&
+          options.savedContent != null &&
+          options.content !== options.savedContent
+        ) {
           docTab.isDirty = true
         }
       }
@@ -1513,7 +1715,7 @@ class WorkspaceStore {
         kind: 'asset',
         filePath: options.filePath ?? '',
         title,
-        mimeCategory: options.mimeCategory ?? 'other',
+        mimeCategory: options.mimeCategory ?? 'other'
       } as AssetTab
     } else {
       // Graph tab
@@ -1523,7 +1725,7 @@ class WorkspaceStore {
         title: 'Graph',
         graphLevel: options.graphLevel ?? 'document',
         graphPathFilter: null,
-        graphColoringMode: options.graphColoringMode ?? 'cluster',
+        graphColoringMode: options.graphColoringMode ?? 'cluster'
       } as GraphTab
     }
 
@@ -1585,7 +1787,7 @@ class WorkspaceStore {
       id: crypto.randomUUID(),
       tabOrder: [],
       activeTabId: null,
-      graphTabId: null,
+      graphTabId: null
     }
     this.panes[pane.id] = pane
     this.paneOrder = [...this.paneOrder, pane.id]
@@ -1610,9 +1812,7 @@ class WorkspaceStore {
     }
 
     // Move all non-graph tabs from secondary to primary
-    const docTabIds = secondaryPane.tabOrder.filter(
-      (id) => this.tabs[id]?.kind !== 'graph'
-    )
+    const docTabIds = secondaryPane.tabOrder.filter((id) => this.tabs[id]?.kind !== 'graph')
 
     // If the graph tab lives in the secondary pane, move it back to primary
     if (secondaryPane.graphTabId && !primaryPane.graphTabId) {
@@ -1626,7 +1826,7 @@ class WorkspaceStore {
     primaryPane.tabOrder = [
       ...primaryPane.tabOrder.slice(0, insertIdx),
       ...docTabIds,
-      ...primaryPane.tabOrder.slice(insertIdx),
+      ...primaryPane.tabOrder.slice(insertIdx)
     ]
 
     // If the secondary pane was focused, make the primary focused

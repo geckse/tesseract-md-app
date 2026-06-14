@@ -13,28 +13,22 @@
   import AssetInfoCard from './AssetInfoCard.svelte'
   import SaveAsModal from './SaveAsModal.svelte'
   import Terminal from './Terminal.svelte'
+  import TableView from './table/TableView.svelte'
 
   interface TabPaneProps {
     paneId: string
     onfocus?: (paneId: string) => void
   }
 
-  let {
-    paneId,
-    onfocus,
-  }: TabPaneProps = $props()
+  let { paneId, onfocus }: TabPaneProps = $props()
 
   // ── Reactive state from workspace ─────────────────────────────────
 
   const pane = $derived(workspace.panes[paneId])
-  const activeTab = $derived(
-    pane?.activeTabId ? workspace.tabs[pane.activeTabId] : undefined
-  )
+  const activeTab = $derived(pane?.activeTabId ? workspace.tabs[pane.activeTabId] : undefined)
   const isFocused = $derived(workspace.activePaneId === paneId)
   const tabKind = $derived(activeTab?.kind ?? null)
-  const currentEditorMode = $derived(
-    activeTab?.kind === 'document' ? activeTab.editorMode : null
-  )
+  const currentEditorMode = $derived(activeTab?.kind === 'document' ? activeTab.editorMode : null)
 
   // ── Focus handling ────────────────────────────────────────────────
 
@@ -104,9 +98,7 @@
 
   // Only show modal if the tab belongs to this pane
   const showSaveAsModal = $derived(
-    currentSaveAsTabId !== null &&
-    pane !== undefined &&
-    pane.tabOrder.includes(currentSaveAsTabId)
+    currentSaveAsTabId !== null && pane !== undefined && pane.tabOrder.includes(currentSaveAsTabId)
   )
 
   function handleSaveAsClose() {
@@ -120,11 +112,7 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <!-- svelte-ignore a11y_click_events_have_key_events -->
-<div
-  class="tab-pane"
-  class:focused={isFocused}
-  onclick={handlePaneClick}
->
+<div class="tab-pane" class:focused={isFocused} onclick={handlePaneClick}>
   <!-- Tab bar -->
   <TabBar
     {paneId}
@@ -152,7 +140,11 @@
           {:else if assetTab.mimeCategory === 'pdf'}
             <PdfViewer filePath={assetTab.filePath} />
           {:else}
-            <AssetInfoCard filePath={assetTab.filePath} mimeCategory={assetTab.mimeCategory} fileSize={assetTab.fileSize} />
+            <AssetInfoCard
+              filePath={assetTab.filePath}
+              mimeCategory={assetTab.mimeCategory}
+              fileSize={assetTab.fileSize}
+            />
           {/if}
         </div>
       {/if}
@@ -161,6 +153,13 @@
       {#if termTab}
         <div class="content-region" role="main" aria-label="Terminal">
           <Terminal terminalId={termTab.terminalId} />
+        </div>
+      {/if}
+    {:else if tabKind === 'table'}
+      {@const tableTab = activeTab?.kind === 'table' ? activeTab : null}
+      {#if tableTab}
+        <div class="content-region" role="main" aria-label="Table view">
+          <TableView tabId={tableTab.id} />
         </div>
       {/if}
     {:else if tabKind === 'document'}

@@ -7,9 +7,10 @@
     collectionsLoading,
     addCollection,
     removeCollection,
-    setActiveCollection,
+    setActiveCollection
   } from '../stores/collections'
-  import { loadFileTree, loadAssetTree } from '../stores/files'
+  import { loadFileTree, loadAssetTree, syncFileStoresFromTab } from '../stores/files'
+  import { workspace } from '../stores/workspace.svelte'
   import { runIngest } from '../stores/ingest'
   import { settingsOpen } from '../stores/ui'
   import { settingsTarget } from '../stores/settings'
@@ -23,10 +24,7 @@
     onfileselect?: (detail: { folderId: string; fileId: string; forceNewTab?: boolean }) => void
   }
 
-  let {
-    onnavigate,
-    onfileselect,
-  }: SidebarProps = $props()
+  let { onnavigate, onfileselect }: SidebarProps = $props()
 
   let contextMenuCollection: Collection | null = $state(null)
   let contextMenuPosition = $state({ x: 0, y: 0 })
@@ -164,7 +162,10 @@
   class="sidebar"
   style:width="{sidebarWidth}px"
   style:min-width="{sidebarWidth}px"
-  onclick={() => { closeContextMenu(); closeDropdown(); }}
+  onclick={() => {
+    closeContextMenu()
+    closeDropdown()
+  }}
 >
   <!-- Scrollable content -->
   <div class="nav-content">
@@ -198,7 +199,9 @@
           >
             <span class="material-symbols-outlined switcher-icon">folder_open</span>
             <div class="switcher-info">
-              <span class="switcher-label">{currentActiveCollection?.name ?? 'Select collection'}</span>
+              <span class="switcher-label"
+                >{currentActiveCollection?.name ?? 'Select collection'}</span
+              >
               {#if currentActiveCollection && currentCollectionStatus}
                 <span class="switcher-stats">{formatStats(currentCollectionStatus)}</span>
               {:else if currentActiveCollection}
@@ -245,7 +248,18 @@
     <!-- File Tree -->
     {#if currentActiveCollectionId}
       <div class="file-tree-section">
-        <FileTree onfileselect={(detail) => onfileselect?.({ folderId: currentActiveCollectionId!, fileId: detail.path, forceNewTab: detail.forceNewTab })} />
+        <FileTree
+          onfileselect={(detail) =>
+            onfileselect?.({
+              folderId: currentActiveCollectionId!,
+              fileId: detail.path,
+              forceNewTab: detail.forceNewTab
+            })}
+          onfolderopen={(detail) => {
+            workspace.openTableTab(detail.path)
+            syncFileStoresFromTab()
+          }}
+        />
       </div>
     {/if}
   </div>
@@ -269,10 +283,7 @@
 {#if contextMenuCollection}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div
-    class="context-menu-overlay"
-    onclick={closeContextMenu}
-  >
+  <div class="context-menu-overlay" onclick={closeContextMenu}>
     <div
       class="context-menu"
       style="left: {contextMenuPosition.x}px; top: {contextMenuPosition.y}px;"
@@ -328,13 +339,22 @@
     flex-direction: column;
     min-height: 0;
     scrollbar-width: thin;
-    scrollbar-color: var(--overlay-active, rgba(255, 255, 255, 0.10)) transparent;
+    scrollbar-color: var(--overlay-active, rgba(255, 255, 255, 0.1)) transparent;
   }
 
-  .nav-content::-webkit-scrollbar { width: 6px; }
-  .nav-content::-webkit-scrollbar-track { background: transparent; }
-  .nav-content::-webkit-scrollbar-thumb { background: var(--overlay-active, rgba(255, 255, 255, 0.10)); border-radius: 3px; }
-  .nav-content::-webkit-scrollbar-thumb:hover { background: var(--overlay-active, rgba(255, 255, 255, 0.20)); }
+  .nav-content::-webkit-scrollbar {
+    width: 6px;
+  }
+  .nav-content::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .nav-content::-webkit-scrollbar-thumb {
+    background: var(--overlay-active, rgba(255, 255, 255, 0.1));
+    border-radius: 3px;
+  }
+  .nav-content::-webkit-scrollbar-thumb:hover {
+    background: var(--overlay-active, rgba(255, 255, 255, 0.2));
+  }
 
   .collections-section {
     flex-shrink: 0;
@@ -385,8 +405,8 @@
   }
 
   .switcher-trigger.empty:hover {
-    color: var(--color-primary, #00E5FF);
-    border-color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
+    border-color: var(--color-primary, #00e5ff);
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -400,13 +420,13 @@
   }
 
   .switcher-trigger.open {
-    border-color: var(--color-primary, #00E5FF);
+    border-color: var(--color-primary, #00e5ff);
     background: var(--color-surface-darker, #0a0a0a);
   }
 
   .switcher-icon {
     font-size: 18px;
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
     flex-shrink: 0;
   }
 
@@ -451,8 +471,12 @@
   }
 
   @keyframes skeleton-shimmer {
-    0% { background-position: 200% 0; }
-    100% { background-position: -200% 0; }
+    0% {
+      background-position: 200% 0;
+    }
+    100% {
+      background-position: -200% 0;
+    }
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -502,7 +526,7 @@
     max-height: 280px;
     overflow-y: auto;
     scrollbar-width: thin;
-    scrollbar-color: var(--overlay-active, rgba(255, 255, 255, 0.10)) transparent;
+    scrollbar-color: var(--overlay-active, rgba(255, 255, 255, 0.1)) transparent;
   }
 
   .dropdown-item {
@@ -543,7 +567,7 @@
   }
 
   .dropdown-item.active .dropdown-item-icon {
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
   }
 
   .dropdown-item-label {
@@ -556,7 +580,7 @@
 
   .dropdown-check {
     font-size: 16px;
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
     flex-shrink: 0;
   }
 
@@ -567,11 +591,11 @@
   }
 
   .dropdown-item.add-item {
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
   }
 
   .dropdown-item.add-item:hover {
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
   }
 
   .context-menu-overlay {
@@ -662,7 +686,7 @@
 
   .sidebar-footer-btn:hover {
     background: var(--color-surface, #161617);
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
   }
 
   .sidebar-footer-btn .material-symbols-outlined {

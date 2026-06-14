@@ -36,7 +36,8 @@ import {
   setTerminalFontSize
 } from './store'
 import type { PersistedWindowState } from './store'
-import type { TabTransferData, PopupOpenOptions } from '../preload/api'
+import type { TabTransferData, PopupOpenOptions, SavedTableView } from '../preload/api'
+import type { FrontmatterPatch } from './frontmatter'
 import { WatcherManager, type WatcherState } from './watcher'
 import { AppUpdater } from './updater'
 import type { WindowManager } from './window-manager'
@@ -73,7 +74,8 @@ import type {
   GraphData,
   Schema,
   Config,
-  DoctorResult
+  DoctorResult,
+  CollectionOutput
 } from '../renderer/types/cli'
 import type { SerializedError } from './errors'
 import {
@@ -203,7 +205,20 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
   // Search
   ipcMain.handle(
     'cli:search',
-    (_event, root: string, query: string, options?: { limit?: number; mode?: string; path?: string; filter?: string; expand?: number; hops?: number; boostLinks?: boolean }) => {
+    (
+      _event,
+      root: string,
+      query: string,
+      options?: {
+        limit?: number
+        mode?: string
+        path?: string
+        filter?: string
+        expand?: number
+        hops?: number
+        boostLinks?: boolean
+      }
+    ) => {
       const args: string[] = [query]
       if (options?.limit != null) args.push('--limit', String(options.limit))
       if (options?.mode) args.push('--mode', options.mode)
@@ -213,7 +228,8 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
         args.push('--boost-links')
         if (options?.hops != null) args.push('--hops', String(options.hops))
       }
-      if (options?.expand != null && options.expand > 0) args.push('--expand', String(options.expand))
+      if (options?.expand != null && options.expand > 0)
+        args.push('--expand', String(options.expand))
       return wrapHandler(() => execCommand<SearchOutput>('search', args, root))
     }
   )
@@ -224,24 +240,19 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
   )
 
   // Ingest
-  ipcMain.handle(
-    'cli:ingest',
-    (_event, root: string, options?: { reindex?: boolean }) => {
-      const args: string[] = []
-      if (options?.reindex) args.push('--reindex')
-      return wrapHandler(() =>
-        withWatcherPaused(root, () =>
-          execCommand<IngestResult>('ingest', args, root, { timeout: INGEST_TIMEOUT_MS })
-        )
+  ipcMain.handle('cli:ingest', (_event, root: string, options?: { reindex?: boolean }) => {
+    const args: string[] = []
+    if (options?.reindex) args.push('--reindex')
+    return wrapHandler(() =>
+      withWatcherPaused(root, () =>
+        execCommand<IngestResult>('ingest', args, root, { timeout: INGEST_TIMEOUT_MS })
       )
-    }
-  )
+    )
+  })
 
   // Ingest preview
   ipcMain.handle('cli:ingest-preview', (_event, root: string) =>
-    wrapHandler(() =>
-      execCommand<IngestPreview>('ingest', ['--preview'], root)
-    )
+    wrapHandler(() => execCommand<IngestPreview>('ingest', ['--preview'], root))
   )
 
   // File tree
@@ -269,7 +280,9 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
   // Neighborhood (multi-hop link tree)
   ipcMain.handle('cli:neighborhood', (_event, root: string, filePath: string, depth: number) => {
     const d = Math.min(3, Math.max(1, depth))
-    return wrapHandler(() => execCommand<NeighborhoodResult>('links', [filePath, '--depth', String(d)], root))
+    return wrapHandler(() =>
+      execCommand<NeighborhoodResult>('links', [filePath, '--depth', String(d)], root)
+    )
   })
 
   // Orphans
@@ -307,6 +320,35 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
     return wrapHandler(() => execCommand<Schema>('schema', args, root))
   })
 
+  // Collection (folder-as-table). NOTE the corrected arg grammar:
+  // `--sort` and `--order` are SEPARATE flags, and `--filter` is REPEATABLE
+  // (one KEY=VALUE per occurrence). The folder path is positional; '.' = root.
+  ipcMain.handle(
+    'cli:collection',
+    (
+      _event,
+      root: string,
+      folderPath: string,
+      options?: {
+        recursive?: boolean
+        sort?: string
+        order?: 'asc' | 'desc'
+        filter?: string[]
+        limit?: number
+        offset?: number
+      }
+    ) => {
+      const args: string[] = [folderPath || '.']
+      if (options?.recursive) args.push('--recursive')
+      if (options?.sort) args.push('--sort', options.sort)
+      if (options?.order) args.push('--order', options.order)
+      for (const f of options?.filter ?? []) args.push('--filter', f)
+      if (options?.limit != null) args.push('--limit', String(options.limit))
+      if (options?.offset != null) args.push('--offset', String(options.offset))
+      return wrapHandler(() => execCommand<CollectionOutput>('collection', args, root))
+    }
+  )
+
   // Config
   ipcMain.handle('cli:config', (_event, root: string) =>
     wrapHandler(() => execCommand<Config>('config', [], root))
@@ -318,9 +360,7 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
   )
 
   // Init
-  ipcMain.handle('cli:init', (_event, root: string) =>
-    wrapHandler(() => execRaw('init', [], root))
-  )
+  ipcMain.handle('cli:init', (_event, root: string) => wrapHandler(() => execRaw('init', [], root)))
 
   // Reset index (delete .markdownvdb/index and .markdownvdb/fts/ to recover from corruption)
   ipcMain.handle('cli:reset-index', (_event, root: string) =>
@@ -334,9 +374,7 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
   )
 
   // Collection management
-  ipcMain.handle('collections:list', () =>
-    wrapHandler(async () => getCollections())
-  )
+  ipcMain.handle('collections:list', () => wrapHandler(async () => getCollections()))
 
   ipcMain.handle('collections:add', () =>
     wrapHandler(async (): Promise<Collection | null> => {
@@ -375,11 +413,20 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
       const s = await import('./store').then((m) => m.initStore())
 
       const favorites = s.get('favorites', [])
-      s.set('favorites', favorites.filter((f) => f.collectionId !== id))
+      s.set(
+        'favorites',
+        favorites.filter((f) => f.collectionId !== id)
+      )
 
       const recents = s.get('recentFiles', [])
-      s.set('recentFiles', recents.filter((r) => r.collectionId !== id))
+      s.set(
+        'recentFiles',
+        recents.filter((r) => r.collectionId !== id)
+      )
       refreshRecentMenu()
+
+      // Clean up saved table views for this collection
+      await import('./table-views').then((m) => m.cleanupCollectionTableViews(id))
 
       // Clean up accent color override for this collection
       const colors = s.get('collectionColors', {})
@@ -403,9 +450,7 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
     })
   )
 
-  ipcMain.handle('collections:get-active', () =>
-    wrapHandler(async () => getActiveCollection())
-  )
+  ipcMain.handle('collections:get-active', () => wrapHandler(async () => getActiveCollection()))
 
   // Favorites management
   ipcMain.handle('favorites:list', () =>
@@ -461,9 +506,7 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
       const s = await import('./store').then((m) => m.initStore())
       let recents = s.get('recentFiles', [])
       // Remove existing entry for same file (dedup)
-      recents = recents.filter(
-        (r) => !(r.collectionId === collectionId && r.filePath === filePath)
-      )
+      recents = recents.filter((r) => !(r.collectionId === collectionId && r.filePath === filePath))
       // Add to front (most recent first)
       recents.unshift({ collectionId, filePath, openedAt: Date.now() })
       // Cap at 50 entries
@@ -479,6 +522,50 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
       s.set('recentFiles', [])
       refreshRecentMenu()
     })
+  )
+
+  // Saved table views (per collection + folder)
+  ipcMain.handle('tableviews:list', (_event, collectionId: string, folderPath: string) =>
+    wrapHandler(async () => {
+      const m = await import('./table-views')
+      return m.listTableViews(collectionId, folderPath)
+    })
+  )
+
+  ipcMain.handle(
+    'tableviews:save',
+    (_event, collectionId: string, folderPath: string, view: SavedTableView) =>
+      wrapHandler(async () => {
+        const m = await import('./table-views')
+        return m.saveTableView(collectionId, folderPath, view)
+      })
+  )
+
+  ipcMain.handle(
+    'tableviews:update',
+    (_event, collectionId: string, folderPath: string, view: SavedTableView) =>
+      wrapHandler(async () => {
+        const m = await import('./table-views')
+        return m.updateTableView(collectionId, folderPath, view)
+      })
+  )
+
+  ipcMain.handle(
+    'tableviews:delete',
+    (_event, collectionId: string, folderPath: string, viewId: string) =>
+      wrapHandler(async () => {
+        const m = await import('./table-views')
+        return m.deleteTableView(collectionId, folderPath, viewId)
+      })
+  )
+
+  ipcMain.handle(
+    'tableviews:set-default',
+    (_event, collectionId: string, folderPath: string, viewId: string) =>
+      wrapHandler(async () => {
+        const m = await import('./table-views')
+        return m.setDefaultTableView(collectionId, folderPath, viewId)
+      })
   )
 
   // Reveal file in OS file manager (Finder on macOS, Explorer on Windows)
@@ -550,6 +637,18 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
         }
       }
     })
+  )
+
+  // Safe single-key frontmatter edit (phase-39b). The renderer passes
+  // (collectionId, relativePath, patch); the absolute path + collection boundary
+  // are resolved/enforced in main. Returns the updated frontmatter object.
+  ipcMain.handle(
+    'fs:update-frontmatter',
+    (event, collectionId: string, relativePath: string, patch: FrontmatterPatch) =>
+      wrapHandler(async () => {
+        const m = await import('./frontmatter')
+        return m.updateFrontmatter(event, windowManager, collectionId, relativePath, patch)
+      })
   )
 
   // Create file (exclusive create — fails if exists)
@@ -659,8 +758,8 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
       const normalizedDest = resolve(destPath)
       const collections = getCollections()
       // Destination must be within a collection
-      const isDestWithinCollection = collections.some(
-        (c) => normalizedDest.startsWith(c.path + sep)
+      const isDestWithinCollection = collections.some((c) =>
+        normalizedDest.startsWith(c.path + sep)
       )
       if (!isDestWithinCollection) {
         throw new Error('Access denied: destination is not within a known collection')
@@ -681,7 +780,7 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
       )
       return {
         within: !!match,
-        collectionPath: match?.path ?? null,
+        collectionPath: match?.path ?? null
       }
     })
   )
@@ -722,9 +821,7 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
       const { resolve, sep } = await import('node:path')
       const normalizedPath = resolve(absolutePath)
       const collections = getCollections()
-      const collection = collections.find(
-        (c) => normalizedPath.startsWith(c.path + sep)
-      )
+      const collection = collections.find((c) => normalizedPath.startsWith(c.path + sep))
       if (!collection) {
         throw new Error('Access denied: path is not within a known collection')
       }
@@ -817,9 +914,7 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
     })
   )
 
-  ipcMain.handle('cli:check-update', () =>
-    wrapHandler(() => checkLatestVersion())
-  )
+  ipcMain.handle('cli:check-update', () => wrapHandler(() => checkLatestVersion()))
 
   // User-level config (~/.mdvdb/config)
   ipcMain.handle('settings:get-user-config', () =>
@@ -858,12 +953,14 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
     })
   )
 
-  ipcMain.handle('settings:set-collection-config', (_event, root: string, key: string, value: string) =>
-    wrapHandler(async () => {
-      const { join } = await import('node:path')
-      const configPath = join(root, '.markdownvdb', '.config')
-      await writeConfigKey(configPath, key, value)
-    })
+  ipcMain.handle(
+    'settings:set-collection-config',
+    (_event, root: string, key: string, value: string) =>
+      wrapHandler(async () => {
+        const { join } = await import('node:path')
+        const configPath = join(root, '.markdownvdb', '.config')
+        await writeConfigKey(configPath, key, value)
+      })
   )
 
   ipcMain.handle('settings:delete-collection-config', (_event, root: string, key: string) =>
@@ -885,9 +982,7 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
     })
   )
 
-  ipcMain.handle('store:get-editor-font-size', () =>
-    wrapHandler(async () => getEditorFontSize())
-  )
+  ipcMain.handle('store:get-editor-font-size', () => wrapHandler(async () => getEditorFontSize()))
 
   ipcMain.handle('store:set-editor-font-size', (_event, value: number) =>
     wrapHandler(async () => {
@@ -895,9 +990,7 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
     })
   )
 
-  ipcMain.handle('store:get-zoom-level', () =>
-    wrapHandler(async () => getZoomLevel())
-  )
+  ipcMain.handle('store:get-zoom-level', () => wrapHandler(async () => getZoomLevel()))
 
   ipcMain.handle('store:set-zoom-level', (event, value: number) =>
     wrapHandler(async () => {
@@ -911,9 +1004,7 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
   )
 
   // Accent color
-  ipcMain.handle('store:get-primary-color', () =>
-    wrapHandler(async () => getPrimaryColor())
-  )
+  ipcMain.handle('store:get-primary-color', () => wrapHandler(async () => getPrimaryColor()))
 
   ipcMain.handle('store:set-primary-color', (_event, hex: string | null) =>
     wrapHandler(async () => {
@@ -932,9 +1023,7 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
   )
 
   // Theme
-  ipcMain.handle('store:get-theme', () =>
-    wrapHandler(async () => getThemeMode())
-  )
+  ipcMain.handle('store:get-theme', () => wrapHandler(async () => getThemeMode()))
 
   ipcMain.handle('store:set-theme', (_event, mode: string) =>
     wrapHandler(async () => {
@@ -946,10 +1035,12 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
     wrapHandler(async () => getCollectionTheme(collectionId))
   )
 
-  ipcMain.handle('store:set-collection-theme', (_event, collectionId: string, mode: string | null) =>
-    wrapHandler(async () => {
-      setCollectionTheme(collectionId, mode)
-    })
+  ipcMain.handle(
+    'store:set-collection-theme',
+    (_event, collectionId: string, mode: string | null) =>
+      wrapHandler(async () => {
+        setCollectionTheme(collectionId, mode)
+      })
   )
 
   // Synchronous theme read for flash prevention (preload calls this before DOM paints)
@@ -970,7 +1061,10 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
       })
 
       watcher.onError((error) => {
-        windowManager.broadcastToAll('watcher:event', { type: 'error', data: { message: error.message } })
+        windowManager.broadcastToAll('watcher:event', {
+          type: 'error',
+          data: { message: error.message }
+        })
       })
 
       watcher.onStateChange((state: WatcherState) => {
@@ -1034,9 +1128,7 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
     })
   )
 
-  ipcMain.handle('updater:app-version', () =>
-    wrapHandler(async () => app.getVersion())
-  )
+  ipcMain.handle('updater:app-version', () => wrapHandler(async () => app.getVersion()))
 
   // Window session persistence
   ipcMain.handle('session:save', (_event, session: PersistedWindowState) =>
@@ -1081,7 +1173,7 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
         graphColoringMode: tabData.graphColoringMode,
         isDirty: tabData.isDirty,
         content: tabData.content,
-        savedContent: tabData.savedContent,
+        savedContent: tabData.savedContent
       }
       windowManager.createPopupWindow(popupOpts)
     })

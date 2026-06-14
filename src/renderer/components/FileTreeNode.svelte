@@ -7,9 +7,21 @@
     node: UnifiedTreeNode
     depth?: number
     onfileselect?: (detail: { path: string; forceNewTab?: boolean }) => void
-    onassetselect?: (detail: { path: string; mimeCategory: MimeCategory; fileSize?: number }) => void
-    oncontextmenu?: (detail: { path: string; isDir: boolean; isAsset: boolean; mimeCategory?: string; x: number; y: number }) => void
+    onassetselect?: (detail: {
+      path: string
+      mimeCategory: MimeCategory
+      fileSize?: number
+    }) => void
+    oncontextmenu?: (detail: {
+      path: string
+      isDir: boolean
+      isAsset: boolean
+      mimeCategory?: string
+      x: number
+      y: number
+    }) => void
     onfolderclick?: (folderPath: string) => void
+    onfolderopen?: (folderPath: string) => void
     focusedPath?: string
     noRecursiveRender?: boolean // If true, don't render children recursively (for virtual lists)
     currentSelectedFilePath?: string | null
@@ -23,17 +35,36 @@
     onassetselect,
     oncontextmenu: onctx,
     onfolderclick: onfc,
+    onfolderopen: onfo,
     focusedPath,
     noRecursiveRender = false,
     currentSelectedFilePath = null,
-    currentExpandedPaths = new Set<string>(),
+    currentExpandedPaths = new Set<string>()
   }: FileTreeNodeProps = $props()
+
+  /** Open a folder as a table view without toggling expansion. */
+  function handleOpenAsTable(event: MouseEvent) {
+    event.stopPropagation()
+    onfo?.(node.path)
+  }
+
+  /** Double-clicking a folder row opens it as a table (single click still expands). */
+  function handleDblClick() {
+    if (node.is_dir) onfo?.(node.path)
+  }
 
   let buttonElement: HTMLButtonElement | null = $state(null)
 
   function handleContextMenu(event: MouseEvent) {
     event.preventDefault()
-    onctx?.({ path: node.path, isDir: node.is_dir, isAsset: node.isAsset, mimeCategory: node.mimeCategory, x: event.clientX, y: event.clientY })
+    onctx?.({
+      path: node.path,
+      isDir: node.is_dir,
+      isAsset: node.isAsset,
+      mimeCategory: node.mimeCategory,
+      x: event.clientX,
+      y: event.clientY
+    })
   }
 
   function handleDragStart(event: DragEvent) {
@@ -42,10 +73,13 @@
     event.dataTransfer.setData('text/plain', `[[${filename}]]`)
     event.dataTransfer.setData('application/x-mdvdb-path', node.path)
     if (node.isAsset) {
-      event.dataTransfer.setData('application/x-mdvdb-asset', JSON.stringify({
-        mimeCategory: node.mimeCategory ?? 'other',
-        fileSize: node.fileSize,
-      }))
+      event.dataTransfer.setData(
+        'application/x-mdvdb-asset',
+        JSON.stringify({
+          mimeCategory: node.mimeCategory ?? 'other',
+          fileSize: node.fileSize
+        })
+      )
     }
     event.dataTransfer.effectAllowed = 'link'
   }
@@ -58,10 +92,23 @@
   function isAssetByExtension(name: string): MimeCategory | null {
     const ext = name.split('.').pop()?.toLowerCase() ?? ''
     const map: Record<string, MimeCategory> = {
-      png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', svg: 'image', webp: 'image', bmp: 'image', ico: 'image',
+      png: 'image',
+      jpg: 'image',
+      jpeg: 'image',
+      gif: 'image',
+      svg: 'image',
+      webp: 'image',
+      bmp: 'image',
+      ico: 'image',
       pdf: 'pdf',
-      mp4: 'video', webm: 'video', mov: 'video', avi: 'video',
-      mp3: 'audio', wav: 'audio', ogg: 'audio', flac: 'audio',
+      mp4: 'video',
+      webm: 'video',
+      mov: 'video',
+      avi: 'video',
+      mp3: 'audio',
+      wav: 'audio',
+      ogg: 'audio',
+      flac: 'audio'
     }
     return map[ext] ?? null
   }
@@ -108,11 +155,16 @@
 
   function assetIcon(mime?: MimeCategory): string {
     switch (mime) {
-      case 'image': return 'image'
-      case 'pdf': return 'picture_as_pdf'
-      case 'video': return 'videocam'
-      case 'audio': return 'audiotrack'
-      default: return 'attach_file'
+      case 'image':
+        return 'image'
+      case 'pdf':
+        return 'picture_as_pdf'
+      case 'video':
+        return 'videocam'
+      case 'audio':
+        return 'audiotrack'
+      default:
+        return 'attach_file'
     }
   }
 
@@ -138,6 +190,7 @@
     style="padding-left: {12 + depth * 16}px;"
     draggable={!node.is_dir}
     onclick={handleClick}
+    ondblclick={handleDblClick}
     oncontextmenu={handleContextMenu}
     ondragstart={handleDragStart}
     title={node.path}
@@ -155,7 +208,11 @@
       </span>
     {:else}
       <span class="expand-spacer"></span>
-      <span class="material-symbols-outlined node-icon" class:file-icon={!node.isAsset} class:asset-icon={node.isAsset}>
+      <span
+        class="material-symbols-outlined node-icon"
+        class:file-icon={!node.isAsset}
+        class:asset-icon={node.isAsset}
+      >
         {fileIcon(node.name)}
       </span>
     {/if}
@@ -163,16 +220,41 @@
     <span class="node-name">{node.name}</span>
 
     {#if !node.is_dir && !node.isAsset && node.state}
-      <span class="material-symbols-outlined state-indicator {stateClass(node.state)}" title={node.state}>
+      <span
+        class="material-symbols-outlined state-indicator {stateClass(node.state)}"
+        title={node.state}
+      >
         {stateIcon(node.state)}
       </span>
     {/if}
   </button>
 
+  {#if node.is_dir}
+    <button
+      class="table-action"
+      title="Open as table"
+      aria-label="Open {node.name} as table"
+      onclick={handleOpenAsTable}
+    >
+      <span class="material-symbols-outlined">table</span>
+    </button>
+  {/if}
+
   {#if !noRecursiveRender && node.is_dir && isExpanded}
     <div class="tree-children" transition:slide={{ duration: 150 }}>
       {#each node.children as child (child.path)}
-        <svelte:self node={child} depth={depth + 1} {onfileselect} {onassetselect} oncontextmenu={onctx} onfolderclick={onfc} {focusedPath} {currentSelectedFilePath} {currentExpandedPaths} />
+        <svelte:self
+          node={child}
+          depth={depth + 1}
+          {onfileselect}
+          {onassetselect}
+          oncontextmenu={onctx}
+          onfolderclick={onfc}
+          onfolderopen={onfo}
+          {focusedPath}
+          {currentSelectedFilePath}
+          {currentExpandedPaths}
+        />
       {/each}
     </div>
   {/if}
@@ -181,6 +263,50 @@
 <style>
   .tree-node {
     user-select: none;
+    position: relative;
+  }
+
+  /* Trailing "open as table" affordance for directory rows (hover-revealed). */
+  .table-action {
+    position: absolute;
+    top: 0;
+    right: 4px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    border: none;
+    background: transparent;
+    color: var(--color-text-dim);
+    cursor: pointer;
+    opacity: 0;
+    border-radius: var(--radius-sm);
+    transition: opacity var(--transition-fast);
+  }
+
+  .tree-node:hover > .table-action {
+    opacity: 1;
+  }
+
+  .table-action:hover {
+    color: var(--color-primary);
+    background: var(--color-surface-elevated);
+  }
+
+  .table-action:focus-visible {
+    opacity: 1;
+    outline: 1px solid var(--color-primary);
+  }
+
+  .table-action .material-symbols-outlined {
+    font-size: 16px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .table-action {
+      transition: none;
+    }
   }
 
   .tree-row {
@@ -207,7 +333,7 @@
 
   .tree-row.active {
     background: var(--color-primary-alpha, rgba(0, 229, 255, 0.1));
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
   }
 
   .tree-row.directory {

@@ -68,6 +68,7 @@ const api: MdvdbApi = {
   clusterDefinitions: (root) => invoke('cli:clusters-list', root),
   graphData: (root, level?, path?) => invoke('cli:graph', root, level, path),
   schema: (root, path?) => invoke('cli:schema', root, path),
+  collection: (root, folderPath, options?) => invoke('cli:collection', root, folderPath, options),
   config: (root) => invoke('cli:config', root),
   doctor: (root) => invoke('cli:doctor', root),
   init: (root) => invoke('cli:init', root),
@@ -83,6 +84,8 @@ const api: MdvdbApi = {
   // File operations
   readFile: (absolutePath) => invoke('fs:read-file', absolutePath),
   writeFile: (absolutePath, content) => invoke('fs:write-file', absolutePath, content),
+  updateFrontmatter: (collectionId, relativePath, patch) =>
+    invoke('fs:update-frontmatter', collectionId, relativePath, patch),
   createFile: (absolutePath, content) => invoke('fs:create-file', absolutePath, content),
   createDirectory: (absolutePath) => invoke('fs:create-directory', absolutePath),
   readBinary: (absolutePath) => invoke('fs:read-binary', absolutePath),
@@ -119,6 +122,17 @@ const api: MdvdbApi = {
   listRecents: () => invoke('recents:list'),
   addRecent: (collectionId, filePath) => invoke('recents:add', collectionId, filePath),
   clearRecents: () => invoke('recents:clear'),
+
+  // Saved table views
+  listTableViews: (collectionId, folderPath) => invoke('tableviews:list', collectionId, folderPath),
+  saveTableView: (collectionId, folderPath, view) =>
+    invoke('tableviews:save', collectionId, folderPath, view),
+  updateTableView: (collectionId, folderPath, view) =>
+    invoke('tableviews:update', collectionId, folderPath, view),
+  deleteTableView: (collectionId, folderPath, viewId) =>
+    invoke('tableviews:delete', collectionId, folderPath, viewId),
+  setDefaultTableView: (collectionId, folderPath, viewId) =>
+    invoke('tableviews:set-default', collectionId, folderPath, viewId),
 
   // Window state persistence
   setSidebarWidth: (width) => invoke('store:set-sidebar-width', width),
@@ -166,7 +180,8 @@ const api: MdvdbApi = {
 
   // Collection-level config (.markdownvdb/.config)
   getCollectionConfig: (root) => invoke('settings:get-collection-config', root),
-  setCollectionConfig: (root, key, value) => invoke('settings:set-collection-config', root, key, value),
+  setCollectionConfig: (root, key, value) =>
+    invoke('settings:set-collection-config', root, key, value),
   deleteCollectionConfig: (root, key) => invoke('settings:delete-collection-config', root, key),
 
   // Onboarding state
@@ -185,13 +200,15 @@ const api: MdvdbApi = {
   getPrimaryColor: () => invoke('store:get-primary-color'),
   setPrimaryColor: (hex) => invoke('store:set-primary-color', hex),
   getCollectionColor: (collectionId) => invoke('store:get-collection-color', collectionId),
-  setCollectionColor: (collectionId, hex) => invoke('store:set-collection-color', collectionId, hex),
+  setCollectionColor: (collectionId, hex) =>
+    invoke('store:set-collection-color', collectionId, hex),
 
   // Theme
   getTheme: () => invoke('store:get-theme'),
   setTheme: (mode) => invoke('store:set-theme', mode),
   getCollectionTheme: (collectionId) => invoke('store:get-collection-theme', collectionId),
-  setCollectionTheme: (collectionId, mode) => invoke('store:set-collection-theme', collectionId, mode),
+  setCollectionTheme: (collectionId, mode) =>
+    invoke('store:set-collection-theme', collectionId, mode),
 
   // Window session persistence
   saveWindowSession: (session) => invoke('session:save', session),

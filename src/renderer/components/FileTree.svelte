@@ -17,7 +17,7 @@
     createNewFile,
     createNewDirectory,
     removeTreeNode,
-    removeAssetNode,
+    removeAssetNode
   } from '../stores/files'
   import { activeCollection, activeCollectionId } from '../stores/collections'
   import { runIngest, ingestRunning } from '../stores/ingest'
@@ -25,23 +25,34 @@
   import { setGraphPathFilter, setGraphHighlightedFolder, graphViewActive } from '../stores/graph'
   import { get } from 'svelte/store'
   import type { Collection } from '../../preload/api'
-  import type { FileTree as FileTreeType, FileState, FileTreeNode as FileTreeNodeType, UnifiedTreeNode, MimeCategory } from '../types/cli'
+  import type {
+    FileTree as FileTreeType,
+    FileState,
+    FileTreeNode as FileTreeNodeType,
+    UnifiedTreeNode,
+    MimeCategory
+  } from '../types/cli'
   import { workspace } from '../stores/workspace.svelte'
   import { syncFileStoresFromTab } from '../stores/files'
   import {
     calculateVirtualListState,
     scrollToIndex,
     throttleScroll,
-    type VirtualListState,
+    type VirtualListState
   } from '../lib/virtual-list'
 
   interface FileTreeProps {
     onfileselect?: (detail: { path: string; forceNewTab?: boolean }) => void
+    onfolderopen?: (detail: { path: string }) => void
   }
 
-  let { onfileselect }: FileTreeProps = $props()
+  let { onfileselect, onfolderopen }: FileTreeProps = $props()
 
-  function handleAssetSelect(detail: { path: string; mimeCategory: MimeCategory; fileSize?: number }) {
+  function handleAssetSelect(detail: {
+    path: string
+    mimeCategory: MimeCategory
+    fileSize?: number
+  }) {
     workspace.openAssetTab(detail.path, detail.mimeCategory, detail.fileSize)
     syncFileStoresFromTab()
   }
@@ -50,7 +61,12 @@
   let currentFileTree: FileTreeType | null = $state(null)
   let currentFileTreeLoading: boolean = $state(false)
   let currentFileTreeError: string | null = $state(null)
-  let currentFileStateCounts: Record<FileState, number> = $state({ indexed: 0, modified: 0, new: 0, deleted: 0 })
+  let currentFileStateCounts: Record<FileState, number> = $state({
+    indexed: 0,
+    modified: 0,
+    new: 0,
+    deleted: 0
+  })
   let currentActiveCollection: Collection | null = $state(null)
   let currentIngestRunning: boolean = $state(false)
   let ingestMenuOpen: boolean = $state(false)
@@ -133,7 +149,7 @@
     return calculateVirtualListState(scrollTop, containerHeight, {
       itemHeight: ITEM_HEIGHT,
       totalItems: flatNodes.length,
-      buffer: BUFFER,
+      buffer: BUFFER
     })
   })
 
@@ -145,13 +161,11 @@
   }
 
   let visibleNodes = $derived.by((): VisibleNode[] => {
-    return flatNodes
-      .slice(virtualState.start, virtualState.end)
-      .map((flatNode, idx) => ({
-        node: flatNode.node,
-        depth: flatNode.depth,
-        flatIndex: virtualState.start + idx,
-      }))
+    return flatNodes.slice(virtualState.start, virtualState.end).map((flatNode, idx) => ({
+      node: flatNode.node,
+      depth: flatNode.depth,
+      flatIndex: virtualState.start + idx
+    }))
   })
 
   // Keyboard event handler
@@ -200,7 +214,11 @@
           toggleExpanded(currentNode.path)
           handleFolderClick(currentNode.path)
         } else if (currentNode && currentNode.isAsset) {
-          handleAssetSelect({ path: currentNode.path, mimeCategory: currentNode.node.mimeCategory ?? 'other', fileSize: currentNode.node.fileSize })
+          handleAssetSelect({
+            path: currentNode.path,
+            mimeCategory: currentNode.node.mimeCategory ?? 'other',
+            fileSize: currentNode.node.fileSize
+          })
         } else if (currentNode) {
           onfileselect?.({ path: currentNode.path })
         }
@@ -217,7 +235,7 @@
     // Smooth scroll to the focused node
     treeContentElement.scrollTo({
       top: targetScrollTop,
-      behavior: 'smooth',
+      behavior: 'smooth'
     })
   }
 
@@ -251,7 +269,14 @@
     }
   })
 
-  function handleNodeContextMenu(detail: { path: string; isDir: boolean; isAsset: boolean; mimeCategory?: string; x: number; y: number }) {
+  function handleNodeContextMenu(detail: {
+    path: string
+    isDir: boolean
+    isAsset: boolean
+    mimeCategory?: string
+    x: number
+    y: number
+  }) {
     contextMenuPath = detail.path
     contextMenuIsDir = detail.isDir
     contextMenuIsAsset = detail.isAsset
@@ -281,7 +306,7 @@
       filePath,
       collectionId: currentActiveCollectionId ?? undefined,
       collectionPath: currentActiveCollection?.path,
-      mimeCategory: isAsset ? (mime ?? 'other') : undefined,
+      mimeCategory: isAsset ? (mime ?? 'other') : undefined
     })
   }
 
@@ -360,6 +385,13 @@
     }
   }
 
+  function handleOpenAsTable() {
+    if (!contextMenuPath || !contextMenuIsDir) return
+    const path = contextMenuPath
+    closeContextMenu()
+    onfolderopen?.({ path })
+  }
+
   // New file/folder creation
   function startNewFile(dirPath: string = '') {
     newFileInput = { dirPath, type: 'file' }
@@ -403,13 +435,17 @@
   }
 
   function handleContextMenuNewFile() {
-    const dirPath = contextMenuIsDir ? contextMenuPath ?? '' : contextMenuPath?.split('/').slice(0, -1).join('/') ?? ''
+    const dirPath = contextMenuIsDir
+      ? (contextMenuPath ?? '')
+      : (contextMenuPath?.split('/').slice(0, -1).join('/') ?? '')
     closeContextMenu()
     startNewFile(dirPath)
   }
 
   function handleContextMenuNewFolder() {
-    const dirPath = contextMenuIsDir ? contextMenuPath ?? '' : contextMenuPath?.split('/').slice(0, -1).join('/') ?? ''
+    const dirPath = contextMenuIsDir
+      ? (contextMenuPath ?? '')
+      : (contextMenuPath?.split('/').slice(0, -1).join('/') ?? '')
     closeContextMenu()
     startNewFolder(dirPath)
   }
@@ -420,7 +456,9 @@
     // Determine if it's an image
     const ext = name.split('.').pop()?.toLowerCase() ?? ''
     const imageExts = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico']
-    const ref = imageExts.includes(ext) ? `![${name}](${contextMenuPath})` : `[${name}](${contextMenuPath})`
+    const ref = imageExts.includes(ext)
+      ? `![${name}](${contextMenuPath})`
+      : `[${name}](${contextMenuPath})`
     closeContextMenu()
     await window.api.writeToClipboard(ref)
   }
@@ -462,7 +500,11 @@
       if (collectionId) {
         const currentFavorites = get(favorites)
         const favPaths = isDir
-          ? currentFavorites.filter((f) => f.collectionId === collectionId && (f.filePath === path || f.filePath.startsWith(path + '/')))
+          ? currentFavorites.filter(
+              (f) =>
+                f.collectionId === collectionId &&
+                (f.filePath === path || f.filePath.startsWith(path + '/'))
+            )
           : currentFavorites.filter((f) => f.collectionId === collectionId && f.filePath === path)
         for (const fav of favPaths) {
           window.api.removeFavorite(collectionId, fav.filePath).catch(() => {})
@@ -521,7 +563,12 @@
   }
 </script>
 
-<div class="file-tree-container" onclick={handleClickOutside} onkeydown={handleKeyDown} tabindex="0">
+<div
+  class="file-tree-container"
+  onclick={handleClickOutside}
+  onkeydown={handleKeyDown}
+  tabindex="0"
+>
   <!-- Header -->
   <div class="file-tree-header">
     <h3 class="file-tree-title">Files</h3>
@@ -555,11 +602,23 @@
           </div>
         {/if}
       </div>
-      <button class="icon-btn" onclick={() => startNewFile()} title="New File" disabled={!currentActiveCollection}>
+      <button
+        class="icon-btn"
+        onclick={() => startNewFile()}
+        title="New File"
+        disabled={!currentActiveCollection}
+      >
         <span class="material-symbols-outlined">note_add</span>
       </button>
-      <button class="icon-btn" onclick={toggleShowAssets} title={currentShowAssets ? 'Hide Assets' : 'Show Assets'} class:active-toggle={currentShowAssets}>
-        <span class="material-symbols-outlined">{currentShowAssets ? 'visibility' : 'visibility_off'}</span>
+      <button
+        class="icon-btn"
+        onclick={toggleShowAssets}
+        title={currentShowAssets ? 'Hide Assets' : 'Show Assets'}
+        class:active-toggle={currentShowAssets}
+      >
+        <span class="material-symbols-outlined"
+          >{currentShowAssets ? 'visibility' : 'visibility_off'}</span
+        >
       </button>
       <button class="icon-btn" onclick={collapseAll} title="Collapse All">
         <span class="material-symbols-outlined">unfold_less</span>
@@ -567,8 +626,15 @@
       <button class="icon-btn" onclick={expandAll} title="Expand All">
         <span class="material-symbols-outlined">unfold_more</span>
       </button>
-      <button class="icon-btn" onclick={handleRefresh} title="Refresh" disabled={currentFileTreeLoading}>
-        <span class="material-symbols-outlined" class:spinning={currentFileTreeLoading}>refresh</span>
+      <button
+        class="icon-btn"
+        onclick={handleRefresh}
+        title="Refresh"
+        disabled={currentFileTreeLoading}
+      >
+        <span class="material-symbols-outlined" class:spinning={currentFileTreeLoading}
+          >refresh</span
+        >
       </button>
     </div>
   </div>
@@ -635,17 +701,26 @@
           {/if}
         </div>
       {/if}
-      <div class="tree-nodes-virtual" role="tree" aria-label="File tree" style="height: {virtualState.totalHeight}px;">
+      <div
+        class="tree-nodes-virtual"
+        role="tree"
+        aria-label="File tree"
+        style="height: {virtualState.totalHeight}px;"
+      >
         {#each visibleNodes as { node, depth, flatIndex } (node.path)}
-          <div class="virtual-node-wrapper" style="transform: translateY({flatIndex * ITEM_HEIGHT}px); height: {ITEM_HEIGHT}px;">
+          <div
+            class="virtual-node-wrapper"
+            style="transform: translateY({flatIndex * ITEM_HEIGHT}px); height: {ITEM_HEIGHT}px;"
+          >
             <FileTreeNode
               {node}
               {onfileselect}
               onassetselect={handleAssetSelect}
               oncontextmenu={handleNodeContextMenu}
               onfolderclick={handleFolderClick}
+              onfolderopen={(path) => onfolderopen?.({ path })}
               focusedPath={flatNodes[focusedNodeIndex]?.path}
-              depth={depth}
+              {depth}
               noRecursiveRender={true}
               {currentSelectedFilePath}
               {currentExpandedPaths}
@@ -706,6 +781,10 @@
       {/if}
       {#if contextMenuIsDir}
         <div class="context-menu-separator"></div>
+        <button class="context-menu-item" onclick={handleOpenAsTable}>
+          <span class="material-symbols-outlined">table</span>
+          Open as Table
+        </button>
         <button class="context-menu-item" onclick={handleContextMenuNewFile}>
           <span class="material-symbols-outlined">note_add</span>
           New File
@@ -736,7 +815,10 @@
           onclick={handleReindexFile}
           disabled={reindexingFile !== null}
         >
-          <span class="material-symbols-outlined" class:spinning={reindexingFile === contextMenuPath}>
+          <span
+            class="material-symbols-outlined"
+            class:spinning={reindexingFile === contextMenuPath}
+          >
             {reindexingFile === contextMenuPath ? 'sync' : 'refresh'}
           </span>
           {reindexingFile === contextMenuPath ? 'Reindexing...' : 'Reindex File'}
@@ -923,8 +1005,12 @@
   }
 
   @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   .file-tree-summary {
@@ -953,13 +1039,22 @@
     overflow-y: auto;
     overflow-x: hidden;
     scrollbar-width: thin;
-    scrollbar-color: var(--overlay-active, rgba(255, 255, 255, 0.10)) transparent;
+    scrollbar-color: var(--overlay-active, rgba(255, 255, 255, 0.1)) transparent;
   }
 
-  .file-tree-content::-webkit-scrollbar { width: 6px; }
-  .file-tree-content::-webkit-scrollbar-track { background: transparent; }
-  .file-tree-content::-webkit-scrollbar-thumb { background: var(--overlay-active, rgba(255, 255, 255, 0.10)); border-radius: 3px; }
-  .file-tree-content::-webkit-scrollbar-thumb:hover { background: var(--overlay-active, rgba(255, 255, 255, 0.20)); }
+  .file-tree-content::-webkit-scrollbar {
+    width: 6px;
+  }
+  .file-tree-content::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .file-tree-content::-webkit-scrollbar-thumb {
+    background: var(--overlay-active, rgba(255, 255, 255, 0.1));
+    border-radius: 3px;
+  }
+  .file-tree-content::-webkit-scrollbar-thumb:hover {
+    background: var(--overlay-active, rgba(255, 255, 255, 0.2));
+  }
 
   .tree-nodes {
     padding: 4px 0;
@@ -1102,14 +1197,14 @@
 
   .new-file-icon {
     font-size: 16px;
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
     flex-shrink: 0;
   }
 
   .new-file-input {
     flex: 1;
     height: 22px;
-    border: 1px solid var(--color-primary, #00E5FF);
+    border: 1px solid var(--color-primary, #00e5ff);
     border-radius: 3px;
     background: var(--color-surface-dark, #0a0a0a);
     color: var(--color-text-main, #e4e4e7);
@@ -1134,6 +1229,6 @@
 
   /* Asset toggle */
   .active-toggle {
-    color: var(--color-primary, #00E5FF) !important;
+    color: var(--color-primary, #00e5ff) !important;
   }
 </style>

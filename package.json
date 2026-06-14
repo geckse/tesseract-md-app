@@ -69,7 +69,8 @@
     "mermaid": "^11.0.0",
     "node-pty": "^1.1.0",
     "pdfjs-dist": "^5.4.624",
-    "three": "^0.183.2"
+    "three": "^0.183.2",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@electron-toolkit/preload": "^3.0.1",

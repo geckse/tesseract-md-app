@@ -43,7 +43,9 @@ vi.mock('../../src/main/store', () => ({
 // Mock cli-install module
 vi.mock('../../src/main/cli-install', () => ({
   detectCli: vi.fn().mockResolvedValue({ found: false }),
-  installCli: vi.fn().mockResolvedValue({ success: true, path: '/usr/local/bin/mdvdb', version: '0.1.0' }),
+  installCli: vi
+    .fn()
+    .mockResolvedValue({ success: true, path: '/usr/local/bin/mdvdb', version: '0.1.0' }),
   checkLatestVersion: vi.fn().mockResolvedValue('0.1.0')
 }))
 
@@ -129,7 +131,7 @@ vi.mock('../../src/main/updater', () => ({
     skipVersion: vi.fn(),
     clearSkippedVersion: vi.fn(),
     getState: vi.fn().mockReturnValue('idle'),
-    destroy: vi.fn(),
+    destroy: vi.fn()
   }))
 }))
 
@@ -142,7 +144,7 @@ vi.mock('electron-updater', () => ({
     removeAllListeners: vi.fn(),
     checkForUpdates: vi.fn(),
     downloadUpdate: vi.fn(),
-    quitAndInstall: vi.fn(),
+    quitAndInstall: vi.fn()
   }
 }))
 
@@ -193,7 +195,14 @@ function createMockWindowManager() {
     closeWindow: mockCloseWindow
   } as unknown as WindowManager
 
-  return { wm, mockBroadcastToAll, mockCreateWindow, mockGetAllWindows, mockGetWindow, mockCloseWindow }
+  return {
+    wm,
+    mockBroadcastToAll,
+    mockCreateWindow,
+    mockGetAllWindows,
+    mockGetWindow,
+    mockCloseWindow
+  }
 }
 
 beforeEach(() => {
@@ -290,7 +299,15 @@ describe('registerIpcHandlers', () => {
     expect(channels).toContain('store:get-terminal-font-size')
     expect(channels).toContain('store:set-terminal-font-size')
     expect(channels).toContain('os:homedir')
-    expect(channels).toHaveLength(101)
+    // Collection (folder-as-table) + saved table views + frontmatter writer (phase-39)
+    expect(channels).toContain('cli:collection')
+    expect(channels).toContain('fs:update-frontmatter')
+    expect(channels).toContain('tableviews:list')
+    expect(channels).toContain('tableviews:save')
+    expect(channels).toContain('tableviews:update')
+    expect(channels).toContain('tableviews:delete')
+    expect(channels).toContain('tableviews:set-default')
+    expect(channels).toHaveLength(108)
   })
 })
 
@@ -332,11 +349,7 @@ describe('IPC handler argument passing', () => {
       const handler = getHandler('cli:search')
       await handler(fakeEvent, '/tmp/project', 'test')
 
-      expect(mockExecCommand).toHaveBeenCalledWith(
-        'search',
-        ['test'],
-        '/tmp/project'
-      )
+      expect(mockExecCommand).toHaveBeenCalledWith('search', ['test'], '/tmp/project')
     })
 
     it('passes search options as CLI args', async () => {
@@ -387,9 +400,9 @@ describe('IPC handler argument passing', () => {
       const handler = getHandler('cli:ingest')
       await handler(fakeEvent, '/tmp/project')
 
-      expect(mockExecCommand).toHaveBeenCalledWith(
-        'ingest', [], '/tmp/project', { timeout: 300_000 }
-      )
+      expect(mockExecCommand).toHaveBeenCalledWith('ingest', [], '/tmp/project', {
+        timeout: 300_000
+      })
     })
 
     it('passes --reindex flag when requested', async () => {
@@ -397,9 +410,9 @@ describe('IPC handler argument passing', () => {
       const handler = getHandler('cli:ingest')
       await handler(fakeEvent, '/tmp/project', { reindex: true })
 
-      expect(mockExecCommand).toHaveBeenCalledWith(
-        'ingest', ['--reindex'], '/tmp/project', { timeout: 300_000 }
-      )
+      expect(mockExecCommand).toHaveBeenCalledWith('ingest', ['--reindex'], '/tmp/project', {
+        timeout: 300_000
+      })
     })
 
     it('omits --reindex flag when not requested', async () => {
@@ -437,6 +450,58 @@ describe('IPC handler argument passing', () => {
       await handler(fakeEvent, '/tmp/project', 'docs/')
 
       expect(mockExecCommand).toHaveBeenCalledWith('tree', ['--path', 'docs/'], '/tmp/project')
+    })
+  })
+
+  describe('cli:collection', () => {
+    it('sends the folder path positionally and root sentinel for empty path', async () => {
+      mockExecCommand.mockResolvedValue({ rows: [] })
+      const handler = getHandler('cli:collection')
+      await handler(fakeEvent, '/tmp/project', '')
+
+      expect(mockExecCommand).toHaveBeenCalledWith('collection', ['.'], '/tmp/project')
+    })
+
+    it('uses separate --sort/--order flags and repeatable --filter', async () => {
+      mockExecCommand.mockResolvedValue({ rows: [] })
+      const handler = getHandler('cli:collection')
+      await handler(fakeEvent, '/tmp/project', 'blog', {
+        recursive: true,
+        sort: 'date',
+        order: 'desc',
+        filter: ['status=published', 'lang=en'],
+        limit: 50,
+        offset: 10
+      })
+
+      expect(mockExecCommand).toHaveBeenCalledWith(
+        'collection',
+        [
+          'blog',
+          '--recursive',
+          '--sort',
+          'date',
+          '--order',
+          'desc',
+          '--filter',
+          'status=published',
+          '--filter',
+          'lang=en',
+          '--limit',
+          '50',
+          '--offset',
+          '10'
+        ],
+        '/tmp/project'
+      )
+    })
+
+    it('omits optional flags when not provided', async () => {
+      mockExecCommand.mockResolvedValue({ rows: [] })
+      const handler = getHandler('cli:collection')
+      await handler(fakeEvent, '/tmp/project', 'blog', {})
+
+      expect(mockExecCommand).toHaveBeenCalledWith('collection', ['blog'], '/tmp/project')
     })
   })
 
@@ -597,10 +662,17 @@ describe('Collection IPC handlers', () => {
 
     it('returns error when path is invalid', async () => {
       mockPickCollectionFolder.mockResolvedValue('/bad')
-      mockValidateCollectionPath.mockResolvedValue({ valid: false, hasConfig: false, name: 'bad', error: 'Path does not exist' })
+      mockValidateCollectionPath.mockResolvedValue({
+        valid: false,
+        hasConfig: false,
+        name: 'bad',
+        error: 'Path does not exist'
+      })
       const handler = getHandler('collections:add')
       const result = await handler()
-      expect(result).toEqual(expect.objectContaining({ error: true, message: 'Path does not exist' }))
+      expect(result).toEqual(
+        expect.objectContaining({ error: true, message: 'Path does not exist' })
+      )
     })
   })
 
@@ -669,7 +741,12 @@ describe('Collection IPC handlers', () => {
       mockGetCollections.mockReturnValue([{ id: '1', name: 'proj', path: '/proj' }])
       const handler = getHandler('fs:read-file')
       const result = await handler(fakeEvent, '/etc/passwd')
-      expect(result).toEqual(expect.objectContaining({ error: true, message: 'Access denied: path is not within a known collection' }))
+      expect(result).toEqual(
+        expect.objectContaining({
+          error: true,
+          message: 'Access denied: path is not within a known collection'
+        })
+      )
       expect(mockReadFile).not.toHaveBeenCalled()
     })
   })
@@ -688,7 +765,12 @@ describe('Collection IPC handlers', () => {
       mockGetCollections.mockReturnValue([{ id: '1', name: 'proj', path: '/proj' }])
       const handler = getHandler('fs:write-file')
       const result = await handler(fakeEvent, '/etc/shadow', 'malicious')
-      expect(result).toEqual(expect.objectContaining({ error: true, message: 'Access denied: path is not within a known collection' }))
+      expect(result).toEqual(
+        expect.objectContaining({
+          error: true,
+          message: 'Access denied: path is not within a known collection'
+        })
+      )
       expect(mockWriteFile).not.toHaveBeenCalled()
     })
 
@@ -705,7 +787,9 @@ describe('Collection IPC handlers', () => {
       mockWriteFile.mockRejectedValue(new Error('EACCES: permission denied'))
       const handler = getHandler('fs:write-file')
       const result = await handler(fakeEvent, '/proj/readme.md', 'content')
-      expect(result).toEqual(expect.objectContaining({ error: true, message: 'EACCES: permission denied' }))
+      expect(result).toEqual(
+        expect.objectContaining({ error: true, message: 'EACCES: permission denied' })
+      )
     })
   })
 })
@@ -733,7 +817,12 @@ describe('shell:open-path IPC handler', () => {
     mockGetCollections.mockReturnValue([{ id: '1', name: 'proj', path: '/proj' }])
     const handler = getHandler('shell:open-path')
     const result = await handler(fakeEvent, '/etc/passwd')
-    expect(result).toEqual(expect.objectContaining({ error: true, message: 'Access denied: path is not within a known collection' }))
+    expect(result).toEqual(
+      expect.objectContaining({
+        error: true,
+        message: 'Access denied: path is not within a known collection'
+      })
+    )
     expect(mockShellOpenPath).not.toHaveBeenCalled()
   })
 })
@@ -910,7 +999,10 @@ describe('cli:ingest-file IPC handler', () => {
     await handler(fakeEvent, '/tmp/project', 'readme.md')
 
     expect(mockExecCommand).toHaveBeenCalledWith(
-      'ingest', ['--file', 'readme.md'], '/tmp/project', { timeout: 300_000 }
+      'ingest',
+      ['--file', 'readme.md'],
+      '/tmp/project',
+      { timeout: 300_000 }
     )
   })
 
@@ -954,9 +1046,7 @@ describe('Watcher pause during ingest', () => {
     // Watcher should have been stopped before ingest
     expect(mockWatcherStop).toHaveBeenCalled()
     // Ingest should have run
-    expect(mockExecCommand).toHaveBeenCalledWith(
-      'ingest', [], '/tmp/project', { timeout: 300_000 }
-    )
+    expect(mockExecCommand).toHaveBeenCalledWith('ingest', [], '/tmp/project', { timeout: 300_000 })
     // Watcher should have been restarted after ingest
     expect(mockWatcherStart).toHaveBeenCalledWith('/tmp/project')
   })
@@ -1031,7 +1121,14 @@ describe('Watcher event envelope wrapping', () => {
     const onEventCallback = onEventCall[0] as (event: unknown) => void
 
     // Simulate a raw watcher event (as it comes from NDJSON)
-    const rawEvent = { event_type: 'Modified', path: 'readme.md', chunks_processed: 3, duration_ms: 42, success: true, error: null }
+    const rawEvent = {
+      event_type: 'Modified',
+      path: 'readme.md',
+      chunks_processed: 3,
+      duration_ms: 42,
+      success: true,
+      error: null
+    }
     onEventCallback(rawEvent)
 
     expect(mockBroadcastToAll).toHaveBeenCalledWith('watcher:event', {

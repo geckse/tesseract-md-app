@@ -17,7 +17,9 @@ import type {
   Schema,
   Config,
   DoctorResult,
-  AssetScanResult
+  AssetScanResult,
+  CollectionOutput,
+  JsonValue
 } from '../renderer/types/cli'
 
 /** A collection (project folder) managed by the app. */
@@ -59,6 +61,18 @@ export interface IngestOptions {
   reindex?: boolean
 }
 
+/** Options for the collection (folder-as-table) command. */
+export interface CollectionViewOptions {
+  recursive?: boolean
+  /** Frontmatter field name to sort by (separate from `order`). */
+  sort?: string
+  order?: 'asc' | 'desc'
+  /** Repeatable server-side equality filters, each `KEY=VALUE`. */
+  filter?: string[]
+  limit?: number
+  offset?: number
+}
+
 /** Result of CLI detection. */
 export interface CliDetectResult {
   found: boolean
@@ -83,19 +97,74 @@ export interface CliInstallResult {
 
 /** A persisted tab — only file paths and layout, never file content. */
 export interface PersistedTab {
-  kind: 'document' | 'graph' | 'asset' | 'terminal'
+  kind: 'document' | 'graph' | 'asset' | 'terminal' | 'table'
   filePath?: string
   graphLevel?: string
   mimeCategory?: string
   terminalShell?: string
   terminalCwd?: string
   terminalTitle?: string
+  /** For table tabs: include nested subfolders. */
+  recursive?: boolean
+  /** For table tabs: the saved view id applied on open. */
+  tableViewId?: string
 }
 
 /** A persisted pane within a window session. */
 export interface PersistedPane {
   tabs: PersistedTab[]
   activeTabIndex: number
+}
+
+// ─── Table view config (shared shape; persisted in saved views) ──────
+
+/** A single sort directive over a table column. */
+export interface TableSort {
+  columnName: string
+  direction: 'asc' | 'desc'
+}
+
+/** Per-column layout state (visibility, width, order). */
+export interface TableColumnLayout {
+  /** Frontmatter key (== CLI column.name), or '__title__' for the Title column. */
+  name: string
+  hidden: boolean
+  width: number
+  order: number
+}
+
+/** A typed filter over a column. `equals` maps to the CLI; the rest are client-side in v1. */
+export interface TableColumnFilter {
+  columnName: string
+  op: 'equals' | 'in' | 'range' | 'exists' | 'contains'
+  value?: JsonValue
+  values?: JsonValue[]
+  min?: JsonValue
+  max?: JsonValue
+}
+
+/** Composable, persistable table view configuration. */
+export interface TableViewConfig {
+  sort: TableSort[]
+  filters: TableColumnFilter[]
+  columns: TableColumnLayout[]
+  groupBy: string | null
+  collapsedGroups: string[]
+}
+
+/** Current config schema version for saved views (bump on shape changes). */
+export type SavedTableViewVersion = number
+
+/** A named, persisted table view, keyed by collection + folder. */
+export interface SavedTableView {
+  id: string
+  name: string
+  version: SavedTableViewVersion
+  config: TableViewConfig
+  recursive: boolean
+  isDefault?: boolean
+  createdAt: number
+  updatedAt: number
 }
 
 /** A persisted slot in the bottom panel (terminal) — shell + cwd only. */
@@ -181,6 +250,11 @@ export interface MdvdbApi {
   clusterDefinitions(root: string): Promise<CustomClusterDef[]>
   graphData(root: string, level?: GraphLevel, path?: string): Promise<GraphData>
   schema(root: string, path?: string): Promise<Schema>
+  collection(
+    root: string,
+    folderPath: string,
+    options?: CollectionViewOptions
+  ): Promise<CollectionOutput>
   config(root: string): Promise<Config>
   doctor(root: string): Promise<DoctorResult>
   init(root: string): Promise<void>
@@ -196,13 +270,25 @@ export interface MdvdbApi {
   // File operations
   readFile(absolutePath: string): Promise<string>
   writeFile(absolutePath: string, content: string): Promise<void>
+  /**
+   * Safely update a single file's YAML frontmatter (set/unset keys), preserving
+   * the body byte-for-byte. Resolves the absolute path from (collectionId,
+   * relativePath) in the main process. Returns the updated frontmatter object.
+   */
+  updateFrontmatter(
+    collectionId: string,
+    relativePath: string,
+    patch: { set?: Record<string, JsonValue>; unset?: string[] }
+  ): Promise<Record<string, JsonValue>>
   createFile(absolutePath: string, content: string): Promise<void>
   createDirectory(absolutePath: string): Promise<void>
   readBinary(absolutePath: string): Promise<string>
   writeBinary(absolutePath: string, base64Data: string): Promise<void>
   fileInfo(absolutePath: string): Promise<{ size: number; mtime: string }>
   copyFile(sourcePath: string, destPath: string): Promise<void>
-  isWithinCollection(absolutePath: string): Promise<{ within: boolean; collectionPath: string | null }>
+  isWithinCollection(
+    absolutePath: string
+  ): Promise<{ within: boolean; collectionPath: string | null }>
   renameFile(oldAbsolutePath: string, newAbsolutePath: string): Promise<void>
   deleteFile(absolutePath: string): Promise<void>
 
@@ -232,6 +318,29 @@ export interface MdvdbApi {
   listRecents(): Promise<RecentEntry[]>
   addRecent(collectionId: string, filePath: string): Promise<void>
   clearRecents(): Promise<void>
+
+  // Saved table views (per collection + folder)
+  listTableViews(collectionId: string, folderPath: string): Promise<SavedTableView[]>
+  saveTableView(
+    collectionId: string,
+    folderPath: string,
+    view: SavedTableView
+  ): Promise<SavedTableView[]>
+  updateTableView(
+    collectionId: string,
+    folderPath: string,
+    view: SavedTableView
+  ): Promise<SavedTableView[]>
+  deleteTableView(
+    collectionId: string,
+    folderPath: string,
+    viewId: string
+  ): Promise<SavedTableView[]>
+  setDefaultTableView(
+    collectionId: string,
+    folderPath: string,
+    viewId: string
+  ): Promise<SavedTableView[]>
 
   // Window state persistence
   setSidebarWidth(width: number): Promise<void>
@@ -333,9 +442,15 @@ export interface MdvdbApi {
   terminalResize(id: string, cols: number, rows: number): Promise<void>
   terminalDispose(id: string): Promise<void>
   terminalList(): Promise<TerminalInfo[]>
-  onTerminalData(callback: (payload: TerminalDataPayload) => void): (payload: TerminalDataPayload) => void
-  onTerminalExit(callback: (payload: TerminalExitPayload) => void): (payload: TerminalExitPayload) => void
-  onTerminalTitle(callback: (payload: TerminalTitlePayload) => void): (payload: TerminalTitlePayload) => void
+  onTerminalData(
+    callback: (payload: TerminalDataPayload) => void
+  ): (payload: TerminalDataPayload) => void
+  onTerminalExit(
+    callback: (payload: TerminalExitPayload) => void
+  ): (payload: TerminalExitPayload) => void
+  onTerminalTitle(
+    callback: (payload: TerminalTitlePayload) => void
+  ): (payload: TerminalTitlePayload) => void
   removeTerminalDataListener(handler: (payload: TerminalDataPayload) => void): void
   removeTerminalExitListener(handler: (payload: TerminalExitPayload) => void): void
   removeTerminalTitleListener(handler: (payload: TerminalTitlePayload) => void): void
@@ -361,7 +476,14 @@ export interface UpdateCheckResult {
 
 /** Current status of the auto-updater. */
 export interface UpdateStatus {
-  state: 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'
+  state:
+    | 'idle'
+    | 'checking'
+    | 'available'
+    | 'not-available'
+    | 'downloading'
+    | 'downloaded'
+    | 'error'
   version?: string
   progress?: number
   error?: string

@@ -8,6 +8,9 @@
 import Store from 'electron-store'
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
+import type { SavedTableView } from '../preload/api'
+
+export type { SavedTableView } from '../preload/api'
 
 /** A markdown project folder tracked by the app */
 export interface Collection {
@@ -37,14 +40,19 @@ export type UpdateChannel = 'stable' | 'beta'
 
 /** A persisted tab — only file paths and layout, never file content. */
 export interface PersistedTab {
-  kind: 'document' | 'graph' | 'terminal'
-  filePath?: string // Only for document tabs
+  kind: 'document' | 'graph' | 'asset' | 'terminal' | 'table'
+  filePath?: string // Document/asset tabs; for table tabs, the folder path
   graphLevel?: string // Only for graph tabs: 'document' | 'chunk'
+  mimeCategory?: string // Only for asset tabs
   /** For terminal tabs: the saved shell path + cwd used to respawn */
   terminalShell?: string
   terminalCwd?: string
   /** Optional user-set title for terminal tabs */
   terminalTitle?: string
+  /** For table tabs: include nested subfolders. */
+  recursive?: boolean
+  /** For table tabs: the saved view id applied on open. */
+  tableViewId?: string
 }
 
 /** A persisted pane within a window session. */
@@ -83,6 +91,8 @@ export interface AppStore {
   windowBounds: { x: number; y: number; width: number; height: number }
   favorites: FavoriteEntry[]
   recentFiles: RecentEntry[]
+  /** Saved table views, keyed by collectionId then folder path. */
+  tableViews: Record<string, Record<string, SavedTableView[]>>
   sidebarWidth: number
   metadataPanelWidth: number
   cliPath: string | null
@@ -160,6 +170,13 @@ const schema = {
       required: ['collectionId', 'filePath', 'openedAt'] as const
     }
   },
+  // Saved table views: Record<collectionId, Record<folderPath, SavedTableView[]>>.
+  // Nested config shapes vary by view version; validated/migrated in code, so the
+  // schema here is intentionally permissive (object of objects of arrays).
+  tableViews: {
+    type: 'object' as const,
+    default: {} as Record<string, Record<string, SavedTableView[]>>
+  },
   sidebarWidth: {
     type: 'number' as const,
     default: 280
@@ -219,13 +236,16 @@ const schema = {
                   properties: {
                     kind: {
                       type: 'string' as const,
-                      enum: ['document', 'graph', 'terminal']
+                      enum: ['document', 'graph', 'asset', 'terminal', 'table']
                     },
                     filePath: { type: 'string' as const },
                     graphLevel: { type: 'string' as const },
+                    mimeCategory: { type: 'string' as const },
                     terminalShell: { type: 'string' as const },
                     terminalCwd: { type: 'string' as const },
-                    terminalTitle: { type: 'string' as const }
+                    terminalTitle: { type: 'string' as const },
+                    recursive: { type: 'boolean' as const },
+                    tableViewId: { type: 'string' as const }
                   },
                   required: ['kind'] as const
                 }
