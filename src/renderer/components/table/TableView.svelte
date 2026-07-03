@@ -3,11 +3,7 @@
   import { workspace, type TableTab } from '../../stores/workspace.svelte'
   import { tableStore, type TableRowGroup } from '../../stores/table.svelte'
   import { tableViewsStore } from '../../stores/table-views.svelte'
-  import {
-    calculateVirtualListState,
-    throttleScroll,
-    type VirtualListState
-  } from '../../lib/virtual-list'
+  import { calculateVirtualListState, type VirtualListState } from '../../lib/virtual-list'
   import type { CollectionRow } from '../../types/cli'
   import TableToolbar from './TableToolbar.svelte'
   import TableHeader from './TableHeader.svelte'
@@ -25,6 +21,8 @@
   const TITLE_WIDTH = 240
 
   let scrollTop = $state(0)
+  /** True once the table is scrolled horizontally — drives the sticky Title column shadow. */
+  let scrolledX = $state(false)
   let viewportHeight = $state(480)
   let scrollEl: HTMLDivElement | null = $state(null)
   let saveModalOpen = $state(false)
@@ -72,9 +70,21 @@
     })
   )
 
-  const onScroll = throttleScroll((top) => {
-    scrollTop = top
-  })
+  // rAF-throttled scroll tracking for both axes (vertical drives virtualization,
+  // horizontal drives the sticky Title column shadow).
+  let scrollFrame: number | null = null
+  function onScroll(event: Event): void {
+    if (scrollFrame !== null) return
+    const target = event.currentTarget as HTMLElement | null
+    if (!target) return
+    const top = target.scrollTop
+    const left = target.scrollLeft
+    scrollFrame = requestAnimationFrame(() => {
+      scrollTop = top
+      scrolledX = left > 0
+      scrollFrame = null
+    })
+  }
 
   // Load saved views + collection data when the tab's server-affecting inputs change.
   $effect(() => {
@@ -98,6 +108,13 @@
     })
     ro.observe(scrollEl)
     return () => ro.disconnect()
+  })
+
+  // Cancel any pending scroll frame on unmount.
+  $effect(() => {
+    return () => {
+      if (scrollFrame !== null) cancelAnimationFrame(scrollFrame)
+    }
   })
 
   function openRowDoc(row: CollectionRow): void {
@@ -129,28 +146,46 @@
   {#if tab}
     <TableToolbar {tabId} onsaveview={() => (saveModalOpen = true)} />
 
-    {#if status.loading && !status.data}
-      <div class="table-state" role="status">Loading…</div>
+    <!-- No data and no error yet = first load (or about to start): skeleton, never
+         a misleading empty state. Reloads with existing data keep the table visible. -->
+    {#if !status.data && !status.error}
+      <div class="skeleton" role="status" aria-label="Loading table">
+        {#each Array(8) as _, i (i)}
+          <div class="skeleton-row" style="opacity: {1 - i * 0.11};">
+            <span class="skeleton-block title"></span>
+            <span class="skeleton-block"></span>
+            <span class="skeleton-block"></span>
+            <span class="skeleton-block short"></span>
+          </div>
+        {/each}
+      </div>
     {:else if status.error}
-      <div class="table-state table-error" role="alert">
-        <span class="material-symbols-outlined">error</span>
-        <span>{status.error}</span>
-        <button class="retry" onclick={() => tableStore.reload(tabId)}>Retry</button>
+      <div class="table-state" role="alert">
+        <span class="material-symbols-outlined state-icon error">error</span>
+        <span class="state-title">Couldn't load this folder</span>
+        <span class="state-hint">{status.error}</span>
+        <button class="retry" onclick={() => tableStore.reload(tabId)}>
+          <span class="material-symbols-outlined">refresh</span>
+          Retry
+        </button>
       </div>
     {:else if visualRows.length === 0}
-      <div class="table-state">No markdown files in this folder.</div>
+      <div class="table-state">
+        <span class="material-symbols-outlined state-icon">table</span>
+        <span class="state-title">No markdown files in this folder</span>
+        <span class="state-hint">Use “Add row” above to create the first document.</span>
+      </div>
     {:else}
       <div class="table-scroll" bind:this={scrollEl} onscroll={onScroll} role="presentation">
-        <div class="table-inner" style="width: {totalWidth}px;">
+        <div class="table-inner" class:scrolled-x={scrolledX} style="width: {totalWidth}px;">
           <TableHeader {tabId} {columns} titleWidth={TITLE_WIDTH} />
 
           <div class="rows" style="height: {virtualState.totalHeight}px;">
             {#each visualRows.slice(virtualState.start, virtualState.end) as item, i (virtualState.start + i)}
               {@const index = virtualState.start + i}
-              <div
-                class="virtual-row"
-                style="transform: translateY({index * ROW_HEIGHT}px); height: {ROW_HEIGHT}px;"
-              >
+              <!-- Positioned via `top`, not translateY: a transform would make this row the
+                   containing block for position:fixed popovers (DatePicker, PopoverMenu). -->
+              <div class="virtual-row" style="top: {index * ROW_HEIGHT}px; height: {ROW_HEIGHT}px;">
                 {#if item.type === 'group'}
                   <TableGroupHeader {tabId} group={item.group} width={totalWidth} />
                 {:else}
@@ -186,34 +221,135 @@
     outline: none;
   }
 
+  /* ── Centered empty / error states ──────────────────────────── */
   .table-state {
+    flex: 1;
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: var(--space-2);
-    padding: var(--space-6);
-    color: var(--color-text-dim);
-    font-size: var(--text-base);
+    justify-content: center;
+    gap: var(--space-2, 8px);
+    padding: var(--space-8, 32px);
+    text-align: center;
   }
 
-  .table-error {
+  .state-icon {
+    font-size: 40px;
+    color: var(--color-text-dim);
+    opacity: 0.5;
+  }
+
+  .state-icon.error {
     color: var(--color-error);
+    opacity: 0.8;
+  }
+
+  .state-title {
+    color: var(--color-text);
+    font-size: var(--text-base, 0.875rem);
+    font-weight: var(--weight-medium, 500);
+  }
+
+  .state-hint {
+    color: var(--color-text-dim);
+    font-size: var(--text-sm, 0.75rem);
+    max-width: 360px;
   }
 
   .retry {
-    margin-left: var(--space-2);
-    padding: 2px 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: var(--space-2, 8px);
+    padding: 4px 12px;
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-sm, 4px);
     background: var(--color-surface);
     color: var(--color-text);
     cursor: pointer;
-    font-size: var(--text-sm);
+    font-size: var(--text-sm, 0.75rem);
+    transition:
+      background var(--transition-fast, 150ms ease),
+      border-color var(--transition-fast, 150ms ease);
+  }
+
+  .retry:hover {
+    background: var(--color-surface-elevated);
+    border-color: var(--color-border-hover);
+  }
+
+  .retry .material-symbols-outlined {
+    font-size: 15px;
+  }
+
+  /* ── Loading skeleton ───────────────────────────────────────── */
+  .skeleton {
+    padding: var(--space-2, 8px) var(--space-3, 12px);
+    overflow: hidden;
+  }
+
+  .skeleton-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3, 12px);
+    height: 36px;
+  }
+
+  .skeleton-block {
+    height: 12px;
+    flex: 1;
+    border-radius: var(--radius-sm, 4px);
+    background: linear-gradient(
+      90deg,
+      var(--color-surface) 25%,
+      var(--color-surface-elevated) 50%,
+      var(--color-surface) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.4s ease-in-out infinite;
+  }
+
+  .skeleton-block.title {
+    flex: 0 0 200px;
+  }
+
+  .skeleton-block.short {
+    flex: 0 0 80px;
+  }
+
+  @keyframes shimmer {
+    from {
+      background-position: 200% 0;
+    }
+    to {
+      background-position: -200% 0;
+    }
   }
 
   .table-scroll {
     flex: 1;
     overflow: auto;
     position: relative;
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track, transparent);
+  }
+
+  .table-scroll::-webkit-scrollbar {
+    width: var(--scrollbar-width, 6px);
+    height: var(--scrollbar-width, 6px);
+  }
+
+  .table-scroll::-webkit-scrollbar-track {
+    background: var(--scrollbar-track, transparent);
+  }
+
+  .table-scroll::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: var(--radius-full, 9999px);
+  }
+
+  .table-scroll::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover, rgba(255, 255, 255, 0.2));
   }
 
   .table-inner {
@@ -226,8 +362,17 @@
 
   .virtual-row {
     position: absolute;
-    top: 0;
     left: 0;
     width: 100%;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .skeleton-block {
+      animation: none;
+      background: var(--color-surface);
+    }
+    .retry {
+      transition: none;
+    }
   }
 </style>

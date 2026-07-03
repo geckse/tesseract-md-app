@@ -3,6 +3,9 @@
   import { workspace, type TableTab } from '../../stores/workspace.svelte'
   import { tableStore } from '../../stores/table.svelte'
   import { tableViewsStore } from '../../stores/table-views.svelte'
+  import { focusTrap } from '../../lib/focus-trap'
+  import Button from '../ui/Button.svelte'
+  import IconButton from '../ui/IconButton.svelte'
   import type { SavedTableView } from '../../../preload/api'
 
   interface Props {
@@ -69,7 +72,13 @@
 
   function onKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape') onclose()
-    else if (e.key === 'Enter' && !saving) save()
+  }
+
+  function onNameKeydown(e: KeyboardEvent): void {
+    if (e.key === 'Enter' && !saving) {
+      e.preventDefault()
+      void save()
+    }
   }
 </script>
 
@@ -82,7 +91,7 @@
   onkeydown={onKeydown}
 >
   <button class="overlay-backdrop" aria-label="Close" onclick={onclose}></button>
-  <div class="modal">
+  <div class="modal" use:focusTrap>
     <h2 class="modal-title">Save view</h2>
 
     <div class="field">
@@ -94,8 +103,9 @@
         bind:value={name}
         autofocus
         aria-label="View name"
+        onkeydown={onNameKeydown}
       />
-      <button class="save-btn" disabled={saving} onclick={save}>Save</button>
+      <Button size="sm" disabled={saving} onclick={() => void save()}>Save</Button>
     </div>
     {#if error}
       <p class="error" role="alert">{error}</p>
@@ -106,18 +116,32 @@
         <h3 class="section-title">Saved views</h3>
         {#each views as v (v.id)}
           <div class="view-row">
-            <span class="view-name">{v.name}{v.isDefault ? ' ★' : ''}</span>
-            <button class="link" onclick={() => makeDefault(v)} disabled={v.isDefault}>
-              Default
-            </button>
-            <button class="link danger" onclick={() => remove(v)}>Delete</button>
+            {#if v.isDefault}
+              <span class="material-symbols-outlined default-star" title="Default view">star</span>
+            {/if}
+            <span class="view-name">{v.name}</span>
+            <span class="view-actions">
+              <IconButton
+                icon="star"
+                title="Make default"
+                size="sm"
+                disabled={v.isDefault}
+                onclick={() => void makeDefault(v)}
+              />
+              <IconButton
+                icon="delete"
+                title="Delete view"
+                size="sm"
+                onclick={() => void remove(v)}
+              />
+            </span>
           </div>
         {/each}
       </div>
     {/if}
 
     <div class="modal-actions">
-      <button class="close-btn" onclick={onclose}>Close</button>
+      <Button variant="secondary" size="sm" onclick={onclose}>Close</Button>
     </div>
   </div>
 </div>
@@ -126,7 +150,7 @@
   .modal-overlay {
     position: fixed;
     inset: 0;
-    z-index: var(--z-overlay);
+    z-index: var(--z-overlay, 40);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -135,9 +159,10 @@
   .overlay-backdrop {
     position: absolute;
     inset: 0;
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--overlay-scrim);
     border: none;
     cursor: default;
+    animation: backdrop-in 120ms ease-out;
   }
 
   .modal {
@@ -147,30 +172,55 @@
     max-width: 90vw;
     background: var(--color-surface);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-lg);
-    padding: var(--space-4);
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+    border-radius: var(--radius-lg, 8px);
+    padding: var(--space-4, 16px);
+    box-shadow: var(--shadow-modal, 0 12px 40px rgba(0, 0, 0, 0.5));
+    animation: modal-in 150ms ease-out;
+  }
+
+  @keyframes backdrop-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes modal-in {
+    from {
+      opacity: 0;
+      transform: scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
   }
 
   .modal-title {
-    margin: 0 0 var(--space-3);
-    font-size: var(--text-lg);
+    margin: 0 0 var(--space-3, 12px);
+    font-size: var(--text-lg, 1.125rem);
     color: var(--color-text);
   }
 
   .field {
     display: flex;
-    gap: var(--space-2);
+    gap: var(--space-2, 8px);
   }
 
   .name-input {
     flex: 1;
+    min-width: 0;
     background: var(--color-surface-elevated);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-sm, 4px);
     padding: 6px 8px;
     color: var(--color-text);
-    font-size: var(--text-base);
+    font-size: var(--text-base, 0.875rem);
+    transition:
+      border-color var(--transition-fast, 150ms ease),
+      box-shadow var(--transition-fast, 150ms ease);
   }
 
   .name-input:focus {
@@ -179,35 +229,20 @@
     box-shadow: 0 0 0 2px var(--color-primary-dim);
   }
 
-  .save-btn {
-    background: var(--color-primary);
-    color: var(--color-surface-dark);
-    border: none;
-    border-radius: var(--radius-sm);
-    padding: 6px 14px;
-    font-weight: var(--weight-medium);
-    cursor: pointer;
-  }
-
-  .save-btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
   .error {
     color: var(--color-error);
-    font-size: var(--text-sm);
-    margin: var(--space-2) 0 0;
+    font-size: var(--text-sm, 0.75rem);
+    margin: var(--space-2, 8px) 0 0;
   }
 
   .existing {
-    margin-top: var(--space-4);
+    margin-top: var(--space-4, 16px);
   }
 
   .section-title {
-    font-size: var(--text-sm);
+    font-size: var(--text-sm, 0.75rem);
     color: var(--color-text-dim);
-    margin: 0 0 var(--space-2);
+    margin: 0 0 var(--space-2, 8px);
     text-transform: uppercase;
     letter-spacing: 0.05em;
   }
@@ -215,49 +250,59 @@
   .view-row {
     display: flex;
     align-items: center;
-    gap: var(--space-2);
-    padding: 4px 0;
+    gap: var(--space-2, 8px);
+    padding: 2px var(--space-1, 4px);
+    border-radius: var(--radius-sm, 4px);
+    transition: background var(--transition-fast, 150ms ease);
+  }
+
+  .view-row:hover {
+    background: var(--overlay-hover);
+  }
+
+  .default-star {
+    font-size: 14px;
+    color: var(--color-primary);
+    flex-shrink: 0;
   }
 
   .view-name {
     flex: 1;
     color: var(--color-text);
-    font-size: var(--text-sm);
+    font-size: var(--text-sm, 0.75rem);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .link {
-    background: none;
-    border: none;
-    color: var(--color-primary);
-    cursor: pointer;
-    font-size: var(--text-sm);
-    padding: 2px 4px;
+  .view-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity var(--transition-fast, 150ms ease);
   }
 
-  .link:disabled {
-    color: var(--color-text-faint);
-    cursor: default;
-  }
-
-  .link.danger {
-    color: var(--color-error);
+  .view-row:hover .view-actions,
+  .view-actions:focus-within {
+    opacity: 1;
   }
 
   .modal-actions {
     display: flex;
     justify-content: flex-end;
-    margin-top: var(--space-4);
+    margin-top: var(--space-4, 16px);
   }
 
-  .close-btn {
-    background: var(--color-surface-elevated);
-    color: var(--color-text);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    padding: 6px 14px;
-    cursor: pointer;
+  @media (prefers-reduced-motion: reduce) {
+    .overlay-backdrop,
+    .modal {
+      animation: none;
+    }
+    .name-input,
+    .view-row,
+    .view-actions {
+      transition: none;
+    }
   }
 </style>

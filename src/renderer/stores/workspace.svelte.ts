@@ -1186,6 +1186,17 @@ class WorkspaceStore {
       }
     }
 
+    if (tab.kind === 'table') {
+      // Ephemeral (unsaved sort/columns) intentionally stays behind — same
+      // semantics as session restore.
+      return {
+        kind: 'table',
+        filePath: tab.folderPath,
+        recursive: tab.recursive,
+        tableViewId: tab.activeViewId ?? undefined
+      }
+    }
+
     return null
   }
 
@@ -1262,6 +1273,16 @@ class WorkspaceStore {
         return pane.graphTabId
       }
       return ''
+    }
+
+    if (data.kind === 'table') {
+      // openTableTab dedupes per-pane and inserts before the graph tab
+      const tabId = this.openTableTab(data.filePath ?? '', {
+        recursive: data.recursive,
+        paneId: targetPaneId
+      })
+      if (data.tableViewId) this.setTableActiveView(tabId, data.tableViewId)
+      return tabId
     }
 
     return ''
@@ -1655,7 +1676,7 @@ class WorkspaceStore {
    * persistence is disabled — popups are ephemeral.
    */
   initAsPopup(
-    kind: 'document' | 'asset' | 'graph',
+    kind: 'document' | 'asset' | 'graph' | 'table',
     options: {
       filePath?: string
       editorMode?: EditorMode
@@ -1665,6 +1686,8 @@ class WorkspaceStore {
       mimeCategory?: MimeCategory
       graphLevel?: GraphLevel
       graphColoringMode?: GraphColoringMode
+      recursive?: boolean
+      tableViewId?: string
     }
   ): string {
     this.isPopup = true
@@ -1717,6 +1740,18 @@ class WorkspaceStore {
         title,
         mimeCategory: options.mimeCategory ?? 'other'
       } as AssetTab
+    } else if (kind === 'table') {
+      const folderPath = options.filePath ?? ''
+      const parts = folderPath.split('/').filter(Boolean)
+      tab = {
+        id: crypto.randomUUID(),
+        kind: 'table',
+        folderPath,
+        title: parts.length > 0 ? parts[parts.length - 1] : 'Root',
+        recursive: options.recursive ?? false,
+        activeViewId: options.tableViewId ?? null,
+        ephemeral: null
+      } as TableTab
     } else {
       // Graph tab
       tab = {

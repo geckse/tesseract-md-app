@@ -3,8 +3,8 @@
   import { workspace, type TableTab } from '../../stores/workspace.svelte'
   import { tableStore } from '../../stores/table.svelte'
   import { tableViewsStore } from '../../stores/table-views.svelte'
-  import type { TableColumnLayout } from '../../../preload/api'
   import IconButton from '../ui/IconButton.svelte'
+  import PopoverMenu, { type PopoverMenuItem } from '../ui/PopoverMenu.svelte'
 
   interface Props {
     tabId: string
@@ -12,7 +12,12 @@
   }
   let { tabId, onsaveview }: Props = $props()
 
-  let columnsOpen = $state(false)
+  type MenuId = 'view' | 'group' | 'columns'
+  let openMenu = $state<MenuId | null>(null)
+  let viewBtnEl: HTMLButtonElement | null = $state(null)
+  let groupBtnEl: HTMLButtonElement | null = $state(null)
+  let columnsBtnEl: HTMLButtonElement | null = $state(null)
+
   let addingRow = $state(false)
   let newRowName = $state('')
   let addError = $state<string | null>(null)
@@ -30,25 +35,60 @@
     $activeCollection ? tableViewsStore.getViews($activeCollection.id, tab?.folderPath ?? '') : []
   )
 
-  const breadcrumb = $derived(
-    (() => {
-      const fp = tab?.folderPath ?? ''
-      return fp === '' || fp === '.' ? 'Root' : fp
-    })()
+  const crumbs = $derived.by(() => {
+    const fp = tab?.folderPath ?? ''
+    if (fp === '' || fp === '.') return ['Root']
+    return fp.split('/').filter(Boolean)
+  })
+  const fullPath = $derived(crumbs.join('/'))
+
+  const activeViewName = $derived(
+    savedViews.find((v) => v.id === tab?.activeViewId)?.name ?? 'All fields'
   )
 
-  function toggleRecursive(e: Event): void {
-    workspace.setTableRecursive(tabId, (e.currentTarget as HTMLInputElement).checked)
+  const NONE_ID = '__none__'
+
+  const viewItems = $derived.by<PopoverMenuItem[]>(() => [
+    { id: NONE_ID, label: 'All fields (default)', checked: !tab?.activeViewId },
+    ...savedViews.map((v) => ({
+      id: v.id,
+      label: v.name,
+      icon: v.isDefault ? 'star' : undefined,
+      checked: tab?.activeViewId === v.id
+    }))
+  ])
+
+  const groupItems = $derived.by<PopoverMenuItem[]>(() => [
+    { id: NONE_ID, label: 'No grouping', checked: !config.groupBy },
+    ...allColumns.map((c) => ({
+      id: c.name,
+      label: c.name,
+      checked: config.groupBy === c.name
+    }))
+  ])
+
+  const columnItems = $derived.by<PopoverMenuItem[]>(() =>
+    allColumns.map((c) => ({
+      id: c.name,
+      label: c.name,
+      checked: !isHidden(c.name)
+    }))
+  )
+
+  function toggleMenu(id: MenuId): void {
+    openMenu = openMenu === id ? null : id
   }
 
-  function changeView(e: Event): void {
-    const v = (e.currentTarget as HTMLSelectElement).value
-    workspace.setTableActiveView(tabId, v === '' ? null : v)
+  function toggleRecursive(): void {
+    workspace.setTableRecursive(tabId, !(tab?.recursive ?? false))
   }
 
-  function changeGroupBy(e: Event): void {
-    const v = (e.currentTarget as HTMLSelectElement).value
-    workspace.setTableEphemeral(tabId, { groupBy: v === '' ? null : v })
+  function selectView(id: string): void {
+    workspace.setTableActiveView(tabId, id === NONE_ID ? null : id)
+  }
+
+  function selectGroupBy(id: string): void {
+    workspace.setTableEphemeral(tabId, { groupBy: id === NONE_ID ? null : id })
   }
 
   function isHidden(name: string): boolean {
@@ -56,19 +96,7 @@
   }
 
   function toggleColumnVisible(name: string): void {
-    const layout: TableColumnLayout[] = config.columns.slice()
-    const idx = layout.findIndex((c) => c.name === name)
-    if (idx >= 0) {
-      layout[idx] = { ...layout[idx], hidden: !layout[idx].hidden }
-    } else {
-      layout.push({
-        name,
-        hidden: true,
-        width: tableStore.columnWidth(tabId, name),
-        order: layout.length
-      })
-    }
-    workspace.setTableEphemeral(tabId, { columns: layout })
+    tableStore.toggleColumnHidden(tabId, name)
   }
 
   async function commitAddRow(): Promise<void> {
@@ -96,72 +124,98 @@
 
 <div class="toolbar">
   <div class="left">
-    <span class="material-symbols-outlined breadcrumb-icon">folder</span>
-    <span class="breadcrumb" title={breadcrumb}>{breadcrumb}</span>
+    <span class="crumbs" title={fullPath}>
+      <span class="material-symbols-outlined crumb-icon">folder</span>
+      {#each crumbs as crumb, i}
+        {#if i > 0}
+          <span class="material-symbols-outlined crumb-sep" aria-hidden="true">chevron_right</span>
+        {/if}
+        <span class="crumb" class:last={i === crumbs.length - 1}>{crumb}</span>
+      {/each}
+    </span>
 
-    <label class="recursive">
-      <input type="checkbox" checked={tab?.recursive ?? false} onchange={toggleRecursive} />
+    <span class="divider" aria-hidden="true"></span>
+
+    <button
+      class="ghost-btn"
+      class:on={tab?.recursive ?? false}
+      aria-pressed={tab?.recursive ?? false}
+      title="Include files in nested subfolders"
+      onclick={toggleRecursive}
+    >
+      <span class="material-symbols-outlined">account_tree</span>
       Recursive
-    </label>
+    </button>
 
-    <select
-      class="select"
-      aria-label="Saved view"
-      value={tab?.activeViewId ?? ''}
-      onchange={changeView}
+    <button
+      class="ghost-btn"
+      bind:this={viewBtnEl}
+      aria-haspopup="menu"
+      aria-expanded={openMenu === 'view'}
+      title="Saved view"
+      onclick={() => toggleMenu('view')}
     >
-      <option value="">All fields (default)</option>
-      {#each savedViews as v (v.id)}
-        <option value={v.id}>{v.name}{v.isDefault ? ' ★' : ''}</option>
-      {/each}
-    </select>
+      <span class="material-symbols-outlined">bookmark</span>
+      <span class="ghost-label">{activeViewName}</span>
+      <span class="material-symbols-outlined caret">arrow_drop_down</span>
+    </button>
+    {#if openMenu === 'view' && viewBtnEl}
+      <PopoverMenu
+        anchorEl={viewBtnEl}
+        items={viewItems}
+        ariaLabel="Saved view"
+        onselect={selectView}
+        ondismiss={() => (openMenu = null)}
+      />
+    {/if}
 
-    <select
-      class="select"
-      aria-label="Group by"
-      value={config.groupBy ?? ''}
-      onchange={changeGroupBy}
+    <button
+      class="ghost-btn"
+      class:on={!!config.groupBy}
+      bind:this={groupBtnEl}
+      aria-haspopup="menu"
+      aria-expanded={openMenu === 'group'}
+      title="Group rows by a field"
+      onclick={() => toggleMenu('group')}
     >
-      <option value="">No grouping</option>
-      {#each allColumns as c (c.name)}
-        <option value={c.name}>Group: {c.name}</option>
-      {/each}
-    </select>
+      <span class="material-symbols-outlined">layers</span>
+      <span class="ghost-label">{config.groupBy ? `Group: ${config.groupBy}` : 'Group'}</span>
+      <span class="material-symbols-outlined caret">arrow_drop_down</span>
+    </button>
+    {#if openMenu === 'group' && groupBtnEl}
+      <PopoverMenu
+        anchorEl={groupBtnEl}
+        items={groupItems}
+        ariaLabel="Group by"
+        emptyLabel="No fields yet"
+        onselect={selectGroupBy}
+        ondismiss={() => (openMenu = null)}
+      />
+    {/if}
 
-    <div class="columns-menu">
-      <button
-        class="menu-btn"
-        aria-haspopup="true"
-        aria-expanded={columnsOpen}
-        onclick={() => (columnsOpen = !columnsOpen)}
-      >
-        <span class="material-symbols-outlined">view_column</span>
-        Columns
-      </button>
-      {#if columnsOpen}
-        <button
-          class="menu-backdrop"
-          aria-label="Close columns menu"
-          onclick={() => (columnsOpen = false)}
-        ></button>
-        <div class="menu-popover" role="menu">
-          {#if allColumns.length === 0}
-            <div class="menu-empty">No fields yet</div>
-          {:else}
-            {#each allColumns as c (c.name)}
-              <label class="menu-item">
-                <input
-                  type="checkbox"
-                  checked={!isHidden(c.name)}
-                  onchange={() => toggleColumnVisible(c.name)}
-                />
-                {c.name}
-              </label>
-            {/each}
-          {/if}
-        </div>
-      {/if}
-    </div>
+    <button
+      class="ghost-btn"
+      bind:this={columnsBtnEl}
+      aria-haspopup="menu"
+      aria-expanded={openMenu === 'columns'}
+      title="Show or hide columns"
+      onclick={() => toggleMenu('columns')}
+    >
+      <span class="material-symbols-outlined">view_column</span>
+      Columns
+      <span class="material-symbols-outlined caret">arrow_drop_down</span>
+    </button>
+    {#if openMenu === 'columns' && columnsBtnEl}
+      <PopoverMenu
+        anchorEl={columnsBtnEl}
+        items={columnItems}
+        ariaLabel="Columns"
+        emptyLabel="No fields yet"
+        closeOnSelect={false}
+        onselect={toggleColumnVisible}
+        ondismiss={() => (openMenu = null)}
+      />
+    {/if}
   </div>
 
   <div class="right">
@@ -184,7 +238,7 @@
         {#if addError}<span class="add-error" title={addError}>!</span>{/if}
       </span>
     {:else}
-      <button class="add-btn" onclick={() => (addingRow = true)}>
+      <button class="ghost-btn accent" onclick={() => (addingRow = true)}>
         <span class="material-symbols-outlined">add</span>
         Add row
       </button>
@@ -200,8 +254,8 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: var(--space-2);
-    padding: var(--space-2) var(--space-3);
+    gap: var(--space-2, 8px);
+    padding: var(--space-2, 8px) var(--space-3, 12px);
     border-bottom: 1px solid var(--color-border);
     background: var(--color-surface);
     flex-wrap: wrap;
@@ -211,133 +265,125 @@
   .right {
     display: flex;
     align-items: center;
-    gap: var(--space-2);
+    gap: var(--space-2, 8px);
+    min-width: 0;
   }
 
-  .breadcrumb-icon {
-    font-size: 18px;
-    color: var(--color-text-dim);
-  }
-
-  .breadcrumb {
-    font-weight: var(--weight-medium);
-    color: var(--color-text);
-    max-width: 220px;
+  /* ── Breadcrumb ─────────────────────────────────────────────── */
+  .crumbs {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+    max-width: 280px;
     overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .recursive {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    font-size: var(--text-sm);
-    color: var(--color-text-dim);
-    cursor: pointer;
-  }
-
-  .select {
-    background: var(--color-surface-elevated);
-    color: var(--color-text);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    padding: 2px 6px;
-    font-size: var(--text-sm);
-    max-width: 180px;
-  }
-
-  .columns-menu {
-    position: relative;
-  }
-
-  .menu-btn {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    background: var(--color-surface-elevated);
-    color: var(--color-text);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    padding: 3px 8px;
-    font-size: var(--text-sm);
-    cursor: pointer;
-  }
-
-  .menu-btn .material-symbols-outlined {
+  .crumb-icon {
     font-size: 16px;
+    color: var(--color-text-dim);
+    margin-right: 2px;
+    flex-shrink: 0;
   }
 
-  .menu-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: var(--z-overlay);
-    background: transparent;
-    border: none;
-    cursor: default;
+  .crumb {
+    color: var(--color-text-dim);
+    font-size: var(--text-sm, 0.75rem);
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
-  .menu-popover {
-    position: absolute;
-    top: calc(100% + 4px);
-    left: 0;
-    z-index: calc(var(--z-overlay) + 1);
-    min-width: 180px;
-    max-height: 320px;
-    overflow: auto;
-    background: var(--color-surface-elevated);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-    padding: var(--space-1);
+  .crumb.last {
+    color: var(--color-text);
+    font-weight: var(--weight-medium, 500);
   }
 
-  .menu-item {
-    display: flex;
+  .crumb-sep {
+    font-size: 14px;
+    color: var(--color-text-faint);
+    flex-shrink: 0;
+  }
+
+  .divider {
+    width: 1px;
+    height: 16px;
+    background: var(--color-border);
+    margin: 0 6px;
+    flex-shrink: 0;
+  }
+
+  /* ── Ghost buttons ──────────────────────────────────────────── */
+  .ghost-btn {
+    display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 4px 8px;
-    font-size: var(--text-sm);
-    color: var(--color-text);
-    cursor: pointer;
-    border-radius: var(--radius-sm);
-  }
-
-  .menu-item:hover {
-    background: var(--color-surface);
-  }
-
-  .menu-empty {
-    padding: 6px 8px;
+    height: 28px;
+    padding: 0 10px;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm, 4px);
     color: var(--color-text-dim);
-    font-size: var(--text-sm);
-  }
-
-  .row-count {
-    font-size: var(--text-sm);
-    color: var(--color-text-dim);
-    font-family: var(--font-mono);
-  }
-
-  .add-btn {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    background: var(--color-surface-elevated);
-    color: var(--color-text);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    padding: 3px 8px;
-    font-size: var(--text-sm);
+    font-size: var(--text-sm, 0.75rem);
     cursor: pointer;
+    white-space: nowrap;
+    transition:
+      background var(--transition-fast, 150ms ease),
+      color var(--transition-fast, 150ms ease);
   }
 
-  .add-btn:hover {
-    border-color: var(--color-primary);
+  .ghost-btn:hover {
+    background: var(--overlay-hover);
+    color: var(--color-text);
   }
 
-  .add-btn .material-symbols-outlined {
+  .ghost-btn:active {
+    background: var(--overlay-active);
+  }
+
+  .ghost-btn:focus-visible {
+    outline: 1px solid var(--color-primary);
+    outline-offset: -1px;
+  }
+
+  .ghost-btn .material-symbols-outlined {
     font-size: 16px;
+  }
+
+  .ghost-btn .caret {
+    font-size: 18px;
+    margin: 0 -4px 0 -2px;
+    color: var(--color-text-faint);
+  }
+
+  .ghost-btn.on {
+    color: var(--color-primary);
+    background: var(--color-primary-dim);
+  }
+
+  .ghost-btn.accent {
+    color: var(--color-primary);
+  }
+
+  .ghost-btn.accent:hover {
+    background: var(--color-primary-dim);
+  }
+
+  .ghost-label {
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* ── Right side ─────────────────────────────────────────────── */
+  .row-count {
+    font-size: var(--text-xs, 0.625rem);
+    color: var(--color-text-dim);
+    font-family: var(--font-mono, 'JetBrains Mono', ui-monospace, monospace);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-full, 9999px);
+    padding: 3px 10px;
+    white-space: nowrap;
   }
 
   .add-row-form {
@@ -349,11 +395,16 @@
   .add-input {
     background: var(--color-surface-elevated);
     border: 1px solid var(--color-primary);
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-sm, 4px);
     padding: 3px 8px;
-    font-size: var(--text-sm);
+    font-size: var(--text-sm, 0.75rem);
     color: var(--color-text);
     width: 160px;
+  }
+
+  .add-input:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--color-primary-dim);
   }
 
   .add-input.has-error {
@@ -362,6 +413,12 @@
 
   .add-error {
     color: var(--color-error);
-    font-weight: var(--weight-bold);
+    font-weight: var(--weight-bold, 700);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ghost-btn {
+      transition: none;
+    }
   }
 </style>

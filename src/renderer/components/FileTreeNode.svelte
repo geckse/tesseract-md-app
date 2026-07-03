@@ -48,7 +48,7 @@
     onfo?.(node.path)
   }
 
-  /** Double-clicking a folder row opens it as a table (single click still expands). */
+  /** Double-clicking a folder row opens it as a table (redundant with single click, kept as affordance). */
   function handleDblClick() {
     if (node.is_dir) onfo?.(node.path)
   }
@@ -117,6 +117,7 @@
     if (node.is_dir) {
       toggleExpanded(node.path)
       onfc?.(node.path)
+      onfo?.(node.path)
     } else if (node.isAsset || isAssetByExtension(node.name)) {
       // Route to asset preview — use node.mimeCategory if available, otherwise detect from extension
       const mime = node.mimeCategory ?? isAssetByExtension(node.name) ?? 'other'

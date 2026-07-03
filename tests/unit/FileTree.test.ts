@@ -10,19 +10,15 @@ const mockApi = {
   addCollection: vi.fn(),
   removeCollection: vi.fn(),
   setActiveCollection: vi.fn(),
-  status: vi.fn(),
+  status: vi.fn()
 }
 
 Object.defineProperty(globalThis, 'window', {
   value: { api: mockApi },
-  writable: true,
+  writable: true
 })
 
-import {
-  fileTree,
-  fileTreeLoading,
-  fileTreeError,
-} from '../../src/renderer/stores/files'
+import { fileTree, fileTreeLoading, fileTreeError } from '../../src/renderer/stores/files'
 import { collections, activeCollectionId } from '../../src/renderer/stores/collections'
 import { ingestRunning } from '../../src/renderer/stores/ingest'
 import FileTree from '@renderer/components/FileTree.svelte'
@@ -46,31 +42,31 @@ const sampleTree: FileTreeType = {
             path: 'docs/guide.md',
             is_dir: false,
             state: 'indexed',
-            children: [],
-          },
-        ],
+            children: []
+          }
+        ]
       },
       {
         name: 'readme.md',
         path: 'readme.md',
         is_dir: false,
         state: 'modified',
-        children: [],
+        children: []
       },
       {
         name: 'new-file.md',
         path: 'new-file.md',
         is_dir: false,
         state: 'new',
-        children: [],
-      },
-    ],
+        children: []
+      }
+    ]
   },
   total_files: 3,
   indexed_count: 1,
   modified_count: 1,
   new_count: 1,
-  deleted_count: 0,
+  deleted_count: 0
 }
 
 const testCollection = { id: '1', name: 'Test', path: '/test', addedAt: 1, lastOpenedAt: 1 }
@@ -128,7 +124,7 @@ describe('FileTree component', () => {
       indexed_count: 0,
       modified_count: 0,
       new_count: 0,
-      deleted_count: 0,
+      deleted_count: 0
     })
 
     render(FileTree)
@@ -176,9 +172,15 @@ describe('FileTree component', () => {
   it('calls ingest with reindex=false on Index click', async () => {
     setActiveCollection()
     mockApi.ingest.mockResolvedValue({
-      files_indexed: 0, files_skipped: 0, files_removed: 0,
-      chunks_created: 0, api_calls: 0, files_failed: 0,
-      errors: [], duration_secs: 0, cancelled: false,
+      files_indexed: 0,
+      files_skipped: 0,
+      files_removed: 0,
+      chunks_created: 0,
+      api_calls: 0,
+      files_failed: 0,
+      errors: [],
+      duration_secs: 0,
+      cancelled: false
     })
     mockApi.tree.mockResolvedValue(sampleTree)
     mockApi.status.mockResolvedValue({})
@@ -205,9 +207,15 @@ describe('FileTree component', () => {
   it('calls ingest with reindex=true on Reindex All click', async () => {
     setActiveCollection()
     mockApi.ingest.mockResolvedValue({
-      files_indexed: 0, files_skipped: 0, files_removed: 0,
-      chunks_created: 0, api_calls: 0, files_failed: 0,
-      errors: [], duration_secs: 0, cancelled: false,
+      files_indexed: 0,
+      files_skipped: 0,
+      files_removed: 0,
+      chunks_created: 0,
+      api_calls: 0,
+      files_failed: 0,
+      errors: [],
+      duration_secs: 0,
+      cancelled: false
     })
     mockApi.tree.mockResolvedValue(sampleTree)
     mockApi.status.mockResolvedValue({})
@@ -278,5 +286,19 @@ describe('FileTree component', () => {
     await fireEvent.click(screen.getByText('Retry'))
 
     expect(mockApi.tree).toHaveBeenCalledWith('/test', undefined)
+  })
+
+  it('keyboard Enter on a focused directory opens it as a table', async () => {
+    setActiveCollection()
+    fileTree.set(sampleTree)
+    const onfolderopen = vi.fn()
+
+    const { container } = render(FileTree, { props: { onfolderopen } })
+    const treeContainer = container.querySelector('.file-tree-container')!
+
+    // The first flat node is the 'docs' directory; focus defaults to index 0
+    await fireEvent.keyDown(treeContainer, { key: 'Enter' })
+
+    expect(onfolderopen).toHaveBeenCalledWith({ path: 'docs' })
   })
 })

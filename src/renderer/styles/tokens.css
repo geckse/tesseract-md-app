@@ -120,6 +120,9 @@
 
   /* --- Shadows --- */
   --shadow-glow: 0 0 10px var(--color-primary-glow);
+  --shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --shadow-modal: 0 12px 40px rgba(0, 0, 0, 0.5);
+  --shadow-sticky-col: 2px 0 8px rgba(0, 0, 0, 0.35);
 
   /* --- Z-Index --- */
   --z-base: 10;

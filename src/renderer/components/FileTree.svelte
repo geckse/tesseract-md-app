@@ -213,6 +213,7 @@
         if (currentNode && currentNode.isDir) {
           toggleExpanded(currentNode.path)
           handleFolderClick(currentNode.path)
+          onfolderopen?.({ path: currentNode.path })
         } else if (currentNode && currentNode.isAsset) {
           handleAssetSelect({
             path: currentNode.path,

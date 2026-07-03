@@ -4,6 +4,7 @@
   import Editor from './Editor.svelte'
   import WysiwygEditor from './WysiwygEditor.svelte'
   import GraphView from './GraphView.svelte'
+  import TableView from './table/TableView.svelte'
   import ImageViewer from './ImageViewer.svelte'
   import PdfViewer from './PdfViewer.svelte'
   import AssetInfoCard from './AssetInfoCard.svelte'
@@ -31,7 +32,7 @@
   let { urlParams }: PopupShellProps = $props()
 
   // ── Parse URL parameters ──────────────────────────────────────────
-  const kind = (urlParams.get('kind') ?? 'document') as 'document' | 'asset' | 'graph'
+  const kind = (urlParams.get('kind') ?? 'document') as 'document' | 'asset' | 'graph' | 'table'
   const filePath = urlParams.get('filePath') ?? ''
   const collectionId = urlParams.get('collectionId') ?? ''
   const collectionPath = urlParams.get('collectionPath') ?? ''
@@ -40,6 +41,8 @@
   const mimeCategory = (urlParams.get('mimeCategory') ?? 'other') as MimeCategory
   const initialGraphLevel = (urlParams.get('graphLevel') ?? 'document') as GraphLevel
   const graphColoringMode = (urlParams.get('graphColoringMode') ?? 'cluster') as GraphColoringMode
+  const tableRecursive = urlParams.get('recursive') === 'true'
+  const tableViewId = urlParams.get('tableViewId') ?? undefined
 
   // ── Local state ───────────────────────────────────────────────────
   let tabId = $state<string>('')
@@ -53,8 +56,11 @@
   const isDirty = $derived(tab?.kind === 'document' ? tab.isDirty : false)
   const isUntitled = $derived(tab?.kind === 'document' ? tab.isUntitled : false)
   const title = $derived(
-    kind === 'graph' ? 'Graph' :
-    tab && 'title' in tab ? tab.title : filePath.split('/').pop() ?? 'Untitled'
+    kind === 'graph'
+      ? 'Graph'
+      : tab && 'title' in tab
+        ? tab.title
+        : (filePath.split('/').pop() ?? 'Untitled')
   )
 
   // ── Save As modal state ──────────────────────────────────────────
@@ -70,7 +76,9 @@
     const cleanupSystemPref = initSystemPreference()
 
     let currentResolvedTheme: 'light' | 'dark' = 'dark'
-    const unsubTheme = resolvedTheme.subscribe((mode) => { currentResolvedTheme = mode })
+    const unsubTheme = resolvedTheme.subscribe((mode) => {
+      currentResolvedTheme = mode
+    })
     const unsubThemeTokens = themeTokens.subscribe((tokens) => {
       applyTheme(tokens, currentResolvedTheme)
       reinitMermaid()
@@ -85,7 +93,9 @@
     if (collectionId) {
       activeCollectionId.set(collectionId)
       // Populate the collections store with a minimal entry so activeCollection resolves
-      collections.set([{ id: collectionId, name: '', path: collectionPath, addedAt: 0, lastOpenedAt: 0 }])
+      collections.set([
+        { id: collectionId, name: '', path: collectionPath, addedAt: 0, lastOpenedAt: 0 }
+      ])
     }
 
     // 3. Initialize workspace immediately so the editor mounts fast
@@ -96,6 +106,8 @@
       mimeCategory,
       graphLevel: initialGraphLevel,
       graphColoringMode,
+      recursive: tableRecursive,
+      tableViewId
     })
     contentReady = true
     syncFileStoresFromTab()
@@ -103,25 +115,31 @@
     // 4. Load file content in the background (skip for untitled — no file on disk)
     if (kind === 'document' && filePath && !popupIsUntitled) {
       const absolutePath = collectionPath ? `${collectionPath}/${filePath}` : filePath
-      window.api.readFile(absolutePath).then((content) => {
-        const docTab = workspace.tabs[tabId]
-        if (docTab && docTab.kind === 'document' && !docTab.isDirty) {
-          docTab.content = content
-          docTab.savedContent = content
-          syncFileStoresFromTab()
-        }
-      }).catch(() => {})
+      window.api
+        .readFile(absolutePath)
+        .then((content) => {
+          const docTab = workspace.tabs[tabId]
+          if (docTab && docTab.kind === 'document' && !docTab.isDirty) {
+            docTab.content = content
+            docTab.savedContent = content
+            syncFileStoresFromTab()
+          }
+        })
+        .catch(() => {})
     }
 
     if (kind === 'asset' && filePath) {
       const absolutePath = collectionPath ? `${collectionPath}/${filePath}` : filePath
-      window.api.fileInfo(absolutePath).then((info) => {
-        fileSize = info.size
-        const assetTab = workspace.tabs[tabId]
-        if (assetTab && assetTab.kind === 'asset') {
-          assetTab.fileSize = info.size
-        }
-      }).catch(() => {})
+      window.api
+        .fileInfo(absolutePath)
+        .then((info) => {
+          fileSize = info.size
+          const assetTab = workspace.tabs[tabId]
+          if (assetTab && assetTab.kind === 'asset') {
+            assetTab.fileSize = info.size
+          }
+        })
+        .catch(() => {})
     }
 
     // 4. Listen for popup:init IPC (dirty content transfer from tab detach)
@@ -153,11 +171,16 @@
     }
 
     // 5. Register Cmd+S for save (documents only)
-    const unregisterSave = kind === 'document' ? shortcutManager.register({
-      key: 's',
-      meta: true,
-      handler: () => { handleSave() },
-    }) : null
+    const unregisterSave =
+      kind === 'document'
+        ? shortcutManager.register({
+            key: 's',
+            meta: true,
+            handler: () => {
+              handleSave()
+            }
+          })
+        : null
 
     shortcutManager.attach()
 
@@ -235,10 +258,17 @@
         isDirty: t.isDirty,
         isUntitled: t.isUntitled || undefined,
         content: includeContent ? (t.content ?? '') : null,
-        savedContent: includeContent ? (t.savedContent ?? '') : null,
+        savedContent: includeContent ? (t.savedContent ?? '') : null
       }
     } else if (t.kind === 'asset') {
       data = { kind: 'asset', filePath: t.filePath, mimeCategory: t.mimeCategory }
+    } else if (t.kind === 'table') {
+      data = {
+        kind: 'table',
+        filePath: t.folderPath,
+        recursive: t.recursive,
+        tableViewId: t.activeViewId ?? undefined
+      }
     } else {
       data = { kind: 'graph', graphLevel: t.graphLevel, graphColoringMode: t.graphColoringMode }
     }
@@ -256,13 +286,13 @@
           <button
             class="mode-btn"
             class:active={currentEditorMode === 'wysiwyg'}
-            onclick={() => handleModeChange('wysiwyg')}
-          >Editor</button>
+            onclick={() => handleModeChange('wysiwyg')}>Editor</button
+          >
           <button
             class="mode-btn"
             class:active={currentEditorMode === 'editor'}
-            onclick={() => handleModeChange('editor')}
-          >Raw</button>
+            onclick={() => handleModeChange('editor')}>Raw</button
+          >
         </div>
       {/if}
     </div>
@@ -276,11 +306,7 @@
       >
         <span class="material-symbols-outlined">push_pin</span>
       </button>
-      <button
-        class="strip-btn"
-        onclick={handlePopBack}
-        title="Pop back to main window"
-      >
+      <button class="strip-btn" onclick={handlePopBack} title="Pop back to main window">
         <span class="material-symbols-outlined">open_in_new_down</span>
       </button>
       {#if isDirty}
@@ -307,16 +333,20 @@
       {:else if kind === 'asset'}
         <div class="content-region">
           {#if mimeCategory === 'image'}
-            <ImageViewer filePath={filePath} {fileSize} />
+            <ImageViewer {filePath} {fileSize} />
           {:else if mimeCategory === 'pdf'}
-            <PdfViewer filePath={filePath} />
+            <PdfViewer {filePath} />
           {:else}
-            <AssetInfoCard filePath={filePath} {mimeCategory} {fileSize} />
+            <AssetInfoCard {filePath} {mimeCategory} {fileSize} />
           {/if}
         </div>
       {:else if kind === 'graph'}
         <div class="content-region">
           <GraphView paneId="popup-pane" />
+        </div>
+      {:else if kind === 'table' && tabId}
+        <div class="content-region">
+          <TableView {tabId} />
         </div>
       {/if}
     {:else}
@@ -388,7 +418,9 @@
     border-radius: 4px;
     color: var(--color-text-dim, #71717a);
     cursor: pointer;
-    transition: color 0.15s ease, background 0.15s ease;
+    transition:
+      color 0.15s ease,
+      background 0.15s ease;
   }
 
   .strip-btn .material-symbols-outlined {
@@ -401,7 +433,7 @@
   }
 
   .strip-btn.active {
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
   }
 
   .popup-save-btn {
@@ -409,7 +441,7 @@
     align-items: center;
     gap: 6px;
     padding: 2px 8px;
-    background: var(--color-primary, #00E5FF);
+    background: var(--color-primary, #00e5ff);
     color: var(--color-surface-darker, #0a0a0a);
     border: none;
     border-radius: 4px;
@@ -424,7 +456,7 @@
   }
 
   .popup-save-btn:hover {
-    background: var(--color-primary-dark, #00B8CC);
+    background: var(--color-primary-dark, #00b8cc);
   }
 
   .popup-save-kbd {
@@ -475,7 +507,8 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .strip-btn, .mode-btn {
+    .strip-btn,
+    .mode-btn {
       transition: none;
     }
   }
@@ -511,8 +544,12 @@
   }
 
   @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   @media (prefers-reduced-motion: reduce) {

@@ -1162,7 +1162,7 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
       // Convert TabTransferData to PopupWindowOptions
       const activeCollection = getActiveCollection()
       const popupOpts = {
-        kind: tabData.kind as 'document' | 'asset' | 'graph',
+        kind: tabData.kind,
         filePath: tabData.filePath,
         editorMode: tabData.editorMode,
         isUntitled: tabData.isUntitled,
@@ -1173,7 +1173,9 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
         graphColoringMode: tabData.graphColoringMode,
         isDirty: tabData.isDirty,
         content: tabData.content,
-        savedContent: tabData.savedContent
+        savedContent: tabData.savedContent,
+        recursive: tabData.recursive,
+        tableViewId: tabData.tableViewId
       }
       windowManager.createPopupWindow(popupOpts)
     })

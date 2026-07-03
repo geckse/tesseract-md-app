@@ -196,7 +196,8 @@ export interface PersistedWindowState {
  * Clean tabs reload content from disk in the target window.
  */
 export interface TabTransferData {
-  kind: 'document' | 'asset' | 'graph'
+  kind: 'document' | 'asset' | 'graph' | 'table'
+  /** For 'table' tabs this carries the folder path ('' = collection root). */
   filePath?: string
   editorMode?: string
   isDirty?: boolean
@@ -206,11 +207,13 @@ export interface TabTransferData {
   mimeCategory?: string
   graphLevel?: string
   graphColoringMode?: string
+  recursive?: boolean
+  tableViewId?: string
 }
 
 /** Options for opening a popup window (renderer → main). */
 export interface PopupOpenOptions {
-  kind: 'document' | 'asset' | 'graph'
+  kind: 'document' | 'asset' | 'graph' | 'table'
   filePath?: string
   editorMode?: string
   isUntitled?: boolean
@@ -222,6 +225,8 @@ export interface PopupOpenOptions {
   isDirty?: boolean
   content?: string | null
   savedContent?: string | null
+  recursive?: boolean
+  tableViewId?: string
 }
 
 /** Data sent to popup renderer for dirty document transfer (main → renderer). */

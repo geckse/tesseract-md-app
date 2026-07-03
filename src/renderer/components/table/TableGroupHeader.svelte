@@ -38,37 +38,59 @@
     align-items: center;
     gap: 6px;
     height: 100%;
-    padding: 0 var(--space-2);
+    padding: 0 var(--space-2, 8px);
     box-sizing: border-box;
-    background: var(--color-surface-elevated);
+    background: var(--color-surface);
     border: none;
     border-bottom: 1px solid var(--color-border);
     color: var(--color-text);
-    font-size: var(--text-sm);
-    font-weight: var(--weight-semibold);
+    font-size: var(--text-sm, 0.75rem);
+    font-weight: var(--weight-semibold, 600);
     cursor: pointer;
     text-align: left;
+    transition: background var(--transition-fast, 150ms ease);
+  }
+
+  .group-header:hover {
+    background: var(--overlay-hover);
+  }
+
+  .group-header:focus-visible {
+    outline: 1px solid var(--color-primary);
+    outline-offset: -1px;
   }
 
   .chevron {
     font-size: 18px;
     color: var(--color-text-dim);
-    transition: transform var(--transition-fast);
+    transition: transform var(--transition-fast, 150ms ease);
   }
 
   .chevron.expanded {
     transform: rotate(90deg);
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    .chevron {
-      transition: none;
-    }
+  .group-value {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .group-count {
     color: var(--color-text-dim);
-    font-family: var(--font-mono);
-    font-size: var(--text-xs);
+    font-family: var(--font-mono, 'JetBrains Mono', ui-monospace, monospace);
+    font-size: var(--text-xs, 0.625rem);
+    background: var(--color-surface-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-full, 9999px);
+    padding: 0 6px;
+    line-height: 1.6;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .group-header,
+    .chevron {
+      transition: none;
+    }
   }
 </style>

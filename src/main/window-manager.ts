@@ -18,7 +18,7 @@ const ZOOM_STEP = 0.1
 
 /** Options for creating a popup window. */
 export interface PopupWindowOptions {
-  kind: 'document' | 'asset' | 'graph'
+  kind: 'document' | 'asset' | 'graph' | 'table'
   filePath?: string
   editorMode?: string
   isUntitled?: boolean
@@ -30,6 +30,8 @@ export interface PopupWindowOptions {
   isDirty?: boolean
   content?: string | null
   savedContent?: string | null
+  recursive?: boolean
+  tableViewId?: string
 }
 
 /** Data sent to popup renderer for dirty document transfer. */
@@ -255,6 +257,8 @@ export class WindowManager {
     if (options.mimeCategory) params.set('mimeCategory', options.mimeCategory)
     if (options.graphLevel) params.set('graphLevel', options.graphLevel)
     if (options.graphColoringMode) params.set('graphColoringMode', options.graphColoringMode)
+    if (options.recursive) params.set('recursive', 'true')
+    if (options.tableViewId) params.set('tableViewId', options.tableViewId)
 
     const qs = '?' + params.toString()
 
@@ -271,7 +275,7 @@ export class WindowManager {
           const initData: PopupInitData = {
             content: options.content ?? null,
             savedContent: options.savedContent ?? null,
-            isDirty: true,
+            isDirty: true
           }
           win.webContents.send('popup:init', initData)
         }

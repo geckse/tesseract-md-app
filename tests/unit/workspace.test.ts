@@ -1227,5 +1227,57 @@ describe('WorkspaceStore', () => {
       expect(persisted?.recursive).toBe(true)
       expect(persisted?.tableViewId).toBe('view-1')
     })
+
+    it('serializeTab produces detachable transfer data for table tabs', () => {
+      const tabId = workspace.openTableTab('blog', { recursive: true })
+      workspace.setTableActiveView(tabId, 'view-1')
+      // Ephemeral tweaks must not leak into the transfer payload (proxies + semantics)
+      workspace.setTableEphemeral(tabId, { groupBy: 'status' })
+
+      const data = workspace.serializeTab(tabId)
+
+      expect(data).toEqual({
+        kind: 'table',
+        filePath: 'blog',
+        recursive: true,
+        tableViewId: 'view-1'
+      })
+      expect(() => structuredClone(data)).not.toThrow()
+    })
+
+    it('attachTab recreates a table tab from transfer data', () => {
+      const tabId = workspace.attachTab({
+        kind: 'table',
+        filePath: 'blog',
+        recursive: true,
+        tableViewId: 'view-1'
+      })
+
+      const tab = workspace.tabs[tabId]
+      expect(tab?.kind).toBe('table')
+      if (tab?.kind === 'table') {
+        expect(tab.folderPath).toBe('blog')
+        expect(tab.recursive).toBe(true)
+        expect(tab.activeViewId).toBe('view-1')
+      }
+    })
+
+    it('initAsPopup creates a lone table tab for popup windows', () => {
+      const tabId = workspace.initAsPopup('table', {
+        filePath: 'notes/daily',
+        recursive: true,
+        tableViewId: 'view-2'
+      })
+
+      const tab = workspace.tabs[tabId]
+      expect(tab?.kind).toBe('table')
+      if (tab?.kind === 'table') {
+        expect(tab.folderPath).toBe('notes/daily')
+        expect(tab.title).toBe('daily')
+        expect(tab.recursive).toBe(true)
+        expect(tab.activeViewId).toBe('view-2')
+      }
+      expect(workspace.isPopup).toBe(true)
+    })
   })
 })

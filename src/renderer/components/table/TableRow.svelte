@@ -1,6 +1,15 @@
 <script lang="ts">
-  import { tableStore, valueToString } from '../../stores/table.svelte'
+  import type { Component } from 'svelte'
+  import { tableStore } from '../../stores/table.svelte'
   import type { CollectionColumn, CollectionRow, JsonValue } from '../../types/cli'
+  import type { CellProps } from './cells/types'
+  import TitleCell from './cells/TitleCell.svelte'
+  import StringCell from './cells/StringCell.svelte'
+  import NumberCell from './cells/NumberCell.svelte'
+  import BooleanCell from './cells/BooleanCell.svelte'
+  import ListCell from './cells/ListCell.svelte'
+  import DateCell from './cells/DateCell.svelte'
+  import MixedCell from './cells/MixedCell.svelte'
 
   interface Props {
     tabId: string
@@ -13,9 +22,17 @@
   }
   let { tabId, row, columns, titleWidth, selected, onselect, onopen }: Props = $props()
 
+  const CELLS: Record<string, Component<CellProps>> = {
+    String: StringCell,
+    Number: NumberCell,
+    Boolean: BooleanCell,
+    List: ListCell,
+    Date: DateCell,
+    Mixed: MixedCell
+  }
+
   // Only one cell per row is in edit mode at a time.
   let editingCol = $state<string | null>(null)
-  let draft = $state('')
 
   const readOnly = $derived(row.state === 'deleted')
 
@@ -30,21 +47,7 @@
     return row.frontmatter ? row.frontmatter[name] : undefined
   }
 
-  function asList(v: JsonValue | undefined): string[] | null {
-    return Array.isArray(v) ? v.map((x) => valueToString(x)) : null
-  }
-
-  function isEmpty(v: JsonValue | undefined): boolean {
-    return v === undefined || v === null || v === ''
-  }
-
-  function openDoc(e: MouseEvent): void {
-    e.stopPropagation()
-    onopen()
-  }
-
-  function confirmDelete(e: MouseEvent): void {
-    e.stopPropagation()
+  function confirmDelete(): void {
     if (window.confirm(`Move "${row.path}" to the trash?`)) {
       void tableStore.deleteRow(tabId, row.path)
     }
@@ -52,60 +55,24 @@
 
   function startEdit(col: CollectionColumn): void {
     if (readOnly) return
-    if (col.field_type === 'Boolean') {
-      tableStore.editCell(tabId, row.path, col.name, !cellValue(col.name))
-      return
-    }
-    const v = cellValue(col.name)
-    draft = col.field_type === 'List' ? (asList(v) ?? []).join(', ') : valueToString(v)
+    // Boolean cells toggle directly — no edit mode.
+    if (col.field_type === 'Boolean') return
     editingCol = col.name
   }
 
-  function cancelEdit(): void {
-    editingCol = null
-  }
-
-  function commit(col: CollectionColumn): void {
-    const d = draft.trim()
-    let value: JsonValue | null
-    if (d === '') {
-      value = null // clear → unset key
-    } else if (col.field_type === 'Number') {
-      const n = Number(d)
-      if (!Number.isFinite(n)) {
-        cancelEdit() // reject non-numeric
-        return
-      }
-      value = n
-    } else if (col.field_type === 'List') {
-      value = d
-        .split(',')
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0)
-    } else {
-      value = d // String / Date / Mixed
-    }
+  function handleCommit(col: CollectionColumn, value: JsonValue | null): void {
     editingCol = null
     void tableStore.editCell(tabId, row.path, col.name, value)
   }
 
-  function onCellKeydown(e: KeyboardEvent, col: CollectionColumn): void {
-    if (e.key === 'Enter') {
-      e.preventDefault()
-      commit(col)
-    } else if (e.key === 'Escape') {
-      e.preventDefault()
-      cancelEdit()
-    }
-  }
-
-  /** Autofocus + select an edit input when it mounts. */
-  function autofocus(node: HTMLInputElement): void {
-    node.focus()
-    node.select?.()
+  function handleCancel(): void {
+    editingCol = null
   }
 </script>
 
+<!-- Keyboard interaction lives at the grid level (TableView: arrows + Enter); cells
+     own their edit-mode keys. Clicks here are selection sugar only. -->
+<!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
   class="row"
   class:selected
@@ -121,37 +88,19 @@
     role="gridcell"
     style="width: {titleWidth}px; min-width: {titleWidth}px;"
   >
-    {#if row.state === 'new'}
-      <span class="state-badge state-new" title="On disk, not yet indexed">new</span>
-    {:else if row.state === 'modified'}
-      <span class="state-badge state-modified" title="Modified since last index">●</span>
-    {:else if row.state === 'deleted'}
-      <span class="state-badge state-deleted" title="File no longer on disk">gone</span>
-    {/if}
-    <span class="title-text" class:dim={row.title_source === 'filename'} title={row.title}>
-      {row.title}
-    </span>
-    <button class="popout" title="Open document" onclick={openDoc} aria-label="Open document">
-      <span class="material-symbols-outlined">open_in_new</span>
-    </button>
-    {#if !readOnly}
-      <button
-        class="popout row-delete"
-        title="Delete file"
-        onclick={confirmDelete}
-        aria-label="Delete file"
-      >
-        <span class="material-symbols-outlined">delete</span>
-      </button>
-    {/if}
+    <TitleCell {row} {onopen} ondelete={confirmDelete} />
   </div>
 
   {#each columns as col (col.name)}
-    {@const v = cellValue(col.name)}
     {@const cs = tableStore.cellState(tabId, row.path, col.name)}
+    {@const Cell = CELLS[col.field_type] ?? MixedCell}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
       class="cell data-cell"
+      tabindex="-1"
       class:numeric={col.field_type === 'Number'}
+      class:editable={!readOnly && col.field_type !== 'Boolean'}
+      class:editing={editingCol === col.name}
       class:saving={cs.saving}
       class:errored={!!cs.error}
       role="gridcell"
@@ -166,61 +115,14 @@
       }}
       ondblclick={() => startEdit(col)}
     >
-      {#if editingCol === col.name}
-        {#if col.field_type === 'Date'}
-          <input
-            class="cell-input"
-            type="date"
-            bind:value={draft}
-            use:autofocus
-            onkeydown={(e) => onCellKeydown(e, col)}
-            onblur={() => commit(col)}
-          />
-        {:else if col.field_type === 'Number'}
-          <input
-            class="cell-input"
-            type="number"
-            bind:value={draft}
-            use:autofocus
-            onkeydown={(e) => onCellKeydown(e, col)}
-            onblur={() => commit(col)}
-          />
-        {:else}
-          <input
-            class="cell-input"
-            type="text"
-            placeholder={col.field_type === 'List' ? 'comma, separated' : ''}
-            bind:value={draft}
-            use:autofocus
-            onkeydown={(e) => onCellKeydown(e, col)}
-            onblur={() => commit(col)}
-          />
-        {/if}
-      {:else if col.field_type === 'Boolean'}
-        <button
-          class="bool-toggle"
-          disabled={readOnly}
-          aria-pressed={v === true}
-          onclick={(e) => {
-            e.stopPropagation()
-            startEdit(col)
-          }}
-        >
-          <span class="material-symbols-outlined bool-icon">
-            {v ? 'check_box' : 'check_box_outline_blank'}
-          </span>
-        </button>
-      {:else if isEmpty(v)}
-        <span class="empty">—</span>
-      {:else if col.field_type === 'List' && asList(v)}
-        <span class="chips">
-          {#each asList(v) ?? [] as item}
-            <span class="chip">{item}</span>
-          {/each}
-        </span>
-      {:else}
-        <span class="text" title={valueToString(v)}>{valueToString(v)}</span>
-      {/if}
+      <Cell
+        column={col}
+        value={cellValue(col.name)}
+        editing={editingCol === col.name}
+        {readOnly}
+        oncommit={(value) => handleCommit(col, value)}
+        oncancel={handleCancel}
+      />
       {#if cs.saving}
         <span class="saving-dot" aria-hidden="true"></span>
       {/if}
@@ -234,20 +136,20 @@
     height: 100%;
     border-bottom: 1px solid var(--color-border);
     background: var(--color-bg);
+    transition: background var(--transition-fast, 150ms ease);
   }
 
   .row:hover {
-    background: var(--color-surface);
+    background: color-mix(in srgb, #ffffff 4%, var(--color-bg));
   }
 
   .row.selected {
-    background: var(--color-primary-dim);
+    background: color-mix(in srgb, var(--color-primary) 8%, var(--color-bg));
   }
 
-  .row.deleted .title-text,
-  .row.deleted .text {
-    text-decoration: line-through;
+  .row.deleted .data-cell {
     color: var(--color-text-faint);
+    text-decoration: line-through;
   }
 
   .cell {
@@ -255,21 +157,51 @@
     display: flex;
     align-items: center;
     gap: 4px;
-    padding: 0 var(--space-2);
+    padding: 0 var(--space-2, 8px);
     box-sizing: border-box;
     border-right: 1px solid var(--color-border);
-    font-size: var(--text-sm);
+    font-size: var(--text-base, 0.875rem);
     color: var(--color-text);
     overflow: hidden;
   }
 
-  .data-cell:not(.deleted) {
+  /* Pinned-left Title column: opaque backgrounds so scrolled cells slide under it. */
+  .title-cell {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--color-bg);
+    transition: background var(--transition-fast, 150ms ease);
+  }
+
+  .row:hover .title-cell {
+    background: color-mix(in srgb, #ffffff 4%, var(--color-bg));
+  }
+
+  .row.selected .title-cell {
+    background: color-mix(in srgb, var(--color-primary) 8%, var(--color-bg));
+  }
+
+  :global(.table-inner.scrolled-x) .title-cell {
+    box-shadow: var(--shadow-sticky-col, 2px 0 8px rgba(0, 0, 0, 0.35));
+    clip-path: inset(0 -12px 0 0); /* show the shadow only on the right edge */
+  }
+
+  .data-cell.editable {
     cursor: text;
+  }
+
+  .data-cell.editable:hover {
+    background: var(--overlay-hover);
   }
 
   .data-cell.numeric {
     justify-content: flex-end;
-    font-variant-numeric: tabular-nums;
+  }
+
+  .data-cell.editing {
+    background: var(--color-bg);
+    box-shadow: inset 0 0 0 1.5px var(--color-primary);
   }
 
   .data-cell.saving {
@@ -280,137 +212,13 @@
     box-shadow: inset 0 0 0 1px var(--color-error);
   }
 
-  .title-cell {
-    font-weight: var(--weight-medium);
-  }
-
-  .title-text {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    flex: 1;
-  }
-
-  .title-text.dim {
-    color: var(--color-text-dim);
-    font-style: italic;
-  }
-
-  .popout {
-    display: inline-flex;
-    align-items: center;
-    background: transparent;
-    border: none;
-    color: var(--color-text-dim);
-    cursor: pointer;
-    padding: 2px;
-    opacity: 0;
-    transition: opacity var(--transition-fast);
-  }
-
-  .row:hover .popout {
-    opacity: 1;
-  }
-
-  .popout:hover {
-    color: var(--color-primary);
-  }
-
-  .row-delete:hover {
-    color: var(--color-error);
-  }
-
-  .popout .material-symbols-outlined {
-    font-size: 15px;
-  }
-
-  .text {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .empty {
-    color: var(--color-text-faint);
-  }
-
-  .cell-input {
-    width: 100%;
-    background: var(--color-surface-elevated);
-    border: 1px solid var(--color-primary);
-    border-radius: var(--radius-sm);
-    color: var(--color-text);
-    font-size: var(--text-sm);
-    padding: 2px 4px;
-    box-sizing: border-box;
-  }
-
-  .cell-input:focus {
-    outline: none;
-  }
-
-  .bool-toggle {
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    padding: 0;
-    display: inline-flex;
-    align-items: center;
-  }
-
-  .bool-toggle:disabled {
-    cursor: default;
-  }
-
-  .bool-icon {
-    font-size: 16px;
-    color: var(--color-text-dim);
-  }
-
-  .chips {
-    display: flex;
-    gap: 3px;
-    overflow: hidden;
-  }
-
-  .chip {
-    background: var(--color-surface-elevated);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    padding: 0 6px;
-    font-size: var(--text-xs);
-    white-space: nowrap;
-  }
-
-  .state-badge {
-    font-size: var(--text-xs);
-    font-weight: var(--weight-semibold);
-    border-radius: var(--radius-sm);
-    padding: 0 4px;
-    flex-shrink: 0;
-  }
-
-  .state-new {
-    color: var(--color-info);
-    background: rgba(96, 165, 250, 0.12);
-  }
-
-  .state-modified {
-    color: var(--color-warning);
-  }
-
-  .state-deleted {
-    color: var(--color-error);
-    background: rgba(239, 68, 68, 0.12);
-  }
-
   .saving-dot {
     position: absolute;
     top: 4px;
     right: 4px;
     width: 6px;
     height: 6px;
-    border-radius: var(--radius-full);
+    border-radius: var(--radius-full, 9999px);
     background: var(--color-primary);
     animation: pulse 1s ease-in-out infinite;
   }
@@ -429,7 +237,8 @@
     .saving-dot {
       animation: none;
     }
-    .popout {
+    .row,
+    .title-cell {
       transition: none;
     }
   }

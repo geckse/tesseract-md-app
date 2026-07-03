@@ -95,6 +95,35 @@ describe('tableStore (renderer data store)', () => {
     expect(tableStore.visibleColumns(tabId).map((c) => c.name)).toEqual(['date', 'extra', 'status'])
   })
 
+  it('resizing a column changes its width but never its position', async () => {
+    const tabId = workspace.openTableTab('blog')
+    await tableStore.load(tabId, 'c1', '/root')
+
+    // 'status' is last alphabetically; a resize must not move it to the front
+    tableStore.setColumnWidth(tabId, 'status', 320)
+
+    expect(tableStore.visibleColumns(tabId).map((c) => c.name)).toEqual(['date', 'extra', 'status'])
+    expect(tableStore.columnWidth(tabId, 'status')).toBe(320)
+
+    // Resizing a second column keeps the order stable too
+    tableStore.setColumnWidth(tabId, 'extra', 90)
+    expect(tableStore.visibleColumns(tabId).map((c) => c.name)).toEqual(['date', 'extra', 'status'])
+  })
+
+  it('hiding and re-showing a column does not reorder the others', async () => {
+    const tabId = workspace.openTableTab('blog')
+    await tableStore.load(tabId, 'c1', '/root')
+
+    tableStore.toggleColumnHidden(tabId, 'date')
+    expect(tableStore.visibleColumns(tabId).map((c) => c.name)).toEqual(['extra', 'status'])
+
+    tableStore.toggleColumnHidden(tabId, 'date')
+    const names = tableStore.visibleColumns(tabId).map((c) => c.name)
+    expect(names).toHaveLength(3)
+    expect(names.slice(0, 2)).toEqual(['extra', 'status']) // untouched columns keep their order
+    expect(names).toContain('date')
+  })
+
   it('client-side filter narrows rows and rowCount', async () => {
     const tabId = workspace.openTableTab('blog')
     await tableStore.load(tabId, 'c1', '/root')
@@ -188,6 +217,18 @@ describe('tableStore editing (39b)', () => {
     expect(api.updateFrontmatter).toHaveBeenCalledWith('c1', 'blog/a.md', {
       unset: ['status']
     })
+  })
+
+  it('strips proxies from committed values so the IPC patch is structured-cloneable', async () => {
+    const tabId = await setup()
+    // Cells can commit reactive $state proxies (e.g. ListCell's tag array);
+    // Electron IPC rejects proxies with "An object could not be cloned".
+    const proxied = new Proxy(['a', 'b'], {})
+    await tableStore.editCell(tabId, 'blog/a.md', 'tag', proxied)
+
+    const patch = api.updateFrontmatter.mock.calls[0][2]
+    expect(patch.set.tag).toEqual(['a', 'b'])
+    expect(() => structuredClone(patch)).not.toThrow()
   })
 
   it('reverts the optimistic value and records an error on writer failure', async () => {

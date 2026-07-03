@@ -23,22 +23,32 @@
     onactivate,
     onclose,
     onmiddleclick,
-    oncontextmenu: oncontextmenuprop,
+    oncontextmenu: oncontextmenuprop
   }: TabItemProps = $props()
 
   const isGraph = $derived(tab.kind === 'graph')
   const isAsset = $derived(tab.kind === 'asset')
   const isTerminal = $derived(tab.kind === 'terminal')
+  const isTable = $derived(tab.kind === 'table')
   const isDirty = $derived(tab.kind === 'document' && tab.isDirty)
   const icon = $derived(
-    isGraph ? 'hub' :
-    isTerminal ? 'terminal' :
-    isAsset && tab.kind === 'asset' ? (
-      tab.mimeCategory === 'image' ? 'image' :
-      tab.mimeCategory === 'pdf' ? 'picture_as_pdf' :
-      tab.mimeCategory === 'video' ? 'videocam' :
-      tab.mimeCategory === 'audio' ? 'audiotrack' : 'attach_file'
-    ) : 'description'
+    isGraph
+      ? 'hub'
+      : isTerminal
+        ? 'terminal'
+        : isTable
+          ? 'table'
+          : isAsset && tab.kind === 'asset'
+            ? tab.mimeCategory === 'image'
+              ? 'image'
+              : tab.mimeCategory === 'pdf'
+                ? 'picture_as_pdf'
+                : tab.mimeCategory === 'video'
+                  ? 'videocam'
+                  : tab.mimeCategory === 'audio'
+                    ? 'audiotrack'
+                    : 'attach_file'
+            : 'description'
   )
   const canClose = $derived(!isGraph)
   const canDrag = $derived(draggable)
@@ -103,10 +113,7 @@
     // using client coordinates (0,0 to viewport width/height)
     const { clientX, clientY } = e
     const isOutsideWindow =
-      clientX <= 0 ||
-      clientY <= 0 ||
-      clientX >= window.innerWidth ||
-      clientY >= window.innerHeight
+      clientX <= 0 || clientY <= 0 || clientX >= window.innerWidth || clientY >= window.innerHeight
 
     if (isOutsideWindow) {
       // Detach this tab to a popup window
@@ -186,7 +193,7 @@
 
   .tab-item.active {
     color: var(--color-text-white, #fff);
-    border-bottom-color: var(--color-primary, #00E5FF);
+    border-bottom-color: var(--color-primary, #00e5ff);
   }
 
   .tab-item.active-dimmed {
@@ -210,7 +217,7 @@
   }
 
   .tab-item.active .tab-icon {
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
   }
 
   .tab-item.active-dimmed .tab-icon {
@@ -231,7 +238,7 @@
     width: 6px;
     height: 6px;
     border-radius: var(--radius-full, 9999px);
-    background: var(--color-primary, #00E5FF);
+    background: var(--color-primary, #00e5ff);
     flex-shrink: 0;
   }
 
