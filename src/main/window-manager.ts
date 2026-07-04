@@ -18,7 +18,7 @@ const ZOOM_STEP = 0.1
 
 /** Options for creating a popup window. */
 export interface PopupWindowOptions {
-  kind: 'document' | 'asset' | 'graph' | 'table'
+  kind: 'document' | 'asset' | 'graph' | 'table' | 'terminal'
   filePath?: string
   editorMode?: string
   isUntitled?: boolean
@@ -32,6 +32,10 @@ export interface PopupWindowOptions {
   savedContent?: string | null
   recursive?: boolean
   tableViewId?: string
+  terminalId?: string
+  title?: string
+  shell?: string
+  cwd?: string
 }
 
 /** Data sent to popup renderer for dirty document transfer. */
@@ -54,6 +58,23 @@ export class WindowManager {
   /** Register a callback fired when any tracked window closes. */
   onWindowClosed(cb: (webContentsId: number) => void): void {
     this.closeListeners.push(cb)
+  }
+
+  /**
+   * The primary main window — the single owner of session persistence.
+   * Defined as the oldest living non-popup window (Map preserves insertion
+   * order), so closing the primary promotes the next-oldest automatically.
+   */
+  getPrimaryWindowId(): number | null {
+    for (const id of this.windows.keys()) {
+      if (!this.popups.has(id)) return id
+    }
+    return null
+  }
+
+  /** Whether the given webContents belongs to the primary main window. */
+  isPrimary(webContentsId: number): boolean {
+    return this.getPrimaryWindowId() === webContentsId
   }
 
   /**
@@ -259,6 +280,10 @@ export class WindowManager {
     if (options.graphColoringMode) params.set('graphColoringMode', options.graphColoringMode)
     if (options.recursive) params.set('recursive', 'true')
     if (options.tableViewId) params.set('tableViewId', options.tableViewId)
+    if (options.terminalId) params.set('terminalId', options.terminalId)
+    if (options.title) params.set('title', options.title)
+    if (options.shell) params.set('shell', options.shell)
+    if (options.cwd) params.set('cwd', options.cwd)
 
     const qs = '?' + params.toString()
 

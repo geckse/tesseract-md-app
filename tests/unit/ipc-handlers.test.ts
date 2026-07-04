@@ -186,13 +186,15 @@ function createMockWindowManager() {
   const mockGetAllWindows = vi.fn().mockReturnValue([])
   const mockGetWindow = vi.fn()
   const mockCloseWindow = vi.fn()
+  const mockIsPrimary = vi.fn().mockReturnValue(true)
 
   const wm = {
     broadcastToAll: mockBroadcastToAll,
     createWindow: mockCreateWindow,
     getAllWindows: mockGetAllWindows,
     getWindow: mockGetWindow,
-    closeWindow: mockCloseWindow
+    closeWindow: mockCloseWindow,
+    isPrimary: mockIsPrimary
   } as unknown as WindowManager
 
   return {
@@ -201,6 +203,7 @@ function createMockWindowManager() {
     mockCreateWindow,
     mockGetAllWindows,
     mockGetWindow,
+    mockIsPrimary,
     mockCloseWindow
   }
 }
@@ -1205,5 +1208,55 @@ describe('Watcher event envelope wrapping', () => {
     const channels = mockBroadcastToAll.mock.calls.map((c: unknown[]) => c[0])
     expect(channels.every((ch: string) => ch === 'watcher:event')).toBe(true)
     expect(mockBroadcastToAll).toHaveBeenCalledTimes(3)
+  })
+  describe('session persistence gating (primary window only)', () => {
+    function getHandler(channel: string): (event: unknown, ...args: unknown[]) => Promise<unknown> {
+      const call = mockHandle.mock.calls.find((c: unknown[]) => c[0] === channel)
+      expect(call).toBeDefined()
+      return call![1] as (event: unknown, ...args: unknown[]) => Promise<unknown>
+    }
+
+    const session = { panes: [], splitEnabled: false, splitRatio: 0.5 }
+
+    it('registers the synchronous session:save-sync channel via ipcMain.on', async () => {
+      const { wm } = createMockWindowManager()
+      registerIpcHandlers(wm)
+      const { ipcMain } = await import('electron')
+      const onChannels = vi.mocked(ipcMain.on).mock.calls.map((c: unknown[]) => c[0])
+      expect(onChannels).toContain('session:save-sync')
+    })
+
+    it('ignores session:save from non-primary windows', async () => {
+      const { wm, mockIsPrimary } = createMockWindowManager()
+      registerIpcHandlers(wm)
+      const storeModule = await import('../../src/main/store')
+      const setSessions = vi.mocked(storeModule.setWindowSessions)
+      setSessions.mockClear()
+
+      const handler = getHandler('session:save')
+
+      mockIsPrimary.mockReturnValue(false)
+      await handler({ sender: { id: 7 } }, session)
+      expect(setSessions).not.toHaveBeenCalled()
+
+      mockIsPrimary.mockReturnValue(true)
+      await handler({ sender: { id: 1 } }, session)
+      expect(setSessions).toHaveBeenCalledWith([session])
+    })
+
+    it('returns null from session:get for non-primary windows', async () => {
+      const { wm, mockIsPrimary } = createMockWindowManager()
+      registerIpcHandlers(wm)
+      const storeModule = await import('../../src/main/store')
+      vi.mocked(storeModule.getWindowSessions).mockReturnValue([session])
+
+      const handler = getHandler('session:get')
+
+      mockIsPrimary.mockReturnValue(false)
+      expect(await handler({ sender: { id: 7 } })).toBeNull()
+
+      mockIsPrimary.mockReturnValue(true)
+      expect(await handler({ sender: { id: 1 } })).toEqual(session)
+    })
   })
 })

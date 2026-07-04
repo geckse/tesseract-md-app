@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { workspace } from '@renderer/stores/workspace.svelte'
+import { workspace, BOTTOM_PANE_ID } from '@renderer/stores/workspace.svelte'
 import type { DocumentTab } from '@renderer/stores/workspace.svelte'
 import type { PersistedWindowState } from '../../src/preload/api'
 
@@ -27,6 +27,7 @@ function _asDocTab(tab: unknown): DocumentTab {
 const mockGetActiveCollection = vi.fn()
 const mockReadFile = vi.fn()
 const mockSaveWindowSession = vi.fn()
+const mockSaveWindowSessionSync = vi.fn()
 
 beforeEach(() => {
   // Set up window.api mock before each test
@@ -36,22 +37,29 @@ beforeEach(() => {
         getActiveCollection: mockGetActiveCollection,
         readFile: mockReadFile,
         saveWindowSession: mockSaveWindowSession,
-        detachTab: vi.fn(),
+        saveWindowSessionSync: mockSaveWindowSessionSync,
+        detachTab: vi.fn()
       }
     },
     writable: true,
-    configurable: true,
+    configurable: true
   })
 
   mockGetActiveCollection.mockReset()
   mockReadFile.mockReset()
   mockSaveWindowSession.mockReset()
+  mockSaveWindowSessionSync.mockReset()
 })
 
 // ── Tests ────────────────────────────────────────────────────────────────
 
 describe('Tab Persistence', () => {
   beforeEach(() => {
+    // reset() deliberately keeps terminal tabs (collection-switch semantics);
+    // drop them for per-test isolation.
+    for (const [id, tab] of Object.entries(workspace.tabs)) {
+      if (tab.kind === 'terminal') workspace.removeTabSilently(id)
+    }
     workspace.reset()
   })
 
@@ -208,13 +216,13 @@ describe('Tab Persistence', () => {
             tabs: [
               { kind: 'document', filePath: 'readme.md' },
               { kind: 'document', filePath: 'guide.md' },
-              { kind: 'graph', graphLevel: 'document' },
+              { kind: 'graph', graphLevel: 'document' }
             ],
-            activeTabIndex: 0,
-          },
+            activeTabIndex: 0
+          }
         ],
         splitEnabled: false,
-        splitRatio: 0.5,
+        splitRatio: 0.5
       }
 
       await workspace.restoreSession(session)
@@ -239,13 +247,13 @@ describe('Tab Persistence', () => {
               { kind: 'document', filePath: 'a.md' },
               { kind: 'document', filePath: 'b.md' },
               { kind: 'document', filePath: 'c.md' },
-              { kind: 'graph' },
+              { kind: 'graph' }
             ],
-            activeTabIndex: 1, // b.md should be active
-          },
+            activeTabIndex: 1 // b.md should be active
+          }
         ],
         splitEnabled: false,
-        splitRatio: 0.5,
+        splitRatio: 0.5
       }
 
       await workspace.restoreSession(session)
@@ -273,13 +281,13 @@ describe('Tab Persistence', () => {
               { kind: 'document', filePath: 'exists.md' },
               { kind: 'document', filePath: 'deleted.md' },
               { kind: 'document', filePath: 'also-exists.md' },
-              { kind: 'graph' },
+              { kind: 'graph' }
             ],
-            activeTabIndex: 0,
-          },
+            activeTabIndex: 0
+          }
         ],
         splitEnabled: false,
-        splitRatio: 0.5,
+        splitRatio: 0.5
       }
 
       await workspace.restoreSession(session)
@@ -301,15 +309,12 @@ describe('Tab Persistence', () => {
       const session: PersistedWindowState = {
         panes: [
           {
-            tabs: [
-              { kind: 'document', filePath: 'file.md' },
-              { kind: 'graph' },
-            ],
-            activeTabIndex: 0,
-          },
+            tabs: [{ kind: 'document', filePath: 'file.md' }, { kind: 'graph' }],
+            activeTabIndex: 0
+          }
         ],
         splitEnabled: false,
-        splitRatio: 0.5,
+        splitRatio: 0.5
       }
 
       await workspace.restoreSession(session)
@@ -326,22 +331,16 @@ describe('Tab Persistence', () => {
       const session: PersistedWindowState = {
         panes: [
           {
-            tabs: [
-              { kind: 'document', filePath: 'left.md' },
-              { kind: 'graph' },
-            ],
-            activeTabIndex: 0,
+            tabs: [{ kind: 'document', filePath: 'left.md' }, { kind: 'graph' }],
+            activeTabIndex: 0
           },
           {
-            tabs: [
-              { kind: 'document', filePath: 'right.md' },
-              { kind: 'graph' },
-            ],
-            activeTabIndex: 0,
-          },
+            tabs: [{ kind: 'document', filePath: 'right.md' }, { kind: 'graph' }],
+            activeTabIndex: 0
+          }
         ],
         splitEnabled: true,
-        splitRatio: 0.7,
+        splitRatio: 0.7
       }
 
       await workspace.restoreSession(session)
@@ -366,11 +365,11 @@ describe('Tab Persistence', () => {
         panes: [
           {
             tabs: [{ kind: 'graph', graphLevel: 'chunk' }],
-            activeTabIndex: -1,
-          },
+            activeTabIndex: -1
+          }
         ],
         splitEnabled: false,
-        splitRatio: 0.5,
+        splitRatio: 0.5
       }
 
       await workspace.restoreSession(session)
@@ -388,7 +387,7 @@ describe('Tab Persistence', () => {
       const session: PersistedWindowState = {
         panes: [],
         splitEnabled: false,
-        splitRatio: 0.5,
+        splitRatio: 0.5
       }
 
       await workspace.restoreSession(session)
@@ -408,15 +407,15 @@ describe('Tab Persistence', () => {
         panes: [
           {
             tabs: [{ kind: 'document', filePath: 'a.md' }, { kind: 'graph' }],
-            activeTabIndex: 0,
+            activeTabIndex: 0
           },
           {
             tabs: [{ kind: 'document', filePath: 'b.md' }, { kind: 'graph' }],
-            activeTabIndex: 0,
-          },
+            activeTabIndex: 0
+          }
         ],
         splitEnabled: true,
-        splitRatio: 0.5,
+        splitRatio: 0.5
       }
 
       await workspace.restoreSession(session)
@@ -429,11 +428,11 @@ describe('Tab Persistence', () => {
         panes: [
           {
             tabs: [{ kind: 'graph' }],
-            activeTabIndex: -1,
-          },
+            activeTabIndex: -1
+          }
         ],
         splitEnabled: true, // Was true in the session, but only 1 pane
-        splitRatio: 0.5,
+        splitRatio: 0.5
       }
 
       await workspace.restoreSession(session)
@@ -451,11 +450,11 @@ describe('Tab Persistence', () => {
         panes: [
           {
             tabs: [{ kind: 'document', filePath: 'test.md' }, { kind: 'graph' }],
-            activeTabIndex: 0,
-          },
+            activeTabIndex: 0
+          }
         ],
         splitEnabled: false,
-        splitRatio: 0.5,
+        splitRatio: 0.5
       }
 
       await workspace.restoreSession(session)
@@ -465,9 +464,12 @@ describe('Tab Persistence', () => {
       workspace.openTab('new-file.md')
 
       // Advance timers to trigger the debounced save
-      await vi.waitFor(() => {
-        expect(mockSaveWindowSession).toHaveBeenCalled()
-      }, { timeout: 1000 })
+      await vi.waitFor(
+        () => {
+          expect(mockSaveWindowSession).toHaveBeenCalled()
+        },
+        { timeout: 1000 }
+      )
     })
 
     it('falls back to last doc tab when persisted activeTabIndex has no match', async () => {
@@ -483,13 +485,13 @@ describe('Tab Persistence', () => {
             tabs: [
               { kind: 'document', filePath: 'a.md' },
               { kind: 'document', filePath: 'was-active-deleted.md' },
-              { kind: 'graph' },
+              { kind: 'graph' }
             ],
-            activeTabIndex: 1, // Points to deleted file
-          },
+            activeTabIndex: 1 // Points to deleted file
+          }
         ],
         splitEnabled: false,
-        splitRatio: 0.5,
+        splitRatio: 0.5
       }
 
       await workspace.restoreSession(session)
@@ -513,13 +515,13 @@ describe('Tab Persistence', () => {
             tabs: [
               { kind: 'document', filePath: 'deleted-a.md' },
               { kind: 'document', filePath: 'deleted-b.md' },
-              { kind: 'graph' },
+              { kind: 'graph' }
             ],
-            activeTabIndex: 0,
-          },
+            activeTabIndex: 0
+          }
         ],
         splitEnabled: false,
-        splitRatio: 0.5,
+        splitRatio: 0.5
       }
 
       await workspace.restoreSession(session)
@@ -538,11 +540,11 @@ describe('Tab Persistence', () => {
         panes: [
           {
             tabs: [{ kind: 'document', filePath: 'file.md' }],
-            activeTabIndex: 0,
-          },
+            activeTabIndex: 0
+          }
         ],
         splitEnabled: false,
-        splitRatio: 0.5,
+        splitRatio: 0.5
       }
 
       await workspace.restoreSession(session)
@@ -567,11 +569,11 @@ describe('Tab Persistence', () => {
         panes: [
           {
             tabs: [{ kind: 'document', filePath: 'new-file.md' }, { kind: 'graph' }],
-            activeTabIndex: 0,
-          },
+            activeTabIndex: 0
+          }
         ],
         splitEnabled: false,
-        splitRatio: 0.5,
+        splitRatio: 0.5
       }
 
       await workspace.restoreSession(session)
@@ -639,6 +641,222 @@ describe('Tab Persistence', () => {
       const activeTab = workspace.tabs[pane.activeTabId!]
       expect(activeTab.kind).toBe('document')
       expect((activeTab as DocumentTab).filePath).toBe('b.md')
+    })
+  })
+  describe('bottom pane persistence', () => {
+    /** Register a stub terminal-restore hook; returns the respawned slots. */
+    function stubTerminalHooks(): Array<{ shell: string; cwd: string; title?: string }> {
+      const restored: Array<{ shell: string; cwd: string; title?: string }> = []
+      workspace.registerTerminalHooks(
+        () => ({ shell: '/bin/zsh', cwd: '/proj' }),
+        (slot) => {
+          restored.push(slot)
+          return `respawned-${restored.length}`
+        }
+      )
+      return restored
+    }
+
+    it('serializes the bottom pane with open state and height, without the legacy field', () => {
+      const tabId = workspace.openTab('a.md')
+      workspace.moveTabToBottomPane(tabId)
+      workspace.setBottomPaneHeight(420)
+
+      const session = workspace.serializeSession()
+
+      expect(session.bottomPane?.tabs).toEqual([{ kind: 'document', filePath: 'a.md' }])
+      expect(session.bottomPane?.activeTabIndex).toBe(0)
+      expect(session.bottomPaneOpen).toBe(true)
+      expect(session.bottomPaneHeight).toBe(420)
+      expect(session.bottomPanel).toBeUndefined()
+    })
+
+    it('defaults to a hidden, empty bottom pane when the session has no bottom fields', async () => {
+      await workspace.restoreSession({
+        panes: [{ tabs: [], activeTabIndex: -1 }],
+        splitEnabled: false,
+        splitRatio: 0.5
+      })
+
+      expect(workspace.bottomPane).toBeDefined()
+      expect(workspace.bottomPane!.tabOrder).toEqual([])
+      expect(workspace.bottomPaneOpen).toBe(false)
+      expect(workspace.bottomPaneHeight).toBe(300)
+    })
+
+    it('migrates the legacy bottomPanel slots into terminal tabs', async () => {
+      const restored = stubTerminalHooks()
+
+      await workspace.restoreSession({
+        panes: [{ tabs: [], activeTabIndex: -1 }],
+        splitEnabled: false,
+        splitRatio: 0.5,
+        bottomPanel: {
+          open: true,
+          height: 260,
+          activeIndex: 1,
+          slots: [
+            { shell: '/bin/zsh', cwd: '/a', title: 'one' },
+            { shell: '/bin/bash', cwd: '/b', title: 'two' }
+          ]
+        }
+      })
+
+      expect(restored).toEqual([
+        { shell: '/bin/zsh', cwd: '/a', title: 'one' },
+        { shell: '/bin/bash', cwd: '/b', title: 'two' }
+      ])
+      const bottom = workspace.bottomPane!
+      expect(bottom.tabOrder).toHaveLength(2)
+      const titles = bottom.tabOrder.map((id) => workspace.tabs[id].title)
+      expect(titles).toEqual(['one', 'two'])
+      expect(bottom.activeTabId).toBe(bottom.tabOrder[1])
+      expect(workspace.bottomPaneOpen).toBe(true)
+      expect(workspace.bottomPaneHeight).toBe(260)
+    })
+
+    it('restores legacy slots hidden when the legacy panel was closed', async () => {
+      stubTerminalHooks()
+
+      await workspace.restoreSession({
+        panes: [{ tabs: [], activeTabIndex: -1 }],
+        splitEnabled: false,
+        splitRatio: 0.5,
+        bottomPanel: {
+          open: false,
+          height: 200,
+          activeIndex: 0,
+          slots: [{ shell: '/bin/zsh', cwd: '/a' }]
+        }
+      })
+
+      expect(workspace.bottomPane!.tabOrder).toHaveLength(1)
+      expect(workspace.bottomPaneOpen).toBe(false)
+    })
+
+    it('prefers the new bottomPane over the legacy bottomPanel when both exist', async () => {
+      const restored = stubTerminalHooks()
+
+      await workspace.restoreSession({
+        panes: [{ tabs: [], activeTabIndex: -1 }],
+        splitEnabled: false,
+        splitRatio: 0.5,
+        bottomPane: {
+          tabs: [
+            {
+              kind: 'terminal',
+              terminalShell: '/bin/fish',
+              terminalCwd: '/new',
+              terminalTitle: 'new-term'
+            }
+          ],
+          activeTabIndex: 0
+        },
+        bottomPaneOpen: false,
+        bottomPaneHeight: 333,
+        bottomPanel: {
+          open: true,
+          height: 111,
+          activeIndex: 0,
+          slots: [{ shell: '/bin/zsh', cwd: '/old', title: 'old-term' }]
+        }
+      })
+
+      expect(restored).toEqual([{ shell: '/bin/fish', cwd: '/new', title: 'new-term' }])
+      expect(workspace.bottomPane!.tabOrder).toHaveLength(1)
+      expect(workspace.bottomPaneOpen).toBe(false)
+      expect(workspace.bottomPaneHeight).toBe(333)
+    })
+
+    it('respawns terminal tabs persisted in the new bottomPane format via the hook', async () => {
+      const restored = stubTerminalHooks()
+
+      await workspace.restoreSession({
+        panes: [{ tabs: [{ kind: 'document', filePath: 'a.md' }], activeTabIndex: 0 }],
+        splitEnabled: false,
+        splitRatio: 0.5,
+        bottomPane: {
+          tabs: [
+            { kind: 'terminal', terminalShell: '/bin/zsh', terminalCwd: '/x', terminalTitle: 't' }
+          ],
+          activeTabIndex: 0
+        },
+        bottomPaneOpen: true,
+        bottomPaneHeight: 300
+      })
+
+      expect(restored).toHaveLength(1)
+      const bottom = workspace.bottomPane!
+      expect(bottom.tabOrder).toHaveLength(1)
+      const tab = workspace.tabs[bottom.tabOrder[0]]
+      expect(tab.kind).toBe('terminal')
+      if (tab.kind === 'terminal') {
+        expect(tab.terminalId).toBe('respawned-1')
+      }
+    })
+
+    it('round-trips a graph tab living in the bottom pane', async () => {
+      const editor = getDefaultPaneId()
+      const graphTabId = getPane(editor).graphTabId!
+      workspace.moveTab(graphTabId, editor, BOTTOM_PANE_ID)
+
+      const session = workspace.serializeSession()
+      expect(session.bottomPane?.tabs.some((t) => t.kind === 'graph')).toBe(true)
+      expect(session.panes.every((p) => p.tabs.every((t) => t.kind !== 'graph'))).toBe(true)
+
+      await workspace.restoreSession(session)
+
+      expect(workspace.bottomPane!.graphTabId).toBeTruthy()
+      for (const pid of workspace.paneOrder) {
+        expect(workspace.panes[pid].graphTabId).toBeNull()
+      }
+      // Exactly one graph tab exists overall
+      const graphTabs = Object.values(workspace.tabs).filter((t) => t.kind === 'graph')
+      expect(graphTabs).toHaveLength(1)
+    })
+
+    it('keeps the graph in pane 0 when no persisted pane holds one', async () => {
+      await workspace.restoreSession({
+        panes: [{ tabs: [], activeTabIndex: -1 }],
+        splitEnabled: false,
+        splitRatio: 0.5
+      })
+
+      const pane0 = workspace.panes[workspace.paneOrder[0]]
+      expect(pane0.graphTabId).toBeTruthy()
+      expect(workspace.bottomPane!.graphTabId).toBeNull()
+    })
+  })
+  describe('flushSessionSync', () => {
+    it('cancels the pending debounce and saves synchronously exactly once', () => {
+      vi.useFakeTimers()
+      try {
+        workspace.enablePersistence()
+        workspace.openTab('a.md') // schedules a debounced async save
+
+        workspace.flushSessionSync()
+
+        expect(mockSaveWindowSessionSync).toHaveBeenCalledTimes(1)
+        const session = mockSaveWindowSessionSync.mock.calls[0][0]
+        expect(session.panes[0].tabs).toContainEqual({ kind: 'document', filePath: 'a.md' })
+
+        // The debounced save was cancelled — nothing fires later
+        vi.advanceTimersByTime(2000)
+        expect(mockSaveWindowSession).not.toHaveBeenCalled()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('does nothing in popup windows', () => {
+      workspace.enablePersistence()
+      workspace.isPopup = true
+      try {
+        workspace.flushSessionSync()
+        expect(mockSaveWindowSessionSync).not.toHaveBeenCalled()
+      } finally {
+        workspace.isPopup = false
+      }
     })
   })
 })

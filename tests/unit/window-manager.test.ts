@@ -14,7 +14,7 @@ function createMockWebContents(id: number) {
     setZoomFactor: vi.fn(),
     getZoomFactor: vi.fn().mockReturnValue(1.0),
     on: vi.fn(),
-    setWindowOpenHandler: vi.fn(),
+    setWindowOpenHandler: vi.fn()
   }
 }
 
@@ -78,13 +78,13 @@ class MockBrowserWindow {
 vi.mock('electron', () => ({
   BrowserWindow: vi.fn().mockImplementation(() => new MockBrowserWindow()),
   shell: {
-    openExternal: vi.fn(),
-  },
+    openExternal: vi.fn()
+  }
 }))
 
 // Mock @electron-toolkit/utils
 vi.mock('@electron-toolkit/utils', () => ({
-  is: { dev: false },
+  is: { dev: false }
 }))
 
 // Mock ./store
@@ -93,9 +93,9 @@ const mockStoreSet = vi.fn()
 vi.mock('../../src/main/store', () => ({
   initStore: vi.fn(() => ({
     get: (...args: unknown[]) => mockStoreGet(...args),
-    set: (...args: unknown[]) => mockStoreSet(...args),
+    set: (...args: unknown[]) => mockStoreSet(...args)
   })),
-  setZoomLevel: vi.fn(),
+  setZoomLevel: vi.fn()
 }))
 
 import { WindowManager } from '../../src/main/window-manager'
@@ -285,7 +285,9 @@ describe('WindowManager', () => {
 
       wm.broadcastToAll('complex:event', 'arg1', 42, { key: 'value' })
 
-      expect(win.webContents.send).toHaveBeenCalledWith('complex:event', 'arg1', 42, { key: 'value' })
+      expect(win.webContents.send).toHaveBeenCalledWith('complex:event', 'arg1', 42, {
+        key: 'value'
+      })
     })
 
     it('does nothing when no windows exist', () => {
@@ -368,6 +370,37 @@ describe('WindowManager', () => {
 
       wm.closeWindow(win3.webContents.id)
       expect(wm.getAllWindows()).toHaveLength(0)
+    })
+  })
+  describe('primary window (session-persistence owner)', () => {
+    it('the first main window is primary', () => {
+      const a = wm.createWindow()
+      const b = wm.createWindow()
+      expect(wm.isPrimary(a.webContents.id)).toBe(true)
+      expect(wm.isPrimary(b.webContents.id)).toBe(false)
+    })
+
+    it('promotes the oldest remaining window when the primary closes', () => {
+      const a = wm.createWindow()
+      const b = wm.createWindow()
+      const c = wm.createWindow()
+      a.close()
+      expect(wm.isPrimary(b.webContents.id)).toBe(true)
+      expect(wm.isPrimary(c.webContents.id)).toBe(false)
+    })
+
+    it('popup windows are never primary', () => {
+      const popup = wm.createPopupWindow({ kind: 'graph' })
+      const main = wm.createWindow()
+      expect(wm.isPrimary(popup.webContents.id)).toBe(false)
+      expect(wm.isPrimary(main.webContents.id)).toBe(true)
+    })
+
+    it('has no primary when no main windows exist', () => {
+      expect(wm.getPrimaryWindowId()).toBeNull()
+      const popup = wm.createPopupWindow({ kind: 'graph' })
+      void popup
+      expect(wm.getPrimaryWindowId()).toBeNull()
     })
   })
 })

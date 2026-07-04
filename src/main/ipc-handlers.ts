@@ -41,6 +41,7 @@ import type { FrontmatterPatch } from './frontmatter'
 import { WatcherManager, type WatcherState } from './watcher'
 import { AppUpdater } from './updater'
 import type { WindowManager } from './window-manager'
+import type { PtyManager } from './pty'
 import {
   getCollections,
   addCollection,
@@ -195,8 +196,9 @@ async function withWatcherPaused<T>(root: string, fn: () => Promise<T>): Promise
  * Must be called once after app is ready.
  *
  * @param windowManager - The WindowManager for broadcasting events to all windows
+ * @param ptyManager - PTY registry, used to rebind terminals during cross-window transfers
  */
-export function registerIpcHandlers(windowManager: WindowManager): void {
+export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: PtyManager): void {
   // CLI detection
   ipcMain.handle('cli:find', () => wrapHandler(() => findCli()))
 
@@ -1130,20 +1132,36 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
 
   ipcMain.handle('updater:app-version', () => wrapHandler(async () => app.getVersion()))
 
-  // Window session persistence
-  ipcMain.handle('session:save', (_event, session: PersistedWindowState) =>
+  // Window session persistence. Only the PRIMARY main window owns the saved
+  // session — extra windows (Cmd+Shift+N) start fresh and never clobber it.
+  ipcMain.handle('session:save', (event, session: PersistedWindowState) =>
     wrapHandler(async () => {
+      if (!windowManager.isPrimary(event.sender.id)) return
       // For single-window mode, store as a single-element array
       setWindowSessions([session])
     })
   )
 
-  ipcMain.handle('session:get', () =>
+  ipcMain.handle('session:get', (event) =>
     wrapHandler(async (): Promise<PersistedWindowState | null> => {
+      if (!windowManager.isPrimary(event.sender.id)) return null
       const sessions = getWindowSessions()
       return sessions.length > 0 ? sessions[0] : null
     })
   )
+
+  // Synchronous session flush, used from beforeunload so a layout change in
+  // the last debounce window survives quitting the app.
+  ipcMain.on('session:save-sync', (event, session: PersistedWindowState) => {
+    try {
+      if (windowManager.isPrimary(event.sender.id)) {
+        setWindowSessions([session])
+      }
+    } finally {
+      // Must be set, or the sending renderer blocks forever.
+      event.returnValue = true
+    }
+  })
 
   // Multi-window management
   ipcMain.handle('window:new', () =>
@@ -1175,7 +1193,11 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
         content: tabData.content,
         savedContent: tabData.savedContent,
         recursive: tabData.recursive,
-        tableViewId: tabData.tableViewId
+        tableViewId: tabData.tableViewId,
+        terminalId: tabData.terminalId,
+        title: tabData.title,
+        shell: tabData.shell,
+        cwd: tabData.cwd
       }
       windowManager.createPopupWindow(popupOpts)
     })
@@ -1273,6 +1295,16 @@ export function registerIpcHandlers(windowManager: WindowManager): void {
       )
 
       if (targetWin && !targetWin.isDestroyed()) {
+        // Terminals: transfer PTY ownership to the target BEFORE the popup
+        // closes — otherwise disposeByWindow(popup) kills the shell mid-move.
+        // The target's adopt rebinds again (idempotent) to fetch scrollback.
+        if (tabData.kind === 'terminal' && tabData.terminalId && ptyManager) {
+          try {
+            ptyManager.rebind(tabData.terminalId, targetWin.webContents)
+          } catch {
+            // PTY already gone — the target respawns from shell+cwd
+          }
+        }
         targetWin.webContents.send('tab:attach', tabData)
         targetWin.focus()
       }

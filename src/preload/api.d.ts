@@ -167,14 +167,17 @@ export interface SavedTableView {
   updatedAt: number
 }
 
-/** A persisted slot in the bottom panel (terminal) — shell + cwd only. */
+/** A persisted slot in the legacy bottom panel (terminal) — shell + cwd only. */
 export interface PersistedTerminalSlot {
   shell: string
   cwd: string
   title?: string
 }
 
-/** Persisted bottom panel state per window. */
+/**
+ * LEGACY persisted bottom panel (pre bottom-pane unification). Read once for
+ * migration into `PersistedWindowState.bottomPane`; never written anymore.
+ */
 export interface PersistedBottomPanel {
   open: boolean
   height: number
@@ -187,6 +190,11 @@ export interface PersistedWindowState {
   panes: PersistedPane[]
   splitEnabled: boolean
   splitRatio: number
+  /** The bottom pane — same shape as editor panes (any tab kind). */
+  bottomPane?: PersistedPane
+  bottomPaneOpen?: boolean
+  bottomPaneHeight?: number
+  /** Legacy field (terminal-only bottom panel). Migrated on restore. */
   bottomPanel?: PersistedBottomPanel
 }
 
@@ -196,7 +204,7 @@ export interface PersistedWindowState {
  * Clean tabs reload content from disk in the target window.
  */
 export interface TabTransferData {
-  kind: 'document' | 'asset' | 'graph' | 'table'
+  kind: 'document' | 'asset' | 'graph' | 'table' | 'terminal'
   /** For 'table' tabs this carries the folder path ('' = collection root). */
   filePath?: string
   editorMode?: string
@@ -209,11 +217,16 @@ export interface TabTransferData {
   graphColoringMode?: string
   recursive?: boolean
   tableViewId?: string
+  /** Terminal tabs: the live PTY id (session survives the move via rebind). */
+  terminalId?: string
+  title?: string
+  shell?: string
+  cwd?: string
 }
 
 /** Options for opening a popup window (renderer → main). */
 export interface PopupOpenOptions {
-  kind: 'document' | 'asset' | 'graph' | 'table'
+  kind: 'document' | 'asset' | 'graph' | 'table' | 'terminal'
   filePath?: string
   editorMode?: string
   isUntitled?: boolean
@@ -227,6 +240,10 @@ export interface PopupOpenOptions {
   savedContent?: string | null
   recursive?: boolean
   tableViewId?: string
+  terminalId?: string
+  title?: string
+  shell?: string
+  cwd?: string
 }
 
 /** Data sent to popup renderer for dirty document transfer (main → renderer). */
@@ -410,6 +427,8 @@ export interface MdvdbApi {
 
   // Window session persistence
   saveWindowSession(session: PersistedWindowState): Promise<void>
+  /** Synchronous flush for beforeunload — survives window teardown. */
+  saveWindowSessionSync(session: PersistedWindowState): void
   getWindowSession(): Promise<PersistedWindowState | null>
 
   // Multi-window management
@@ -447,6 +466,8 @@ export interface MdvdbApi {
   terminalResize(id: string, cols: number, rows: number): Promise<void>
   terminalDispose(id: string): Promise<void>
   terminalList(): Promise<TerminalInfo[]>
+  /** Adopt a PTY into this window; returns buffered scrollback for repaint. */
+  terminalRebind(id: string): Promise<{ scrollback: string; shell: string; cwd: string }>
   onTerminalData(
     callback: (payload: TerminalDataPayload) => void
   ): (payload: TerminalDataPayload) => void

@@ -35,9 +35,12 @@ describe('WorkspaceStore', () => {
   })
 
   describe('initial state', () => {
-    it('starts with one pane', () => {
+    it('starts with one editor pane plus the bottom pane', () => {
       expect(workspace.paneOrder).toHaveLength(1)
-      expect(Object.keys(workspace.panes)).toHaveLength(1)
+      // panes = the editor pane + the always-present bottom pane
+      expect(Object.keys(workspace.panes)).toHaveLength(2)
+      expect(workspace.bottomPane).toBeDefined()
+      expect(workspace.paneOrder).not.toContain('bottom-pane')
     })
 
     it('starts with activePaneId set to the default pane', () => {
@@ -361,7 +364,8 @@ describe('WorkspaceStore', () => {
 
       expect(workspace.splitEnabled).toBe(true)
       expect(workspace.paneOrder).toHaveLength(2)
-      expect(Object.keys(workspace.panes)).toHaveLength(2)
+      // two editor panes + the bottom pane
+      expect(Object.keys(workspace.panes)).toHaveLength(3)
     })
 
     it('second pane has no graph tab (only one graph tab per workspace)', () => {
@@ -873,10 +877,14 @@ describe('WorkspaceStore', () => {
       expect(data!.content).toBeNull()
     })
 
-    it('returns null for the graph tab', () => {
+    it('serializes the graph tab with its level and coloring mode', () => {
       const graphTabId = getGraphTabId(getDefaultPaneId())
       const data = workspace.serializeTab(graphTabId)
-      expect(data).toBeNull()
+      expect(data).toEqual({
+        kind: 'graph',
+        graphLevel: 'document',
+        graphColoringMode: 'cluster'
+      })
     })
 
     it('returns null for nonexistent tab', () => {

@@ -15,6 +15,7 @@ import type {
   PersistedWindowState,
   PersistedPane,
   PersistedTab,
+  PersistedBottomPanel,
   TabTransferData,
   TableViewConfig
 } from '../../preload/api'
@@ -146,9 +147,21 @@ export interface PaneState {
   id: string
   tabOrder: string[]
   activeTabId: string | null
-  /** Graph tab ID. Only the primary pane has a graph tab (to avoid duplicate 3D renderers). */
+  /** Graph tab ID. Exactly one pane holds the graph tab (one 3D renderer); it can be moved between panes. */
   graphTabId: string | null
 }
+
+/**
+ * Fixed ID of the bottom pane (the dockable panel below the editor area).
+ * It lives in `panes` like any other pane — so tab moves, drops, close,
+ * and keyboard shortcuts all work — but is intentionally NOT part of
+ * `paneOrder`, which models only the left/right editor split.
+ */
+export const BOTTOM_PANE_ID = 'bottom-pane'
+
+/** Bottom pane height bounds (px). */
+export const MIN_BOTTOM_PANE_HEIGHT = 120
+export const DEFAULT_BOTTOM_PANE_HEIGHT = 300
 
 // ─── Helpers ───────────────────────────────────────────────────────────
 
@@ -227,11 +240,35 @@ class WorkspaceStore {
   /** All panes keyed by pane ID. */
   panes = $state<Record<string, PaneState>>({})
 
-  /** Ordered list of pane IDs (left to right). */
+  /** Ordered list of editor pane IDs (left to right). Excludes the bottom pane. */
   paneOrder = $state<string[]>([])
 
-  /** ID of the currently focused pane. */
-  activePaneId = $state<string>('')
+  /** Backing state for activePaneId (getter/setter tracks the last editor pane). */
+  private _activePaneId = $state<string>('')
+
+  /**
+   * Last focused pane that belongs to the editor row. Used to route file
+   * opens to an editor pane while the bottom pane has focus.
+   */
+  private _lastEditorPaneId = $state<string>('')
+
+  /** ID of the currently focused pane (editor panes or the bottom pane). */
+  get activePaneId(): string {
+    return this._activePaneId
+  }
+
+  set activePaneId(paneId: string) {
+    this._activePaneId = paneId
+    if (this.paneOrder.includes(paneId)) {
+      this._lastEditorPaneId = paneId
+    }
+  }
+
+  /** Whether the bottom pane is visible. Hiding it keeps its tabs alive. */
+  bottomPaneOpen = $state<boolean>(false)
+
+  /** Bottom pane height in px. */
+  bottomPaneHeight = $state<number>(DEFAULT_BOTTOM_PANE_HEIGHT)
 
   /** Whether split pane mode is enabled. */
   splitEnabled = $state<boolean>(false)
@@ -265,33 +302,34 @@ class WorkspaceStore {
    * restoreSession. Returns the terminalId that the tab should reference.
    */
   private _terminalSlotRestore:
-    | ((slot: { shell: string; cwd: string; title?: string }, location: 'tab') => string | null)
+    | ((slot: { shell: string; cwd: string; title?: string }) => string | null)
     | null = null
 
-  /** Hook that returns the bottom-panel snapshot for persistence. */
-  private _bottomPanelSerializer:
-    | (() => import('../../preload/api').PersistedBottomPanel | null)
+  /**
+   * Hook that adopts a terminal transferred from another window: registers
+   * its meta in the terminal store and rebinds the live PTY to this window.
+   */
+  private _terminalAdopt:
+    | ((data: { terminalId: string; title: string; shell: string; cwd: string }) => void)
     | null = null
 
-  /** Hook invoked during session restore with the saved bottom-panel snapshot. */
-  private _bottomPanelRestorer:
-    | ((state: import('../../preload/api').PersistedBottomPanel) => void)
-    | null = null
+  /**
+   * Hook that releases a terminal handed off to another window: drops the
+   * local meta WITHOUT disposing the PTY (the adopting window owns it now).
+   */
+  private _terminalRelease: ((terminalId: string) => void) | null = null
 
-  /** Register terminal-store hooks for session persistence. */
+  /** Register terminal-store hooks for session persistence and window transfer. */
   registerTerminalHooks(
     lookup: (terminalId: string) => { shell: string; cwd: string } | null,
-    restore: (
-      slot: { shell: string; cwd: string; title?: string },
-      location: 'tab'
-    ) => string | null,
-    bottomPanelSerializer?: () => import('../../preload/api').PersistedBottomPanel | null,
-    bottomPanelRestorer?: (state: import('../../preload/api').PersistedBottomPanel) => void
+    restore: (slot: { shell: string; cwd: string; title?: string }) => string | null,
+    adopt?: (data: { terminalId: string; title: string; shell: string; cwd: string }) => void,
+    release?: (terminalId: string) => void
   ): void {
     this._terminalSlotLookup = lookup
     this._terminalSlotRestore = restore
-    if (bottomPanelSerializer) this._bottomPanelSerializer = bottomPanelSerializer
-    if (bottomPanelRestorer) this._bottomPanelRestorer = bottomPanelRestorer
+    if (adopt) this._terminalAdopt = adopt
+    if (release) this._terminalRelease = release
   }
 
   /** Trigger a debounced session save (used by terminal store when panel state changes). */
@@ -344,6 +382,66 @@ class WorkspaceStore {
     return this.focusedDocumentTab?.filePath ?? null
   }
 
+  /** The bottom pane, or undefined (popup windows have none). */
+  get bottomPane(): PaneState | undefined {
+    return this.panes[BOTTOM_PANE_ID]
+  }
+
+  /**
+   * The editor pane that file opens should target: the active pane if it is
+   * an editor pane, otherwise the last-focused editor pane. Keeps file-tree /
+   * quick-open opens out of the bottom pane while a terminal there has focus.
+   */
+  get defaultEditorPaneId(): string {
+    if (this.paneOrder.includes(this._activePaneId)) return this._activePaneId
+    if (this.paneOrder.includes(this._lastEditorPaneId)) return this._lastEditorPaneId
+    return this.paneOrder[0] ?? this._activePaneId
+  }
+
+  // ── Bottom Pane ────────────────────────────────────────────────────
+
+  /** Show or hide the bottom pane. Hiding keeps its tabs (and PTYs) alive. */
+  setBottomPaneOpen(open: boolean): void {
+    if (this.bottomPaneOpen === open) return
+    this.bottomPaneOpen = open
+    if (!open && this._activePaneId === BOTTOM_PANE_ID) {
+      this.activePaneId = this.defaultEditorPaneId
+    }
+    this._scheduleSave()
+  }
+
+  /** Set the bottom pane height, clamped to [MIN, 80% of window height]. */
+  setBottomPaneHeight(height: number): void {
+    const maxHeight =
+      typeof window !== 'undefined' && window.innerHeight
+        ? Math.round(window.innerHeight * 0.8)
+        : 800
+    this.bottomPaneHeight = Math.max(MIN_BOTTOM_PANE_HEIGHT, Math.min(height, maxHeight))
+    this._scheduleSave()
+  }
+
+  /** Move a tab into the bottom pane (opening it if hidden). */
+  moveTabToBottomPane(tabId: string): boolean {
+    if (!this.panes[BOTTOM_PANE_ID]) return false
+    const fromPaneId = this._findPaneForTab(tabId)
+    if (!fromPaneId || fromPaneId === BOTTOM_PANE_ID) return false
+    return this.moveTab(tabId, fromPaneId, BOTTOM_PANE_ID)
+  }
+
+  /**
+   * React to a pane becoming empty: the bottom pane auto-hides, an editor
+   * pane collapses the split (mirrored behaviors).
+   */
+  private _handleEmptiedPane(paneId: string): void {
+    if (paneId === BOTTOM_PANE_ID) {
+      this.setBottomPaneOpen(false)
+      return
+    }
+    if (this.splitEnabled && this.paneOrder.length >= 2 && this.paneOrder.includes(paneId)) {
+      this._collapseSplit()
+    }
+  }
+
   // ── Mutations ──────────────────────────────────────────────────────
 
   /**
@@ -352,7 +450,7 @@ class WorkspaceStore {
    * Returns the tab ID.
    */
   openTab(filePath: string, paneId?: string): string {
-    const targetPaneId = paneId ?? this.activePaneId
+    const targetPaneId = paneId ?? this.defaultEditorPaneId
     const pane = this.panes[targetPaneId]
     if (!pane) return ''
 
@@ -435,7 +533,7 @@ class WorkspaceStore {
    * Use `forceNewTab: true` to always open in a new tab (e.g., right-click "Open in New Tab").
    */
   openFile(filePath: string, options?: { forceNewTab?: boolean; paneId?: string }): string {
-    const targetPaneId = options?.paneId ?? this.activePaneId
+    const targetPaneId = options?.paneId ?? this.defaultEditorPaneId
     const pane = this.panes[targetPaneId]
     if (!pane) return ''
 
@@ -473,27 +571,22 @@ class WorkspaceStore {
    * - If not split, creates a split with the document on the left and graph on the right
    */
   openTabFromGraph(filePath: string): string {
-    // Find the pane that has the graph tab
+    // Find the pane that has the graph tab (editor panes, then bottom pane)
     let graphPaneId: string | null = null
-    let otherPaneId: string | null = null
-
-    for (const pid of this.paneOrder) {
-      const pane = this.panes[pid]
-      if (pane?.graphTabId && pane.activeTabId === pane.graphTabId) {
+    for (const pid of [...this.paneOrder, BOTTOM_PANE_ID]) {
+      if (this.panes[pid]?.graphTabId) {
         graphPaneId = pid
-      } else if (!otherPaneId) {
-        otherPaneId = pid
+        break
       }
     }
 
-    // If no graph pane found, just use the non-active-graph pane
-    if (!graphPaneId) {
-      for (const pid of this.paneOrder) {
-        if (this.panes[pid]?.graphTabId) {
-          graphPaneId = pid
-          break
-        }
-      }
+    // Graph lives in the bottom pane (or nowhere): open into an editor pane
+    // directly — no split gymnastics needed, the graph stays visible below.
+    if (!graphPaneId || graphPaneId === BOTTOM_PANE_ID) {
+      const targetPaneId = this.defaultEditorPaneId
+      const tabId = this.openTab(filePath, targetPaneId)
+      this.activePaneId = targetPaneId
+      return tabId
     }
 
     if (this.splitEnabled && this.paneOrder.length >= 2) {
@@ -522,7 +615,7 @@ class WorkspaceStore {
    * Returns the tab ID.
    */
   createUntitledTab(paneId?: string): string {
-    const targetPaneId = paneId ?? this.activePaneId
+    const targetPaneId = paneId ?? this.defaultEditorPaneId
     const pane = this.panes[targetPaneId]
     if (!pane) return ''
 
@@ -583,7 +676,7 @@ class WorkspaceStore {
     fileSize?: number,
     paneId?: string
   ): string {
-    const targetPaneId = paneId ?? this.activePaneId
+    const targetPaneId = paneId ?? this.defaultEditorPaneId
     const pane = this.panes[targetPaneId]
     if (!pane) return ''
 
@@ -633,9 +726,18 @@ class WorkspaceStore {
    * the terminal store, where the PTY session is tracked.
    */
   openTerminalTab(terminalId: string, title: string, paneId?: string): string {
-    const targetPaneId = paneId ?? this.activePaneId
+    // Terminals default to the bottom pane (their home); popups have no
+    // bottom pane and fall back to the popup's single pane.
+    const targetPaneId = paneId ?? (this.panes[BOTTOM_PANE_ID] ? BOTTOM_PANE_ID : this.activePaneId)
     const pane = this.panes[targetPaneId]
     if (!pane) return ''
+
+    if (targetPaneId === BOTTOM_PANE_ID) {
+      // Spawning into the bottom pane reveals and focuses it — the user is
+      // about to type into the new terminal.
+      this.bottomPaneOpen = true
+      this.activePaneId = BOTTOM_PANE_ID
+    }
 
     const tab: TerminalTab = {
       id: crypto.randomUUID(),
@@ -669,7 +771,7 @@ class WorkspaceStore {
    * folder already exists in the target pane, switch to it. Returns the tab ID.
    */
   openTableTab(folderPath: string, opts?: { recursive?: boolean; paneId?: string }): string {
-    const targetPaneId = opts?.paneId ?? this.activePaneId
+    const targetPaneId = opts?.paneId ?? this.defaultEditorPaneId
     const pane = this.panes[targetPaneId]
     if (!pane) return ''
 
@@ -812,11 +914,9 @@ class WorkspaceStore {
     const { [tabId]: _, ...remainingTabs } = this.tabs
     this.tabs = remainingTabs
 
-    // Auto-collapse split if this pane has no tabs at all
-    if (this.splitEnabled && this.paneOrder.length >= 2) {
-      if (pane.tabOrder.length === 0) {
-        this._collapseSplit()
-      }
+    // Auto-collapse split / auto-hide bottom pane when it has no tabs at all
+    if (pane.tabOrder.length === 0) {
+      this._handleEmptiedPane(targetPaneId)
     }
 
     if (closedTab) this._notifyTabClosed(closedTab)
@@ -905,6 +1005,11 @@ class WorkspaceStore {
     pane.activeTabId = tabId
     this.panes[targetPaneId] = { ...pane }
     this.activePaneId = targetPaneId
+
+    // Switching to a tab hidden in the bottom pane implies showing the pane
+    if (targetPaneId === BOTTOM_PANE_ID && !this.bottomPaneOpen) {
+      this.bottomPaneOpen = true
+    }
   }
 
   /**
@@ -968,11 +1073,14 @@ class WorkspaceStore {
     this.panes[toPaneId] = { ...toPane }
     this.activePaneId = toPaneId
 
-    // Auto-collapse split if source pane has no tabs at all
-    if (this.splitEnabled && this.paneOrder.length >= 2) {
-      if (fromPane.tabOrder.length === 0) {
-        this._collapseSplit()
-      }
+    // Moving a tab into the hidden bottom pane reveals it
+    if (toPaneId === BOTTOM_PANE_ID && !this.bottomPaneOpen) {
+      this.bottomPaneOpen = true
+    }
+
+    // Auto-collapse split / auto-hide bottom pane when the source emptied
+    if (fromPane.tabOrder.length === 0) {
+      this._handleEmptiedPane(fromPaneId)
     }
 
     this._scheduleSave()
@@ -1005,10 +1113,10 @@ class WorkspaceStore {
     const moved = this.moveTab(tabId, fromPaneId, toPaneId)
     if (!moved) return false
 
-    // Auto-collapse if source pane is completely empty
+    // Auto-collapse / auto-hide if the source pane is completely empty
     const fromPane = this.panes[fromPaneId]
     if (fromPane && fromPane.tabOrder.length === 0) {
-      this._collapseSplit()
+      this._handleEmptiedPane(fromPaneId)
     }
 
     return true
@@ -1049,8 +1157,8 @@ class WorkspaceStore {
       }
     }
 
-    // Find the pane that has the graph tab
-    for (const pid of this.paneOrder) {
+    // Find the pane that has the graph tab (editor panes first, then bottom)
+    for (const pid of [...this.paneOrder, BOTTOM_PANE_ID]) {
       const pane = this.panes[pid]
       if (pane?.graphTabId) {
         this.switchTab(pane.graphTabId, pid)
@@ -1068,14 +1176,38 @@ class WorkspaceStore {
 
   /**
    * Reset all workspace state (e.g., on collection switch).
+   *
+   * Terminal tabs survive the reset: their PTYs are independent of the
+   * vault, and wiping the tabs here would orphan the processes (no
+   * onTabClosed fires). Survivors regroup in the bottom pane.
    */
   reset(): void {
+    const survivingTerminals: TerminalTab[] = []
+    for (const paneId of Object.keys(this.panes)) {
+      for (const tabId of this.panes[paneId].tabOrder) {
+        const tab = this.tabs[tabId]
+        if (tab?.kind === 'terminal') survivingTerminals.push(tab)
+      }
+    }
+
     this.tabs = {}
     this.panes = {}
     this.paneOrder = []
     this.splitEnabled = false
     this.splitRatio = 0.5
     this._initDefaultPane()
+
+    const bottomPane = this.panes[BOTTOM_PANE_ID]
+    if (bottomPane && survivingTerminals.length > 0) {
+      for (const tab of survivingTerminals) {
+        this.tabs[tab.id] = tab
+      }
+      bottomPane.tabOrder = survivingTerminals.map((t) => t.id)
+      bottomPane.activeTabId = survivingTerminals[survivingTerminals.length - 1].id
+      this.panes[BOTTOM_PANE_ID] = { ...bottomPane }
+    } else {
+      this.bottomPaneOpen = false
+    }
   }
 
   /**
@@ -1197,6 +1329,19 @@ class WorkspaceStore {
       }
     }
 
+    if (tab.kind === 'terminal') {
+      // The live PTY moves with the tab (rebound in the target window);
+      // shell + cwd ride along as a respawn fallback if the PTY died.
+      const slot = this._terminalSlotLookup?.(tab.terminalId) ?? null
+      return {
+        kind: 'terminal',
+        terminalId: tab.terminalId,
+        title: tab.title,
+        shell: slot?.shell,
+        cwd: slot?.cwd
+      }
+    }
+
     return null
   }
 
@@ -1285,6 +1430,18 @@ class WorkspaceStore {
       return tabId
     }
 
+    if (data.kind === 'terminal' && data.terminalId) {
+      // Adopt the live PTY into this window's terminal store (rebind + replay),
+      // then host it in a tab. The hook keeps workspace ⇄ terminal-store acyclic.
+      this._terminalAdopt?.({
+        terminalId: data.terminalId,
+        title: data.title ?? 'Terminal',
+        shell: data.shell ?? '',
+        cwd: data.cwd ?? ''
+      })
+      return this.openTerminalTab(data.terminalId, data.title ?? 'Terminal', targetPaneId)
+    }
+
     return ''
   }
 
@@ -1309,7 +1466,13 @@ class WorkspaceStore {
     if (!data) return null
 
     // Remove the tab from the source pane (graph tabs are pinned so closeTab is a no-op for them)
-    if (data.kind !== 'graph') {
+    if (data.kind === 'terminal') {
+      // The PTY must survive the move — closeTab would auto-dispose it via
+      // the terminal store's onTabClosed hook. Release drops the local meta
+      // (ownership transfers to the adopting window).
+      this.removeTabSilently(tabId)
+      if (data.terminalId) this._terminalRelease?.(data.terminalId)
+    } else if (data.kind !== 'graph') {
       this.closeTab(tabId, paneId)
     }
 
@@ -1319,6 +1482,37 @@ class WorkspaceStore {
     return data
   }
 
+  /**
+   * Remove a tab from the workspace WITHOUT firing onTabClosed listeners.
+   * Used when a tab's backing resource must outlive the tab (e.g. a terminal
+   * PTY moving to another window or back into the bottom panel).
+   */
+  removeTabSilently(tabId: string): void {
+    const paneId = this.findPaneForTab(tabId)
+    if (!paneId) return
+    const pane = this.panes[paneId]
+    if (!pane) return
+
+    pane.tabOrder = pane.tabOrder.filter((id) => id !== tabId)
+    if (pane.activeTabId === tabId) {
+      const remaining = pane.tabOrder.filter((id) => this.tabs[id]?.kind !== 'graph')
+      pane.activeTabId = remaining.length > 0 ? remaining[remaining.length - 1] : null
+    }
+    this.panes[paneId] = { ...pane }
+
+    const { [tabId]: _dropped, ...rest } = this.tabs
+    this.tabs = rest
+
+    // The bottom pane auto-hides when its last tab is silently removed
+    // (e.g. detached to a popup). Split panes keep their layout here —
+    // silent removal is a transfer, not a close.
+    if (paneId === BOTTOM_PANE_ID && pane.tabOrder.length === 0) {
+      this.setBottomPaneOpen(false)
+    }
+
+    this._scheduleSave()
+  }
+
   // ── Session Persistence ─────────────────────────────────────────────
 
   /**
@@ -1326,60 +1520,67 @@ class WorkspaceStore {
    * Only persists file paths and layout — never file content.
    */
   serializeSession(): PersistedWindowState {
-    const panes: PersistedPane[] = this.paneOrder.map((paneId) => {
-      const pane = this.panes[paneId]
-      if (!pane) return { tabs: [], activeTabIndex: -1 }
-
-      const tabs: PersistedTab[] = []
-      let activeTabIndex = -1
-
-      for (let i = 0; i < pane.tabOrder.length; i++) {
-        const tabId = pane.tabOrder[i]
-        const tab = this.tabs[tabId]
-        if (!tab) continue
-
-        if (tab.kind === 'document') {
-          // Don't persist untitled tabs — they can't be restored from disk
-          if (tab.isUntitled) continue
-          tabs.push({ kind: 'document', filePath: tab.filePath })
-        } else if (tab.kind === 'graph') {
-          tabs.push({ kind: 'graph', graphLevel: tab.graphLevel })
-        } else if (tab.kind === 'asset') {
-          tabs.push({ kind: 'asset', filePath: tab.filePath, mimeCategory: tab.mimeCategory })
-        } else if (tab.kind === 'table') {
-          tabs.push({
-            kind: 'table',
-            filePath: tab.folderPath,
-            recursive: tab.recursive,
-            tableViewId: tab.activeViewId ?? undefined
-          })
-        } else if (tab.kind === 'terminal') {
-          // Persist terminal slots via terminal store lookup — tab itself
-          // only remembers that this slot is a terminal; shell/cwd live in
-          // the terminal store and are captured here by the restore hook.
-          const lookup = this._terminalSlotLookup?.(tab.terminalId)
-          tabs.push({
-            kind: 'terminal',
-            terminalShell: lookup?.shell,
-            terminalCwd: lookup?.cwd,
-            terminalTitle: tab.title
-          })
-        }
-
-        if (tabId === pane.activeTabId) {
-          activeTabIndex = tabs.length - 1
-        }
-      }
-
-      return { tabs, activeTabIndex }
-    })
+    const panes: PersistedPane[] = this.paneOrder.map((paneId) =>
+      this._serializePane(this.panes[paneId])
+    )
+    const bottomPane = this.panes[BOTTOM_PANE_ID]
 
     return {
       panes,
       splitEnabled: this.splitEnabled,
       splitRatio: this.splitRatio,
-      bottomPanel: this._bottomPanelSerializer?.() ?? undefined
+      bottomPane: bottomPane ? this._serializePane(bottomPane) : undefined,
+      bottomPaneOpen: this.bottomPaneOpen,
+      bottomPaneHeight: this.bottomPaneHeight
     }
+  }
+
+  /** Serialize one pane's tabs and active-tab index. */
+  private _serializePane(pane: PaneState | undefined): PersistedPane {
+    if (!pane) return { tabs: [], activeTabIndex: -1 }
+
+    const tabs: PersistedTab[] = []
+    let activeTabIndex = -1
+
+    for (let i = 0; i < pane.tabOrder.length; i++) {
+      const tabId = pane.tabOrder[i]
+      const tab = this.tabs[tabId]
+      if (!tab) continue
+
+      if (tab.kind === 'document') {
+        // Don't persist untitled tabs — they can't be restored from disk
+        if (tab.isUntitled) continue
+        tabs.push({ kind: 'document', filePath: tab.filePath })
+      } else if (tab.kind === 'graph') {
+        tabs.push({ kind: 'graph', graphLevel: tab.graphLevel })
+      } else if (tab.kind === 'asset') {
+        tabs.push({ kind: 'asset', filePath: tab.filePath, mimeCategory: tab.mimeCategory })
+      } else if (tab.kind === 'table') {
+        tabs.push({
+          kind: 'table',
+          filePath: tab.folderPath,
+          recursive: tab.recursive,
+          tableViewId: tab.activeViewId ?? undefined
+        })
+      } else if (tab.kind === 'terminal') {
+        // Persist terminal slots via terminal store lookup — tab itself
+        // only remembers that this slot is a terminal; shell/cwd live in
+        // the terminal store and are captured here by the restore hook.
+        const lookup = this._terminalSlotLookup?.(tab.terminalId)
+        tabs.push({
+          kind: 'terminal',
+          terminalShell: lookup?.shell,
+          terminalCwd: lookup?.cwd,
+          terminalTitle: tab.title
+        })
+      }
+
+      if (tabId === pane.activeTabId) {
+        activeTabIndex = tabs.length - 1
+      }
+    }
+
+    return { tabs, activeTabIndex }
   }
 
   /**
@@ -1395,15 +1596,18 @@ class WorkspaceStore {
     this.splitEnabled = false
     this.splitRatio = 0.5
 
-    const api = window.api
+    // Exactly one pane owns the graph tab. Find the persisted owner
+    // (editor panes first, then the bottom pane); fall back to pane 0.
+    let graphPaneIdx = session.panes.findIndex((p) => p.tabs.some((t) => t.kind === 'graph'))
+    const graphInBottom =
+      graphPaneIdx < 0 && Boolean(session.bottomPane?.tabs.some((t) => t.kind === 'graph'))
+    if (graphPaneIdx < 0 && !graphInBottom) graphPaneIdx = 0
 
     for (let paneIdx = 0; paneIdx < session.panes.length; paneIdx++) {
       const persistedPane = session.panes[paneIdx]
-      const isPrimary = paneIdx === 0
 
-      // Only the primary pane gets a graph tab (one 3D renderer only)
       let pane: PaneState
-      if (isPrimary) {
+      if (paneIdx === graphPaneIdx) {
         const created = createPane()
         pane = created.pane
         const graphTab = created.graphTab
@@ -1427,217 +1631,230 @@ class WorkspaceStore {
       this.panes[pane.id] = pane
       this.paneOrder = [...this.paneOrder, pane.id]
 
-      // Restore document tabs, silently skipping deleted files
-      let activeTabId: string | null = null
+      await this._restoreTabsIntoPane(persistedPane, pane)
+    }
 
-      for (let i = 0; i < persistedPane.tabs.length; i++) {
-        const persistedTab = persistedPane.tabs[i]
+    // If no panes were restored, init a default layout (graph in pane 0)
+    if (this.paneOrder.length === 0) {
+      this._initDefaultPane()
+    }
 
-        if (persistedTab.kind === 'terminal') {
-          // Ask the terminal store to respawn a PTY for this slot.
-          const slot = {
-            shell: persistedTab.terminalShell ?? '',
-            cwd: persistedTab.terminalCwd ?? '',
-            title: persistedTab.terminalTitle
-          }
-          const terminalId = this._terminalSlotRestore?.(slot, 'tab') ?? null
-          if (!terminalId) continue
-
-          const tab: TerminalTab = {
-            id: crypto.randomUUID(),
-            kind: 'terminal',
-            terminalId,
-            title: persistedTab.terminalTitle ?? 'Terminal'
-          }
-          this.tabs[tab.id] = tab
-
-          const graphIdx = pane.graphTabId ? pane.tabOrder.indexOf(pane.graphTabId) : -1
-          if (graphIdx >= 0) {
-            pane.tabOrder = [
-              ...pane.tabOrder.slice(0, graphIdx),
-              tab.id,
-              ...pane.tabOrder.slice(graphIdx)
-            ]
-          } else {
-            pane.tabOrder = [...pane.tabOrder, tab.id]
-          }
-
-          if (i === persistedPane.activeTabIndex) {
-            activeTabId = tab.id
-          }
-          continue
+    // The bottom pane always exists in a main window. Create it — with the
+    // graph tab when the persisted session kept the graph down there.
+    if (!this.panes[BOTTOM_PANE_ID]) {
+      const bottomPane: PaneState = {
+        id: BOTTOM_PANE_ID,
+        tabOrder: [],
+        activeTabId: null,
+        graphTabId: null
+      }
+      if (graphInBottom) {
+        const graphTab = createGraphTab()
+        const persistedGraphTab = session.bottomPane?.tabs.find((t) => t.kind === 'graph')
+        if (persistedGraphTab?.graphLevel) {
+          graphTab.graphLevel = persistedGraphTab.graphLevel as GraphLevel
         }
+        this.tabs[graphTab.id] = graphTab
+        bottomPane.graphTabId = graphTab.id
+        bottomPane.tabOrder = [graphTab.id]
+      }
+      this.panes[BOTTOM_PANE_ID] = bottomPane
+    }
 
-        if (persistedTab.kind === 'asset' && persistedTab.filePath) {
-          // Restore asset tab — validate file exists via fileInfo
-          let fileExists = true
-          try {
-            const activeCollection = await api.getActiveCollection()
-            if (activeCollection) {
-              const absolutePath = `${activeCollection.path}/${persistedTab.filePath}`
-              await api.fileInfo(absolutePath)
-            } else {
-              fileExists = false
-            }
-          } catch {
-            fileExists = false
-          }
-          if (!fileExists) continue
+    // Restore bottom-pane tabs: the new pane format wins; otherwise migrate
+    // the legacy terminal-only bottomPanel (slots -> terminal tabs).
+    const persistedBottom = session.bottomPane ?? this._legacyBottomPanelToPane(session.bottomPanel)
+    if (persistedBottom) {
+      await this._restoreTabsIntoPane(persistedBottom, this.panes[BOTTOM_PANE_ID])
+    }
+    this.bottomPaneOpen = session.bottomPaneOpen ?? session.bottomPanel?.open ?? false
+    this.bottomPaneHeight =
+      session.bottomPaneHeight ?? session.bottomPanel?.height ?? DEFAULT_BOTTOM_PANE_HEIGHT
 
-          const parts = persistedTab.filePath.split('/')
-          const title = parts[parts.length - 1] || persistedTab.filePath
-          const tab: AssetTab = {
-            id: crypto.randomUUID(),
-            kind: 'asset',
-            filePath: persistedTab.filePath,
-            title,
-            mimeCategory: (persistedTab.mimeCategory ?? 'other') as MimeCategory
-          }
-          this.tabs[tab.id] = tab
+    // Set split state
+    this.splitEnabled = session.splitEnabled && this.paneOrder.length >= 2
+    this.splitRatio = session.splitRatio
 
-          const graphIdx = pane.tabOrder.indexOf(pane.graphTabId)
-          if (graphIdx >= 0) {
-            pane.tabOrder = [
-              ...pane.tabOrder.slice(0, graphIdx),
-              tab.id,
-              ...pane.tabOrder.slice(graphIdx)
-            ]
-          } else {
-            pane.tabOrder = [...pane.tabOrder, tab.id]
-          }
+    // Set active pane to the first editor pane
+    if (this.paneOrder.length > 0) {
+      this.activePaneId = this.paneOrder[0]
+    }
 
-          if (i === persistedPane.activeTabIndex) {
-            activeTabId = tab.id
-          }
-          continue
+    // Enable persistence now that we've restored
+    this._persistenceEnabled = true
+  }
+
+  /** Convert the legacy terminal-only bottom panel into a PersistedPane. */
+  private _legacyBottomPanelToPane(legacy?: PersistedBottomPanel): PersistedPane | null {
+    if (!legacy || legacy.slots.length === 0) return null
+    return {
+      tabs: legacy.slots.map((slot) => ({
+        kind: 'terminal' as const,
+        terminalShell: slot.shell,
+        terminalCwd: slot.cwd,
+        terminalTitle: slot.title
+      })),
+      activeTabIndex: legacy.activeIndex
+    }
+  }
+
+  /**
+   * Restore a persisted pane's tabs into an existing pane. Validates file
+   * existence (silently skipping deleted files), respawns terminals via the
+   * terminal-store hook, and resolves the active tab.
+   */
+  private async _restoreTabsIntoPane(persistedPane: PersistedPane, pane: PaneState): Promise<void> {
+    const api = window.api
+    let activeTabId: string | null = null
+
+    for (let i = 0; i < persistedPane.tabs.length; i++) {
+      const persistedTab = persistedPane.tabs[i]
+
+      if (persistedTab.kind === 'terminal') {
+        // Ask the terminal store to respawn a PTY for this slot.
+        const slot = {
+          shell: persistedTab.terminalShell ?? '',
+          cwd: persistedTab.terminalCwd ?? '',
+          title: persistedTab.terminalTitle
         }
+        const terminalId = this._terminalSlotRestore?.(slot) ?? null
+        if (!terminalId) continue
 
-        if (persistedTab.kind === 'table') {
-          // Restore table tab — folderPath '' is the (always-valid) root.
-          const folderPath = persistedTab.filePath ?? ''
-          if (folderPath) {
-            let folderExists = true
-            try {
-              const activeCollection = await api.getActiveCollection()
-              if (activeCollection) {
-                await api.fileInfo(`${activeCollection.path}/${folderPath}`)
-              } else {
-                folderExists = false
-              }
-            } catch {
-              folderExists = false
-            }
-            if (!folderExists) continue
-          }
-
-          const parts = folderPath.split('/').filter(Boolean)
-          const title = parts.length > 0 ? parts[parts.length - 1] : 'Root'
-          const tab: TableTab = {
-            id: crypto.randomUUID(),
-            kind: 'table',
-            folderPath,
-            title,
-            recursive: persistedTab.recursive ?? false,
-            activeViewId: persistedTab.tableViewId ?? null,
-            ephemeral: null
-          }
-          this.tabs[tab.id] = tab
-
-          const graphIdx = pane.tabOrder.indexOf(pane.graphTabId)
-          if (graphIdx >= 0) {
-            pane.tabOrder = [
-              ...pane.tabOrder.slice(0, graphIdx),
-              tab.id,
-              ...pane.tabOrder.slice(graphIdx)
-            ]
-          } else {
-            pane.tabOrder = [...pane.tabOrder, tab.id]
-          }
-
-          if (i === persistedPane.activeTabIndex) {
-            activeTabId = tab.id
-          }
-          continue
+        const tab: TerminalTab = {
+          id: crypto.randomUUID(),
+          kind: 'terminal',
+          terminalId,
+          title: persistedTab.terminalTitle ?? 'Terminal'
         }
+        this.tabs[tab.id] = tab
+        this._insertTabBeforeGraph(pane, tab.id)
 
-        if (persistedTab.kind !== 'document' || !persistedTab.filePath) continue
+        if (i === persistedPane.activeTabIndex) {
+          activeTabId = tab.id
+        }
+        continue
+      }
 
-        // Validate file still exists by attempting to read it.
-        // Silently skip if the file is gone or no collection is active.
+      if (persistedTab.kind === 'asset' && persistedTab.filePath) {
+        // Restore asset tab — validate file exists via fileInfo
         let fileExists = true
         try {
           const activeCollection = await api.getActiveCollection()
           if (activeCollection) {
             const absolutePath = `${activeCollection.path}/${persistedTab.filePath}`
-            await api.readFile(absolutePath)
+            await api.fileInfo(absolutePath)
           } else {
             fileExists = false
           }
         } catch {
           fileExists = false
         }
-
         if (!fileExists) continue
 
-        // Create the document tab
-        const tab = createDocumentTab(persistedTab.filePath)
-        this.tabs[tab.id] = tab
-
-        // Insert before the graph tab
-        const graphIdx = pane.tabOrder.indexOf(pane.graphTabId)
-        if (graphIdx >= 0) {
-          pane.tabOrder = [
-            ...pane.tabOrder.slice(0, graphIdx),
-            tab.id,
-            ...pane.tabOrder.slice(graphIdx)
-          ]
-        } else {
-          pane.tabOrder = [...pane.tabOrder, tab.id]
+        const parts = persistedTab.filePath.split('/')
+        const title = parts[parts.length - 1] || persistedTab.filePath
+        const tab: AssetTab = {
+          id: crypto.randomUUID(),
+          kind: 'asset',
+          filePath: persistedTab.filePath,
+          title,
+          mimeCategory: (persistedTab.mimeCategory ?? 'other') as MimeCategory
         }
+        this.tabs[tab.id] = tab
+        this._insertTabBeforeGraph(pane, tab.id)
 
-        // Track active tab by persisted index
         if (i === persistedPane.activeTabIndex) {
           activeTabId = tab.id
         }
+        continue
       }
 
-      // Set active tab: use the persisted active, or the last restored document tab,
-      // or null if no tabs were restored
-      if (activeTabId) {
-        pane.activeTabId = activeTabId
-      } else {
-        const docTabs = pane.tabOrder.filter((id) => this.tabs[id]?.kind === 'document')
-        pane.activeTabId = docTabs.length > 0 ? docTabs[docTabs.length - 1] : null
+      if (persistedTab.kind === 'table') {
+        // Restore table tab — folderPath '' is the (always-valid) root.
+        const folderPath = persistedTab.filePath ?? ''
+        if (folderPath) {
+          let folderExists = true
+          try {
+            const activeCollection = await api.getActiveCollection()
+            if (activeCollection) {
+              await api.fileInfo(`${activeCollection.path}/${folderPath}`)
+            } else {
+              folderExists = false
+            }
+          } catch {
+            folderExists = false
+          }
+          if (!folderExists) continue
+        }
+
+        const parts = folderPath.split('/').filter(Boolean)
+        const title = parts.length > 0 ? parts[parts.length - 1] : 'Root'
+        const tab: TableTab = {
+          id: crypto.randomUUID(),
+          kind: 'table',
+          folderPath,
+          title,
+          recursive: persistedTab.recursive ?? false,
+          activeViewId: persistedTab.tableViewId ?? null,
+          ephemeral: null
+        }
+        this.tabs[tab.id] = tab
+        this._insertTabBeforeGraph(pane, tab.id)
+
+        if (i === persistedPane.activeTabIndex) {
+          activeTabId = tab.id
+        }
+        continue
       }
 
-      this.panes[pane.id] = { ...pane }
-    }
+      if (persistedTab.kind !== 'document' || !persistedTab.filePath) continue
 
-    // Set split state
-    this.splitEnabled = session.splitEnabled && this.paneOrder.length >= 2
-    this.splitRatio = session.splitRatio
-
-    // Set active pane to the first one
-    if (this.paneOrder.length > 0) {
-      this.activePaneId = this.paneOrder[0]
-    }
-
-    // If no panes were restored, init a default one
-    if (this.paneOrder.length === 0) {
-      this._initDefaultPane()
-    }
-
-    // Restore bottom panel (terminals) if the terminal store has registered a restorer
-    if (session.bottomPanel && this._bottomPanelRestorer) {
+      // Validate file still exists by attempting to read it.
+      // Silently skip if the file is gone or no collection is active.
+      let fileExists = true
       try {
-        this._bottomPanelRestorer(session.bottomPanel)
+        const activeCollection = await api.getActiveCollection()
+        if (activeCollection) {
+          const absolutePath = `${activeCollection.path}/${persistedTab.filePath}`
+          await api.readFile(absolutePath)
+        } else {
+          fileExists = false
+        }
       } catch {
-        // best-effort; ignore terminal restore failures
+        fileExists = false
+      }
+
+      if (!fileExists) continue
+
+      // Create the document tab
+      const tab = createDocumentTab(persistedTab.filePath)
+      this.tabs[tab.id] = tab
+      this._insertTabBeforeGraph(pane, tab.id)
+
+      // Track active tab by persisted index
+      if (i === persistedPane.activeTabIndex) {
+        activeTabId = tab.id
       }
     }
 
-    // Enable persistence now that we've restored
-    this._persistenceEnabled = true
+    // Set active tab: the persisted active, or the last restored document
+    // tab; the bottom pane additionally falls back to its last non-graph tab
+    // (it commonly holds no documents at all).
+    if (activeTabId) {
+      pane.activeTabId = activeTabId
+    } else {
+      const docTabs = pane.tabOrder.filter((id) => this.tabs[id]?.kind === 'document')
+      if (docTabs.length > 0) {
+        pane.activeTabId = docTabs[docTabs.length - 1]
+      } else if (pane.id === BOTTOM_PANE_ID) {
+        const nonGraph = pane.tabOrder.filter((id) => this.tabs[id]?.kind !== 'graph')
+        pane.activeTabId = nonGraph.length > 0 ? nonGraph[nonGraph.length - 1] : null
+      } else {
+        pane.activeTabId = null
+      }
+    }
+
+    this.panes[pane.id] = { ...pane }
   }
 
   /**
@@ -1668,6 +1885,23 @@ class WorkspaceStore {
     this._persistenceEnabled = true
   }
 
+  /**
+   * Synchronously flush the session to disk. Called from beforeunload so a
+   * layout change made within the last debounce window isn't lost on quit.
+   */
+  flushSessionSync(): void {
+    if (!this._persistenceEnabled || this.isPopup) return
+    if (this._saveTimer !== null) {
+      clearTimeout(this._saveTimer)
+      this._saveTimer = null
+    }
+    try {
+      window.api.saveWindowSessionSync?.(this.serializeSession())
+    } catch {
+      // best-effort — never block window teardown
+    }
+  }
+
   // ── Popup Mode ────────────────────────────────────────────────────
 
   /**
@@ -1676,7 +1910,7 @@ class WorkspaceStore {
    * persistence is disabled — popups are ephemeral.
    */
   initAsPopup(
-    kind: 'document' | 'asset' | 'graph' | 'table',
+    kind: 'document' | 'asset' | 'graph' | 'table' | 'terminal',
     options: {
       filePath?: string
       editorMode?: EditorMode
@@ -1688,6 +1922,8 @@ class WorkspaceStore {
       graphColoringMode?: GraphColoringMode
       recursive?: boolean
       tableViewId?: string
+      terminalId?: string
+      title?: string
     }
   ): string {
     this.isPopup = true
@@ -1752,6 +1988,13 @@ class WorkspaceStore {
         activeViewId: options.tableViewId ?? null,
         ephemeral: null
       } as TableTab
+    } else if (kind === 'terminal') {
+      tab = {
+        id: crypto.randomUUID(),
+        kind: 'terminal',
+        terminalId: options.terminalId ?? '',
+        title: options.title ?? 'Terminal'
+      } as TerminalTab
     } else {
       // Graph tab
       tab = {
@@ -1777,11 +2020,17 @@ class WorkspaceStore {
 
   // ── Private Helpers ────────────────────────────────────────────────
 
-  /** Initialize with a single default pane and graph tab. */
+  /** Initialize with a single default editor pane (with graph tab) plus the bottom pane. */
   private _initDefaultPane(): void {
     const { pane, graphTab } = createPane()
+    const bottomPane: PaneState = {
+      id: BOTTOM_PANE_ID,
+      tabOrder: [],
+      activeTabId: null,
+      graphTabId: null
+    }
     this.tabs = { [graphTab.id]: graphTab }
-    this.panes = { [pane.id]: pane }
+    this.panes = { [pane.id]: pane, [BOTTOM_PANE_ID]: bottomPane }
     this.paneOrder = [pane.id]
     this.activePaneId = pane.id
   }

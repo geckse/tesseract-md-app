@@ -14,207 +14,261 @@ const mockApi = {
   removeTerminalDataListener: vi.fn(),
   removeTerminalExitListener: vi.fn(),
   removeTerminalTitleListener: vi.fn(),
-  getActiveCollection: vi.fn().mockResolvedValue({ id: '1', name: 'proj', path: '/proj', addedAt: 0, lastOpenedAt: 0 }),
+  getActiveCollection: vi
+    .fn()
+    .mockResolvedValue({ id: '1', name: 'proj', path: '/proj', addedAt: 0, lastOpenedAt: 0 }),
   getHomeDir: vi.fn().mockResolvedValue('/home/user'),
   openPath: vi.fn().mockResolvedValue(undefined),
   saveWindowSession: vi.fn().mockResolvedValue(undefined),
-  getWindowSession: vi.fn().mockResolvedValue(null),
+  getWindowSession: vi.fn().mockResolvedValue(null)
 }
 
 // Attach mock api to the existing jsdom window so innerHeight, etc. stay defined.
 ;(globalThis as unknown as { window: Window & { api: typeof mockApi } }).window.api = mockApi
 
 import { terminalStore } from '@renderer/stores/terminal.svelte'
-import { workspace } from '@renderer/stores/workspace.svelte'
+import { workspace, BOTTOM_PANE_ID } from '@renderer/stores/workspace.svelte'
 
-function resetTerminalStore(): void {
+function resetStores(): void {
   // Drain all terminals synchronously — we don't need to wait on disposes
   for (const id of Object.keys(terminalStore.terminals)) {
     void terminalStore.disposeTerminal(id)
   }
   terminalStore.terminals = {}
-  terminalStore.panel.open = false
-  terminalStore.panel.height = 300
-  terminalStore.panel.tabOrder = []
-  terminalStore.panel.activeId = null
+  // workspace.reset() keeps terminal tabs alive by design — drop them first
+  for (const [id, tab] of Object.entries(workspace.tabs)) {
+    if (tab.kind === 'terminal') workspace.removeTabSilently(id)
+  }
+  workspace.reset()
+}
+
+/** Tab order of the bottom pane. */
+function bottomTabs(): string[] {
+  return workspace.bottomPane?.tabOrder ?? []
 }
 
 describe('TerminalStore', () => {
   beforeEach(() => {
-    workspace.reset()
-    resetTerminalStore()
+    resetStores()
     vi.clearAllMocks()
     mockApi.terminalCreate.mockResolvedValue({ pid: 1234, shell: '/bin/zsh' })
   })
 
   describe('createTerminal', () => {
-    it('adds a running terminal to state after spawn succeeds', async () => {
-      const id = await terminalStore.createTerminal({ location: 'panel' })
-      expect(id).toBeTruthy()
-      const meta = terminalStore.terminals[id as string]
-      expect(meta).toBeDefined()
+    it('adds a running terminal and hosts it in a bottom-pane tab', async () => {
+      const result = await terminalStore.createTerminal()
+      expect(result).not.toBeNull()
+      const { terminalId, tabId } = result!
+
+      const meta = terminalStore.terminals[terminalId]
       expect(meta.status).toBe('running')
       expect(meta.pid).toBe(1234)
-      expect(meta.location).toBe('panel')
+
+      expect(bottomTabs()).toContain(tabId)
+      expect(workspace.tabs[tabId]?.kind).toBe('terminal')
+      expect(workspace.bottomPaneOpen).toBe(true)
+      expect(workspace.activePaneId).toBe(BOTTOM_PANE_ID)
+    })
+
+    it('honors an explicit paneId', async () => {
+      const editorPane = workspace.paneOrder[0]
+      const result = await terminalStore.createTerminal({ paneId: editorPane })
+      expect(workspace.panes[editorPane].tabOrder).toContain(result!.tabId)
+      expect(bottomTabs()).not.toContain(result!.tabId)
     })
 
     it('defaults cwd to the active collection path', async () => {
-      await terminalStore.createTerminal({ location: 'panel' })
+      await terminalStore.createTerminal()
       const call = mockApi.terminalCreate.mock.calls[0][0]
       expect(call.cwd).toBe('/proj')
     })
 
     it('falls back to the home directory when no collection is active', async () => {
       mockApi.getActiveCollection.mockResolvedValueOnce(null)
-      await terminalStore.createTerminal({ location: 'panel' })
+      await terminalStore.createTerminal()
       const call = mockApi.terminalCreate.mock.calls[0][0]
       expect(call.cwd).toBe('/home/user')
     })
 
-    it('records an error state when spawn fails', async () => {
+    it('records an error state when spawn fails but keeps the tab', async () => {
       mockApi.terminalCreate.mockRejectedValueOnce(new Error('shell not found'))
-      const id = await terminalStore.createTerminal({ location: 'panel' })
-      const meta = terminalStore.terminals[id as string]
+      const result = await terminalStore.createTerminal()
+      const meta = terminalStore.terminals[result!.terminalId]
       expect(meta.status).toBe('error')
       expect(meta.errorMessage).toBe('shell not found')
+      expect(workspace.tabs[result!.tabId]).toBeDefined()
     })
 
-    it('tracks panel-located terminals in tabOrder and marks them active', async () => {
-      const first = await terminalStore.createTerminal({ location: 'panel' })
-      const second = await terminalStore.createTerminal({ location: 'panel' })
-      expect(terminalStore.panel.tabOrder).toEqual([first, second])
-      expect(terminalStore.panel.activeId).toBe(second)
+    it('mirrors the spawned shell title onto the workspace tab', async () => {
+      const result = await terminalStore.createTerminal()
+      const tab = workspace.tabs[result!.tabId]
+      expect(tab.kind).toBe('terminal')
+      expect(tab.title).toMatch(/^zsh — \d+$/)
     })
   })
 
   describe('disposeTerminal', () => {
-    it('removes the terminal from state and tabOrder', async () => {
-      const id = (await terminalStore.createTerminal({ location: 'panel' })) as string
-      await terminalStore.disposeTerminal(id)
-      expect(terminalStore.terminals[id]).toBeUndefined()
-      expect(terminalStore.panel.tabOrder).not.toContain(id)
+    it('removes the terminal from state', async () => {
+      const { terminalId } = (await terminalStore.createTerminal())!
+      await terminalStore.disposeTerminal(terminalId)
+      expect(terminalStore.terminals[terminalId]).toBeUndefined()
     })
 
     it('calls the preload API to dispose the PTY', async () => {
-      const id = (await terminalStore.createTerminal({ location: 'panel' })) as string
-      await terminalStore.disposeTerminal(id)
-      expect(mockApi.terminalDispose).toHaveBeenCalledWith(id)
-    })
-
-    it('updates panel.activeId to another terminal when disposing the active one', async () => {
-      const a = (await terminalStore.createTerminal({ location: 'panel' })) as string
-      const b = (await terminalStore.createTerminal({ location: 'panel' })) as string
-      expect(terminalStore.panel.activeId).toBe(b)
-      await terminalStore.disposeTerminal(b)
-      expect(terminalStore.panel.activeId).toBe(a)
+      const { terminalId } = (await terminalStore.createTerminal())!
+      await terminalStore.disposeTerminal(terminalId)
+      expect(mockApi.terminalDispose).toHaveBeenCalledWith(terminalId)
     })
   })
 
-  describe('togglePanel', () => {
-    it('flips open state', async () => {
-      expect(terminalStore.panel.open).toBe(false)
-      await terminalStore.togglePanel()
-      expect(terminalStore.panel.open).toBe(true)
-      await terminalStore.togglePanel()
-      expect(terminalStore.panel.open).toBe(false)
+  describe('toggleBottomPanel', () => {
+    it('creates a terminal automatically on first open', async () => {
+      expect(workspace.bottomPaneOpen).toBe(false)
+      await terminalStore.toggleBottomPanel()
+      expect(workspace.bottomPaneOpen).toBe(true)
+      expect(bottomTabs()).toHaveLength(1)
+      expect(mockApi.terminalCreate).toHaveBeenCalledTimes(1)
     })
 
-    it('creates a terminal automatically on first open', async () => {
-      expect(terminalStore.panel.tabOrder).toHaveLength(0)
-      await terminalStore.togglePanel()
-      expect(terminalStore.panel.tabOrder.length).toBe(1)
-      expect(mockApi.terminalCreate).toHaveBeenCalledTimes(1)
+    it('closes on second toggle, keeping the tab alive', async () => {
+      await terminalStore.toggleBottomPanel()
+      await terminalStore.toggleBottomPanel()
+      expect(workspace.bottomPaneOpen).toBe(false)
+      expect(bottomTabs()).toHaveLength(1)
     })
 
     it('does not create additional terminals on subsequent opens', async () => {
-      await terminalStore.togglePanel() // opens, creates 1
-      await terminalStore.togglePanel() // closes
-      await terminalStore.togglePanel() // reopens, should NOT create again
+      await terminalStore.toggleBottomPanel() // opens, creates 1
+      await terminalStore.toggleBottomPanel() // closes
+      await terminalStore.toggleBottomPanel() // reopens, should NOT create again
+      expect(workspace.bottomPaneOpen).toBe(true)
       expect(mockApi.terminalCreate).toHaveBeenCalledTimes(1)
     })
   })
 
-  describe('moveToTab / moveToPanel', () => {
-    it('moveToTab flips location and opens a TerminalTab in the active pane', async () => {
-      const id = (await terminalStore.createTerminal({ location: 'panel' })) as string
-      const tabId = terminalStore.moveToTab(id)
-      expect(tabId).toBeTruthy()
-      expect(terminalStore.terminals[id].location).toBe('tab')
-      expect(terminalStore.panel.tabOrder).not.toContain(id)
-      const tab = workspace.tabs[tabId as string]
-      expect(tab.kind).toBe('terminal')
+  describe('newBottomTerminal', () => {
+    it('always spawns a fresh terminal in the bottom pane', async () => {
+      await terminalStore.newBottomTerminal()
+      await terminalStore.newBottomTerminal()
+      expect(bottomTabs()).toHaveLength(2)
+      expect(mockApi.terminalCreate).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  describe('killAllInBottomPane', () => {
+    it('closes all bottom terminal tabs and disposes their PTYs', async () => {
+      const a = (await terminalStore.createTerminal())!
+      const b = (await terminalStore.createTerminal())!
+      mockApi.terminalDispose.mockClear()
+
+      terminalStore.killAllInBottomPane()
+      await new Promise((r) => setTimeout(r, 10))
+
+      expect(bottomTabs()).toHaveLength(0)
+      expect(mockApi.terminalDispose).toHaveBeenCalledWith(a.terminalId)
+      expect(mockApi.terminalDispose).toHaveBeenCalledWith(b.terminalId)
+      expect(workspace.bottomPaneOpen).toBe(false)
     })
 
-    it('moveToPanel flips location back and adds to panel tabOrder', async () => {
-      const id = (await terminalStore.createTerminal({ location: 'panel' })) as string
-      terminalStore.moveToTab(id)
-      terminalStore.moveToPanel(id)
-      expect(terminalStore.terminals[id].location).toBe('panel')
-      expect(terminalStore.panel.tabOrder).toContain(id)
-      expect(terminalStore.panel.activeId).toBe(id)
+    it('leaves non-terminal tabs in the bottom pane alone', async () => {
+      await terminalStore.createTerminal()
+      const docId = workspace.openTab('a.md')
+      workspace.moveTabToBottomPane(docId)
+
+      terminalStore.killAllInBottomPane()
+
+      expect(bottomTabs()).toEqual([docId])
     })
   })
 
   describe('handleExit', () => {
     it('marks the terminal as exited with the exit code', async () => {
-      const id = (await terminalStore.createTerminal({ location: 'panel' })) as string
-      terminalStore.handleExit(id, 42)
-      const meta = terminalStore.terminals[id]
+      const { terminalId } = (await terminalStore.createTerminal())!
+      terminalStore.handleExit(terminalId, 42)
+      const meta = terminalStore.terminals[terminalId]
       expect(meta.status).toBe('exited')
       expect(meta.exitCode).toBe(42)
     })
   })
 
-  describe('setActivePanelTerminal', () => {
-    it('updates panel.activeId for a known terminal', async () => {
-      const a = (await terminalStore.createTerminal({ location: 'panel' })) as string
-      const b = (await terminalStore.createTerminal({ location: 'panel' })) as string
-      terminalStore.setActivePanelTerminal(a)
-      expect(terminalStore.panel.activeId).toBe(a)
-      terminalStore.setActivePanelTerminal(b)
-      expect(terminalStore.panel.activeId).toBe(b)
-    })
-
-    it('does nothing for an unknown terminal id', async () => {
-      const a = (await terminalStore.createTerminal({ location: 'panel' })) as string
-      terminalStore.setActivePanelTerminal('unknown-id')
-      expect(terminalStore.panel.activeId).toBe(a)
-    })
-  })
-
-  describe('panelTerminals', () => {
-    it('returns only panel-located terminals in tabOrder', async () => {
-      const a = (await terminalStore.createTerminal({ location: 'panel' })) as string
-      const b = (await terminalStore.createTerminal({ location: 'panel' })) as string
-      const list = terminalStore.panelTerminals
-      expect(list.map((t) => t.id)).toEqual([a, b])
-    })
-  })
-
-  describe('setPanelHeight', () => {
-    it('clamps to a minimum height of 120px', () => {
-      terminalStore.setPanelHeight(50)
-      expect(terminalStore.panel.height).toBe(120)
-    })
-
-    it('accepts reasonable heights', () => {
-      terminalStore.setPanelHeight(400)
-      expect(terminalStore.panel.height).toBe(400)
-    })
-  })
-
   describe('auto-dispose on terminal tab close', () => {
     it('disposes the PTY when its hosting tab is closed from the workspace', async () => {
-      const id = (await terminalStore.createTerminal({ location: 'panel' })) as string
-      const tabId = terminalStore.moveToTab(id) as string
-      // Sanity: the TerminalTab was actually inserted
-      expect(workspace.tabs[tabId]?.kind).toBe('terminal')
-      // closeTab triggers workspace.onTabClosed which the terminal store listens on
+      const { terminalId, tabId } = (await terminalStore.createTerminal())!
+      mockApi.terminalDispose.mockClear()
+
       const closed = workspace.closeTab(tabId)
       expect(closed?.kind).toBe('terminal')
       // Allow the async dispose (promise chain) to flush
       await new Promise((r) => setTimeout(r, 10))
-      expect(mockApi.terminalDispose).toHaveBeenCalledWith(id)
+      expect(mockApi.terminalDispose).toHaveBeenCalledWith(terminalId)
+    })
+  })
+
+  describe('cross-window transfer (adopt / release)', () => {
+    it('adoptTerminal rebinds the live PTY and stages its scrollback', async () => {
+      mockApi.terminalRebind = vi
+        .fn()
+        .mockResolvedValue({ scrollback: 'previous output', shell: '/bin/zsh', cwd: '/proj' })
+
+      await terminalStore.adoptTerminal({
+        terminalId: 'moved-1',
+        title: 'zsh',
+        shell: '/bin/zsh',
+        cwd: '/proj'
+      })
+
+      expect(mockApi.terminalRebind).toHaveBeenCalledWith('moved-1')
+      expect(terminalStore.terminals['moved-1']?.status).toBe('running')
+      expect(terminalStore.pendingScrollback('moved-1')).toBe('previous output')
+
+      // xterm consumes the staged scrollback exactly once
+      expect(terminalStore.takePendingScrollback('moved-1')).toBe('previous output')
+      expect(terminalStore.takePendingScrollback('moved-1')).toBeNull()
+    })
+
+    it('adoptTerminal respawns from shell+cwd when the PTY is gone', async () => {
+      mockApi.terminalRebind = vi.fn().mockRejectedValue(new Error('Terminal not found'))
+      mockApi.terminalCreate.mockClear()
+
+      await terminalStore.adoptTerminal({
+        terminalId: 'dead-1',
+        title: 'zsh',
+        shell: '/bin/zsh',
+        cwd: '/proj'
+      })
+
+      expect(mockApi.terminalCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'dead-1', cwd: '/proj', shell: '/bin/zsh' })
+      )
+      expect(terminalStore.terminals['dead-1']?.status).toBe('running')
+    })
+
+    it('releaseTerminal drops local state WITHOUT disposing the PTY', async () => {
+      const { terminalId } = (await terminalStore.createTerminal())!
+      mockApi.terminalDispose.mockClear()
+
+      terminalStore.releaseTerminal(terminalId)
+
+      expect(terminalStore.terminals[terminalId]).toBeUndefined()
+      expect(mockApi.terminalDispose).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('detachTab hands the terminal off without killing it', () => {
+    it('removes the tab + meta, calls the detach IPC, and never disposes', async () => {
+      mockApi.detachTab = vi.fn().mockResolvedValue(undefined)
+      const { terminalId, tabId } = (await terminalStore.createTerminal())!
+      mockApi.terminalDispose.mockClear()
+
+      const data = await workspace.detachTab(tabId)
+
+      expect(data).toEqual(expect.objectContaining({ kind: 'terminal', terminalId, cwd: '/proj' }))
+      expect(mockApi.detachTab).toHaveBeenCalledWith(data)
+      expect(workspace.tabs[tabId]).toBeUndefined()
+      expect(terminalStore.terminals[terminalId]).toBeUndefined() // released, not disposed
+      expect(mockApi.terminalDispose).not.toHaveBeenCalled()
+      // Detaching the last bottom tab hides the (now empty) pane
+      expect(workspace.bottomPaneOpen).toBe(false)
     })
   })
 })

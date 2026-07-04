@@ -13,9 +13,11 @@
 
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte'
+  import type { Snippet } from 'svelte'
   import { workspace } from '../stores/workspace.svelte'
   import type { TabState } from '../stores/workspace.svelte'
   import { syncFileStoresFromTab } from '../stores/files'
+  import { openDroppedPath } from '../lib/drop-payload'
   import TabItem from './TabItem.svelte'
   import type { TabTransferData } from '../../preload/api'
 
@@ -25,15 +27,12 @@
     onclose?: (tabId: string) => void
     onclosemany?: (tabIds: string[]) => void
     oncreate?: () => void
+    /** Extra controls rendered at the right end of the bar (e.g. bottom-pane actions). */
+    trailingActions?: Snippet
   }
 
-  let {
-    paneId,
-    onactivate,
-    onclose,
-    onclosemany,
-    oncreate,
-  }: TabBarProps = $props()
+  let { paneId, onactivate, onclose, onclosemany, oncreate, trailingActions }: TabBarProps =
+    $props()
 
   // ── Reactive tab data ───────────────────────────────────────────────
 
@@ -169,32 +168,15 @@
     // Signal to TabItem that a drop was received in this window
     tabBarDropReceived.value = true
 
-    // Handle file tree drops — open the file in this pane
-    const droppedFilePath = e.dataTransfer?.getData('application/x-mdvdb-path')
-    if (droppedFilePath && pane) {
-      const assetData = e.dataTransfer?.getData('application/x-mdvdb-asset')
-      if (assetData) {
-        const { mimeCategory, fileSize } = JSON.parse(assetData)
-        workspace.openAssetTab(droppedFilePath, mimeCategory, fileSize, paneId)
-      } else {
-        // Check extension — if it's an asset file, open as asset tab, not document
-        const ext = droppedFilePath.split('.').pop()?.toLowerCase() ?? ''
-        const assetExtMap: Record<string, import('../types/cli').MimeCategory> = {
-          png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', svg: 'image', webp: 'image', bmp: 'image', ico: 'image',
-          pdf: 'pdf',
-          mp4: 'video', webm: 'video', mov: 'video', avi: 'video',
-          mp3: 'audio', wav: 'audio', ogg: 'audio', flac: 'audio',
-        }
-        const detectedMime = assetExtMap[ext]
-        if (detectedMime) {
-          workspace.openAssetTab(droppedFilePath, detectedMime, undefined, paneId)
-        } else {
-          workspace.openTab(droppedFilePath, paneId)
-        }
+    // Handle file tree drops — open the file in this pane (asset payloads
+    // and asset extensions route to the right tab kind)
+    if (e.dataTransfer && pane) {
+      const openedTabId = openDroppedPath(e.dataTransfer, paneId)
+      if (openedTabId) {
+        syncFileStoresFromTab()
+        resetDragState()
+        return
       }
-      syncFileStoresFromTab()
-      resetDragState()
-      return
     }
 
     const draggedTabId = e.dataTransfer?.getData('text/plain')
@@ -270,7 +252,6 @@
 
   const contextTab = $derived(contextMenuTabId ? workspace.tabs[contextMenuTabId] : null)
   const isContextTabGraph = $derived(contextTab?.kind === 'graph')
-  const isContextTabDocument = $derived(contextTab?.kind === 'document')
   const isContextTabCloseable = $derived(contextTab?.kind !== 'graph')
   const canSplit = $derived(isContextTabCloseable)
   const canDetach = $derived(contextTab != null)
@@ -285,7 +266,7 @@
   )
   const otherPaneId = $derived(
     workspace.splitEnabled && workspace.paneOrder.length >= 2
-      ? workspace.paneOrder.find((id) => id !== paneId) ?? null
+      ? (workspace.paneOrder.find((id) => id !== paneId) ?? null)
       : null
   )
 
@@ -372,11 +353,7 @@
 <div class="tab-bar" role="tablist" aria-label="Open tabs">
   <!-- Left scroll button -->
   {#if canScrollLeft}
-    <button
-      class="scroll-btn scroll-left"
-      onclick={scrollLeft}
-      aria-label="Scroll tabs left"
-    >
+    <button class="scroll-btn scroll-left" onclick={scrollLeft} aria-label="Scroll tabs left">
       <span class="material-symbols-outlined">chevron_left</span>
     </button>
   {/if}
@@ -441,16 +418,16 @@
 
   <!-- Right scroll button -->
   {#if canScrollRight}
-    <button
-      class="scroll-btn scroll-right"
-      onclick={scrollRight}
-      aria-label="Scroll tabs right"
-    >
+    <button class="scroll-btn scroll-right" onclick={scrollRight} aria-label="Scroll tabs right">
       <span class="material-symbols-outlined">chevron_right</span>
     </button>
   {/if}
 
-
+  {#if trailingActions}
+    <div class="trailing-actions">
+      {@render trailingActions()}
+    </div>
+  {/if}
 </div>
 
 {#if contextMenuTabId && contextTab}
@@ -545,6 +522,15 @@
     overflow: hidden;
   }
 
+  .trailing-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 0 6px;
+    flex-shrink: 0;
+    border-left: 1px solid var(--color-border, #27272a);
+  }
+
   /* ── Scroll area ──────────────────────────────────────────────── */
 
   .tab-scroll-area {
@@ -563,8 +549,8 @@
   /* ── Cross-window drag indicator ─────────────────────────────── */
 
   .tab-scroll-area.cross-window-drag {
-    background: color-mix(in srgb, var(--color-primary, #00E5FF) 8%, transparent);
-    outline: 1px dashed var(--color-primary, #00E5FF);
+    background: color-mix(in srgb, var(--color-primary, #00e5ff) 8%, transparent);
+    outline: 1px dashed var(--color-primary, #00e5ff);
     outline-offset: -1px;
   }
 
@@ -584,7 +570,7 @@
     top: 4px;
     bottom: 4px;
     width: 2px;
-    background: var(--color-primary, #00E5FF);
+    background: var(--color-primary, #00e5ff);
     border-radius: 1px;
     z-index: 2;
     opacity: 0;
@@ -628,8 +614,9 @@
     cursor: pointer;
     padding: 0;
     margin: 0;
-    transition: color var(--transition-fast, 150ms ease),
-                background var(--transition-fast, 150ms ease);
+    transition:
+      color var(--transition-fast, 150ms ease),
+      background var(--transition-fast, 150ms ease);
   }
 
   .new-tab-btn:hover {
@@ -639,15 +626,6 @@
 
   .new-tab-btn .material-symbols-outlined {
     font-size: 18px;
-  }
-
-  /* ── Graph divider ────────────────────────────────────────────── */
-
-  .graph-divider {
-    width: 1px;
-    margin: 8px 2px;
-    background: var(--color-border, #27272a);
-    flex-shrink: 0;
   }
 
   /* ── Scroll buttons ───────────────────────────────────────────── */

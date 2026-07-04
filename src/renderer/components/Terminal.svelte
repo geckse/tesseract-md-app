@@ -2,7 +2,11 @@
   import { onMount, onDestroy } from 'svelte'
   import { terminalStore } from '../stores/terminal.svelte'
   import { getTerminalTheme } from '../lib/terminal-theme'
-  import type { TerminalDataPayload, TerminalExitPayload, TerminalTitlePayload } from '../../preload/api'
+  import type {
+    TerminalDataPayload,
+    TerminalExitPayload,
+    TerminalTitlePayload
+  } from '../../preload/api'
 
   interface Props {
     terminalId: string
@@ -28,6 +32,16 @@
   const meta = $derived(terminalStore.terminals[terminalId])
   const effectiveFontSize = $derived(fontSizeProp ?? 14)
 
+  // Terminal moved from another window: repaint the session from the
+  // main-process scrollback captured at rebind time. Reactive so it works
+  // whether the rebind resolves before or after xterm mounts.
+  $effect(() => {
+    if (term && terminalStore.pendingScrollback(terminalId) !== undefined) {
+      const data = terminalStore.takePendingScrollback(terminalId)
+      if (data) term.write(data)
+    }
+  })
+
   async function mountTerminal(): Promise<void> {
     if (!containerEl) return
     try {
@@ -36,7 +50,7 @@
         import('@xterm/xterm'),
         import('@xterm/addon-fit'),
         import('@xterm/addon-web-links'),
-        import('@xterm/addon-webgl').catch(() => null),
+        import('@xterm/addon-webgl').catch(() => null)
       ])
       await import('@xterm/xterm/css/xterm.css')
 
@@ -66,7 +80,7 @@
         fontFamily: resolvedMono,
         theme: getTerminalTheme(),
         scrollback: 10000,
-        screenReaderMode: false,
+        screenReaderMode: false
       })
 
       const fit = new FitAddon()
@@ -112,6 +126,21 @@
           // ignore
         })
       })
+
+      // Repaint an existing live session from the main-process scrollback
+      // ring buffer. Covers every remount keep-alive frames can't: moves
+      // across panes, panel hide/show, and output that arrived before the
+      // first mount. Gated on 'running' with nothing staged — the adopt and
+      // restore flows hold status 'starting' and stage scrollback themselves
+      // (pendingScrollback), so this never double-paints.
+      if (meta?.status === 'running' && terminalStore.pendingScrollback(terminalId) === undefined) {
+        try {
+          const rebound = await window.api?.terminalRebind(terminalId)
+          if (rebound?.scrollback) xterm.write(rebound.scrollback)
+        } catch {
+          // PTY gone — the exit banner / error state covers it
+        }
+      }
 
       // Subscribe to main → renderer events for this id
       onDataListener = ({ id, data }) => {

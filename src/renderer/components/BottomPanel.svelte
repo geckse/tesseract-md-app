@@ -1,12 +1,11 @@
 <script lang="ts">
+  import { workspace, BOTTOM_PANE_ID, DEFAULT_BOTTOM_PANE_HEIGHT } from '../stores/workspace.svelte'
   import { terminalStore } from '../stores/terminal.svelte'
-  import Terminal from './Terminal.svelte'
-  import TerminalTabBar from './TerminalTabBar.svelte'
+  import { isTabOrPathDrag, openDroppedPath } from '../lib/drop-payload'
+  import TabPane from './TabPane.svelte'
 
-  const open = $derived(terminalStore.panel.open)
-  const height = $derived(terminalStore.panel.height)
-  const tabs = $derived(terminalStore.panelTerminals)
-  const activeId = $derived(terminalStore.panel.activeId)
+  const open = $derived(workspace.bottomPaneOpen)
+  const height = $derived(workspace.bottomPaneHeight)
 
   let isDragging = $state(false)
   let dragStartY = $state(0)
@@ -27,7 +26,7 @@
   function handleResizeMove(e: MouseEvent): void {
     if (!isDragging) return
     const delta = dragStartY - e.clientY
-    terminalStore.setPanelHeight(dragStartHeight + delta)
+    workspace.setBottomPaneHeight(dragStartHeight + delta)
   }
 
   function handleResizeUp(): void {
@@ -41,47 +40,100 @@
 
   function handleDoubleClick(): void {
     // Snap to default height
-    terminalStore.setPanelHeight(300)
+    workspace.setBottomPaneHeight(DEFAULT_BOTTOM_PANE_HEIGHT)
+  }
+
+  // ── Drop target: move tabs / open files into the bottom pane ────────
+
+  let dragOver = $state(false)
+
+  function handleDragOver(e: DragEvent): void {
+    if (!isTabOrPathDrag(e.dataTransfer)) return
+    e.preventDefault()
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+    dragOver = true
+  }
+
+  function handleDragLeave(e: DragEvent): void {
+    // Only clear when leaving the panel entirely, not entering a child
+    if (e.currentTarget instanceof HTMLElement && e.relatedTarget instanceof Node) {
+      if (e.currentTarget.contains(e.relatedTarget)) return
+    }
+    dragOver = false
+  }
+
+  function handleDrop(e: DragEvent): void {
+    dragOver = false
+    const dt = e.dataTransfer
+    if (!dt) return
+
+    const openedTabId = openDroppedPath(dt, BOTTOM_PANE_ID)
+    if (openedTabId) {
+      e.preventDefault()
+      return
+    }
+
+    const tabId = dt.getData('text/plain')
+    if (tabId && workspace.tabs[tabId]) {
+      e.preventDefault()
+      // The tab bar handles precise drops itself; this is the panel-body path.
+      workspace.moveTabToBottomPane(tabId)
+    }
   }
 </script>
 
 {#if open}
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <section
     class="bottom-panel"
+    class:drag-over={dragOver}
     style:height="{height}px"
-    aria-label="Embedded terminal panel"
+    aria-label="Bottom panel"
+    ondragover={handleDragOver}
+    ondragleave={handleDragLeave}
+    ondrop={handleDrop}
   >
     <div
       class="resize-handle"
       class:dragging={isDragging}
       role="separator"
       aria-orientation="horizontal"
-      aria-label="Resize terminal panel"
+      aria-label="Resize bottom panel"
       onmousedown={handleResizeDown}
       ondblclick={handleDoubleClick}
     ></div>
 
-    <TerminalTabBar />
-
-    <div class="terminal-host-area">
-      {#each tabs as t (t.id)}
-        <div class="terminal-frame" class:visible={t.id === activeId}>
-          <Terminal terminalId={t.id} />
-        </div>
-      {/each}
-      {#if tabs.length === 0}
-        <div class="empty-state">
-          <p>No terminals are running.</p>
-          <button
-            type="button"
-            class="create-btn"
-            onclick={() => terminalStore.createTerminal({ location: 'panel' })}
-          >
-            New terminal
-          </button>
-        </div>
-      {/if}
-    </div>
+    <TabPane paneId={BOTTOM_PANE_ID}>
+      {#snippet trailingActions()}
+        <button
+          type="button"
+          class="panel-action"
+          title="New terminal"
+          aria-label="New terminal"
+          onclick={() => void terminalStore.createTerminal()}
+        >
+          <span class="material-symbols-outlined">terminal</span>
+        </button>
+        <button
+          type="button"
+          class="panel-action"
+          title="Kill all terminals"
+          aria-label="Kill all terminals"
+          onclick={() => terminalStore.killAllInBottomPane()}
+        >
+          <span class="material-symbols-outlined">delete_sweep</span>
+        </button>
+        <button
+          type="button"
+          class="panel-action"
+          title="Hide panel"
+          aria-label="Hide bottom panel"
+          onclick={() => workspace.setBottomPaneOpen(false)}
+        >
+          <span class="material-symbols-outlined">expand_more</span>
+        </button>
+      {/snippet}
+    </TabPane>
   </section>
 {/if}
 
@@ -95,6 +147,10 @@
     position: relative;
     min-height: 120px;
     overflow: hidden;
+  }
+
+  .bottom-panel.drag-over {
+    box-shadow: inset 0 0 0 2px var(--color-primary, #00e5ff);
   }
 
   .resize-handle {
@@ -115,50 +171,45 @@
     opacity: 0.4;
   }
 
-  .terminal-host-area {
-    flex: 1;
-    min-height: 0;
-    position: relative;
+  @media (prefers-reduced-motion: reduce) {
+    .resize-handle {
+      transition: none;
+    }
   }
 
-  .terminal-frame {
-    position: absolute;
-    inset: 0;
-    display: none;
-  }
-
-  .terminal-frame.visible {
-    display: block;
-  }
-
-  .empty-state {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    flex-direction: column;
+  .panel-action {
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 12px;
-    color: var(--color-text-dim, #71717a);
-    font-size: 13px;
-  }
-
-  .empty-state p {
-    margin: 0;
-  }
-
-  .create-btn {
-    padding: 6px 14px;
-    background: var(--color-primary, #60a5fa);
-    color: var(--color-surface-dark, #0c0c0d);
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    background: transparent;
     border: none;
-    border-radius: 4px;
-    font-size: 12px;
-    font-weight: 500;
+    border-radius: var(--radius-sm, 4px);
+    color: var(--color-text-dim, #71717a);
     cursor: pointer;
+    transition:
+      background 150ms ease,
+      color 150ms ease;
   }
 
-  .create-btn:hover {
-    filter: brightness(1.1);
+  .panel-action:hover {
+    background: var(--overlay-hover, rgba(255, 255, 255, 0.06));
+    color: var(--color-text, #e4e4e7);
+  }
+
+  .panel-action:active {
+    background: var(--overlay-active, rgba(255, 255, 255, 0.1));
+  }
+
+  .panel-action .material-symbols-outlined {
+    font-size: 16px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .panel-action {
+      transition: none;
+    }
   }
 </style>

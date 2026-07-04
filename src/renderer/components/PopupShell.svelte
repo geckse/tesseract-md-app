@@ -5,6 +5,8 @@
   import WysiwygEditor from './WysiwygEditor.svelte'
   import GraphView from './GraphView.svelte'
   import TableView from './table/TableView.svelte'
+  import Terminal from './Terminal.svelte'
+  import { terminalStore } from '../stores/terminal.svelte'
   import ImageViewer from './ImageViewer.svelte'
   import PdfViewer from './PdfViewer.svelte'
   import AssetInfoCard from './AssetInfoCard.svelte'
@@ -32,7 +34,12 @@
   let { urlParams }: PopupShellProps = $props()
 
   // ── Parse URL parameters ──────────────────────────────────────────
-  const kind = (urlParams.get('kind') ?? 'document') as 'document' | 'asset' | 'graph' | 'table'
+  const kind = (urlParams.get('kind') ?? 'document') as
+    | 'document'
+    | 'asset'
+    | 'graph'
+    | 'table'
+    | 'terminal'
   const filePath = urlParams.get('filePath') ?? ''
   const collectionId = urlParams.get('collectionId') ?? ''
   const collectionPath = urlParams.get('collectionPath') ?? ''
@@ -43,6 +50,10 @@
   const graphColoringMode = (urlParams.get('graphColoringMode') ?? 'cluster') as GraphColoringMode
   const tableRecursive = urlParams.get('recursive') === 'true'
   const tableViewId = urlParams.get('tableViewId') ?? undefined
+  const terminalId = urlParams.get('terminalId') ?? ''
+  const terminalTitle = urlParams.get('title') ?? 'Terminal'
+  const terminalShell = urlParams.get('shell') ?? ''
+  const terminalCwd = urlParams.get('cwd') ?? ''
 
   // ── Local state ───────────────────────────────────────────────────
   let tabId = $state<string>('')
@@ -98,6 +109,17 @@
       ])
     }
 
+    // 2b. Terminals: adopt the transferred PTY (rebind + scrollback replay)
+    //     before the Terminal component mounts.
+    if (kind === 'terminal' && terminalId) {
+      void terminalStore.adoptTerminal({
+        terminalId,
+        title: terminalTitle,
+        shell: terminalShell,
+        cwd: terminalCwd
+      })
+    }
+
     // 3. Initialize workspace immediately so the editor mounts fast
     tabId = workspace.initAsPopup(kind, {
       filePath,
@@ -107,7 +129,9 @@
       graphLevel: initialGraphLevel,
       graphColoringMode,
       recursive: tableRecursive,
-      tableViewId
+      tableViewId,
+      terminalId,
+      title: terminalTitle
     })
     contentReady = true
     syncFileStoresFromTab()
@@ -269,6 +293,15 @@
         recursive: t.recursive,
         tableViewId: t.activeViewId ?? undefined
       }
+    } else if (t.kind === 'terminal') {
+      const meta = terminalStore.terminals[t.terminalId]
+      data = {
+        kind: 'terminal',
+        terminalId: t.terminalId,
+        title: t.title,
+        shell: meta?.shell ?? terminalShell,
+        cwd: meta?.cwd ?? terminalCwd
+      }
     } else {
       data = { kind: 'graph', graphLevel: t.graphLevel, graphColoringMode: t.graphColoringMode }
     }
@@ -347,6 +380,10 @@
       {:else if kind === 'table' && tabId}
         <div class="content-region">
           <TableView {tabId} />
+        </div>
+      {:else if kind === 'terminal' && terminalId}
+        <div class="content-region">
+          <Terminal {terminalId} />
         </div>
       {/if}
     {:else}

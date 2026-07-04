@@ -43,7 +43,13 @@ interface PtyEntry {
   status: 'running' | 'exited'
   titlePollTimer: ReturnType<typeof setInterval> | null
   lastTitle: string
+  /** Ring buffer of recent output, replayed when the terminal moves windows. */
+  scrollback: string[]
+  scrollbackBytes: number
 }
+
+/** Cap on buffered output per terminal (bytes of UTF-16 code units, roughly). */
+const SCROLLBACK_LIMIT = 200_000
 
 /** Result of spawn() returned to the renderer */
 export interface PtySpawnResult {
@@ -152,13 +158,23 @@ export class PtyManager {
       cwd,
       status: 'running',
       titlePollTimer: null,
-      lastTitle: ''
+      lastTitle: '',
+      scrollback: [],
+      scrollbackBytes: 0
     }
     this.entries.set(opts.id, entry)
 
+    // Event closures read entry.webContents (not the spawn parameter) so
+    // rebind() can transfer ownership to another window mid-session.
     pty.onData((data) => {
-      if (!webContents.isDestroyed()) {
-        webContents.send('terminal:data', { id: opts.id, data })
+      entry.scrollback.push(data)
+      entry.scrollbackBytes += data.length
+      while (entry.scrollbackBytes > SCROLLBACK_LIMIT && entry.scrollback.length > 1) {
+        entry.scrollbackBytes -= entry.scrollback[0].length
+        entry.scrollback.shift()
+      }
+      if (!entry.webContents.isDestroyed()) {
+        entry.webContents.send('terminal:data', { id: opts.id, data })
       }
     })
 
@@ -168,8 +184,8 @@ export class PtyManager {
         clearInterval(entry.titlePollTimer)
         entry.titlePollTimer = null
       }
-      if (!webContents.isDestroyed()) {
-        webContents.send('terminal:exit', { id: opts.id, code: exitCode, signal })
+      if (!entry.webContents.isDestroyed()) {
+        entry.webContents.send('terminal:exit', { id: opts.id, code: exitCode, signal })
       }
       // Keep entry briefly so renderer can still observe; drop it on next tick
       setTimeout(() => this.entries.delete(opts.id), 0)
@@ -181,8 +197,8 @@ export class PtyManager {
         const title = pty.process
         if (title && title !== entry.lastTitle) {
           entry.lastTitle = title
-          if (!webContents.isDestroyed()) {
-            webContents.send('terminal:title', { id: opts.id, title })
+          if (!entry.webContents.isDestroyed()) {
+            entry.webContents.send('terminal:title', { id: opts.id, title })
           }
         }
       } catch {
@@ -191,6 +207,19 @@ export class PtyManager {
     }, 1000)
 
     return { pid: pty.pid, shell }
+  }
+
+  /**
+   * Transfer PTY ownership to another window (tab moved/detached). Subsequent
+   * output, exit, and title events go to the new WebContents, and window-close
+   * cleanup follows it. Returns the buffered scrollback so the adopting
+   * renderer can repaint the session.
+   */
+  rebind(id: string, webContents: WebContents): { scrollback: string; shell: string; cwd: string } {
+    const entry = this.entries.get(id)
+    if (!entry) throw new TerminalNotFoundError(id)
+    entry.webContents = webContents
+    return { scrollback: entry.scrollback.join(''), shell: entry.shell, cwd: entry.cwd }
   }
 
   /** Write stdin data to the PTY. */

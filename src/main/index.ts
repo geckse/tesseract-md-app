@@ -35,7 +35,7 @@ app.whenReady().then(() => {
 
   windowManager.createWindow()
 
-  registerIpcHandlers(windowManager)
+  registerIpcHandlers(windowManager, ptyManager)
   registerTerminalHandlers(ptyManager)
   buildAppMenu(windowManager)
 

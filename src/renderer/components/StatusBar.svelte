@@ -1,80 +1,96 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { isDirty, wordCount as wordCountStore, tokenCount as tokenCountStore } from '../stores/editor';
-  import { workspace, type AssetTab } from '../stores/workspace.svelte';
-  import WatcherToggle from './WatcherToggle.svelte';
-  import { terminalStore } from '../stores/terminal.svelte';
-  import mdvdbIcon from '../../../resources/mdvdb.png';
-  import type { MimeCategory } from '../types/cli';
+  import { onMount } from 'svelte'
+  import {
+    isDirty,
+    wordCount as wordCountStore,
+    tokenCount as tokenCountStore
+  } from '../stores/editor'
+  import { workspace, type AssetTab } from '../stores/workspace.svelte'
+  import WatcherToggle from './WatcherToggle.svelte'
+  import { terminalStore } from '../stores/terminal.svelte'
+  import mdvdbIcon from '../../../resources/mdvdb.png'
+  import type { MimeCategory } from '../types/cli'
 
   interface StatusBarProps {
-    language?: string;
-    syncStatus?: 'synced' | 'syncing' | 'error';
-    encoding?: string;
+    language?: string
+    syncStatus?: 'synced' | 'syncing' | 'error'
+    encoding?: string
   }
 
   let {
     language = 'Markdown',
-    syncStatus = 'synced',
-    encoding = 'UTF-8',
-  }: StatusBarProps = $props();
+    syncStatus: _syncStatus = 'synced',
+    encoding: _encoding = 'UTF-8'
+  }: StatusBarProps = $props()
 
-  let currentIsDirty = $state(false);
-  isDirty.subscribe((v) => (currentIsDirty = v));
+  let currentIsDirty = $state(false)
+  isDirty.subscribe((v) => (currentIsDirty = v))
 
-  let currentWordCount = $state(0);
-  wordCountStore.subscribe((v) => (currentWordCount = v));
+  let currentWordCount = $state(0)
+  wordCountStore.subscribe((v) => (currentWordCount = v))
 
-  let currentTokenCount = $state(0);
-  tokenCountStore.subscribe((v) => (currentTokenCount = v));
+  let currentTokenCount = $state(0)
+  tokenCountStore.subscribe((v) => (currentTokenCount = v))
 
-  let cliVersion: string | null = $state(null);
-  let cliFound = $state(false);
+  let cliVersion: string | null = $state(null)
+  let cliFound = $state(false)
 
   // Active tab awareness for asset vs document display
-  const activeTab = $derived(workspace.focusedTab);
-  const isAssetTab = $derived(activeTab?.kind === 'asset');
-  const assetTab = $derived(isAssetTab && activeTab?.kind === 'asset' ? activeTab as AssetTab : null);
+  const activeTab = $derived(workspace.focusedTab)
+  const isAssetTab = $derived(activeTab?.kind === 'asset')
+  const assetTab = $derived(
+    isAssetTab && activeTab?.kind === 'asset' ? (activeTab as AssetTab) : null
+  )
 
   function mimeIcon(cat?: MimeCategory): string {
     switch (cat) {
-      case 'image': return 'image';
-      case 'pdf': return 'picture_as_pdf';
-      case 'video': return 'videocam';
-      case 'audio': return 'audiotrack';
-      default: return 'attach_file';
+      case 'image':
+        return 'image'
+      case 'pdf':
+        return 'picture_as_pdf'
+      case 'video':
+        return 'videocam'
+      case 'audio':
+        return 'audiotrack'
+      default:
+        return 'attach_file'
     }
   }
 
   function mimeLabel(cat?: MimeCategory): string {
     switch (cat) {
-      case 'image': return 'Image';
-      case 'pdf': return 'PDF';
-      case 'video': return 'Video';
-      case 'audio': return 'Audio';
-      default: return 'File';
+      case 'image':
+        return 'Image'
+      case 'pdf':
+        return 'PDF'
+      case 'video':
+        return 'Video'
+      case 'audio':
+        return 'Audio'
+      default:
+        return 'File'
     }
   }
 
   function formatSize(bytes?: number): string {
-    if (bytes == null) return '';
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    if (bytes == null) return ''
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   }
 
   onMount(async () => {
     try {
-      const path = await window.api.findCli();
+      const path = await window.api.findCli()
       if (path) {
-        cliFound = true;
-        cliVersion = await window.api.getCliVersion();
+        cliFound = true
+        cliVersion = await window.api.getCliVersion()
       }
     } catch {
-      cliFound = false;
-      cliVersion = null;
+      cliFound = false
+      cliVersion = null
     }
-  });
+  })
 </script>
 
 <div class="status-bar">
@@ -113,11 +129,11 @@
     <button
       type="button"
       class="status-item interactive terminal-toggle"
-      class:active={terminalStore.panel.open}
-      title={terminalStore.panel.open ? 'Hide terminal panel' : 'Show terminal panel'}
-      aria-label="Toggle terminal panel"
-      aria-pressed={terminalStore.panel.open}
-      onclick={() => void terminalStore.togglePanel()}
+      class:active={workspace.bottomPaneOpen}
+      title={workspace.bottomPaneOpen ? 'Hide bottom panel' : 'Show bottom panel'}
+      aria-label="Toggle bottom panel"
+      aria-pressed={workspace.bottomPaneOpen}
+      onclick={() => void terminalStore.toggleBottomPanel()}
     >
       <span class="material-symbols-outlined status-icon">terminal</span>
       {#if terminalStore.terminalCount > 0}
@@ -125,7 +141,11 @@
       {/if}
     </button>
     <WatcherToggle />
-    <span class="status-item cli-indicator" class:cli-found={cliFound} class:cli-missing={!cliFound}>
+    <span
+      class="status-item cli-indicator"
+      class:cli-found={cliFound}
+      class:cli-missing={!cliFound}
+    >
       <span class="cli-dot" class:cli-dot-found={cliFound} class:cli-dot-missing={!cliFound}></span>
       {#if cliFound}
         mdvdb {cliVersion ? `v${cliVersion}` : ''}

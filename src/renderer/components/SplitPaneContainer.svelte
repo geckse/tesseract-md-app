@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { workspace } from '../stores/workspace.svelte'
+  import { workspace, BOTTOM_PANE_ID } from '../stores/workspace.svelte'
   import { syncFileStoresFromTab } from '../stores/files'
+  import { openDroppedPath } from '../lib/drop-payload'
   import { tabBarDropReceived } from './TabBar.svelte'
   import { BLOCK_DRAG_MIME } from '../lib/tiptap/block-drag-extension'
   import TabPane from './TabPane.svelte'
@@ -101,14 +102,21 @@
 
   // ── Drag-to-split state & handlers ──────────────────────────────
 
-  /** Which side of the container the drop overlay is showing on. */
-  let dragOverSide: 'left' | 'right' | null = $state(null)
+  /** Which zone of the container the drop overlay is showing on. */
+  let dragOverSide: 'left' | 'right' | 'bottom' | null = $state(null)
+
+  /** Height of the bottom drop band ("move into bottom panel"), px. */
+  const BOTTOM_DROP_BAND = 56
 
   function handleContainerDragOver(e: DragEvent) {
     if (!e.dataTransfer) return
     // Never show split overlay for internal block drags
     if (e.dataTransfer.types.includes(BLOCK_DRAG_MIME)) return
-    if (!e.dataTransfer.types.includes('text/plain') && !e.dataTransfer.types.includes('application/x-mdvdb-path')) return
+    if (
+      !e.dataTransfer.types.includes('text/plain') &&
+      !e.dataTransfer.types.includes('application/x-mdvdb-path')
+    )
+      return
     if (!containerEl) return
 
     // Don't show split overlay when cursor is over the tab bar area
@@ -120,8 +128,19 @@
 
     const rect = containerEl.getBoundingClientRect()
     const relativeX = e.clientX - rect.left
+    const relativeY = e.clientY - rect.top
     const containerWidth = rect.width
     const edgeThreshold = Math.max(80, containerWidth * 0.2)
+
+    // Bottom band wins over left/right: drop into the bottom panel
+    if (relativeY >= rect.height - BOTTOM_DROP_BAND && workspace.bottomPane) {
+      dragOverSide = 'bottom'
+      e.preventDefault()
+      e.dataTransfer.dropEffect = e.dataTransfer.types.includes('application/x-mdvdb-path')
+        ? 'link'
+        : 'move'
+      return
+    }
 
     if (splitEnabled) {
       // When already split, detect which pane the cursor is over
@@ -144,7 +163,9 @@
     }
 
     e.preventDefault()
-    e.dataTransfer.dropEffect = e.dataTransfer.types.includes('application/x-mdvdb-path') ? 'link' : 'move'
+    e.dataTransfer.dropEffect = e.dataTransfer.types.includes('application/x-mdvdb-path')
+      ? 'link'
+      : 'move'
   }
 
   function handleContainerDrop(e: DragEvent) {
@@ -155,9 +176,30 @@
     if (tabBarDropReceived.value) return
     if (!side) return
 
+    // Bottom band: move the tab / open the file in the bottom panel
+    if (side === 'bottom') {
+      if (!e.dataTransfer) return
+      e.preventDefault()
+      tabBarDropReceived.value = true
+
+      const openedTabId = openDroppedPath(e.dataTransfer, BOTTOM_PANE_ID)
+      if (openedTabId) {
+        workspace.setBottomPaneOpen(true)
+        syncFileStoresFromTab()
+        return
+      }
+
+      const bottomTabId = e.dataTransfer.getData('text/plain')
+      if (bottomTabId && workspace.tabs[bottomTabId]) {
+        workspace.moveTabToBottomPane(bottomTabId)
+        syncFileStoresFromTab()
+      }
+      return
+    }
+
     // Check if this is a file tree drop (has a file path)
     const filePath = e.dataTransfer?.getData('application/x-mdvdb-path')
-    if (filePath) {
+    if (filePath && e.dataTransfer) {
       e.preventDefault()
       tabBarDropReceived.value = true
 
@@ -167,7 +209,7 @@
       }
       const targetPaneId = side === 'left' ? workspace.paneOrder[0] : workspace.paneOrder[1]
       if (targetPaneId) {
-        workspace.openTab(filePath, targetPaneId)
+        openDroppedPath(e.dataTransfer, targetPaneId)
         workspace.activePaneId = targetPaneId
         syncFileStoresFromTab()
       }
@@ -178,9 +220,10 @@
     const draggedTabId = e.dataTransfer?.getData('text/plain')
     if (!draggedTabId) return
 
-    // Validate it's a local document tab
+    // Validate it's a local, splittable tab (every kind except the graph —
+    // split auto-create/collapse around the pinned singleton is fragile)
     const tab = workspace.tabs[draggedTabId]
-    if (!tab || tab.kind !== 'document') return
+    if (!tab || tab.kind === 'graph') return
 
     e.preventDefault()
 
@@ -199,6 +242,7 @@
   }
 </script>
 
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="split-pane-container"
   class:split={splitEnabled}
@@ -232,16 +276,21 @@
     </div>
   {/if}
 
-  <!-- Drop-to-split overlay -->
+  <!-- Drop-to-split / drop-to-panel overlay -->
   {#if dragOverSide}
     <div
       class="split-drop-overlay"
       class:drop-left={dragOverSide === 'left'}
       class:drop-right={dragOverSide === 'right'}
+      class:drop-bottom={dragOverSide === 'bottom'}
     >
       <div class="split-drop-indicator">
-        <span class="material-symbols-outlined">vertical_split</span>
-        <span class="split-drop-label">Drop to open here</span>
+        <span class="material-symbols-outlined">
+          {dragOverSide === 'bottom' ? 'dock_to_bottom' : 'vertical_split'}
+        </span>
+        <span class="split-drop-label">
+          {dragOverSide === 'bottom' ? 'Drop to open in bottom panel' : 'Drop to open here'}
+        </span>
       </div>
     </div>
   {/if}
@@ -288,11 +337,11 @@
   }
 
   .split-resize-handle:hover {
-    background: var(--color-primary, #00E5FF);
+    background: var(--color-primary, #00e5ff);
   }
 
   .split-resize-handle.dragging {
-    background: var(--color-primary, #00E5FF);
+    background: var(--color-primary, #00e5ff);
   }
 
   /* ── Drop-to-split overlay ──────────────────────────────────────── */
@@ -305,8 +354,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: color-mix(in srgb, var(--color-primary, #00E5FF) 6%, transparent);
-    border: 1px dashed color-mix(in srgb, var(--color-primary, #00E5FF) 40%, transparent);
+    background: color-mix(in srgb, var(--color-primary, #00e5ff) 6%, transparent);
+    border: 1px dashed color-mix(in srgb, var(--color-primary, #00e5ff) 40%, transparent);
     z-index: var(--z-overlay, 40);
     pointer-events: none;
     opacity: 1;
@@ -316,13 +365,33 @@
   .split-drop-overlay.drop-right {
     right: 0;
     left: auto;
-    border-left: 2px solid var(--color-primary, #00E5FF);
+    border-left: 2px solid var(--color-primary, #00e5ff);
   }
 
   .split-drop-overlay.drop-left {
     left: 0;
     right: auto;
-    border-right: 2px solid var(--color-primary, #00E5FF);
+    border-right: 2px solid var(--color-primary, #00e5ff);
+  }
+
+  .split-drop-overlay.drop-bottom {
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    height: 64px;
+    border: 1px dashed color-mix(in srgb, var(--color-primary, #00e5ff) 40%, transparent);
+    border-top: 2px solid var(--color-primary, #00e5ff);
+  }
+
+  .split-drop-overlay.drop-bottom .split-drop-indicator {
+    flex-direction: row;
+    gap: 8px;
+  }
+
+  .split-drop-overlay.drop-bottom .material-symbols-outlined {
+    font-size: 20px;
   }
 
   .split-drop-indicator {
@@ -330,7 +399,7 @@
     flex-direction: column;
     align-items: center;
     gap: 8px;
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
     opacity: 0.7;
     user-select: none;
   }

@@ -212,6 +212,9 @@ const api: MdvdbApi = {
 
   // Window session persistence
   saveWindowSession: (session) => invoke('session:save', session),
+  saveWindowSessionSync: (session) => {
+    ipcRenderer.sendSync('session:save-sync', session)
+  },
   getWindowSession: () => invoke('session:get'),
 
   // Multi-window management
@@ -265,6 +268,7 @@ const api: MdvdbApi = {
   terminalResize: (id, cols, rows) => invoke('terminal:resize', { id, cols, rows }),
   terminalDispose: (id) => invoke('terminal:dispose', { id }),
   terminalList: () => invoke('terminal:list'),
+  terminalRebind: (id) => invoke('terminal:rebind', { id }),
   onTerminalData: (callback) => {
     // Wrap so listeners can be removed individually by returning a handle
     // that maps 1:1 to the Electron listener we register.

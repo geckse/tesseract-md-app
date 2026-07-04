@@ -16,7 +16,7 @@ interface MockPty {
 
 const mockPtySpawn = vi.fn()
 vi.mock('node-pty', () => ({
-  spawn: (...args: unknown[]) => mockPtySpawn(...args),
+  spawn: (...args: unknown[]) => mockPtySpawn(...args)
 }))
 
 // Stub electron — PtyManager only takes WebContents-like objects
@@ -27,7 +27,7 @@ const mockGetShellPath = vi.fn(() => '')
 const mockGetShellArgs = vi.fn(() => '')
 vi.mock('../../src/main/store', () => ({
   getTerminalShellPath: (): string => mockGetShellPath(),
-  getTerminalShellArgs: (): string => mockGetShellArgs(),
+  getTerminalShellArgs: (): string => mockGetShellArgs()
 }))
 
 import { PtyManager, resolveShell, buildPtyEnv } from '../../src/main/pty'
@@ -52,7 +52,7 @@ function makeMockPty(): MockPty {
     resize: vi.fn(),
     kill: vi.fn(),
     _emitData: (data): void => dataCb?.(data),
-    _emitExit: (code, signal): void => exitCb?.({ exitCode: code, signal }),
+    _emitExit: (code, signal): void => exitCb?.({ exitCode: code, signal })
   }
 }
 
@@ -66,7 +66,7 @@ function makeFakeWebContents(id = 1): FakeWebContents {
   return {
     id,
     isDestroyed: (): boolean => false,
-    send: vi.fn(),
+    send: vi.fn()
   }
 }
 
@@ -132,7 +132,11 @@ describe('PtyManager', () => {
         wc as unknown as Parameters<typeof mgr.spawn>[1]
       )
       pty._emitExit?.(0)
-      expect(wc.send).toHaveBeenCalledWith('terminal:exit', { id: 'T1', code: 0, signal: undefined })
+      expect(wc.send).toHaveBeenCalledWith('terminal:exit', {
+        id: 'T1',
+        code: 0,
+        signal: undefined
+      })
     })
 
     it('throws TerminalSpawnError when node-pty spawn fails', () => {
@@ -156,7 +160,13 @@ describe('PtyManager', () => {
       const wc = makeFakeWebContents()
       // A path that definitely doesn't exist on the test runner
       mgr.spawn(
-        { id: 'T1', cwd: '/definitely-does-not-exist-xyz123', cols: 80, rows: 24, shell: '/bin/bash' },
+        {
+          id: 'T1',
+          cwd: '/definitely-does-not-exist-xyz123',
+          cols: 80,
+          rows: 24,
+          shell: '/bin/bash'
+        },
         wc as unknown as Parameters<typeof mgr.spawn>[1]
       )
       const opts = mockPtySpawn.mock.calls[0][2]
@@ -213,6 +223,60 @@ describe('PtyManager', () => {
       expect(mgr.has('T1')).toBe(false)
     })
 
+    it('rebind transfers ownership: output flows to the new window and returns scrollback', () => {
+      const p1 = makeMockPty()
+      mockPtySpawn.mockReturnValueOnce(p1)
+      const mgr = new PtyManager()
+      const wcA = makeFakeWebContents(1)
+      const wcB = makeFakeWebContents(2)
+      mgr.spawn(
+        { id: 'T', cwd: '/tmp', cols: 80, rows: 24, shell: '/bin/bash' },
+        wcA as unknown as Parameters<typeof mgr.spawn>[1]
+      )
+
+      p1._emitData?.('before-move\r\n')
+      expect(wcA.send).toHaveBeenCalledWith('terminal:data', { id: 'T', data: 'before-move\r\n' })
+
+      const result = mgr.rebind('T', wcB as unknown as Parameters<typeof mgr.rebind>[1])
+      expect(result.scrollback).toContain('before-move')
+
+      p1._emitData?.('after-move\r\n')
+      expect(wcB.send).toHaveBeenCalledWith('terminal:data', { id: 'T', data: 'after-move\r\n' })
+      const dataCallsToA = wcA.send.mock.calls.filter(
+        (c) => c[0] === 'terminal:data' && c[1].data === 'after-move\r\n'
+      )
+      expect(dataCallsToA).toHaveLength(0)
+
+      // Ownership moved: closing the ORIGINAL window must not kill the pty
+      mgr.disposeByWindow(1)
+      expect(mgr.has('T')).toBe(true)
+      expect(p1.kill).not.toHaveBeenCalled()
+    })
+
+    it('rebind throws TerminalNotFoundError for unknown ids', () => {
+      const mgr = new PtyManager()
+      const wc = makeFakeWebContents(1)
+      expect(() => mgr.rebind('nope', wc as unknown as Parameters<typeof mgr.rebind>[1])).toThrow()
+    })
+
+    it('caps the scrollback buffer', () => {
+      const p1 = makeMockPty()
+      mockPtySpawn.mockReturnValueOnce(p1)
+      const mgr = new PtyManager()
+      const wc = makeFakeWebContents(1)
+      mgr.spawn(
+        { id: 'T', cwd: '/tmp', cols: 80, rows: 24, shell: '/bin/bash' },
+        wc as unknown as Parameters<typeof mgr.spawn>[1]
+      )
+
+      const chunk = 'x'.repeat(50_000)
+      for (let i = 0; i < 10; i++) p1._emitData?.(chunk) // 500KB emitted
+
+      const { scrollback } = mgr.rebind('T', wc as unknown as Parameters<typeof mgr.rebind>[1])
+      expect(scrollback.length).toBeLessThanOrEqual(250_000) // capped near 200KB
+      expect(scrollback.length).toBeGreaterThan(0)
+    })
+
     it('disposeByWindow only drops PTYs owned by that window', () => {
       const p1 = makeMockPty()
       const p2 = makeMockPty()
@@ -220,8 +284,14 @@ describe('PtyManager', () => {
       const mgr = new PtyManager()
       const wcA = makeFakeWebContents(1)
       const wcB = makeFakeWebContents(2)
-      mgr.spawn({ id: 'A', cwd: '/tmp', cols: 80, rows: 24, shell: '/bin/bash' }, wcA as unknown as Parameters<typeof mgr.spawn>[1])
-      mgr.spawn({ id: 'B', cwd: '/tmp', cols: 80, rows: 24, shell: '/bin/bash' }, wcB as unknown as Parameters<typeof mgr.spawn>[1])
+      mgr.spawn(
+        { id: 'A', cwd: '/tmp', cols: 80, rows: 24, shell: '/bin/bash' },
+        wcA as unknown as Parameters<typeof mgr.spawn>[1]
+      )
+      mgr.spawn(
+        { id: 'B', cwd: '/tmp', cols: 80, rows: 24, shell: '/bin/bash' },
+        wcB as unknown as Parameters<typeof mgr.spawn>[1]
+      )
 
       mgr.disposeByWindow(1)
       expect(mgr.has('A')).toBe(false)
@@ -236,8 +306,14 @@ describe('PtyManager', () => {
       mockPtySpawn.mockReturnValueOnce(p1).mockReturnValueOnce(p2)
       const mgr = new PtyManager()
       const wc = makeFakeWebContents()
-      mgr.spawn({ id: 'A', cwd: '/tmp', cols: 80, rows: 24, shell: '/bin/bash' }, wc as unknown as Parameters<typeof mgr.spawn>[1])
-      mgr.spawn({ id: 'B', cwd: '/tmp', cols: 80, rows: 24, shell: '/bin/bash' }, wc as unknown as Parameters<typeof mgr.spawn>[1])
+      mgr.spawn(
+        { id: 'A', cwd: '/tmp', cols: 80, rows: 24, shell: '/bin/bash' },
+        wc as unknown as Parameters<typeof mgr.spawn>[1]
+      )
+      mgr.spawn(
+        { id: 'B', cwd: '/tmp', cols: 80, rows: 24, shell: '/bin/bash' },
+        wc as unknown as Parameters<typeof mgr.spawn>[1]
+      )
       mgr.disposeAll()
       expect(p1.kill).toHaveBeenCalled()
       expect(p2.kill).toHaveBeenCalled()
@@ -251,7 +327,10 @@ describe('PtyManager', () => {
       mockPtySpawn.mockReturnValueOnce(pty)
       const mgr = new PtyManager()
       const wc = makeFakeWebContents()
-      mgr.spawn({ id: 'A', cwd: '/proj', cols: 80, rows: 24, shell: '/bin/zsh' }, wc as unknown as Parameters<typeof mgr.spawn>[1])
+      mgr.spawn(
+        { id: 'A', cwd: '/proj', cols: 80, rows: 24, shell: '/bin/zsh' },
+        wc as unknown as Parameters<typeof mgr.spawn>[1]
+      )
       const list = mgr.list()
       expect(list).toHaveLength(1)
       expect(list[0]).toMatchObject({ id: 'A', pid: 9999, shell: '/bin/zsh', status: 'running' })

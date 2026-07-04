@@ -24,12 +24,10 @@ export function registerTerminalHandlers(ptyManager: PtyManager): void {
     })
   )
 
-  ipcMain.handle(
-    'terminal:resize',
-    (_event, payload: { id: string; cols: number; rows: number }) =>
-      wrapHandler(async () => {
-        ptyManager.resize(payload.id, payload.cols, payload.rows)
-      })
+  ipcMain.handle('terminal:resize', (_event, payload: { id: string; cols: number; rows: number }) =>
+    wrapHandler(async () => {
+      ptyManager.resize(payload.id, payload.cols, payload.rows)
+    })
   )
 
   ipcMain.handle('terminal:dispose', (_event, payload: { id: string }) =>
@@ -41,6 +39,14 @@ export function registerTerminalHandlers(ptyManager: PtyManager): void {
   ipcMain.handle('terminal:list', () =>
     wrapHandler(async (): Promise<TerminalInfo[]> => {
       return ptyManager.list()
+    })
+  )
+
+  // Adopt a PTY into the calling window (terminal tab moved across windows).
+  // Returns buffered scrollback so the adopting renderer can repaint.
+  ipcMain.handle('terminal:rebind', (event, payload: { id: string }) =>
+    wrapHandler(async () => {
+      return ptyManager.rebind(payload.id, event.sender)
     })
   )
 }

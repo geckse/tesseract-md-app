@@ -83,6 +83,11 @@
     loadAccentColors();
     loadTheme();
 
+    // Flush the session synchronously on quit/reload — the debounced save
+    // would silently drop a layout change made in its last 500ms.
+    const flushSession = (): void => workspace.flushSessionSync();
+    window.addEventListener('beforeunload', flushSession);
+
     // System preference listener for auto theme mode
     const cleanupSystemPref = initSystemPreference();
 
@@ -432,12 +437,12 @@
         preventDefault: true,
       }),
 
-      // Cmd+` / Ctrl+`: Toggle the embedded terminal panel
+      // Cmd+` / Ctrl+`: Toggle the bottom panel
       shortcutManager.register({
         key: '`',
         meta: true,
         handler: () => {
-          void terminalStore.togglePanel();
+          void terminalStore.toggleBottomPanel();
         },
         preventDefault: true,
       }),
@@ -448,13 +453,7 @@
         meta: true,
         shift: true,
         handler: () => {
-          void (async () => {
-            if (!terminalStore.panel.open) {
-              await terminalStore.openPanel();
-            } else {
-              await terminalStore.createTerminal({ location: 'panel' });
-            }
-          })();
+          void terminalStore.newBottomTerminal();
         },
         preventDefault: true,
       }),
@@ -500,6 +499,7 @@
       // Unregister all shortcuts
       unregisterShortcuts.forEach((unregister) => unregister());
       shortcutManager.detach();
+      window.removeEventListener('beforeunload', flushSession);
       document.removeEventListener('mousedown', handleClickAway);
       teardownWatcherListener();
       teardownUpdateListener();

@@ -113,6 +113,36 @@ export interface AppStore {
   terminalFontSize: number
 }
 
+/** Schema of one persisted pane (tabs + active index) — shared by editor panes and the bottom pane. */
+const persistedPaneSchema = {
+  type: 'object' as const,
+  properties: {
+    tabs: {
+      type: 'array' as const,
+      items: {
+        type: 'object' as const,
+        properties: {
+          kind: {
+            type: 'string' as const,
+            enum: ['document', 'graph', 'asset', 'terminal', 'table']
+          },
+          filePath: { type: 'string' as const },
+          graphLevel: { type: 'string' as const },
+          mimeCategory: { type: 'string' as const },
+          terminalShell: { type: 'string' as const },
+          terminalCwd: { type: 'string' as const },
+          terminalTitle: { type: 'string' as const },
+          recursive: { type: 'boolean' as const },
+          tableViewId: { type: 'string' as const }
+        },
+        required: ['kind'] as const
+      }
+    },
+    activeTabIndex: { type: 'number' as const }
+  },
+  required: ['tabs', 'activeTabIndex'] as const
+}
+
 /** electron-store schema definition for validation */
 const schema = {
   collections: {
@@ -226,37 +256,16 @@ const schema = {
       properties: {
         panes: {
           type: 'array' as const,
-          items: {
-            type: 'object' as const,
-            properties: {
-              tabs: {
-                type: 'array' as const,
-                items: {
-                  type: 'object' as const,
-                  properties: {
-                    kind: {
-                      type: 'string' as const,
-                      enum: ['document', 'graph', 'asset', 'terminal', 'table']
-                    },
-                    filePath: { type: 'string' as const },
-                    graphLevel: { type: 'string' as const },
-                    mimeCategory: { type: 'string' as const },
-                    terminalShell: { type: 'string' as const },
-                    terminalCwd: { type: 'string' as const },
-                    terminalTitle: { type: 'string' as const },
-                    recursive: { type: 'boolean' as const },
-                    tableViewId: { type: 'string' as const }
-                  },
-                  required: ['kind'] as const
-                }
-              },
-              activeTabIndex: { type: 'number' as const }
-            },
-            required: ['tabs', 'activeTabIndex'] as const
-          }
+          items: persistedPaneSchema
         },
         splitEnabled: { type: 'boolean' as const },
         splitRatio: { type: 'number' as const },
+        // The bottom pane hosts any tab kind — same shape as editor panes
+        bottomPane: persistedPaneSchema,
+        bottomPaneOpen: { type: 'boolean' as const },
+        bottomPaneHeight: { type: 'number' as const },
+        // Legacy terminal-only bottom panel — kept so old data validates on
+        // read (migrated in the renderer); never written anymore.
         bottomPanel: {
           type: 'object' as const,
           properties: {

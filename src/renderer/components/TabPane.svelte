@@ -1,5 +1,7 @@
 <script lang="ts">
+  import type { Snippet } from 'svelte'
   import { workspace } from '../stores/workspace.svelte'
+  import type { TerminalTab } from '../stores/workspace.svelte'
   import { closedTabs } from '../stores/closed-tabs.svelte'
   import { syncFileStoresFromTab } from '../stores/files'
   import { saveAsTabId, dismissSaveAs } from '../stores/save-as'
@@ -18,9 +20,11 @@
   interface TabPaneProps {
     paneId: string
     onfocus?: (paneId: string) => void
+    /** Extra controls rendered at the right end of the tab bar. */
+    trailingActions?: Snippet
   }
 
-  let { paneId, onfocus }: TabPaneProps = $props()
+  let { paneId, onfocus, trailingActions }: TabPaneProps = $props()
 
   // ── Reactive state from workspace ─────────────────────────────────
 
@@ -29,6 +33,17 @@
   const isFocused = $derived(workspace.activePaneId === paneId)
   const tabKind = $derived(activeTab?.kind ?? null)
   const currentEditorMode = $derived(activeTab?.kind === 'document' ? activeTab.editorMode : null)
+
+  /**
+   * Terminal tabs of this pane. Rendered as always-mounted frames (hidden
+   * unless active) so the xterm buffer, selection, and any full-screen app
+   * survive switching tabs within the pane.
+   */
+  const terminalTabs = $derived(
+    pane
+      ? workspace.getTabsInOrder(paneId).filter((t): t is TerminalTab => t.kind === 'terminal')
+      : []
+  )
 
   // ── Focus handling ────────────────────────────────────────────────
 
@@ -105,7 +120,7 @@
     dismissSaveAs()
   }
 
-  function handleSaveAsSaved(filePath: string) {
+  function handleSaveAsSaved(_filePath: string) {
     syncFileStoresFromTab()
   }
 </script>
@@ -120,6 +135,7 @@
     onclose={handleTabClose}
     onclosemany={handleTabCloseMany}
     oncreate={handleTabCreate}
+    {trailingActions}
   />
 
   <!-- Mode bar (context-aware: document mode toggle or graph level switcher) -->
@@ -148,13 +164,6 @@
           {/if}
         </div>
       {/if}
-    {:else if tabKind === 'terminal'}
-      {@const termTab = activeTab?.kind === 'terminal' ? activeTab : null}
-      {#if termTab}
-        <div class="content-region" role="main" aria-label="Terminal">
-          <Terminal terminalId={termTab.terminalId} />
-        </div>
-      {/if}
     {:else if tabKind === 'table'}
       {@const tableTab = activeTab?.kind === 'table' ? activeTab : null}
       {#if tableTab}
@@ -172,8 +181,8 @@
           <WysiwygEditor tabId={pane?.activeTabId ?? undefined} />
         </div>
       {/if}
-    {:else}
-      <!-- Empty state: no active tab -->
+    {:else if tabKind === null}
+      <!-- Empty state: no active tab (terminal tabs render via the frames below) -->
       <div class="empty-state" role="main" aria-label="No file open">
         <div class="empty-state-content">
           <span class="material-symbols-outlined empty-icon">draft</span>
@@ -186,6 +195,19 @@
         </div>
       </div>
     {/if}
+
+    <!-- Terminals stay mounted across tab switches; only the active one is shown -->
+    {#each terminalTabs as terminalTab (terminalTab.id)}
+      <div
+        class="terminal-frame"
+        class:visible={pane?.activeTabId === terminalTab.id}
+        role="main"
+        aria-label="Terminal"
+        aria-hidden={pane?.activeTabId !== terminalTab.id}
+      >
+        <Terminal terminalId={terminalTab.terminalId} />
+      </div>
+    {/each}
   </div>
 
   {#if showSaveAsModal && currentSaveAsTabId}
@@ -210,11 +232,23 @@
   /* ── Content area ─────────────────────────────────────────────── */
 
   .tab-pane-content {
+    position: relative;
     flex: 1;
     display: flex;
     flex-direction: column;
     min-height: 0;
     overflow: hidden;
+  }
+
+  /* Always-mounted terminal hosts; display switching preserves xterm state */
+  .terminal-frame {
+    position: absolute;
+    inset: 0;
+    display: none;
+  }
+
+  .terminal-frame.visible {
+    display: block;
   }
 
   .content-region {
