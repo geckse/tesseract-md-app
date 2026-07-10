@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   buildGraph3DData,
   seedClusterPositions,
+  seedNearNeighbors,
   nodeSizeValue,
   nodeTooltipHtml,
   edgeTooltipHtml,
@@ -984,5 +985,70 @@ describe('buildGraph3DData', () => {
     const result = buildGraph3DData(data, defaultOptions({ level: 'chunk' }))
     expect(result.nodes[0].val).toBeGreaterThanOrEqual(1)
     expect(result.nodes[0].size).toBeNull()
+  })
+})
+
+describe('seedNearNeighbors', () => {
+  function newNode(id: string, cluster: number | null = null): Graph3DNode {
+    return {
+      id,
+      path: `${id}.md`,
+      label: null,
+      cluster_id: cluster,
+      chunk_index: null,
+      size: null,
+      val: 1,
+      color: '#fff'
+    }
+  }
+
+  it('places a new node near the average of its positioned neighbors', () => {
+    const n = newNode('new')
+    const positions = new Map([
+      ['a', { x: 100, y: 0, z: 0 }],
+      ['b', { x: 100, y: 100, z: 0 }]
+    ])
+    seedNearNeighbors(
+      [n],
+      [
+        { sourceId: 'new', targetId: 'a' },
+        { sourceId: 'b', targetId: 'new' }
+      ],
+      positions,
+      new Map(),
+      0 // no jitter for a deterministic assertion
+    )
+    expect(n.x).toBe(100)
+    expect(n.y).toBe(50)
+    expect(n.z).toBe(0)
+  })
+
+  it('falls back to the cluster centroid when no neighbors are positioned', () => {
+    const n = newNode('new', 5)
+    const centroids = new Map([[5, { x: -10, y: 20, z: 30 }]])
+    seedNearNeighbors([n], [], new Map(), centroids, 0)
+    expect(n.x).toBe(-10)
+    expect(n.y).toBe(20)
+    expect(n.z).toBe(30)
+  })
+
+  it('falls back to near-origin when it has no neighbors or cluster', () => {
+    const n = newNode('new')
+    seedNearNeighbors([n], [], new Map(), new Map(), 10)
+    expect(Math.abs(n.x!)).toBeLessThanOrEqual(5)
+    expect(Math.abs(n.y!)).toBeLessThanOrEqual(5)
+    expect(Math.abs(n.z!)).toBeLessThanOrEqual(5)
+  })
+
+  it('keeps placement within the jitter radius of the neighbor anchor', () => {
+    const n = newNode('new')
+    seedNearNeighbors(
+      [n],
+      [{ sourceId: 'new', targetId: 'a' }],
+      new Map([['a', { x: 200, y: 0, z: 0 }]]),
+      new Map(),
+      20
+    )
+    expect(Math.abs(n.x! - 200)).toBeLessThanOrEqual(10)
   })
 })

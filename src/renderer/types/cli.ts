@@ -508,8 +508,10 @@ export type WatchEventType = 'Created' | 'Modified' | 'Deleted' | 'Renamed'
 export interface WatchEventReport {
   event_type: WatchEventType
   path: string
+  success: boolean
   chunks_processed: number
   duration_ms: number
+  error: string | null
 }
 
 // ─── Index Storage Types ─────────────────────────────────────────────

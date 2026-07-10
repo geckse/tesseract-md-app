@@ -1,7 +1,9 @@
 import { writable, get } from 'svelte/store'
 import type { WatcherStatus, WatcherEvent } from '../../preload/api'
 import { activeCollection, collectionStatus } from './collections'
-import { loadFileTree, loadAssetTree } from './files'
+import { applyWatchReportToTree, scheduleTreeResync, selectedFilePath } from './files'
+import { refreshGraphData } from './graph'
+import { linksInfo, backlinksInfo, loadProperties } from './properties'
 
 /** Maximum number of events to retain in the ring buffer. */
 const MAX_EVENTS = 50
@@ -29,8 +31,12 @@ function pushEvent(event: WatcherEvent): void {
   })
 }
 
-/** Start the watcher for the active collection. */
-export async function startWatcher(): Promise<void> {
+/**
+ * Start the watcher for the active collection.
+ * @param remember - persist the enabled state so it restarts on next launch
+ *                   (true for user toggles; false for automatic restore).
+ */
+export async function startWatcher(remember = true): Promise<void> {
   const collection = get(activeCollection)
   if (!collection) return
   if (get(watcherToggling)) return
@@ -41,6 +47,7 @@ export async function startWatcher(): Promise<void> {
   try {
     await window.api.startWatcher(collection.path)
     watcherState.set('starting')
+    if (remember) window.api.setWatcherEnabled(collection.id, true).catch(() => {})
   } catch (err) {
     watcherError.set(err instanceof Error ? err.message : String(err))
     watcherState.set('error')
@@ -53,16 +60,35 @@ export async function startWatcher(): Promise<void> {
 export async function stopWatcher(): Promise<void> {
   if (get(watcherToggling)) return
 
+  const collection = get(activeCollection)
   watcherToggling.set(true)
   watcherError.set(null)
 
   try {
     await window.api.stopWatcher()
     watcherState.set('stopped')
+    if (collection) window.api.setWatcherEnabled(collection.id, false).catch(() => {})
   } catch (err) {
     watcherError.set(err instanceof Error ? err.message : String(err))
   } finally {
     watcherToggling.set(false)
+  }
+}
+
+/**
+ * Restore the watcher for the active collection if it was last left running.
+ * Call on app mount and after a collection switch. Does not re-persist the
+ * flag (it's already true) and no-ops when the watcher is already running.
+ */
+export async function restoreWatcherForCollection(): Promise<void> {
+  const collection = get(activeCollection)
+  if (!collection) return
+  if (get(watcherState) === 'running' || get(watcherState) === 'starting') return
+  try {
+    const enabled = await window.api.getWatcherEnabled(collection.id)
+    if (enabled) await startWatcher(false)
+  } catch {
+    // Non-critical
   }
 }
 
@@ -86,41 +112,128 @@ export async function fetchWatcherStatus(): Promise<void> {
   }
 }
 
-/** Debounce timer for watch-event triggered refreshes. */
+/** Debounce timer for the authoritative cli:status refresh. */
 let refreshTimer: ReturnType<typeof setTimeout> | null = null
 const REFRESH_DEBOUNCE_MS = 500
+
+/** Graph refresh debounce: trailing settle + max-wait cap so a continuous
+ *  agent write stream cannot starve the graph forever. */
+const GRAPH_REFRESH_DEBOUNCE_MS = 800
+const GRAPH_REFRESH_MAX_WAIT_MS = 5_000
+let graphRefreshTimer: ReturnType<typeof setTimeout> | null = null
+let graphRefreshFirstAt: number | null = null
+
+/** Properties/LocalGraph refresh: debounced, only when the change intersects
+ *  the selected file or its 1-hop neighborhood. */
+const PROPS_REFRESH_DEBOUNCE_MS = 800
+let propsRefreshTimer: ReturnType<typeof setTimeout> | null = null
+let propsChangedPaths = new Set<string>()
+
+/** Whether this session has seen the watcher running before (restart detection). */
+let watcherHadRun = false
 
 /** Handle an incoming watcher event from the main process. */
 export function handleWatcherEvent(event: WatcherEvent): void {
   pushEvent(event)
 
   if (event.type === 'state-change') {
-    const state = event.data as WatcherStatus['state']
+    const state = event.data
     watcherState.set(state)
     if (state === 'error') {
       watcherError.set('Watcher encountered an error')
     }
+    if (state === 'running') {
+      if (watcherHadRun) {
+        // The watcher was down (crash restart, ingest pause) — events were
+        // missed, so resync the tree and patch the graph from fresh data.
+        scheduleTreeResync()
+        refreshGraphData().catch(() => {})
+      }
+      watcherHadRun = true
+    }
   }
 
   if (event.type === 'error') {
-    const errorData = event.data as { message?: string }
-    watcherError.set(errorData?.message ?? 'Unknown watcher error')
+    watcherError.set(event.data?.message ?? 'Unknown watcher error')
     watcherState.set('error')
   }
 
-  // Debounced auto-refresh on watch events to avoid reload storms
   if (event.type === 'watch-event') {
+    const report = event.data
+
+    // Patch the file tree per path (state flip to 'indexed' / row removal)
+    applyWatchReportToTree(report)
+
+    if (report.success) {
+      // Optimistic document count; chunk/vector deltas are unknowable
+      // client-side (chunks_processed is a total, not a delta) — the
+      // debounced cli:status fetch below reconciles them.
+      if (report.event_type === 'Created' || report.event_type === 'Deleted') {
+        const delta = report.event_type === 'Created' ? 1 : -1
+        collectionStatus.update(
+          (s) => s && { ...s, document_count: Math.max(0, s.document_count + delta) }
+        )
+      }
+
+      scheduleGraphRefresh()
+      schedulePropertiesRefresh(report.path)
+    }
+
+    // Debounced authoritative status refresh (numbers only — not a view reload)
     if (refreshTimer) clearTimeout(refreshTimer)
     refreshTimer = setTimeout(() => {
       refreshTimer = null
-      Promise.all([loadFileTree(), loadAssetTree()]).catch(() => {})
       refreshCollectionStatus()
     }, REFRESH_DEBOUNCE_MS)
   }
 }
 
-/** Refresh collection status (non-critical helper). */
-async function refreshCollectionStatus(): Promise<void> {
+/** Schedule a debounced background graph re-fetch (diffed + patched in view). */
+function scheduleGraphRefresh(): void {
+  const now = Date.now()
+  if (graphRefreshFirstAt === null) {
+    graphRefreshFirstAt = now
+  }
+
+  if (graphRefreshTimer) clearTimeout(graphRefreshTimer)
+  const untilCap = graphRefreshFirstAt + GRAPH_REFRESH_MAX_WAIT_MS - now
+  const delay = Math.max(0, Math.min(GRAPH_REFRESH_DEBOUNCE_MS, untilCap))
+
+  graphRefreshTimer = setTimeout(() => {
+    graphRefreshTimer = null
+    graphRefreshFirstAt = null
+    refreshGraphData().catch(() => {})
+  }, delay)
+}
+
+/** Refresh the properties panel when a reindexed file touches the selection. */
+function schedulePropertiesRefresh(changedPath: string): void {
+  propsChangedPaths.add(changedPath)
+  if (propsRefreshTimer) clearTimeout(propsRefreshTimer)
+  propsRefreshTimer = setTimeout(() => {
+    propsRefreshTimer = null
+    const changed = propsChangedPaths
+    propsChangedPaths = new Set()
+
+    const selected = get(selectedFilePath)
+    if (!selected) return
+
+    let relevant = changed.has(selected)
+    if (!relevant) {
+      const links = get(linksInfo)
+      const backlinks = get(backlinksInfo)
+      relevant =
+        (links?.links.outgoing.some((l) => changed.has(l.entry.target)) ?? false) ||
+        (backlinks?.backlinks.some((b) => changed.has(b.entry.source)) ?? false)
+    }
+    if (relevant) {
+      loadProperties(selected)
+    }
+  }, PROPS_REFRESH_DEBOUNCE_MS)
+}
+
+/** Refresh collection status counters from the CLI (non-critical helper). */
+export async function refreshCollectionStatus(): Promise<void> {
   const collection = get(activeCollection)
   if (!collection) return
   try {

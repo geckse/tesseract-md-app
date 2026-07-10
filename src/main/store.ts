@@ -99,6 +99,7 @@ export interface AppStore {
   cliVersion: string | null
   onboardingComplete: boolean
   editorFontSize: number
+  autoShowDiffOnConflict: boolean
   zoomLevel: number
   updateChannel: UpdateChannel
   lastUpdateCheck: number | null
@@ -106,6 +107,7 @@ export interface AppStore {
   windowSessions: PersistedWindowState[]
   primaryColor: string | null
   collectionColors: Record<string, string>
+  watcherEnabled: Record<string, boolean>
   themeMode: string
   collectionThemes: Record<string, string>
   terminalShellPath: string
@@ -231,6 +233,10 @@ const schema = {
     type: 'number' as const,
     default: 17
   },
+  autoShowDiffOnConflict: {
+    type: 'boolean' as const,
+    default: true
+  },
   zoomLevel: {
     type: 'number' as const,
     default: 1.0
@@ -297,6 +303,10 @@ const schema = {
   collectionColors: {
     type: 'object' as const,
     default: {} as Record<string, string>
+  },
+  watcherEnabled: {
+    type: 'object' as const,
+    default: {} as Record<string, boolean>
   },
   themeMode: {
     type: 'string' as const,
@@ -428,6 +438,18 @@ export function setEditorFontSize(value: number): void {
   s.set('editorFontSize', value)
 }
 
+/** Whether the diff view auto-opens when a dirty file changes on disk */
+export function getAutoShowDiff(): boolean {
+  const s = initStore()
+  return s.get('autoShowDiffOnConflict', true)
+}
+
+/** Set whether the diff view auto-opens on conflicts */
+export function setAutoShowDiff(value: boolean): void {
+  const s = initStore()
+  s.set('autoShowDiffOnConflict', value)
+}
+
 /** Get the UI zoom level */
 export function getZoomLevel(): number {
   const s = initStore()
@@ -539,6 +561,25 @@ export function setCollectionColor(collectionId: string, hex: string | null): vo
 export function getCollectionColors(): Record<string, string> {
   const s = initStore()
   return s.get('collectionColors', {})
+}
+
+/** Whether the mdvdb watcher was last left running for a collection. */
+export function getWatcherEnabled(collectionId: string): boolean {
+  const s = initStore()
+  const flags = s.get('watcherEnabled', {})
+  return flags[collectionId] ?? false
+}
+
+/** Remember whether the mdvdb watcher is enabled for a collection. */
+export function setWatcherEnabled(collectionId: string, enabled: boolean): void {
+  const s = initStore()
+  const flags = s.get('watcherEnabled', {})
+  if (enabled) {
+    flags[collectionId] = true
+  } else {
+    delete flags[collectionId]
+  }
+  s.set('watcherEnabled', flags)
 }
 
 /** Get the global theme mode */

@@ -51,7 +51,7 @@ const EXTENSION_MAP: Record<string, MimeCategory> = {
 }
 
 /** Directories that are always skipped. */
-const ALWAYS_SKIP_DIRS = new Set([
+export const ALWAYS_SKIP_DIRS = new Set([
   '.markdownvdb',
   '.git',
   'node_modules',

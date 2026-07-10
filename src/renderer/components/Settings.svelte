@@ -99,6 +99,7 @@
 
   // Appearance state
   let fontSize = $state(14)
+  let autoShowDiff = $state(true)
   let currentGlobalColor: string | null = $state(null)
   let currentCollectionColor: string | null = $state(null)
   let currentGlobalTheme: ThemeMode = $state('dark')
@@ -225,6 +226,7 @@
     window.api.findCli().then((p) => (cliPath = p)).catch(() => {})
     window.api.getCliVersion().then((v) => (cliVersion = v)).catch(() => {})
     window.api.getEditorFontSize().then((s) => (fontSize = s)).catch(() => {})
+    window.api.getAutoShowDiff().then((v) => (autoShowDiff = v)).catch(() => {})
     window.api.getTerminalShellPath().then((v) => (terminalShellPath = v)).catch(() => {})
     window.api.getTerminalShellArgs().then((v) => (terminalShellArgs = v)).catch(() => {})
     window.api.getTerminalFontSize().then((v) => (terminalFontSize = v)).catch(() => {})
@@ -233,6 +235,11 @@
   function saveTerminalShellPath(value: string): void {
     terminalShellPath = value
     window.api.setTerminalShellPath(value).catch(() => {})
+  }
+
+  function handleAutoShowDiffChange(value: boolean): void {
+    autoShowDiff = value
+    window.api.setAutoShowDiff(value).catch(() => {})
   }
 
   function saveTerminalShellArgs(value: string): void {
@@ -1018,6 +1025,19 @@
               onchange={(hex) => setGlobalAccentColor(hex)}
               showReset={true}
             />
+          </div>
+          <div class="field-group">
+            <span class="field-label">External Changes</span>
+            <div class="field-row">
+              <label class="toggle-label">
+                <input
+                  type="checkbox"
+                  checked={autoShowDiff}
+                  onchange={(e) => handleAutoShowDiffChange((e.target as HTMLInputElement).checked)}
+                />
+                Automatically show diff when a file with unsaved changes is modified on disk
+              </label>
+            </div>
           </div>
         </div>
 

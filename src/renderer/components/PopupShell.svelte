@@ -13,6 +13,9 @@
   import SaveAsModal from './SaveAsModal.svelte'
   import { workspace } from '../stores/workspace.svelte'
   import { syncFileStoresFromTab } from '../stores/files'
+  import { setupVaultListener, teardownVaultListener } from '../stores/vault-events'
+  import { setupFileSyncListener, teardownFileSyncListener, applyDiskContentToTab } from '../stores/file-sync'
+  import DiffView from './DiffView.svelte'
   import { saveAsTabId, requestSaveAs, dismissSaveAs } from '../stores/save-as'
   import { collections, activeCollectionId } from '../stores/collections'
   import { loadAccentColors, primaryVariants } from '../stores/accent-color'
@@ -186,10 +189,8 @@
         const docTab = workspace.tabs[tabId]
         if (!docTab || docTab.kind !== 'document') return
 
-        // Silently update — this is from another window in the same app, not an external editor
-        docTab.content = data.content
-        docTab.savedContent = data.content
-        docTab.isDirty = false
+        // Silently update — this is from another window in the same app
+        applyDiskContentToTab(docTab, data.content)
         syncFileStoresFromTab()
       })
     }
@@ -208,13 +209,16 @@
 
     shortcutManager.attach()
 
-    // Cross-window sync (file:saved-externally) handles changes from other app windows.
-    // The Editor/WysiwygEditor components have their own built-in polling for true external
-    // edits (VS Code, vim, etc). No need for a separate watcher in the popup.
+    // True external edits (agents, other editors) reach this window via the
+    // vault watcher broadcast; cross-window app saves via file:saved-externally.
+    setupVaultListener({ getCollectionPath: () => collectionPath || null })
+    setupFileSyncListener({ getCollectionPath: () => collectionPath || null })
 
     return () => {
       unregisterSave?.()
       shortcutManager.detach()
+      teardownVaultListener()
+      teardownFileSyncListener()
       window.api.removePopupInitListener()
       window.api.removeFileSavedExternallyListener()
       unsubTheme()
@@ -392,6 +396,7 @@
       </div>
     {/if}
   </div>
+  <DiffView />
 
   {#if currentSaveAsTabId === tabId && tabId}
     <SaveAsModal

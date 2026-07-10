@@ -15,6 +15,10 @@ import {
   setOnboardingComplete,
   getEditorFontSize,
   setEditorFontSize,
+  getAutoShowDiff,
+  setAutoShowDiff,
+  getWatcherEnabled,
+  setWatcherEnabled,
   getZoomLevel,
   setZoomLevel,
   setCliInfo,
@@ -39,6 +43,8 @@ import type { PersistedWindowState } from './store'
 import type { TabTransferData, PopupOpenOptions, SavedTableView } from '../preload/api'
 import type { FrontmatterPatch } from './frontmatter'
 import { WatcherManager, type WatcherState } from './watcher'
+import { getVaultWatcher } from './vault-watcher'
+import { registerOwnWrite, clearOwnWrites } from './own-writes'
 import { AppUpdater } from './updater'
 import type { WindowManager } from './window-manager'
 import type { PtyManager } from './pty'
@@ -411,6 +417,11 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
 
       removeCollection(id)
 
+      // Stop the vault watcher if it was watching the removed collection
+      if (getVaultWatcher().getStatus().root === collection.path) {
+        await getVaultWatcher().stop()
+      }
+
       // Clean up stale favorites and recents for this collection
       const s = await import('./store').then((m) => m.initStore())
 
@@ -449,6 +460,23 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
   ipcMain.handle('collections:set-active', (_event, id: string) =>
     wrapHandler(async () => {
       setActiveCollection(id)
+
+      const active = getActiveCollection()
+
+      // The mdvdb watcher stays manual, but never leave it running against a
+      // stale root after a collection switch.
+      const watcher = watcherManager
+      if (watcher?.isRunning() && active && watcher.getRoot() !== active.path) {
+        await watcher.stop()
+      }
+
+      // Retarget the Tier-1 vault watcher (own-writes are root-scoped too).
+      clearOwnWrites()
+      if (active) {
+        await getVaultWatcher().start(active.path)
+      } else {
+        await getVaultWatcher().stop()
+      }
     })
   )
 
@@ -628,6 +656,7 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
       if (!isWithinCollection) {
         throw new Error('Access denied: path is not within a known collection')
       }
+      registerOwnWrite(normalizedPath, 'write', content)
       await fs.writeFile(normalizedPath, content, 'utf-8')
 
       // Notify all OTHER windows that this file was saved, so they can
@@ -666,8 +695,10 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
         throw new Error('Access denied: path is not within a known collection')
       }
       // Ensure parent directory exists
+      registerOwnWrite(dirname(normalizedPath), 'mkdir')
       await fs.mkdir(dirname(normalizedPath), { recursive: true })
       // Exclusive create: fails if file already exists
+      registerOwnWrite(normalizedPath, 'create', content)
       await fs.writeFile(normalizedPath, content, { encoding: 'utf-8', flag: 'wx' })
     })
   )
@@ -684,6 +715,7 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
       if (!isWithinCollection) {
         throw new Error('Access denied: path is not within a known collection')
       }
+      registerOwnWrite(normalizedPath, 'mkdir')
       await fs.mkdir(normalizedPath, { recursive: true })
     })
   )
@@ -730,8 +762,10 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
       if (!isWithinCollection) {
         throw new Error('Access denied: path is not within a known collection')
       }
+      registerOwnWrite(dirname(normalizedPath), 'mkdir')
       await fs.mkdir(dirname(normalizedPath), { recursive: true })
       const buffer = Buffer.from(base64Data, 'base64')
+      registerOwnWrite(normalizedPath, 'write', buffer)
       await fs.writeFile(normalizedPath, buffer)
     })
   )
@@ -766,7 +800,9 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
       if (!isDestWithinCollection) {
         throw new Error('Access denied: destination is not within a known collection')
       }
+      registerOwnWrite(dirname(normalizedDest), 'mkdir')
       await fs.mkdir(dirname(normalizedDest), { recursive: true })
+      registerOwnWrite(normalizedDest, 'copy')
       await fs.copyFile(resolve(sourcePath), normalizedDest)
     })
   )
@@ -813,8 +849,23 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
         if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
       }
       // Ensure parent dir exists
+      registerOwnWrite(dirname(normalizedNew), 'mkdir')
       await fs.mkdir(dirname(normalizedNew), { recursive: true })
+
+      const stat = await fs.stat(normalizedOld).catch(() => null)
+      registerOwnWrite(normalizedOld, 'rename-from')
+      registerOwnWrite(normalizedNew, 'rename-to')
       await fs.rename(normalizedOld, normalizedNew)
+
+      // chokidar cannot pair renames (it sees unlink + add) — synthesize the
+      // paired event so renderers can retarget tabs/tree nodes in one step.
+      const { relative: rel } = await import('node:path')
+      getVaultWatcher().emitAppEvent({
+        kind: 'renamed',
+        path: rel(oldCollection.path, normalizedNew).split(sep).join('/'),
+        oldPath: rel(oldCollection.path, normalizedOld).split(sep).join('/'),
+        isDirectory: stat?.isDirectory() ?? false
+      })
     })
   )
 
@@ -831,6 +882,7 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
       if (normalizedPath === collection.path) {
         throw new Error('Cannot delete the collection root directory')
       }
+      registerOwnWrite(normalizedPath, 'delete')
       await shell.trashItem(normalizedPath)
     })
   )
@@ -986,6 +1038,20 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
 
   ipcMain.handle('store:get-editor-font-size', () => wrapHandler(async () => getEditorFontSize()))
 
+  ipcMain.handle('store:get-auto-show-diff', () => wrapHandler(async () => getAutoShowDiff()))
+
+  ipcMain.handle('store:set-auto-show-diff', (_event, value: boolean) =>
+    wrapHandler(async () => setAutoShowDiff(value))
+  )
+
+  ipcMain.handle('store:get-watcher-enabled', (_event, collectionId: string) =>
+    wrapHandler(async () => getWatcherEnabled(collectionId))
+  )
+
+  ipcMain.handle('store:set-watcher-enabled', (_event, collectionId: string, enabled: boolean) =>
+    wrapHandler(async () => setWatcherEnabled(collectionId, enabled))
+  )
+
   ipcMain.handle('store:set-editor-font-size', (_event, value: number) =>
     wrapHandler(async () => {
       setEditorFontSize(value)
@@ -1089,9 +1155,26 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
       const watcher = getWatcherManager()
       return {
         state: watcher.getState(),
-        running: watcher.isRunning()
+        running: watcher.isRunning(),
+        root: watcher.getRoot()
       }
     })
+  )
+
+  // Vault watcher (Tier-1): forward batches + status to all windows.
+  // Lifecycle is main-owned (app ready / collection switch / quit) — renderers
+  // only listen, so there are no start/stop channels.
+  const vaultWatcher = getVaultWatcher()
+  vaultWatcher.removeAllListeners()
+  vaultWatcher.onBatch((batch) => {
+    windowManager.broadcastToAll('vault:file-events', batch)
+  })
+  vaultWatcher.onStatusChange((status) => {
+    windowManager.broadcastToAll('vault:watcher-status', status)
+  })
+
+  ipcMain.handle('vault-watcher:status', () =>
+    wrapHandler(async () => getVaultWatcher().getStatus())
   )
 
   // Updater management

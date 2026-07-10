@@ -95,6 +95,7 @@ const mockWatcherStop = vi.fn()
 const mockWatcherDestroy = vi.fn()
 const mockWatcherGetState = vi.fn()
 const mockWatcherIsRunning = vi.fn()
+const mockWatcherGetRoot = vi.fn()
 const mockWatcherOnEvent = vi.fn()
 const mockWatcherOnError = vi.fn()
 const mockWatcherOnStateChange = vi.fn()
@@ -106,6 +107,7 @@ vi.mock('../../src/main/watcher', () => ({
     destroy: (...args: unknown[]) => mockWatcherDestroy(...args),
     getState: (...args: unknown[]) => mockWatcherGetState(...args),
     isRunning: (...args: unknown[]) => mockWatcherIsRunning(...args),
+    getRoot: (...args: unknown[]) => mockWatcherGetRoot(...args),
     onEvent: (...args: unknown[]) => mockWatcherOnEvent(...args),
     onError: (...args: unknown[]) => mockWatcherOnError(...args),
     onStateChange: (...args: unknown[]) => mockWatcherOnStateChange(...args),
@@ -231,6 +233,7 @@ beforeEach(() => {
   mockWatcherDestroy.mockReset()
   mockWatcherGetState.mockReset()
   mockWatcherIsRunning.mockReset()
+  mockWatcherGetRoot.mockReset()
   mockWatcherOnEvent.mockReset()
   mockWatcherOnError.mockReset()
   mockWatcherOnStateChange.mockReset()
@@ -310,7 +313,14 @@ describe('registerIpcHandlers', () => {
     expect(channels).toContain('tableviews:update')
     expect(channels).toContain('tableviews:delete')
     expect(channels).toContain('tableviews:set-default')
-    expect(channels).toHaveLength(108)
+    // Vault watcher (Tier-1 raw fs events) + diff auto-show setting
+    expect(channels).toContain('vault-watcher:status')
+    expect(channels).toContain('store:get-auto-show-diff')
+    expect(channels).toContain('store:set-auto-show-diff')
+    // Persisted per-collection mdvdb watcher enabled state
+    expect(channels).toContain('store:get-watcher-enabled')
+    expect(channels).toContain('store:set-watcher-enabled')
+    expect(channels).toHaveLength(113)
   })
 })
 
@@ -967,20 +977,22 @@ describe('Watcher IPC handlers', () => {
   })
 
   describe('watcher:status', () => {
-    it('returns watcher state and running status', async () => {
+    it('returns watcher state, running status, and root', async () => {
       mockWatcherGetState.mockReturnValue('running')
       mockWatcherIsRunning.mockReturnValue(true)
+      mockWatcherGetRoot.mockReturnValue('/proj')
       const handler = getHandler('watcher:status')
       const result = await handler(fakeEvent)
-      expect(result).toEqual({ state: 'running', running: true })
+      expect(result).toEqual({ state: 'running', running: true, root: '/proj' })
     })
 
     it('returns stopped state when not running', async () => {
       mockWatcherGetState.mockReturnValue('stopped')
       mockWatcherIsRunning.mockReturnValue(false)
+      mockWatcherGetRoot.mockReturnValue(null)
       const handler = getHandler('watcher:status')
       const result = await handler(fakeEvent)
-      expect(result).toEqual({ state: 'stopped', running: false })
+      expect(result).toEqual({ state: 'stopped', running: false, root: null })
     })
   })
 })

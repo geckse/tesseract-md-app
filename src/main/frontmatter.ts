@@ -20,6 +20,7 @@ import { resolve, sep, dirname, join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { Document, Scalar, parseDocument } from 'yaml'
 import { getCollections } from './store'
+import { registerOwnWrite } from './own-writes'
 import type { WindowManager } from './window-manager'
 
 /** JSON value patch from the renderer (typed scalars/sequences). */
@@ -171,6 +172,9 @@ export async function updateFrontmatter(
   const { content, frontmatter } = applyFrontmatterPatch(original, patch)
 
   // Atomic write: temp file in the same directory, then rename over the original.
+  // The temp file is a dotfile, so the vault watcher never sees it; the final
+  // rename surfaces as a 'change' on absolutePath (chokidar atomic handling).
+  registerOwnWrite(absolutePath, 'write', content)
   const tmpPath = join(dirname(absolutePath), `.${Date.now()}.${process.pid}.mdvdb.tmp`)
   await fs.writeFile(tmpPath, content, 'utf-8')
   try {

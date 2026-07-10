@@ -35,6 +35,12 @@ vi.mock('../../src/main/cli', () => ({
   findCli: () => mockFindCli()
 }))
 
+// realpath canonicalizes the root — identity mock keeps spawn timing deterministic
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return { ...actual, default: actual, realpath: (p: string) => Promise.resolve(p) }
+})
+
 import { WatcherManager, type WatcherEvent, type WatcherState } from '../../src/main/watcher'
 
 /** Create a fake ChildProcess with stdout/stderr as event emitters */

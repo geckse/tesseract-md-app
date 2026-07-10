@@ -2,6 +2,7 @@ import { writable, get } from 'svelte/store'
 import type { IngestResult, IngestPreview } from '../types/cli'
 import { activeCollection, collectionStatus } from './collections'
 import { loadFileTree, loadAssetTree } from './files'
+import { refreshGraphData } from './graph'
 
 /** Ingest state machine states. */
 export type IngestState = 'idle' | 'previewing' | 'ingesting' | 'done' | 'error'
@@ -103,6 +104,8 @@ export async function runIngest(reindex = false): Promise<void> {
     ingestRunning.set(false)
     // Refresh file tree and collection status after ingest
     await Promise.all([loadFileTree(), loadAssetTree()])
+    // Patch the graph from the freshly-reindexed data (diffed, camera-preserving)
+    refreshGraphData().catch(() => {})
     try {
       const status = await window.api.status(collection.path)
       collectionStatus.set(status)

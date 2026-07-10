@@ -7,8 +7,18 @@
 
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createInterface } from 'node:readline'
+import { realpath } from 'node:fs/promises'
 
 import { findCli } from './cli'
+
+/** Resolve symlinks to the canonical path so macOS FSEvents matches events. */
+async function canonicalize(p: string): Promise<string> {
+  try {
+    return await realpath(p)
+  } catch {
+    return p
+  }
+}
 
 /** Watcher lifecycle states */
 export type WatcherState = 'stopped' | 'starting' | 'running' | 'stopping' | 'error'
@@ -43,7 +53,10 @@ const KILL_TIMEOUT_MS = 5_000
 export class WatcherManager {
   private child: ChildProcess | null = null
   private state: WatcherState = 'stopped'
+  /** Original root (returned by getRoot() for identity/comparison). */
   private root: string | null = null
+  /** Canonical root (through symlinks) actually passed to the CLI. */
+  private watchRoot: string | null = null
   private retryCount = 0
   private retryTimer: ReturnType<typeof setTimeout> | null = null
   private destroying = false
@@ -59,6 +72,8 @@ export class WatcherManager {
     }
 
     this.root = root
+    // Resolve symlinks once here so retries reuse it without re-canonicalizing.
+    this.watchRoot = await canonicalize(root)
     this.retryCount = 0
     this.destroying = false
     await this.spawn()
@@ -103,6 +118,11 @@ export class WatcherManager {
     return this.state
   }
 
+  /** Root the watcher was last started for (null before first start). */
+  getRoot(): string | null {
+    return this.root
+  }
+
   /** Register callback for NDJSON events from the watcher. */
   onEvent(cb: WatcherEventCallback): void {
     this.eventCallbacks.push(cb)
@@ -141,7 +161,9 @@ export class WatcherManager {
       return
     }
 
-    const child = spawn(cliPath, ['watch', '--json', '--root', this.root], {
+    // Watch the canonical path (through any symlinks) so FSEvents reports
+    // changes; the CLI's reported paths are relative to root either way.
+    const child = spawn(cliPath, ['watch', '--json', '--root', this.watchRoot ?? this.root], {
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env }
     })

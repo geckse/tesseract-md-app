@@ -320,6 +320,74 @@ export function seedClusterPositions(
 }
 
 /**
+ * Seed positions for newly-added nodes near their already-positioned
+ * neighbors, so an incremental patch drops nodes in a sensible place instead
+ * of at the origin. Mutates x/y/z in place. Precedence:
+ *   1. average of up to 3 positioned link-neighbors + jitter
+ *   2. else the node's cluster centroid + jitter
+ *   3. else origin + jitter
+ */
+export function seedNearNeighbors(
+  newNodes: Graph3DNode[],
+  allLinks: { sourceId: string; targetId: string }[],
+  positions: Map<string, { x: number; y: number; z: number }>,
+  clusterCentroids: Map<number, { x: number; y: number; z: number }>,
+  jitter: number = 25
+): void {
+  if (newNodes.length === 0) return
+
+  // Build adjacency limited to the new nodes we need to place
+  const newIds = new Set(newNodes.map((n) => n.id))
+  const neighbors = new Map<string, string[]>()
+  for (const link of allLinks) {
+    if (newIds.has(link.sourceId)) {
+      const arr = neighbors.get(link.sourceId) ?? []
+      arr.push(link.targetId)
+      neighbors.set(link.sourceId, arr)
+    }
+    if (newIds.has(link.targetId)) {
+      const arr = neighbors.get(link.targetId) ?? []
+      arr.push(link.sourceId)
+      neighbors.set(link.targetId, arr)
+    }
+  }
+
+  const jit = () => (Math.random() - 0.5) * jitter
+
+  for (const node of newNodes) {
+    const linked = neighbors.get(node.id) ?? []
+    const anchors: { x: number; y: number; z: number }[] = []
+    for (const id of linked) {
+      const pos = positions.get(id)
+      if (pos) anchors.push(pos)
+      if (anchors.length >= 3) break
+    }
+
+    if (anchors.length > 0) {
+      const sum = anchors.reduce(
+        (acc, p) => ({ x: acc.x + p.x, y: acc.y + p.y, z: acc.z + p.z }),
+        { x: 0, y: 0, z: 0 }
+      )
+      node.x = sum.x / anchors.length + jit()
+      node.y = sum.y / anchors.length + jit()
+      node.z = sum.z / anchors.length + jit()
+      continue
+    }
+
+    const centroid = node.cluster_id != null ? clusterCentroids.get(node.cluster_id) : undefined
+    if (centroid) {
+      node.x = centroid.x + jit()
+      node.y = centroid.y + jit()
+      node.z = centroid.z + jit()
+    } else {
+      node.x = jit()
+      node.y = jit()
+      node.z = jit()
+    }
+  }
+}
+
+/**
  * Convert a `GraphData` payload from the Rust CLI into the format consumed
  * by 3d-force-graph.
  *

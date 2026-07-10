@@ -19,7 +19,9 @@ import type {
   DoctorResult,
   AssetScanResult,
   CollectionOutput,
-  JsonValue
+  JsonValue,
+  WatchEventReport,
+  MimeCategory
 } from '../renderer/types/cli'
 
 /** A collection (project folder) managed by the app. */
@@ -380,6 +382,13 @@ export interface MdvdbApi {
   onWatcherEvent(callback: (event: WatcherEvent) => void): void
   removeWatcherEventListener(): void
 
+  // Vault watcher (Tier-1 raw fs events; lifecycle is main-owned)
+  getVaultWatcherStatus(): Promise<VaultWatcherStatus>
+  onVaultFileEvents(callback: (batch: VaultEventBatch) => void): void
+  removeVaultFileEventsListener(): void
+  onVaultWatcherStatus(callback: (status: VaultWatcherStatus) => void): void
+  removeVaultWatcherStatusListener(): void
+
   // Native menu events
   onMenuOpenRecent(callback: (data: { collectionId: string; filePath: string }) => void): void
   removeMenuOpenRecentListener(): void
@@ -408,6 +417,10 @@ export interface MdvdbApi {
   // Editor preferences
   getEditorFontSize(): Promise<number>
   setEditorFontSize(value: number): Promise<void>
+  getAutoShowDiff(): Promise<boolean>
+  setAutoShowDiff(value: boolean): Promise<void>
+  getWatcherEnabled(collectionId: string): Promise<boolean>
+  setWatcherEnabled(collectionId: string, enabled: boolean): Promise<void>
 
   // Zoom
   getZoomLevel(): Promise<number>
@@ -524,6 +537,7 @@ export interface UpdateEvent {
 /** Watcher status returned by getWatcherStatus. */
 export interface WatcherStatus {
   state: 'stopped' | 'starting' | 'running' | 'stopping' | 'error'
+  running: boolean
   root: string | null
 }
 
@@ -573,9 +587,47 @@ export interface TerminalTitlePayload {
 }
 
 /** Watcher event forwarded from the main process. */
-export interface WatcherEvent {
-  type: 'state-change' | 'watch-event' | 'error'
-  data: unknown
+export type WatcherEvent =
+  | { type: 'watch-event'; data: WatchEventReport }
+  | { type: 'state-change'; data: WatcherStatus['state'] }
+  | { type: 'error'; data: { message: string } }
+
+/** Kind of raw filesystem change observed by the vault watcher. */
+export type VaultFileEventKind = 'created' | 'modified' | 'deleted' | 'renamed'
+
+/** A raw (pre-reindex) filesystem event inside the active collection. */
+export interface VaultFileEvent {
+  kind: VaultFileEventKind
+  /** Relative to the collection root, POSIX separators (matches FileTreeNode.path). */
+  path: string
+  /** Only for kind 'renamed' (app-synthesized): previous relative path. */
+  oldPath?: string
+  isDirectory: boolean
+  /** Precomputed classification; null for directories. */
+  fileKind: 'markdown' | 'asset' | null
+  /** Asset mime category (null for markdown files and directories). */
+  mimeCategory: MimeCategory | null
+  mtimeMs: number | null
+  size: number | null
+  /** 'app' when matched against the recent-own-writes registry, else 'external'. */
+  origin: 'app' | 'external'
+  ts: number
+}
+
+/** Micro-batched vault watcher events broadcast to all windows. */
+export interface VaultEventBatch {
+  /** Absolute collection root the watcher was watching — consumers filter on this. */
+  root: string
+  events: VaultFileEvent[]
+  /** True when the burst exceeded the batch cap: events is truncated; consumers must resync. */
+  overflow: boolean
+}
+
+/** Lifecycle status of the Tier-1 vault watcher. */
+export interface VaultWatcherStatus {
+  state: 'stopped' | 'starting' | 'running' | 'error'
+  root: string | null
+  message?: string
 }
 
 declare global {

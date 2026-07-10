@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { get } from 'svelte/store';
   import { EditorView, keymap } from '@codemirror/view';
-  import { EditorState } from '@codemirror/state';
+  import { EditorState, Transaction } from '@codemirror/state';
   import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
   import { history, historyKeymap, historyField } from '@codemirror/commands';
   import { defaultKeymap } from '@codemirror/commands';
@@ -10,12 +10,13 @@
   import { editorTheme } from '../lib/editor-theme';
   import { softRender } from '../lib/soft-render';
   import { frontmatterDecoration } from '../lib/frontmatter-decoration';
+  import { computeMinimalChanges } from '../lib/external-apply';
   import { activeCollection } from '../stores/collections';
   import { workspace, type DocumentTab } from '../stores/workspace.svelte';
-  import { isDirty, wordCount, tokenCount, countWords, countTokens, saveRequested, discardRequested, scrollToLine, activeHeadingIndex, editorMode, type EditorMode } from '../stores/editor';
+  import { isDirty, wordCount, tokenCount, countWords, countTokens, saveRequested, discardRequested, scrollToLine, activeHeadingIndex, editorMode, syncEditorStoresFromTab, type EditorMode } from '../stores/editor';
   import { propertiesFileContent, outline } from '../stores/properties';
   import ConflictNotification from './ConflictNotification.svelte';
-  import { showConflict, dismissConflict } from '../stores/conflict';
+  import { dismissConflict } from '../stores/conflict';
   import { requestSaveAs } from '../stores/save-as';
 
   // ── Props ─────────────────────────────────────────────────────────────
@@ -29,8 +30,6 @@
   const MAX_POOL_SIZE = 10;
   /** Large file handling (>1MB). */
   const LARGE_FILE_THRESHOLD = 1024 * 1024;
-  /** File change detection interval (ms). */
-  const FILE_CHECK_INTERVAL = 2000;
 
   // ── Instance Pool ─────────────────────────────────────────────────────
   /**
@@ -66,10 +65,8 @@
   // ── Component State ───────────────────────────────────────────────────
   let editorHost: HTMLDivElement | undefined = $state(undefined);
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  let fileWatchInterval: ReturnType<typeof setInterval> | null = null;
   let largeFileWarning = $state(false);
-  let isSaving = false;
-  let saveGraceUntil = 0;
+  let composingRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
   // ── Store Subscriptions ───────────────────────────────────────────────
   let currentOutline: import('../stores/properties').OutlineHeading[] = [];
@@ -300,7 +297,6 @@
     if (!editorHost || !currentTabId || !tab) {
       // No active document tab — hide all
       hideEntry(previousActiveTabId);
-      stopFileWatcher();
       previousActiveTabId = null;
       return;
     }
@@ -315,8 +311,6 @@
     if (isSwitching) {
       // Save scroll position of previous tab and hide it
       hideEntry(previousActiveTabId);
-      stopFileWatcher();
-      dismissConflict();
     }
 
     // Get or create the editor for this tab
@@ -340,25 +334,29 @@
 
       // Use savedContent (disk state) for dirty tracking across mode switches
       entry.lastSavedContent = tab.savedContent ?? tab.content!;
-      const content = entry.view.state.doc.toString();
-      isDirty.set(content !== entry.lastSavedContent);
-      wordCount.set(countWords(content));
-      tokenCount.set(countTokens(content));
+
+      // Reconcile hidden pool entries whose tab content moved on while hidden
+      // (external live-applies, cross-window saves, serialized-pool restores)
+      const viewContent = entry.view.state.doc.toString();
+      if (!tab.isDirty && viewContent !== tab.content) {
+        applyExternalContent(entry, tab.content!, tab);
+      } else {
+        isDirty.set(viewContent !== entry.lastSavedContent);
+        wordCount.set(countWords(viewContent));
+        tokenCount.set(countTokens(viewContent));
+      }
 
       // Update large file warning
       const contentSize = new Blob([tab.content!]).size;
       largeFileWarning = contentSize > LARGE_FILE_THRESHOLD;
 
       previousActiveTabId = currentTabId;
-      startFileWatcher();
     } else {
-      // Same tab — check if content was externally reloaded (e.g., conflict resolution or cross-window sync)
+      // Same tab — content changed from outside the editor (external live
+      // apply, conflict resolution, or cross-window sync)
       const viewContent = entry.view.state.doc.toString();
       if (tab.content !== entry.lastSavedContent && tab.content !== viewContent) {
-        // External content change — replace content in the editor and update saved baseline
-        replaceContent(entry, tab.content);
-        entry.lastSavedContent = tab.savedContent ?? tab.content!;
-        isDirty.set(false);
+        applyExternalContent(entry, tab.content, tab);
       }
     }
   });
@@ -373,17 +371,59 @@
     entry.container.style.display = 'none';
   }
 
-  function replaceContent(entry: PoolEntry, content: string): void {
-    entry.lastSavedContent = content;
-    isDirty.set(false);
+  /**
+   * Apply externally-changed content into a live editor as a minimal change
+   * set: cursor/scroll survive via CodeMirror position mapping, and
+   * addToHistory:false keeps the user's undo stack from ever reverting an
+   * agent's disk write.
+   */
+  function applyExternalContent(entry: PoolEntry, content: string, tab: DocumentTab): void {
+    const viewContent = entry.view.state.doc.toString();
+    if (viewContent === content) {
+      entry.lastSavedContent = tab.savedContent ?? content;
+      return;
+    }
+
+    // Never dispatch into an in-progress IME composition — retry after it ends
+    if (entry.view.composing) {
+      scheduleComposingRetry(entry, tab);
+      return;
+    }
+
+    entry.lastSavedContent = tab.savedContent ?? content;
     initializing = true;
-    const doc = entry.view.state.doc;
-    entry.view.dispatch({
-      changes: { from: 0, to: doc.length, insert: content },
-    });
-    initializing = false;
-    wordCount.set(countWords(content));
-    tokenCount.set(countTokens(content));
+    try {
+      entry.view.dispatch({
+        changes: computeMinimalChanges(viewContent, content),
+        annotations: Transaction.addToHistory.of(false),
+      });
+    } finally {
+      initializing = false;
+    }
+
+    // Write tab fields directly (not the focused-tab store shims) — with
+    // split panes this component may not host the focused tab.
+    tab.content = content;
+    tab.isDirty = content !== entry.lastSavedContent;
+    tab.wordCount = countWords(content);
+    tab.tokenCount = countTokens(content);
+    syncEditorStoresFromTab();
+  }
+
+  /** Re-apply the tab's latest content once the IME composition ends. */
+  function scheduleComposingRetry(entry: PoolEntry, tab: DocumentTab): void {
+    const retry = () => {
+      entry.view.contentDOM.removeEventListener('compositionend', retry);
+      if (composingRetryTimer) {
+        clearTimeout(composingRetryTimer);
+        composingRetryTimer = null;
+      }
+      if (tab.content !== null && !tab.isDirty) {
+        applyExternalContent(entry, tab.content, tab);
+      }
+    };
+    entry.view.contentDOM.addEventListener('compositionend', retry, { once: true });
+    composingRetryTimer = setTimeout(retry, 300);
   }
 
   // ── Editor Update Handler ─────────────────────────────────────────────
@@ -460,15 +500,12 @@
     tab.content = content;
     tab.savedContent = content;
     isDirty.set(false);
-    isSaving = true;
 
+    const savedPath = tab.filePath;
     window.api.writeFile(fullPath, content).then(() => {
-      dismissConflict();
+      dismissConflict(savedPath);
     }).catch((err) => {
       console.error('Save failed:', err);
-    }).finally(() => {
-      isSaving = false;
-      saveGraceUntil = Date.now() + 2000;
     });
     return true;
   }
@@ -478,46 +515,11 @@
   function handleDiscard(): void {
     if (!activeTabId) return;
     const entry = pool.get(activeTabId);
-    if (!entry) return;
+    const tab = activeDocTab;
+    if (!entry || !tab) return;
 
     // Replace editor content with last saved content
-    replaceContent(entry, entry.lastSavedContent);
-  }
-
-  // ── File Change Detection ─────────────────────────────────────────────
-
-  async function checkForExternalChanges() {
-    if (!activeTabId || !currentActiveCollection) return;
-    const entry = pool.get(activeTabId);
-    if (!entry) return;
-    if (isSaving || Date.now() < saveGraceUntil) return;
-
-    const tab = activeDocTab;
-    if (!tab || tab.isUntitled) return;
-
-    const fullPath = `${currentActiveCollection.path}/${tab.filePath}`;
-
-    try {
-      const diskContent = await window.api.readFile(fullPath);
-      if (diskContent !== entry.lastSavedContent) {
-        showConflict(tab.filePath);
-        stopFileWatcher();
-      }
-    } catch {
-      stopFileWatcher();
-    }
-  }
-
-  function startFileWatcher() {
-    stopFileWatcher();
-    fileWatchInterval = setInterval(checkForExternalChanges, FILE_CHECK_INTERVAL);
-  }
-
-  function stopFileWatcher() {
-    if (fileWatchInterval) {
-      clearInterval(fileWatchInterval);
-      fileWatchInterval = null;
-    }
+    applyExternalContent(entry, entry.lastSavedContent, tab);
   }
 
   // ── Large File Warning ────────────────────────────────────────────────
@@ -534,8 +536,7 @@
 
   onDestroy(() => {
     if (debounceTimer) clearTimeout(debounceTimer);
-    stopFileWatcher();
-    dismissConflict();
+    if (composingRetryTimer) clearTimeout(composingRetryTimer);
 
     // Sync all pool entries' content to workspace tabs before destroying
     for (const [id, entry] of pool) {
@@ -676,7 +677,7 @@
 
 {#if activeDocTab}
   <div class="editor-container">
-    <ConflictNotification />
+    <ConflictNotification filePath={activeDocTab.filePath} />
     {#if largeFileWarning}
       <div class="large-file-warning">
         <span class="material-symbols-outlined warning-icon">warning</span>

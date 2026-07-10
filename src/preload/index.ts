@@ -154,6 +154,21 @@ const api: MdvdbApi = {
     ipcRenderer.removeAllListeners('watcher:event')
   },
 
+  // Vault watcher (Tier-1 raw fs events; lifecycle is main-owned)
+  getVaultWatcherStatus: () => invoke('vault-watcher:status'),
+  onVaultFileEvents: (callback) => {
+    ipcRenderer.on('vault:file-events', (_event, batch) => callback(batch))
+  },
+  removeVaultFileEventsListener: () => {
+    ipcRenderer.removeAllListeners('vault:file-events')
+  },
+  onVaultWatcherStatus: (callback) => {
+    ipcRenderer.on('vault:watcher-status', (_event, status) => callback(status))
+  },
+  removeVaultWatcherStatusListener: () => {
+    ipcRenderer.removeAllListeners('vault:watcher-status')
+  },
+
   // Native menu events
   onMenuOpenRecent: (callback) => {
     ipcRenderer.on('menu:open-recent', (_event, data) => callback(data))
@@ -191,6 +206,10 @@ const api: MdvdbApi = {
   // Editor preferences
   getEditorFontSize: () => invoke('store:get-editor-font-size'),
   setEditorFontSize: (value) => invoke('store:set-editor-font-size', value),
+  getAutoShowDiff: () => invoke('store:get-auto-show-diff'),
+  setAutoShowDiff: (value) => invoke('store:set-auto-show-diff', value),
+  getWatcherEnabled: (collectionId) => invoke('store:get-watcher-enabled', collectionId),
+  setWatcherEnabled: (collectionId, enabled) => invoke('store:set-watcher-enabled', collectionId, enabled),
 
   // Zoom
   getZoomLevel: () => invoke('store:get-zoom-level'),

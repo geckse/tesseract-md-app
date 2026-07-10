@@ -146,6 +146,21 @@ export const graphPathFilter: Writable<string | null> = {
 /** Graph data from the last successful load. */
 export const graphData = writable<GraphData | null>(null)
 
+/**
+ * How the current graphData value was produced. Set synchronously immediately
+ * before each graphData.set() so subscribers can read it with get():
+ * 'replace' = user-initiated full load (spinner, zoom-to-fit semantics),
+ * 'refresh' = background re-fetch after index changes (patch incrementally).
+ */
+export const graphLoadMode = writable<'replace' | 'refresh'>('replace')
+
+/**
+ * Where the current graphData came from: 'cli' = mdvdb graph output,
+ * 'adhoc' = transient neighborhood view (openGraphWithNeighborhood).
+ * Background refreshes never overwrite an adhoc view.
+ */
+export const graphDataSource = writable<'cli' | 'adhoc'>('cli')
+
 /** Whether graph data is currently loading. */
 export const graphLoading = writable<boolean>(false)
 
@@ -180,18 +195,35 @@ let loadGeneration = 0
 
 // ─── Actions ────────────────────────────────────────────────────────
 
-/** Load graph data for the active collection. */
-export async function loadGraphData(): Promise<void> {
+/**
+ * Load graph data for the active collection.
+ *
+ * 'replace' (default) is the user-initiated full load: spinner shown, errors
+ * clear the view. 'refresh' is the invisible background re-fetch after index
+ * changes: no spinner, errors keep the existing data, and adhoc neighborhood
+ * views are never overwritten — GraphView diffs the result and patches the
+ * scene incrementally instead of rebuilding.
+ */
+export async function loadGraphData(mode: 'replace' | 'refresh' = 'replace'): Promise<void> {
   const collection = get(activeCollection)
   if (!collection) {
     graphLoading.set(false)
     return
   }
 
+  if (mode === 'refresh') {
+    // Nothing loaded yet → nothing to patch; the next replace-load covers it.
+    if (get(graphData) === null) return
+    // Never replace a transient neighborhood view with the full graph.
+    if (get(graphDataSource) === 'adhoc') return
+  }
+
   const generation = ++loadGeneration
 
-  graphLoading.set(true)
-  graphError.set(null)
+  if (mode === 'replace') {
+    graphLoading.set(true)
+    graphError.set(null)
+  }
 
   try {
     const level = get(graphLevel)
@@ -201,17 +233,30 @@ export async function loadGraphData(): Promise<void> {
     // Ignore stale results
     if (generation !== loadGeneration) return
 
+    graphLoadMode.set(mode)
+    graphDataSource.set('cli')
     graphData.set(data)
     graphError.set(null)
   } catch (err) {
     if (generation !== loadGeneration) return
+    if (mode === 'refresh') {
+      // A transient CLI failure during agent churn must not blank a working
+      // view; the next debounced refresh retries.
+      console.warn('Background graph refresh failed:', err)
+      return
+    }
     graphError.set(err instanceof Error ? err.message : String(err))
     graphData.set(null)
   } finally {
-    if (generation === loadGeneration) {
+    if (generation === loadGeneration && mode === 'replace') {
       graphLoading.set(false)
     }
   }
+}
+
+/** Background graph re-fetch — the entry point for index-change consumers. */
+export function refreshGraphData(): Promise<void> {
+  return loadGraphData('refresh')
 }
 
 /**
@@ -368,6 +413,8 @@ export function openGraphWithNeighborhood(filePath: string, neighborhood: Neighb
   }
 
   loadGeneration++
+  graphLoadMode.set('replace')
+  graphDataSource.set('adhoc')
   graphData.set(data)
   const nodeData: GraphNode = { id: filePath, path: filePath, label: null, cluster_id: null, chunk_index: null }
   graphSelectedNode.set(nodeData)
@@ -385,6 +432,8 @@ export function openGraphWithNeighborhood(filePath: string, neighborhood: Neighb
 export function resetGraphState(): void {
   loadGeneration++
   graphData.set(null)
+  graphLoadMode.set('replace')
+  graphDataSource.set('cli')
   graphLoading.set(false)
   graphError.set(null)
   graphSelectedNode.set(null)

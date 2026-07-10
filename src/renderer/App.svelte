@@ -18,7 +18,10 @@
   import { loadFavorites } from './stores/favorites';
   import { openQuickOpen } from './stores/quickopen';
   import { shortcutManager } from './lib/shortcuts';
-  import { setupWatcherListener, teardownWatcherListener, fetchWatcherStatus, clearWatcherEvents } from './stores/watcher';
+  import { setupWatcherListener, teardownWatcherListener, fetchWatcherStatus, clearWatcherEvents, restoreWatcherForCollection } from './stores/watcher';
+  import { setupVaultListener, teardownVaultListener } from './stores/vault-events';
+  import { setupFileSyncListener, teardownFileSyncListener, resetFileSyncState, applyDiskContentToTab } from './stores/file-sync';
+  import DiffView from './components/DiffView.svelte';
   import { graphViewActive, toggleGraphView, loadGraphData, resetGraphState } from './stores/graph';
   import { goBack, goForward, setNavigating, clearNavigation, recordNavigation } from './stores/navigation';
   import { settingsOpen, onboardingComplete, loadOnboardingState, editorFontSize, loadEditorFontSize } from './stores/ui';
@@ -73,9 +76,13 @@
         // If restore fails, still enable persistence for this session
         workspace.enablePersistence();
       }
+      // Restart the mdvdb watcher if it was left running for this collection
+      restoreWatcherForCollection().catch(() => {});
     });
     loadFavorites();
     setupWatcherListener();
+    setupVaultListener();
+    setupFileSyncListener();
     setupUpdateListener();
     fetchWatcherStatus();
     loadOnboardingState();
@@ -112,6 +119,7 @@
     });
 
     // Listen for cross-window file saves — silently update matching open tabs
+    // (shares the same apply path as external live-updates)
     window.api.onFileSavedExternally(({ path: savedPath, content }) => {
       for (const tab of Object.values(workspace.tabs)) {
         if (tab.kind !== 'document') continue;
@@ -120,10 +128,7 @@
         const absTabPath = `${coll.path}/${tab.filePath}`;
         if (savedPath !== absTabPath) continue;
 
-        // Silently update this tab's content — it was saved by another window in the same app
-        tab.content = content;
-        tab.savedContent = content;
-        tab.isDirty = false;
+        applyDiskContentToTab(tab, content);
       }
       syncFileStoresFromTab();
     });
@@ -483,6 +488,7 @@
       // Clear file selection, tree, properties, and editor state FIRST
       // to prevent stale paths from being used in CLI calls
       resetFileState();
+      resetFileSyncState();
       resetEditorState();
       clearSearch();
       clearNavigation();
@@ -493,6 +499,8 @@
       if (wasGraphActive) {
         loadGraphData();
       }
+      // Restart the mdvdb watcher if the new collection had it running
+      restoreWatcherForCollection().catch(() => {});
     });
 
     return () => {
@@ -502,6 +510,8 @@
       window.removeEventListener('beforeunload', flushSession);
       document.removeEventListener('mousedown', handleClickAway);
       teardownWatcherListener();
+      teardownVaultListener();
+      teardownFileSyncListener();
       teardownUpdateListener();
       window.api.removeMenuOpenRecentListener();
       window.api.removeFileSavedExternallyListener();
@@ -637,6 +647,7 @@
   {/if}
   <IngestModal />
   <QuickOpen />
+  <DiffView />
 </div>
 {/if}
 

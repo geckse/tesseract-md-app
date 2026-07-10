@@ -40,6 +40,8 @@
     graphPathFilter,
     graphHighlightedFolder,
     graphHoveredFilePath,
+    graphLoadMode,
+    graphDataSource,
     loadGraphData,
     selectGraphNode,
     openGraphNode,
@@ -60,7 +62,8 @@
   import { get } from 'svelte/store'
   import { workspace } from '../stores/workspace.svelte'
   import GraphPreview from './GraphPreview.svelte'
-  import { edgeClusterColor } from '../lib/edge-utils'
+  import { edgeClusterColor, isEdgeVisible, edgeLinkColor, edgeLinkWidth } from '../lib/edge-utils'
+  import { diffGraphData, shouldPatch, isEmptyDelta, type GraphDelta } from '../lib/graph-delta'
   import { paletteColor, paletteTextColor, type HarmonicPalette } from '../lib/harmonic-palette'
   import { clusterPalette, customClusterPalette, edgePalette, arrowPalette } from '../stores/palette'
   import {
@@ -73,7 +76,9 @@
   import {
     buildGraph3DData,
     seedClusterPositions,
+    seedNearNeighbors,
     computeDegreeMap,
+    nodeSizeValue,
     edgeArrowColor,
     nodeTooltipHtml,
     edgeTooltipHtml,
@@ -1250,6 +1255,210 @@
     }
   }
 
+  /** How long added-node anchors stay pinned after an incremental patch. */
+  const PATCH_PIN_MS = 1500
+
+  /** Content key for a live link (endpoints may be resolved node objects). */
+  function liveLinkKey(link: ForceLink): string {
+    return [
+      linkNodeId(link.source),
+      linkNodeId(link.target),
+      link.relationship_type ?? '',
+      link.strength ?? '',
+      link.context_text ?? '',
+      link.edge_cluster_id ?? ''
+    ].join(' ')
+  }
+
+  /**
+   * Apply an incremental delta to the live graph WITHOUT a full rebuild:
+   * surviving node/link objects are reused (positions, velocities, and THREE
+   * meshes preserved), so the camera and settled layout are untouched. New
+   * nodes are seeded near their neighbors; pre-existing nodes are briefly
+   * pinned so the reheat doesn't scatter them. No zoomToFit, no reseed.
+   */
+  function applyGraphDelta(next: GraphData, delta: GraphDelta) {
+    if (!graph) return
+
+    graph.pauseAnimation()
+
+    const gd = graph.graphData()
+    const liveNodes = gd.nodes as ForceNode[]
+    const liveLinks = gd.links as ForceLink[]
+
+    const edgeFilter = currentEdgeFilter.size > 0 ? currentEdgeFilter : null
+    const visibleNextEdges = next.edges.filter((e) => isEdgeVisible(e, edgeFilter))
+    const degreeOfNode = computeDegreeMap(visibleNextEdges)
+    const maxSize = Math.max(1, ...next.nodes.map((n) => n.size ?? 0))
+
+    // 1. Remove deleted nodes and any link touching them
+    const removed = delta.removedNodeIds
+    let nodes: ForceNode[] = removed.size
+      ? liveNodes.filter((n) => !removed.has(n.id))
+      : liveNodes
+    let links: ForceLink[] = removed.size
+      ? liveLinks.filter(
+          (l) => !removed.has(linkNodeId(l.source)) && !removed.has(linkNodeId(l.target))
+        )
+      : liveLinks
+
+    // 2. Update changed nodes in place (positions untouched)
+    if (delta.updatedNodes.size) {
+      for (const node of nodes) {
+        const upd = delta.updatedNodes.get(node.id)
+        if (upd) {
+          node.cluster_id = upd.cluster_id
+          node.label = upd.label
+          node.size = upd.size ?? null
+        }
+      }
+    }
+
+    // 3. Recompute sphere size (val) for every surviving node
+    for (const node of nodes) {
+      node.val = nodeSizeValue(currentLevel, degreeOfNode.get(node.id) ?? 0, node.size ?? 0, maxSize)
+    }
+
+    // 4. Add new nodes, seeded near their already-positioned neighbors
+    if (delta.addedNodes.length) {
+      const positions = new Map<string, { x: number; y: number; z: number }>()
+      for (const n of nodes) {
+        if (n.x != null && n.y != null && n.z != null) {
+          positions.set(n.id, { x: n.x, y: n.y, z: n.z })
+        }
+      }
+      const linkPairs = visibleNextEdges.map((e) => ({ sourceId: e.source, targetId: e.target }))
+
+      const newNodes: Graph3DNode[] = delta.addedNodes.map((node) => ({
+        id: node.id,
+        path: node.path,
+        label: node.label,
+        cluster_id: node.cluster_id,
+        chunk_index: node.chunk_index,
+        size: node.size ?? null,
+        val: nodeSizeValue(currentLevel, degreeOfNode.get(node.id) ?? 0, node.size ?? 0, maxSize),
+        color: '' // resolved live by the nodeColor accessor after refresh()
+      }))
+      seedNearNeighbors(newNodes, linkPairs, positions, clusterCentroids)
+      nodes = nodes.concat(newNodes as ForceNode[])
+    }
+
+    // 5. Remove matched link occurrences, then append new links
+    if (delta.removedLinkKeys.size) {
+      const remaining = new Map(delta.removedLinkKeys)
+      links = links.filter((l) => {
+        const key = liveLinkKey(l)
+        const count = remaining.get(key)
+        if (count && count > 0) {
+          remaining.set(key, count - 1)
+          return false
+        }
+        return true
+      })
+    }
+    if (delta.addedLinks.length) {
+      const newLinks: Graph3DLink[] = delta.addedLinks.map((edge) => ({
+        source: edge.source,
+        target: edge.target,
+        relationship_type: edge.relationship_type ?? null,
+        strength: edge.strength ?? null,
+        context_text: edge.context_text ?? null,
+        edge_cluster_id: edge.edge_cluster_id ?? null,
+        color: edgeLinkColor(
+          edge.edge_cluster_id,
+          edge.strength ?? 0.5,
+          currentEdgeWeakThreshold,
+          currentEdgePalette
+        ),
+        width: edgeLinkWidth(edge.strength ?? 0.5)
+      }))
+      links = links.concat(newLinks as ForceLink[])
+    }
+
+    // 6. Pin pre-existing nodes so the reheat relaxes gently instead of scattering
+    const addedIds = new Set(delta.addedNodes.map((n) => n.id))
+    for (const node of nodes) {
+      if (addedIds.has(node.id)) continue
+      if (node.fx != null) continue // mid-drag — leave it
+      if (node.x != null) {
+        node.fx = node.x
+        node.fy = node.y
+        node.fz = node.z
+      }
+    }
+
+    // 7. Swap the (mutated) arrays back in; force sim reheats, pins hold layout
+    degreeMap = computeDegreeMap(next.edges)
+    computeBidirectionalPairs(links)
+    recomputeLiveCentroids(nodes)
+    if (currentColoringMode === 'folder') rebuildFolderColorMap(nodes)
+
+    currentGraph3DData = { nodes, links }
+    nodeCount = nodes.length
+    applyPerformanceSafeguards()
+    configureForces(currentLevel)
+
+    graph.graphData({ nodes, links })
+    graph.resumeAnimation()
+
+    // 8. Unpin the anchors after the reheat has mostly cooled
+    setTimeout(() => {
+      if (!graph) return
+      const cur = graph.graphData().nodes as ForceNode[]
+      for (const node of cur) {
+        if (addedIds.has(node.id)) continue
+        node.fx = undefined
+        node.fy = undefined
+        node.fz = undefined
+      }
+    }, PATCH_PIN_MS)
+
+    // 9. Reconcile selection/hover state against removed nodes
+    if (currentSelected && removed.has(currentSelected.id)) {
+      selectGraphNode(null)
+    } else {
+      computeNeighborSet()
+      applySelectionDimming()
+    }
+    if (hoveredNode && removed.has(hoveredNode.id)) hoveredNode = null
+    if (contextMenuNode && removed.has(contextMenuNode.id)) contextMenuNode = null
+
+    // Re-apply an active graph search against the new node set
+    if (graphSearchVisible && graphSearchQuery.length >= 2) {
+      executeGraphSearch(graphSearchQuery)
+    }
+
+    // Cluster shells rebuild from current positions/cluster ids
+    if (currentColoringMode === 'cluster') updateClusterSpheres()
+
+    // Re-evaluate color + hub accessors (coalesces with the graphData digest)
+    graph.refresh()
+  }
+
+  /**
+   * Capture the current camera + node positions into the per-tab caches so a
+   * subsequent feedData() restores them instead of zooming to fit — used when
+   * a delta is too large to patch but we still want to avoid a camera reset.
+   */
+  function preserveViewForRebuild() {
+    if (!graph || !graphTabId) return
+    const cam = graph.cameraPosition()
+    const controls = graph.controls() as { target?: { x: number; y: number; z: number } }
+    if (cam && controls?.target) {
+      pendingCameraRestore = {
+        position: { x: cam.x, y: cam.y, z: cam.z },
+        target: { x: controls.target.x, y: controls.target.y, z: controls.target.z }
+      }
+    }
+    const positions = new Map<string, { x: number; y: number; z: number }>()
+    for (const node of graph.graphData().nodes as ForceNode[]) {
+      if (node.x != null && node.y != null && node.z != null) {
+        positions.set(node.id, { x: node.x, y: node.y, z: node.z })
+      }
+    }
+    nodePositionCache.set(graphTabId, positions)
+  }
+
   /**
    * Compute cluster centroids from seeded node positions.
    * Used by the cluster attraction force.
@@ -1691,6 +1900,7 @@
   function setupStoreSubscriptions() {
     // Data changes → rebuild graph (or lazily initialize if graph doesn't exist yet)
     unsubData = graphData.subscribe(async (d) => {
+      const prev = currentData
       currentData = d
       if (d && d.nodes.length > 0 && !graph && webglSupported) {
         // graphContainerEl is always mounted, but may need a tick for bind:this
@@ -1705,6 +1915,26 @@
         }
       } else if (d && graph) {
         syncGraphSize()
+        // Background index refresh of the same level's full graph → diff and
+        // patch incrementally so the camera/layout/selection survive.
+        const canPatch =
+          get(graphLoadMode) === 'refresh' &&
+          get(graphDataSource) === 'cli' &&
+          prev != null &&
+          prev.level === d.level
+        if (canPatch && prev) {
+          const edgeFilter = currentEdgeFilter.size > 0 ? currentEdgeFilter : null
+          const delta = diffGraphData(prev, d, (e) => isEdgeVisible(e, edgeFilter))
+          if (isEmptyDelta(delta)) {
+            return
+          }
+          if (shouldPatch(delta, prev.nodes.length, d.nodes.length)) {
+            applyGraphDelta(d, delta)
+            return
+          }
+          // Too large to patch — full rebuild, but preserve the camera + layout
+          preserveViewForRebuild()
+        }
         feedData(d)
         if (graphSearchVisible && graphSearchQuery.length >= 2) {
           executeGraphSearch(graphSearchQuery)

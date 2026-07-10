@@ -6,6 +6,8 @@ import {
   destroyAppUpdater,
   getAppUpdater
 } from './ipc-handlers'
+import { getVaultWatcher, destroyVaultWatcher } from './vault-watcher'
+import { getActiveCollection } from './store'
 import { buildAppMenu } from './menu'
 import { WindowManager } from './window-manager'
 import { PtyManager } from './pty'
@@ -39,6 +41,17 @@ app.whenReady().then(() => {
   registerTerminalHandlers(ptyManager)
   buildAppMenu(windowManager)
 
+  // Start the Tier-1 vault watcher for the persisted active collection so
+  // background file changes reach renderers from the first frame.
+  const activeCollection = getActiveCollection()
+  if (activeCollection) {
+    getVaultWatcher()
+      .start(activeCollection.path)
+      .catch(() => {
+        // Non-fatal: renderers fall back to focus-time verification
+      })
+  }
+
   // Initialize auto-updater via the singleton (same instance used by IPC handlers)
   const updater = getAppUpdater()
   updater.setWindowManager(windowManager)
@@ -60,6 +73,11 @@ app.on('before-quit', () => {
 
   // Kill any spawned CLI child processes on quit
   destroyWatcherManager().catch(() => {
+    // Best-effort cleanup during shutdown
+  })
+
+  // Close the Tier-1 vault watcher
+  destroyVaultWatcher().catch(() => {
     // Best-effort cleanup during shutdown
   })
 })

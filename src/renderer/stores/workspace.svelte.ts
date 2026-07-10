@@ -83,6 +83,8 @@ export interface DocumentTab {
   content: string | null
   /** Content as last read from or written to disk — used for dirty tracking across editor mode switches. */
   savedContent: string | null
+  /** True when the file was deleted on disk while open (drives the deleted banner). */
+  diskMissing: boolean
   contentLoading: boolean
   contentError: string | null
   scrollPosition: number
@@ -195,6 +197,7 @@ function createDocumentTab(filePath: string, isUntitled = false): DocumentTab {
     editorMode: 'wysiwyg',
     content: null,
     savedContent: null,
+    diskMissing: false,
     contentLoading: false,
     contentError: null,
     scrollPosition: 0,

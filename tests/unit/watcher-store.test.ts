@@ -15,6 +15,8 @@ const mockApi = {
   getWatcherStatus: vi.fn(),
   onWatcherEvent: vi.fn(),
   removeWatcherEventListener: vi.fn(),
+  getWatcherEnabled: vi.fn().mockResolvedValue(false),
+  setWatcherEnabled: vi.fn().mockResolvedValue(undefined),
   fileTree: vi.fn(),
   ingest: vi.fn(),
   ingestPreview: vi.fn(),
@@ -39,6 +41,7 @@ import {
   setupWatcherListener,
   teardownWatcherListener,
   clearWatcherEvents,
+  restoreWatcherForCollection,
 } from '../../src/renderer/stores/watcher'
 
 import { collections, activeCollectionId } from '../../src/renderer/stores/collections'
@@ -57,6 +60,10 @@ function resetStores() {
 beforeEach(() => {
   resetStores()
   vi.resetAllMocks()
+  // Re-establish promise-returning defaults wiped by resetAllMocks so the
+  // fire-and-forget persistence calls don't reject.
+  mockApi.getWatcherEnabled.mockResolvedValue(false)
+  mockApi.setWatcherEnabled.mockResolvedValue(undefined)
 })
 
 describe('watcher store', () => {
@@ -99,6 +106,64 @@ describe('watcher store', () => {
       expect(get(watcherError)).toBe('fail')
       expect(get(watcherState)).toBe('error')
       expect(get(watcherToggling)).toBe(false)
+    })
+
+    it('persists the enabled flag for the collection on a user toggle', async () => {
+      collections.set([col1])
+      activeCollectionId.set('a')
+      mockApi.startWatcher.mockResolvedValue(undefined)
+
+      await startWatcher()
+
+      expect(mockApi.setWatcherEnabled).toHaveBeenCalledWith('a', true)
+    })
+
+    it('does not persist when restoring (remember=false)', async () => {
+      collections.set([col1])
+      activeCollectionId.set('a')
+      mockApi.startWatcher.mockResolvedValue(undefined)
+
+      await startWatcher(false)
+
+      expect(mockApi.setWatcherEnabled).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('restoreWatcherForCollection', () => {
+    it('starts the watcher when the collection had it enabled', async () => {
+      collections.set([col1])
+      activeCollectionId.set('a')
+      mockApi.getWatcherEnabled.mockResolvedValue(true)
+      mockApi.startWatcher.mockResolvedValue(undefined)
+
+      await restoreWatcherForCollection()
+
+      expect(mockApi.getWatcherEnabled).toHaveBeenCalledWith('a')
+      expect(mockApi.startWatcher).toHaveBeenCalledWith('/alpha')
+      // Restore must not re-persist the flag
+      expect(mockApi.setWatcherEnabled).not.toHaveBeenCalled()
+    })
+
+    it('does nothing when the collection had it disabled', async () => {
+      collections.set([col1])
+      activeCollectionId.set('a')
+      mockApi.getWatcherEnabled.mockResolvedValue(false)
+
+      await restoreWatcherForCollection()
+
+      expect(mockApi.startWatcher).not.toHaveBeenCalled()
+    })
+
+    it('does nothing when the watcher is already running', async () => {
+      collections.set([col1])
+      activeCollectionId.set('a')
+      watcherState.set('running')
+      mockApi.getWatcherEnabled.mockResolvedValue(true)
+
+      await restoreWatcherForCollection()
+
+      expect(mockApi.getWatcherEnabled).not.toHaveBeenCalled()
+      expect(mockApi.startWatcher).not.toHaveBeenCalled()
     })
   })
 

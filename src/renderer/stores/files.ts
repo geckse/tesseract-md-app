@@ -1,6 +1,7 @@
 import { writable, derived, get } from 'svelte/store'
 import type { Writable } from 'svelte/store'
-import type { FileTree, FileTreeNode, FileState, AssetScanResult, AssetFileNode, UnifiedTreeNode } from '../types/cli'
+import type { FileTree, FileTreeNode, FileState, AssetScanResult, AssetFileNode, UnifiedTreeNode, MimeCategory, WatchEventReport } from '../types/cli'
+import type { VaultFileEvent } from '../../preload/api'
 import { activeCollection } from './collections'
 import { loadProperties, clearProperties, propertiesFileContent } from './properties'
 import { editorMode, syncEditorStoresFromTab } from './editor'
@@ -334,6 +335,7 @@ export function resetFileState(): void {
   fileTreeLoading.set(false)
   fileTreeError.set(null)
   expandedPaths.set(new Set())
+  resetVaultTreeRouting()
   clearProperties()
   clearGraphStateCache()
   syncFileStoresFromTab()
@@ -460,7 +462,110 @@ export function insertFileNode(relativePath: string, state: FileState | null = '
         return a.name.localeCompare(b.name)
       })
       tree.total_files++
-      if (state === 'new') tree.new_count++
+      bumpStateCount(tree, state, +1)
+    }
+
+    return { ...tree, root: { ...tree.root } }
+  })
+}
+
+/** Adjust the per-state counter buckets on a FileTree. */
+function bumpStateCount(tree: FileTree, state: FileState | null, delta: number): void {
+  if (state === 'new') tree.new_count += delta
+  else if (state === 'modified') tree.modified_count += delta
+  else if (state === 'indexed') tree.indexed_count += delta
+  else if (state === 'deleted') tree.deleted_count += delta
+}
+
+/** Find a node by relative path via segment walk. */
+function findTreeNode(root: FileTreeNode, relativePath: string): FileTreeNode | null {
+  const parts = relativePath.split('/')
+  let node: FileTreeNode = root
+  for (const part of parts) {
+    const child = node.children.find((c) => c.name === part)
+    if (!child) return null
+    node = child
+  }
+  return node
+}
+
+/** Current state of a file node, or undefined when the node doesn't exist. */
+function getFileNodeState(relativePath: string): FileState | null | undefined {
+  const tree = get(fileTree)
+  if (!tree) return undefined
+  const node = findTreeNode(tree.root, relativePath)
+  if (!node || node.is_dir) return undefined
+  return node.state
+}
+
+/**
+ * Flip a file node's sync state in place, keeping the count buckets balanced.
+ * A `modified` flip never downgrades a not-yet-indexed (`new`) file.
+ * Returns false when the node doesn't exist (caller may insert instead).
+ */
+export function setFileNodeState(relativePath: string, state: FileState): boolean {
+  let found = false
+  fileTree.update((tree) => {
+    if (!tree) return tree
+    const node = findTreeNode(tree.root, relativePath)
+    if (!node || node.is_dir) return tree
+    found = true
+    if (node.state === state) return tree
+    if (state === 'modified' && node.state === 'new') return tree
+    bumpStateCount(tree, node.state, -1)
+    bumpStateCount(tree, state, +1)
+    node.state = state
+    return { ...tree, root: { ...tree.root } }
+  })
+  return found
+}
+
+/**
+ * Insert an asset node into the asset tree (mirror of insertFileNode).
+ * Updates fileSize in place when the node already exists.
+ */
+export function insertAssetNode(
+  relativePath: string,
+  mimeCategory?: MimeCategory,
+  fileSize?: number
+): void {
+  assetTree.update((tree) => {
+    if (!tree) return tree
+    const parts = relativePath.split('/')
+    const fileName = parts.pop()!
+    let parent = tree.root
+
+    for (const dirName of parts) {
+      const dirPath = parent.path ? `${parent.path}/${dirName}` : dirName
+      let child = parent.children.find((c) => c.is_dir && c.name === dirName)
+      if (!child) {
+        child = { name: dirName, path: dirPath, is_dir: true, children: [] }
+        parent.children.push(child)
+        parent.children.sort((a, b) => {
+          if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1
+          return a.name.localeCompare(b.name)
+        })
+      }
+      parent = child
+    }
+
+    const existing = parent.children.find((c) => c.name === fileName && !c.is_dir)
+    if (existing) {
+      if (fileSize !== undefined) existing.fileSize = fileSize
+    } else {
+      parent.children.push({
+        name: fileName,
+        path: relativePath,
+        is_dir: false,
+        children: [],
+        ...(fileSize !== undefined ? { fileSize } : {}),
+        ...(mimeCategory !== undefined ? { mimeCategory } : {}),
+      })
+      parent.children.sort((a, b) => {
+        if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1
+        return a.name.localeCompare(b.name)
+      })
+      tree.totalAssets++
     }
 
     return { ...tree, root: { ...tree.root } }
@@ -575,6 +680,176 @@ export function removeAssetNode(relativePath: string): void {
     remove(tree.root)
     return { ...tree, root: { ...tree.root } }
   })
+}
+
+// ─── Vault/watch event routing (incremental tree patching) ─────────────
+//
+// Tier-1 (raw fs events from the vault watcher) and Tier-2 (post-reindex
+// reports from `mdvdb watch`) both patch the in-memory trees per path
+// instead of triggering full reloads. Full reloads remain only as explicit
+// fallbacks: event bursts over the threshold, and unresolvable renames.
+
+/** Events applied per flush window before falling back to one full reload. */
+const TREE_FULL_RELOAD_THRESHOLD = 150
+
+/** Micro-batch window for tree patching (one store update per flush). */
+const TREE_BATCH_MS = 100
+
+/** Debounce for the full-reload resync fallback. */
+const TREE_RESYNC_DEBOUNCE_MS = 1_000
+
+let vaultTreeQueue: VaultFileEvent[] = []
+let vaultTreeFlushTimer: ReturnType<typeof setTimeout> | null = null
+let treeResyncTimer: ReturnType<typeof setTimeout> | null = null
+
+/**
+ * Entry point for Tier-1 vault file events (called by the vault-events
+ * dispatcher for EVERY event, including origin 'app' — mutators are
+ * idempotent, and this covers app writes whose optimistic update was missed).
+ */
+export function routeVaultEventToTree(event: VaultFileEvent): void {
+  vaultTreeQueue.push(event)
+  if (!vaultTreeFlushTimer) {
+    vaultTreeFlushTimer = setTimeout(() => {
+      vaultTreeFlushTimer = null
+      flushVaultTreeQueue()
+    }, TREE_BATCH_MS)
+  }
+}
+
+function flushVaultTreeQueue(): void {
+  const queue = vaultTreeQueue
+  vaultTreeQueue = []
+  if (queue.length === 0) return
+
+  // Agent rewrote the vault wholesale — one data reload beats per-node surgery.
+  // (View state like expandedPaths/scroll lives separately, so no view reset.)
+  if (queue.length > TREE_FULL_RELOAD_THRESHOLD) {
+    scheduleTreeResync()
+    return
+  }
+
+  for (const event of queue) {
+    applyVaultEventToTree(event)
+  }
+}
+
+function applyVaultEventToTree(event: VaultFileEvent): void {
+  if (event.isDirectory) {
+    switch (event.kind) {
+      case 'created':
+        insertDirNode(event.path)
+        break
+      case 'deleted':
+        removeTreeNode(event.path)
+        removeAssetNode(event.path)
+        break
+      case 'renamed':
+        // Children would have to move too — resync instead of guessing.
+        scheduleTreeResync()
+        break
+    }
+    return
+  }
+
+  if (event.fileKind === 'markdown') {
+    switch (event.kind) {
+      case 'created': {
+        const state = getFileNodeState(event.path)
+        if (state === undefined) insertFileNode(event.path, 'new')
+        else if (state === 'deleted') setFileNodeState(event.path, 'modified')
+        break
+      }
+      case 'modified':
+        if (!setFileNodeState(event.path, 'modified')) {
+          insertFileNode(event.path, 'new')
+        }
+        break
+      case 'deleted':
+        // A never-indexed file simply disappears; indexed files keep a
+        // 'deleted' badge until the index catches up (Tier-2 removes the row).
+        if (getFileNodeState(event.path) === 'new') removeTreeNode(event.path)
+        else setFileNodeState(event.path, 'deleted')
+        break
+      case 'renamed': {
+        if (event.oldPath) {
+          const prevState = getFileNodeState(event.oldPath)
+          removeTreeNode(event.oldPath)
+          insertFileNode(event.path, prevState ?? 'new')
+        } else {
+          insertFileNode(event.path, 'new')
+          scheduleTreeResync()
+        }
+        break
+      }
+    }
+    return
+  }
+
+  // Assets have no index lifecycle — insert/remove immediately
+  switch (event.kind) {
+    case 'created':
+    case 'modified':
+      insertAssetNode(event.path, event.mimeCategory ?? undefined, event.size ?? undefined)
+      break
+    case 'deleted':
+      removeAssetNode(event.path)
+      break
+    case 'renamed':
+      if (event.oldPath) removeAssetNode(event.oldPath)
+      insertAssetNode(event.path, event.mimeCategory ?? undefined, event.size ?? undefined)
+      break
+  }
+}
+
+/**
+ * Apply a Tier-2 post-reindex report to the tree: flips state to 'indexed'
+ * once the index has caught up with a disk change.
+ */
+export function applyWatchReportToTree(report: WatchEventReport): void {
+  if (!report.success) return
+
+  switch (report.event_type) {
+    case 'Created':
+    case 'Modified':
+      if (!setFileNodeState(report.path, 'indexed')) {
+        insertFileNode(report.path, 'indexed')
+      }
+      break
+    case 'Deleted':
+      removeTreeNode(report.path)
+      break
+    case 'Renamed':
+      // The CLI report only carries the new path — the stale old row can
+      // only be cleaned up by a resync (or a paired Tier-1 app rename).
+      if (!setFileNodeState(report.path, 'indexed')) {
+        insertFileNode(report.path, 'indexed')
+      }
+      scheduleTreeResync()
+      break
+  }
+}
+
+/** Debounced full tree+asset reload — the explicit resync fallback. */
+export function scheduleTreeResync(): void {
+  if (treeResyncTimer) clearTimeout(treeResyncTimer)
+  treeResyncTimer = setTimeout(() => {
+    treeResyncTimer = null
+    Promise.all([loadFileTree(), loadAssetTree()]).catch(() => {})
+  }, TREE_RESYNC_DEBOUNCE_MS)
+}
+
+/** Drop queued vault events and pending timers (collection switch). */
+export function resetVaultTreeRouting(): void {
+  vaultTreeQueue = []
+  if (vaultTreeFlushTimer) {
+    clearTimeout(vaultTreeFlushTimer)
+    vaultTreeFlushTimer = null
+  }
+  if (treeResyncTimer) {
+    clearTimeout(treeResyncTimer)
+    treeResyncTimer = null
+  }
 }
 
 // ─── File creation ──────────────────────────────────────────────────────
