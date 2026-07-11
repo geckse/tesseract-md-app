@@ -95,4 +95,15 @@ describe('tableViewsStore (renderer)', () => {
     expect(mockApi.deleteTableView).toHaveBeenCalledWith('c1', 'blog', 'v1')
     expect(tableViewsStore.getViews('c1', 'blog')).toEqual([])
   })
+
+  it('a no-op refetch keeps the cached array identity (no downstream churn)', async () => {
+    await tableViewsStore.load('c-noop', 'blog')
+    const first = tableViewsStore.getViews('c-noop', 'blog')
+
+    // Same content, fresh objects — as every IPC round-trip delivers.
+    mockApi.listTableViews.mockResolvedValueOnce([view('v1'), view('v2', true)])
+    await tableViewsStore.load('c-noop', 'blog')
+
+    expect(tableViewsStore.getViews('c-noop', 'blog')).toBe(first)
+  })
 })

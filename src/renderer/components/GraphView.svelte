@@ -35,7 +35,6 @@
     graphSelectedNode,
     graphOpenedNode,
     graphColoringMode,
-    cycleColoringMode,
     graphLevel,
     graphPathFilter,
     graphHighlightedFolder,
@@ -62,6 +61,7 @@
   import { get } from 'svelte/store'
   import { workspace } from '../stores/workspace.svelte'
   import GraphPreview from './GraphPreview.svelte'
+  import PopoverMenu, { type PopoverMenuItem } from './ui/PopoverMenu.svelte'
   import { edgeClusterColor, isEdgeVisible, edgeLinkColor, edgeLinkWidth } from '../lib/edge-utils'
   import { diffGraphData, shouldPatch, isEmptyDelta, type GraphDelta } from '../lib/graph-delta'
   import { paletteColor, paletteTextColor, type HarmonicPalette } from '../lib/harmonic-palette'
@@ -79,6 +79,7 @@
     seedNearNeighbors,
     computeDegreeMap,
     nodeSizeValue,
+    nodeColorForMode,
     edgeArrowColor,
     nodeTooltipHtml,
     edgeTooltipHtml,
@@ -202,6 +203,48 @@
 
   // Legend visibility
   let legendVisible = $state(true)
+
+  // ─── View Mode Dropdown ─────────────────────────────────────────────
+
+  /** Available graph view modes shown in the top-left dropdown. */
+  const VIEW_MODES: { id: GraphColoringMode; label: string; icon: string }[] = [
+    { id: 'cluster', label: 'Clusters', icon: 'workspaces' },
+    { id: 'custom-cluster', label: 'Topics', icon: 'category' },
+    { id: 'folder', label: 'Folders', icon: 'folder' },
+    { id: 'none', label: 'No coloring', icon: 'visibility_off' }
+  ]
+
+  /** Whether the view-mode dropdown menu is open. */
+  let viewModeMenuOpen = $state(false)
+
+  /** Anchor element for the view-mode dropdown. */
+  let viewModeBtnEl: HTMLButtonElement | null = $state(null)
+
+  /** The currently active view mode entry (label + icon for the trigger). */
+  let currentViewMode = $derived(
+    VIEW_MODES.find((m) => m.id === currentColoringMode) ?? VIEW_MODES[0]
+  )
+
+  /** Dropdown items — Topics is disabled when the collection defines none. */
+  let viewModeItems = $derived.by<PopoverMenuItem[]>(() => {
+    const hasTopics = (currentData?.custom_clusters?.length ?? 0) > 0
+    return VIEW_MODES.map((m) => ({
+      id: m.id,
+      label: m.label,
+      icon: m.icon,
+      checked: currentColoringMode === m.id,
+      disabled: m.id === 'custom-cluster' && !hasTopics
+    }))
+  })
+
+  /** Switch the graph view mode (persisted as the default via the store). */
+  function selectViewMode(id: string): void {
+    graphColoringMode.set(id as GraphColoringMode)
+  }
+
+  // Highlighted topic (custom cluster) — legend row click highlights ALL
+  // members of that topic (including secondary memberships) and dims the rest.
+  let highlightedTopicId: number | null = $state(null)
 
   // Hover state (populated by interaction handlers in subtask 2-2)
   let hoveredNode: ForceNode | null = $state(null)
@@ -471,41 +514,41 @@
   }
 
   /**
-   * Deterministic hash-based color for a file path.
-   * Maps any string to one of the palette colors via djb2 hash.
-   */
-  function fileHashColor(path: string): string {
-    let hash = 0
-    for (let i = 0; i < path.length; i++) {
-      hash = ((hash << 5) - hash + path.charCodeAt(i)) | 0
-    }
-    return paletteColor(currentClusterPalette, Math.abs(hash))
-  }
-
-  /**
    * Compute node color dynamically based on the current coloring mode.
    * Called by the nodeColor accessor on each render/refresh so that
    * mode switches only require a graph.refresh() instead of full data rebuild.
    *
-   * - cluster: harmonic palette by cluster_id
-   * - folder: folderColorMap by top-level directory
-   * - none: per-file djb2 hash color
+   * Delegates to the bridge's pure nodeColorForMode() (single source of
+   * truth shared with buildGraph3DData), plus the topic-highlight dimming:
+   * in custom-cluster mode with an active topic highlight, non-members of
+   * the highlighted topic fall back to the default node color.
    */
   function getNodeColor(node: ForceNode): string {
-    if (currentColoringMode === 'cluster') {
-      if (node.cluster_id != null) {
-        return paletteColor(currentClusterPalette, node.cluster_id)
-      }
-      // Unclustered: chunks get file hash color, documents get default from CSS
-      return isChunkMode() ? fileHashColor(node.path) : getDefaultNodeColor()
+    if (currentColoringMode === 'custom-cluster' && highlightedTopicId != null) {
+      const isMember = node.custom_cluster_ids?.includes(highlightedTopicId) ?? false
+      if (!isMember) return getDefaultNodeColor()
     }
+    return nodeColorForMode(
+      node,
+      currentColoringMode,
+      folderColorMap,
+      isChunkMode(),
+      currentClusterPalette,
+      currentCustomClusterPalette
+    )
+  }
 
-    if (currentColoringMode === 'folder') {
-      return folderColorMap.get(getTopLevelFolder(node.path)) ?? getDefaultNodeColor()
-    }
+  /** Toggle the highlighted topic (legend row click). Same id again clears. */
+  function toggleTopicHighlight(id: number): void {
+    highlightedTopicId = highlightedTopicId === id ? null : id
+    if (graph) graph.refresh()
+  }
 
-    // 'none' mode: per-file hash color
-    return fileHashColor(node.path)
+  /** Clear the topic highlight filter. */
+  function clearTopicHighlight(): void {
+    if (highlightedTopicId == null) return
+    highlightedTopicId = null
+    if (graph) graph.refresh()
   }
 
   /** Read the default node color from CSS variable. */
@@ -1308,6 +1351,9 @@
         const upd = delta.updatedNodes.get(node.id)
         if (upd) {
           node.cluster_id = upd.cluster_id
+          node.custom_cluster_id = upd.custom_cluster_id ?? null
+          node.custom_cluster_ids = upd.custom_cluster_ids ?? []
+          node.custom_cluster_scores = upd.custom_cluster_scores ?? []
           node.label = upd.label
           node.size = upd.size ?? null
         }
@@ -1334,6 +1380,9 @@
         path: node.path,
         label: node.label,
         cluster_id: node.cluster_id,
+        custom_cluster_id: node.custom_cluster_id ?? null,
+        custom_cluster_ids: node.custom_cluster_ids ?? [],
+        custom_cluster_scores: node.custom_cluster_scores ?? [],
         chunk_index: node.chunk_index,
         size: node.size ?? null,
         val: nodeSizeValue(currentLevel, degreeOfNode.get(node.id) ?? 0, node.size ?? 0, maxSize),
@@ -1429,7 +1478,7 @@
     }
 
     // Cluster shells rebuild from current positions/cluster ids
-    if (currentColoringMode === 'cluster') updateClusterSpheres()
+    if (isHullMode()) updateClusterSpheres()
 
     // Re-evaluate color + hub accessors (coalesces with the graphData digest)
     graph.refresh()
@@ -1532,12 +1581,44 @@
     clusterLabels = []
   }
 
+  /** Whether hull/enclosure rendering applies to the current coloring mode. */
+  function isHullMode(): boolean {
+    return currentColoringMode === 'cluster' || currentColoringMode === 'custom-cluster'
+  }
+
+  /**
+   * Grouping id for hulls/labels: auto cluster_id in cluster mode,
+   * PRIMARY topic (custom_cluster_id) in custom-cluster mode.
+   * Null (unclustered / Unassigned) groups get no hull — desired.
+   */
+  function hullGroupId(node: ForceNode): number | null {
+    return currentColoringMode === 'custom-cluster'
+      ? (node.custom_cluster_id ?? null)
+      : node.cluster_id
+  }
+
+  /** Palette used for hulls/labels in the current mode. */
+  function hullPalette(): HarmonicPalette {
+    return currentColoringMode === 'custom-cluster'
+      ? currentCustomClusterPalette
+      : currentClusterPalette
+  }
+
+  /** Label for a hull group id from the current data (mode-aware). */
+  function hullLabel(id: number): string {
+    if (currentColoringMode === 'custom-cluster') {
+      return currentData?.custom_clusters?.find((c) => c.id === id)?.label ?? `Topic ${id}`
+    }
+    return currentData?.clusters.find((c) => c.id === id)?.label ?? `Cluster ${id}`
+  }
+
   /**
    * Compute an enclosing sphere for each cluster from current node positions,
    * then add transparent sphere + wireframe outline meshes to the scene.
    * Also computes screen-projected cluster label positions for the HTML overlay.
    *
-   * Only adds spheres when in cluster coloring mode.
+   * Runs in both 'cluster' and 'custom-cluster' coloring modes; groups by
+   * cluster_id or PRIMARY topic id respectively.
    */
   function updateClusterSpheres() {
     if (!graph) return
@@ -1545,22 +1626,23 @@
     // Remove previous meshes
     clearClusterMeshes()
 
-    // Only show spheres in cluster coloring mode
-    if (currentColoringMode !== 'cluster') return
+    // Only show spheres in cluster/custom-cluster coloring modes
+    if (!isHullMode()) return
 
     const graphData = graph.graphData()
     const nodes = graphData.nodes as ForceNode[]
     if (nodes.length === 0) return
 
-    // Group nodes by cluster_id
+    // Group nodes by cluster_id (or primary topic id in custom-cluster mode)
     const clusterNodes = new Map<number, ForceNode[]>()
     for (const node of nodes) {
-      if (node.cluster_id == null) continue
-      const existing = clusterNodes.get(node.cluster_id)
+      const groupId = hullGroupId(node)
+      if (groupId == null) continue
+      const existing = clusterNodes.get(groupId)
       if (existing) {
         existing.push(node)
       } else {
-        clusterNodes.set(node.cluster_id, [node])
+        clusterNodes.set(groupId, [node])
       }
     }
 
@@ -1599,7 +1681,7 @@
       // Add padding (minimum sphere radius of 10 for single-node clusters)
       const radius = Math.max(maxDist + 20, 10)
 
-      const clusterColor = new THREE.Color(paletteColor(currentClusterPalette, clusterId))
+      const clusterColor = new THREE.Color(paletteColor(hullPalette(), clusterId))
       const center = new THREE.Vector3(cx, cy, cz)
 
       // ── Volumetric convex hull: shape-conforming multi-shell + Fresnel ──
@@ -1678,11 +1760,10 @@
       // Compute screen position for the cluster label
       const labelPos = projectToScreen(cx, cy, cz)
 
-      // Find cluster label from current data
-      const clusterInfo = currentData?.clusters.find((c) => c.id === clusterId)
+      // Find cluster/topic label from current data (mode-aware)
       newLabels.push({
         id: clusterId,
-        label: clusterInfo?.label ?? `Cluster ${clusterId}`,
+        label: hullLabel(clusterId),
         screenX: labelPos.x,
         screenY: labelPos.y,
         visible: labelPos.visible
@@ -1730,23 +1811,24 @@
    * Called during camera movement or simulation ticks.
    */
   function updateClusterLabelPositions() {
-    if (!graph || currentColoringMode !== 'cluster' || !clusterMeshGroup) return
+    if (!graph || !isHullMode() || !clusterMeshGroup) return
 
     const graphData = graph.graphData()
     const nodes = graphData.nodes as ForceNode[]
 
-    // Recompute centroids from current positions
+    // Recompute centroids from current positions (mode-aware grouping)
     const centroids = new Map<number, { x: number; y: number; z: number; count: number }>()
     for (const node of nodes) {
-      if (node.cluster_id == null) continue
-      const existing = centroids.get(node.cluster_id)
+      const groupId = hullGroupId(node)
+      if (groupId == null) continue
+      const existing = centroids.get(groupId)
       if (existing) {
         existing.x += node.x ?? 0
         existing.y += node.y ?? 0
         existing.z += node.z ?? 0
         existing.count++
       } else {
-        centroids.set(node.cluster_id, {
+        centroids.set(groupId, {
           x: node.x ?? 0,
           y: node.y ?? 0,
           z: node.z ?? 0,
@@ -1761,10 +1843,9 @@
       const cy = sum.y / sum.count
       const cz = sum.z / sum.count
       const pos = projectToScreen(cx, cy, cz)
-      const clusterInfo = currentData?.clusters.find((c) => c.id === clusterId)
       updatedLabels.push({
         id: clusterId,
-        label: clusterInfo?.label ?? `Cluster ${clusterId}`,
+        label: hullLabel(clusterId),
         screenX: pos.x,
         screenY: pos.y,
         visible: pos.visible
@@ -1814,7 +1895,7 @@
   function handleEngineTick() {
     engineTickCount++
     if (engineTickCount % 30 !== 0) return
-    if (currentColoringMode !== 'cluster') return
+    if (!isHullMode()) return
     if (!graph) return
 
     const graphData = graph.graphData()
@@ -1834,7 +1915,7 @@
    * Handle engine stop: final cluster sphere update when simulation completes.
    */
   function handleEngineStop() {
-    if (currentColoringMode === 'cluster' && graph) {
+    if (isHullMode() && graph) {
       updateClusterSpheres()
     }
   }
@@ -1949,12 +2030,16 @@
       if (v === 'folder' && currentGraph3DData) {
         rebuildFolderColorMap(currentGraph3DData.nodes)
       }
+      // Topic highlight only applies to custom-cluster mode
+      if (v !== 'custom-cluster') {
+        highlightedTopicId = null
+      }
       // nodeColor accessor reads currentColoringMode dynamically,
       // so a refresh is enough — no full data rebuild needed
       if (graph) graph.refresh()
 
-      // Show cluster enclosure spheres only in cluster mode
-      if (v === 'cluster') {
+      // Show cluster enclosure spheres in cluster + custom-cluster modes
+      if (v === 'cluster' || v === 'custom-cluster') {
         updateClusterSpheres()
       } else {
         clearClusterMeshes()
@@ -2070,7 +2155,10 @@
 
     unsubCustomClusterPalette = customClusterPalette.subscribe((p) => {
       currentCustomClusterPalette = p
-      if (currentColoringMode === 'custom-cluster' && graph) graph.refresh()
+      if (currentColoringMode === 'custom-cluster') {
+        updateClusterSpheres()
+        if (graph) graph.refresh()
+      }
     })
 
     unsubEdgePalette = edgePalette.subscribe((p) => {
@@ -2134,6 +2222,9 @@
       path: node.path,
       label: node.label,
       cluster_id: node.cluster_id,
+      custom_cluster_id: node.custom_cluster_id ?? null,
+      custom_cluster_ids: node.custom_cluster_ids ?? [],
+      custom_cluster_scores: node.custom_cluster_scores ?? [],
       chunk_index: node.chunk_index
     }
   }
@@ -2179,6 +2270,7 @@
       }
       selectGraphNode(null)
       setGraphHighlightedFolder(null)
+      clearTopicHighlight()
       hoveredNode = null
       hoveredEdge = null
       return
@@ -2323,27 +2415,13 @@
 
   function handleContextMenuPreview() {
     if (!contextMenuNode) return
-    const node = contextMenuNode
-    openGraphNode({
-      id: node.id,
-      path: node.path,
-      label: node.label,
-      cluster_id: node.cluster_id,
-      chunk_index: node.chunk_index
-    })
+    openGraphNode(toGraphNode(contextMenuNode))
     contextMenuNode = null
   }
 
   function handleContextMenuSelect() {
     if (!contextMenuNode) return
-    const node = contextMenuNode
-    selectGraphNode({
-      id: node.id,
-      path: node.path,
-      label: node.label,
-      cluster_id: node.cluster_id,
-      chunk_index: node.chunk_index
-    })
+    selectGraphNode(toGraphNode(contextMenuNode))
     contextMenuNode = null
   }
 
@@ -2373,6 +2451,18 @@
       color: paletteColor(currentCustomClusterPalette, c.id),
       member_count: c.member_count
     }))
+  }
+
+  /** Client-side count of document-level nodes with no topic (Unassigned). */
+  function getUnassignedCount(): number {
+    if (!currentData) return 0
+    return currentData.nodes.filter((n) => n.chunk_index == null && n.custom_cluster_id == null)
+      .length
+  }
+
+  /** Look up a topic name by id in the current graph data. */
+  function topicName(id: number): string {
+    return currentData?.custom_clusters?.find((c) => c.id === id)?.label ?? `Topic ${id}`
   }
 
   /** Get legend items for folder coloring mode. */
@@ -2746,6 +2836,29 @@
   {/if}
 
   {#if currentData && currentData.nodes.length > 0 && !currentError && webglSupported}
+    <!-- View mode dropdown (top-left): what the nodes are colored/grouped by -->
+    <button
+      bind:this={viewModeBtnEl}
+      class="graph-view-mode-trigger"
+      onclick={() => (viewModeMenuOpen = !viewModeMenuOpen)}
+      aria-haspopup="menu"
+      aria-expanded={viewModeMenuOpen}
+      title="Select graph view"
+    >
+      <span class="material-symbols-outlined view-mode-icon">{currentViewMode.icon}</span>
+      <span class="view-mode-label">{currentViewMode.label}</span>
+      <span class="material-symbols-outlined view-mode-caret">arrow_drop_down</span>
+    </button>
+    {#if viewModeMenuOpen && viewModeBtnEl}
+      <PopoverMenu
+        anchorEl={viewModeBtnEl}
+        items={viewModeItems}
+        onselect={selectViewMode}
+        ondismiss={() => (viewModeMenuOpen = false)}
+        ariaLabel="Graph view mode"
+      />
+    {/if}
+
     <!-- Level tab switcher + pop-out button -->
     <div class="graph-level-switcher" role="tablist">
       <button
@@ -2863,14 +2976,16 @@
       </div>
     {/if}
 
-    <!-- Cluster enclosure labels (screen-projected from 3D centroids) -->
-    {#if currentColoringMode === 'cluster' && clusterLabels.length > 0}
+    <!-- Cluster/topic enclosure labels (screen-projected from 3D centroids) -->
+    {#if (currentColoringMode === 'cluster' || currentColoringMode === 'custom-cluster') && clusterLabels.length > 0}
       {#each clusterLabels as label}
         {#if label.visible}
           <div
             class="cluster-label"
             style="left: {label.screenX}px; top: {label.screenY}px; color: {paletteTextColor(
-              currentClusterPalette,
+              currentColoringMode === 'custom-cluster'
+                ? currentCustomClusterPalette
+                : currentClusterPalette,
               label.id,
               getBackgroundColor()
             )}"
@@ -2911,7 +3026,19 @@
         {#if isChunkMode() && hoveredNode.label}
           <div class="tooltip-heading">{hoveredNode.label}</div>
         {/if}
-        {#if hoveredNode.cluster_id != null && currentData}
+        {#if currentColoringMode === 'custom-cluster'}
+          {#if hoveredNode.custom_cluster_ids && hoveredNode.custom_cluster_ids.length > 0}
+            {#each hoveredNode.custom_cluster_ids as topicId, i}
+              <div class="tooltip-cluster">
+                {topicName(topicId)} · {Math.round(
+                  (hoveredNode.custom_cluster_scores?.[i] ?? 0) * 100
+                )}%
+              </div>
+            {/each}
+          {:else if hoveredNode.chunk_index == null}
+            <div class="tooltip-cluster">Unassigned</div>
+          {/if}
+        {:else if hoveredNode.cluster_id != null && currentData}
           {@const cluster = currentData.clusters.find((c) => c.id === hoveredNode!.cluster_id)}
           {#if cluster}
             <div class="tooltip-cluster">{cluster.label}</div>
@@ -3000,28 +3127,13 @@
       </div>
     {/if}
 
-    <!-- Legend: coloring mode -->
-    {#if currentColoringMode === 'none'}
-      <div class="graph-legend-collapsed">
-        <button class="legend-toggle" onclick={cycleColoringMode} title="Color by clusters">
-          <span class="material-symbols-outlined">visibility_off</span>
-        </button>
-      </div>
-    {:else if (currentColoringMode === 'cluster' && getClusters().length > 0) || (currentColoringMode === 'custom-cluster' && getCustomClusters().length > 0) || (currentColoringMode === 'folder' && folderColorMap.size > 0)}
+    <!-- Legend: display-only key for the active view mode (mode switching lives in the top-left dropdown) -->
+    {#if (currentColoringMode === 'cluster' && getClusters().length > 0) || (currentColoringMode === 'custom-cluster' && getCustomClusters().length > 0) || (currentColoringMode === 'folder' && folderColorMap.size > 0)}
       <div class="graph-legend">
         <div class="legend-header">
           <span class="legend-title"
-            >{currentColoringMode === 'cluster' ? 'Clusters' : currentColoringMode === 'custom-cluster' ? 'Custom Clusters' : 'Folders'}</span
+            >{currentColoringMode === 'cluster' ? 'Clusters' : currentColoringMode === 'custom-cluster' ? 'Topics' : 'Folders'}</span
           >
-          <button
-            class="legend-toggle"
-            onclick={cycleColoringMode}
-            title={currentColoringMode === 'cluster' ? 'Color by custom clusters' : currentColoringMode === 'custom-cluster' ? 'Color by folders' : 'No coloring'}
-          >
-            <span class="material-symbols-outlined"
-              >{currentColoringMode === 'cluster' ? 'category' : currentColoringMode === 'custom-cluster' ? 'folder' : 'folder'}</span
-            >
-          </button>
           <button
             class="legend-toggle"
             onclick={toggleLegend}
@@ -3044,12 +3156,39 @@
               {/each}
             {:else if currentColoringMode === 'custom-cluster'}
               {#each getCustomClusters() as cluster}
-                <div class="legend-item">
+                <button
+                  class="legend-item legend-item-clickable"
+                  class:legend-item-active={highlightedTopicId === cluster.id}
+                  onclick={() => toggleTopicHighlight(cluster.id)}
+                  title={highlightedTopicId === cluster.id
+                    ? `Clear ${cluster.label} highlight`
+                    : `Highlight all members of ${cluster.label}`}
+                >
                   <span class="legend-dot" style="background: {cluster.color}"></span>
                   <span class="legend-label">{cluster.label}</span>
                   <span class="legend-count">{cluster.member_count}</span>
-                </div>
+                </button>
               {/each}
+              {#if getUnassignedCount() > 0}
+                <div class="legend-item legend-item-unassigned">
+                  <span class="legend-dot" style="background: {getDefaultNodeColor()}"></span>
+                  <span class="legend-label">Unassigned</span>
+                  <span class="legend-count">{getUnassignedCount()}</span>
+                </div>
+              {/if}
+              {#if highlightedTopicId != null}
+                <button
+                  class="legend-clear-filter"
+                  onclick={clearTopicHighlight}
+                  title="Clear topic highlight"
+                  style="margin-top: 4px; width: 100%;"
+                >
+                  <span class="material-symbols-outlined" style="font-size: 14px;"
+                    >filter_alt_off</span
+                  >
+                  <span style="font-size: 10px;">Clear</span>
+                </button>
+              {/if}
             {:else if currentColoringMode === 'folder'}
               {#each getFolderLegendItems() as item}
                 <button
@@ -3472,18 +3611,38 @@
     font-size: 16px;
   }
 
-  .graph-legend-collapsed {
+  .graph-view-mode-trigger {
     position: absolute;
-    top: var(--space-4, 1rem);
-    right: var(--space-4, 1rem);
+    top: var(--space-3, 0.75rem);
+    left: var(--space-3, 0.75rem);
+    display: flex;
+    align-items: center;
+    gap: var(--space-1, 0.25rem);
+    padding: var(--space-1, 0.25rem) var(--space-2, 0.5rem);
     background: var(--color-surface, #161617);
     border: 1px solid var(--color-border, #27272a);
     border-radius: var(--radius-md, 0.375rem);
-    padding: var(--space-1, 0.25rem);
     z-index: var(--z-base, 10);
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    color: var(--color-text, #e4e4e7);
+    font-family: var(--font-display, 'Space Grotesk', sans-serif);
+    font-size: var(--text-xs, 0.625rem);
+    cursor: pointer;
+    transition: border-color var(--transition-fast, 150ms ease);
+  }
+
+  .graph-view-mode-trigger:hover,
+  .graph-view-mode-trigger[aria-expanded='true'] {
+    border-color: var(--color-primary-glow, #00e5ff40);
+  }
+
+  .view-mode-icon {
+    font-size: 14px;
+    color: var(--color-primary, #00e5ff);
+  }
+
+  .view-mode-caret {
+    font-size: 16px;
+    color: var(--color-text-dim, #71717a);
   }
 
   .graph-legend {
@@ -3624,6 +3783,10 @@
     opacity: 0.35;
   }
 
+  .legend-item-unassigned {
+    opacity: 0.6;
+  }
+
   .legend-item-active {
     background: var(--color-primary-dim, rgba(0, 229, 255, 0.1));
     border-radius: 4px;
@@ -3680,9 +3843,10 @@
     color: var(--color-text-main, #e4e4e7);
   }
 
+  /* Badges stack below the view-mode dropdown in the top-left corner */
   .graph-path-badge {
     position: absolute;
-    top: var(--space-3, 0.75rem);
+    top: calc(var(--space-3, 0.75rem) + 32px);
     left: var(--space-3, 0.75rem);
     display: flex;
     align-items: center;
@@ -3731,7 +3895,7 @@
 
   .graph-folder-badge {
     position: absolute;
-    top: var(--space-3, 0.75rem);
+    top: calc(var(--space-3, 0.75rem) + 32px);
     left: var(--space-3, 0.75rem);
     display: flex;
     align-items: center;
@@ -3747,7 +3911,7 @@
   }
 
   .graph-folder-badge.has-path-filter {
-    top: calc(var(--space-3, 0.75rem) + 32px);
+    top: calc(var(--space-3, 0.75rem) + 64px);
   }
 
   .folder-badge-icon {

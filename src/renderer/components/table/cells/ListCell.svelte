@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { valueToString } from '../../../stores/table.svelte'
   import { type CellProps, isEmptyValue, autofocus } from './types'
 
@@ -9,11 +10,20 @@
   let tags = $state<string[]>([])
   let pending = $state('')
 
+  // Seed edit state only when edit mode OPENS (false → true). `value` is read
+  // untracked and re-runs without a real transition are ignored: a background
+  // refetch delivers a new array identity for the same tags, and reseeding then
+  // would wipe staged chips + in-progress typing mid-edit.
+  let wasEditing = false
   $effect(() => {
-    if (editing) {
-      tags = Array.isArray(value) ? value.map((x) => valueToString(x)) : []
-      pending = ''
+    const isEditing = editing
+    if (isEditing && !wasEditing) {
+      untrack(() => {
+        tags = Array.isArray(value) ? value.map((x) => valueToString(x)) : []
+        pending = ''
+      })
     }
+    wasEditing = isEditing
   })
 
   function addPending(): boolean {

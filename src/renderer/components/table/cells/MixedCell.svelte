@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { valueToString } from '../../../stores/table.svelte'
   import { type CellProps, isEmptyValue, autofocus } from './types'
 
@@ -8,8 +9,13 @@
 
   let draft = $state('')
 
+  // Seed the draft only when edit mode OPENS (false → true, `value` untracked)
+  // so a background refetch can't clobber in-progress typing.
+  let wasEditing = false
   $effect(() => {
-    if (editing) draft = valueToString(value)
+    const isEditing = editing
+    if (isEditing && !wasEditing) untrack(() => (draft = valueToString(value)))
+    wasEditing = isEditing
   })
 
   function commitDraft(): void {

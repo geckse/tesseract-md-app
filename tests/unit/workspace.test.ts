@@ -1,6 +1,10 @@
-import { describe, it, expect, beforeEach } from 'vitest'
-import { workspace } from '@renderer/stores/workspace.svelte'
-import type { DocumentTab, TabState } from '@renderer/stores/workspace.svelte'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import {
+  workspace,
+  loadDefaultGraphColoringMode,
+  saveDefaultGraphColoringMode
+} from '@renderer/stores/workspace.svelte'
+import type { DocumentTab, GraphTab, TabState } from '@renderer/stores/workspace.svelte'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -1286,6 +1290,88 @@ describe('WorkspaceStore', () => {
         expect(tab.activeViewId).toBe('view-2')
       }
       expect(workspace.isPopup).toBe(true)
+    })
+
+    it('initAsPopup registers a graph tab as the pane graphTabId', () => {
+      const tabId = workspace.initAsPopup('graph', {
+        graphLevel: 'chunk',
+        graphColoringMode: 'folder'
+      })
+
+      const tab = workspace.tabs[tabId]
+      expect(tab?.kind).toBe('graph')
+      if (tab?.kind === 'graph') {
+        expect(tab.graphLevel).toBe('chunk')
+        expect(tab.graphColoringMode).toBe('folder')
+      }
+      // graphTabId must point at the tab — getFocusedGraphTab() resolves
+      // graphLevel/graphColoringMode through it
+      expect(workspace.panes['popup-pane']?.graphTabId).toBe(tabId)
+      expect(workspace.focusedTab?.id).toBe(tabId)
+    })
+  })
+
+  describe('default graph coloring mode persistence', () => {
+    beforeEach(() => {
+      localStorage.removeItem('graphColoringModeDefault')
+    })
+
+    afterEach(() => {
+      localStorage.removeItem('graphColoringModeDefault')
+    })
+
+    /** Get the graph tab of the default pane. */
+    function defaultGraphTab(): GraphTab {
+      const pane = getPane(getDefaultPaneId())
+      return workspace.tabs[pane.graphTabId!] as GraphTab
+    }
+
+    it('loadDefaultGraphColoringMode returns cluster when nothing is stored', () => {
+      expect(loadDefaultGraphColoringMode()).toBe('cluster')
+    })
+
+    it('round-trips a mode through save/load', () => {
+      saveDefaultGraphColoringMode('folder')
+      expect(loadDefaultGraphColoringMode()).toBe('folder')
+
+      saveDefaultGraphColoringMode('custom-cluster')
+      expect(loadDefaultGraphColoringMode()).toBe('custom-cluster')
+    })
+
+    it('falls back to cluster for an invalid stored value', () => {
+      localStorage.setItem('graphColoringModeDefault', 'rainbow')
+      expect(loadDefaultGraphColoringMode()).toBe('cluster')
+    })
+
+    it('new graph tabs start in the persisted default mode', () => {
+      saveDefaultGraphColoringMode('custom-cluster')
+      workspace.reset()
+      expect(defaultGraphTab().graphColoringMode).toBe('custom-cluster')
+    })
+
+    it('new graph tabs default to cluster when nothing is stored', () => {
+      workspace.reset()
+      expect(defaultGraphTab().graphColoringMode).toBe('cluster')
+    })
+
+    it('popup graph tabs use the persisted default when no explicit mode is given', () => {
+      saveDefaultGraphColoringMode('folder')
+      const tabId = workspace.initAsPopup('graph', {})
+      const tab = workspace.tabs[tabId]
+      expect(tab?.kind).toBe('graph')
+      if (tab?.kind === 'graph') {
+        expect(tab.graphColoringMode).toBe('folder')
+      }
+    })
+
+    it('an explicit popup mode overrides the persisted default', () => {
+      saveDefaultGraphColoringMode('folder')
+      const tabId = workspace.initAsPopup('graph', { graphColoringMode: 'none' })
+      const tab = workspace.tabs[tabId]
+      expect(tab?.kind).toBe('graph')
+      if (tab?.kind === 'graph') {
+        expect(tab.graphColoringMode).toBe('none')
+      }
     })
   })
 })

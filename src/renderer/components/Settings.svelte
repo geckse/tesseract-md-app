@@ -36,8 +36,21 @@
   import { settingsOpen } from '../stores/ui'
   import { collections, activeCollection } from '../stores/collections'
   import type { Collection } from '../../preload/api'
-  import type { CustomClusterDef, CustomClusterSummary } from '../types/cli'
-  import { parseCustomClusters, encodeCustomClusters } from '../lib/custom-clusters'
+  import type { TopicDef, CustomClusterSummary, TopicUnassigned } from '../types/cli'
+  import {
+    topicDefs,
+    topicSummaries,
+    topicUnassigned,
+    topicsNeedIngest,
+    loadTopics,
+    addTopic,
+    updateTopic,
+    removeTopic,
+    migrateLegacyDotenvTopics,
+    resetTopicsState,
+    LEGACY_TOPICS_KEY,
+  } from '../stores/topics'
+  import { runIngest, ingestRunning } from '../stores/ingest'
   import CustomClusterModal from './CustomClusterModal.svelte'
 
   interface SettingsProps {
@@ -62,7 +75,7 @@
     { id: 'embedding', label: 'Embedding Provider', icon: 'hub' },
     { id: 'search', label: 'Search Defaults', icon: 'search' },
     { id: 'chunking', label: 'Chunking', icon: 'content_cut' },
-    { id: 'clusters', label: 'Custom Clusters', icon: 'category' },
+    { id: 'clusters', label: 'Topics', icon: 'category' },
     { id: 'appearance', label: 'Appearance', icon: 'palette' },
   ]
 
@@ -71,7 +84,7 @@
     embedding: 'Configure which AI model generates vector embeddings for your documents.',
     search: 'Default parameters for search queries.',
     chunking: 'Control how documents are split into chunks before embedding.',
-    clusters: 'Define your own semantic clusters with seed phrases. Documents are assigned by similarity.',
+    clusters: 'Define topics with seed phrases and descriptions. Documents are assigned by semantic similarity. Changes apply immediately to the collection config.',
     terminal: 'Configure the embedded terminal. Leave the shell path blank to use your system default.',
     appearance: 'Visual preferences for the app.',
     about: 'Version information and resources.',
@@ -84,12 +97,29 @@
   let currentLoading = $state(false)
   let allCollections: Collection[] = $state([])
 
-  // Custom clusters state
-  let customClusterDefs: CustomClusterDef[] = $state([])
-  let customClusterSummaries: CustomClusterSummary[] = $state([])
+  // Topics (custom clusters) state — CLI-backed, immediate writes
+  let currentTopicDefs: TopicDef[] = $state([])
+  let currentTopicSummaries: CustomClusterSummary[] = $state([])
+  let currentTopicUnassigned: TopicUnassigned | null = $state(null)
+  let currentTopicsNeedIngest = $state(false)
   let clusterModalOpen = $state(false)
   let clusterEditIndex: number | null = $state(null)
-  let clusterNeedsIngest = $state(false)
+  let topicsError = $state('')
+  let migratingTopics = $state(false)
+  let currentIngestRunning = $state(false)
+  let currentActiveCollectionId: string | null = $state(null)
+
+  // Clustering controls initialized from the resolved CLI config
+  let topicsFloor = $state(0.3)
+  let clusteringAlgorithm = $state('leiden')
+  let clusterGranularity = $state(1)
+
+  topicDefs.subscribe((v) => (currentTopicDefs = v))
+  topicSummaries.subscribe((v) => (currentTopicSummaries = v))
+  topicUnassigned.subscribe((v) => (currentTopicUnassigned = v))
+  topicsNeedIngest.subscribe((v) => (currentTopicsNeedIngest = v))
+  ingestRunning.subscribe((v) => (currentIngestRunning = v))
+  activeCollection.subscribe((v) => (currentActiveCollectionId = v?.id ?? null))
 
   // CLI state
   let cliPath = $state('')
@@ -260,25 +290,50 @@
     }
   })
 
-  // Load custom cluster definitions + summaries when collection config changes
+  // Load topics (CLI-backed) + resolved clustering config when the target collection changes
   $effect(() => {
     if (!isGlobal && targetCollection) {
-      const raw = getConfigValue('MDVDB_CUSTOM_CLUSTERS')
-      customClusterDefs = parseCustomClusters(raw)
-      // Load computed summaries (needs index, may fail)
+      const root = targetCollection.path
+      loadTopics(root)
       window.api
-        .customClusters(targetCollection.path)
-        .then((s) => (customClusterSummaries = s))
-        .catch(() => (customClusterSummaries = []))
+        .config(root)
+        .then((cfg) => {
+          if (cfg.topics_min_similarity != null) topicsFloor = cfg.topics_min_similarity
+          if (cfg.clustering_algorithm) clusteringAlgorithm = cfg.clustering_algorithm.toLowerCase()
+          if (cfg.clustering_granularity != null) clusterGranularity = cfg.clustering_granularity
+        })
+        .catch(() => {})
     } else {
-      customClusterDefs = []
-      customClusterSummaries = []
+      resetTopicsState()
     }
   })
 
-  function getClusterDocCount(name: string): number | null {
-    const s = customClusterSummaries.find((c) => c.name === name)
-    return s ? s.document_count : null
+  function getTopicSummary(name: string): CustomClusterSummary | null {
+    return currentTopicSummaries.find((c) => c.name === name) ?? null
+  }
+
+  // Legacy dotenv topics: offer a one-time import when the old key holds
+  // definitions but the CLI config has none.
+  let legacyTopicsRaw = $derived(
+    !isGlobal && !currentCollectionDeletions.has(LEGACY_TOPICS_KEY)
+      ? (currentCollectionConfig[LEGACY_TOPICS_KEY] ?? '')
+      : ''
+  )
+  let showLegacyImport = $derived(
+    legacyTopicsRaw.trim().length > 0 && currentTopicDefs.length === 0
+  )
+
+  async function handleLegacyImport() {
+    if (!targetCollection) return
+    migratingTopics = true
+    topicsError = ''
+    try {
+      await migrateLegacyDotenvTopics(targetCollection.path, legacyTopicsRaw)
+    } catch (err) {
+      topicsError = err instanceof Error ? err.message : String(err)
+    } finally {
+      migratingTopics = false
+    }
   }
 
   function handleAddCluster() {
@@ -291,28 +346,74 @@
     clusterModalOpen = true
   }
 
-  function handleRemoveCluster(index: number) {
-    const updated = customClusterDefs.filter((_, i) => i !== index)
-    customClusterDefs = updated
-    const encoded = encodeCustomClusters(updated)
-    stageCollectionConfig('MDVDB_CUSTOM_CLUSTERS', encoded)
+  async function handleRemoveCluster(index: number) {
+    if (!targetCollection) return
+    const def = currentTopicDefs[index]
+    if (!def) return
+    topicsError = ''
+    try {
+      await removeTopic(targetCollection.path, def.name)
+    } catch (err) {
+      topicsError = err instanceof Error ? err.message : String(err)
+    }
   }
 
-  function handleClusterModalSave(def: CustomClusterDef) {
-    let updated: CustomClusterDef[]
-    if (clusterEditIndex !== null) {
-      updated = customClusterDefs.map((d, i) => (i === clusterEditIndex ? def : d))
-    } else {
-      updated = [...customClusterDefs, def]
-    }
-    customClusterDefs = updated
-    const encoded = encodeCustomClusters(updated)
-    stageCollectionConfig('MDVDB_CUSTOM_CLUSTERS', encoded)
+  async function handleClusterModalSave(def: TopicDef) {
+    if (!targetCollection) return
+    topicsError = ''
+    const editingName = clusterEditIndex !== null ? currentTopicDefs[clusterEditIndex]?.name : null
     clusterModalOpen = false
+    try {
+      if (editingName) {
+        await updateTopic(targetCollection.path, editingName, def)
+      } else {
+        await addTopic(targetCollection.path, def)
+      }
+    } catch (err) {
+      topicsError = err instanceof Error ? err.message : String(err)
+    }
   }
 
   function handleClusterModalClose() {
     clusterModalOpen = false
+  }
+
+  async function handleTopicsFloorChange(value: number) {
+    topicsFloor = value
+    if (!targetCollection) return
+    topicsError = ''
+    try {
+      await window.api.setConfigValue(
+        targetCollection.path,
+        'clustering.topics.min_similarity',
+        String(value)
+      )
+      topicsNeedIngest.set(true)
+    } catch (err) {
+      topicsError = err instanceof Error ? err.message : String(err)
+    }
+  }
+
+  async function handleAlgorithmChange(value: string) {
+    clusteringAlgorithm = value
+    if (!targetCollection) return
+    topicsError = ''
+    try {
+      await window.api.setConfigValue(targetCollection.path, 'clustering.algorithm', value)
+      topicsNeedIngest.set(true)
+    } catch (err) {
+      topicsError = err instanceof Error ? err.message : String(err)
+    }
+  }
+
+  async function handleGranularityChange(value: string) {
+    clusterGranularity = Number(value)
+    if (!targetCollection) return
+    try {
+      await window.api.setConfigValue(targetCollection.path, 'clustering.granularity', value)
+    } catch {
+      // Non-critical — the notice below the slider explains the reindex requirement
+    }
   }
 
   async function checkForUpdate() {
@@ -862,7 +963,9 @@
           <div class="field-group">
             <label class="field-label">
               Cluster Granularity
-              <span class="annotation">{getAnnotation('MDVDB_CLUSTER_GRANULARITY')}</span>
+              {#if isGlobal}
+                <span class="annotation">{getAnnotation('MDVDB_CLUSTER_GRANULARITY')}</span>
+              {/if}
             </label>
             <div class="field-row slider-row">
               <span class="slider-label">Coarse</span>
@@ -872,22 +975,24 @@
                 min="0.25"
                 max="4"
                 step="0.25"
-                value={getConfigValue('MDVDB_CLUSTER_GRANULARITY') || '1'}
-                oninput={(e) => handleChange('MDVDB_CLUSTER_GRANULARITY', (e.target as HTMLInputElement).value)}
+                value={isGlobal ? (getConfigValue('MDVDB_CLUSTER_GRANULARITY') || '1') : String(clusterGranularity)}
+                oninput={(e) => {
+                  const v = (e.target as HTMLInputElement).value
+                  if (isGlobal) handleChange('MDVDB_CLUSTER_GRANULARITY', v)
+                  else clusterGranularity = Number(v)
+                }}
+                onchange={(e) => {
+                  if (!isGlobal) handleGranularityChange((e.target as HTMLInputElement).value)
+                }}
               />
               <span class="slider-label">Fine</span>
-              <span class="slider-value">{getConfigValue('MDVDB_CLUSTER_GRANULARITY') || '1.0'}x</span>
-              {#if !isGlobal && isCollectionOverride('MDVDB_CLUSTER_GRANULARITY')}
-                <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_CLUSTER_GRANULARITY')}>
-                  <span class="material-symbols-outlined">undo</span>
-                </button>
-              {/if}
+              <span class="slider-value">{isGlobal ? (getConfigValue('MDVDB_CLUSTER_GRANULARITY') || '1.0') : clusterGranularity}x</span>
             </div>
             <div class="field-hint">Controls the number of topic clusters. Higher = more, finer-grained clusters.</div>
-            {#if !isGlobal && isCollectionOverride('MDVDB_CLUSTER_GRANULARITY')}
+            {#if !isGlobal}
               <div class="field-notice">
                 <span class="material-symbols-outlined notice-icon">info</span>
-                Changing this setting requires a full reindex of the collection to take effect.
+                Written directly to the collection config. Changing it requires a full reindex to take effect.
               </div>
             {/if}
           </div>
@@ -896,21 +1001,51 @@
       {:else if currentSection === 'clusters' && !isGlobal}
         <div class="section">
           <div class="section-header-row">
-            <h2 class="section-title">Custom Clusters</h2>
-            <button class="btn-icon" onclick={handleAddCluster} title="Add cluster">
+            <h2 class="section-title">Topics</h2>
+            <button class="btn-icon" onclick={handleAddCluster} title="Add topic">
               <span class="material-symbols-outlined">add</span>
             </button>
           </div>
           <p class="section-explainer">{sectionExplainers.clusters}</p>
 
-          {#if customClusterDefs.length === 0}
-            <p class="empty-state">No custom clusters defined. Click + to add one.</p>
+          {#if showLegacyImport}
+            <div class="field-notice topics-banner">
+              <span class="material-symbols-outlined notice-icon">history</span>
+              <span class="topics-banner-text">Legacy cluster definitions found in the old config format.</span>
+              <button class="action-btn" onclick={handleLegacyImport} disabled={migratingTopics}>
+                {migratingTopics ? 'Importing…' : 'Import'}
+              </button>
+            </div>
+          {/if}
+
+          {#if currentTopicsNeedIngest}
+            <div class="field-notice topics-banner">
+              <span class="material-symbols-outlined notice-icon">info</span>
+              <span class="topics-banner-text">Topic changes require a re-ingest to take effect.</span>
+              {#if targetCollection && targetCollection.id === currentActiveCollectionId}
+                <button class="action-btn" onclick={() => runIngest()} disabled={currentIngestRunning}>
+                  {currentIngestRunning ? 'Ingesting…' : 'Re-ingest now'}
+                </button>
+              {/if}
+            </div>
+          {/if}
+
+          {#if topicsError}
+            <p class="field-error">{topicsError}</p>
+          {/if}
+
+          {#if currentTopicDefs.length === 0}
+            <p class="empty-state">No topics defined. Click + to add one.</p>
           {:else}
             <div class="cluster-list">
-              {#each customClusterDefs as def, i}
+              {#each currentTopicDefs as def, i}
+                {@const summary = getTopicSummary(def.name)}
                 <div class="cluster-card">
                   <div class="cluster-card-header">
                     <span class="cluster-name">{def.name}</span>
+                    <span class="threshold-chip">
+                      {def.threshold != null ? `custom ${def.threshold.toFixed(2)}` : 'global floor'}
+                    </span>
                     <div class="cluster-actions">
                       <button class="btn-icon btn-icon-sm" onclick={() => handleEditCluster(i)} title="Edit">
                         <span class="material-symbols-outlined">edit</span>
@@ -920,22 +1055,74 @@
                       </button>
                     </div>
                   </div>
-                  <div class="cluster-seeds">Seeds: {def.seeds.join(', ')}</div>
-                  {#if getClusterDocCount(def.name) !== null}
-                    <div class="cluster-doc-count">Documents: {getClusterDocCount(def.name)}</div>
+                  {#if def.description}
+                    <div class="cluster-description">{def.description}</div>
+                  {/if}
+                  {#if def.seeds.length > 0}
+                    <div class="cluster-seeds">Seeds: {def.seeds.join(', ')}</div>
+                  {/if}
+                  {#if summary}
+                    <div class="cluster-doc-count">
+                      {summary.document_count}
+                      {summary.document_count === 1 ? 'doc' : 'docs'}{summary.mean_score != null
+                        ? ` · avg ${Math.round(summary.mean_score * 100)}%`
+                        : ''}
+                    </div>
                   {/if}
                 </div>
               {/each}
             </div>
           {/if}
 
-          <p class="field-hint" style="margin-top: 12px;">Changes require re-ingest to take effect.</p>
+          {#if currentTopicUnassigned}
+            <div class="unassigned-row">
+              <span class="material-symbols-outlined unassigned-icon">scatter_plot</span>
+              Unassigned: {currentTopicUnassigned.count}
+            </div>
+          {/if}
+
+          <div class="field-group" style="margin-top: 20px;">
+            <label class="field-label">Similarity Floor</label>
+            <div class="field-row slider-row">
+              <span class="slider-label">Loose</span>
+              <input
+                class="field-slider"
+                type="range"
+                min="0"
+                max="0.9"
+                step="0.05"
+                value={topicsFloor}
+                oninput={(e) => (topicsFloor = Number((e.target as HTMLInputElement).value))}
+                onchange={(e) => handleTopicsFloorChange(Number((e.target as HTMLInputElement).value))}
+              />
+              <span class="slider-label">Strict</span>
+              <span class="slider-value">{topicsFloor.toFixed(2)}</span>
+            </div>
+            <div class="field-hint">
+              Global minimum similarity for topic assignment. Topics with a custom threshold override this.
+            </div>
+          </div>
+
+          <div class="field-group">
+            <label class="field-label">Clustering Algorithm</label>
+            <div class="field-row">
+              <select
+                class="field-select"
+                value={clusteringAlgorithm}
+                onchange={(e) => handleAlgorithmChange((e.target as HTMLSelectElement).value)}
+              >
+                <option value="leiden">Leiden (default)</option>
+                <option value="kmeans">K-means</option>
+              </select>
+            </div>
+            <div class="field-hint">Algorithm used for automatic clustering. Changing it requires a re-ingest.</div>
+          </div>
         </div>
 
         {#if clusterModalOpen}
           <CustomClusterModal
-            existingDef={clusterEditIndex !== null ? customClusterDefs[clusterEditIndex] : null}
-            existingNames={customClusterDefs.map((d) => d.name).filter((_, i) => i !== clusterEditIndex)}
+            existingDef={clusterEditIndex !== null ? currentTopicDefs[clusterEditIndex] : null}
+            existingNames={currentTopicDefs.map((d) => d.name).filter((_, i) => i !== clusterEditIndex)}
             onsave={handleClusterModalSave}
             onclose={handleClusterModalClose}
           />
@@ -1835,10 +2022,62 @@
     line-height: 1.4;
   }
 
+  .cluster-description {
+    font-size: 11px;
+    color: var(--color-text-dim);
+    line-height: 1.4;
+    margin-bottom: 2px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
   .cluster-doc-count {
     font-size: 11px;
     color: var(--color-text-dim);
     margin-top: 2px;
+  }
+
+  .threshold-chip {
+    font-size: 10px;
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    color: var(--color-text-dim);
+    background: var(--color-surface-dark, #0a0a0a);
+    border: 1px solid var(--color-border);
+    border-radius: 9999px;
+    padding: 1px 8px;
+    margin-left: 8px;
+    margin-right: auto;
+    white-space: nowrap;
+  }
+
+  .unassigned-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--color-text-dim);
+  }
+
+  .unassigned-icon {
+    font-size: 16px;
+  }
+
+  .topics-banner {
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+
+  .topics-banner-text {
+    flex: 1;
+  }
+
+  .field-error {
+    font-size: 12px;
+    color: #ef4444;
+    margin: 0 0 12px 0;
   }
 
   .btn-icon-sm {

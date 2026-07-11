@@ -13,6 +13,7 @@
   import SaveAsModal from './SaveAsModal.svelte'
   import { workspace } from '../stores/workspace.svelte'
   import { syncFileStoresFromTab } from '../stores/files'
+  import { loadGraphData, syncGraphStoresFromTab } from '../stores/graph'
   import { setupVaultListener, teardownVaultListener } from '../stores/vault-events'
   import { setupFileSyncListener, teardownFileSyncListener, applyDiskContentToTab } from '../stores/file-sync'
   import DiffView from './DiffView.svelte'
@@ -138,6 +139,14 @@
     })
     contentReady = true
     syncFileStoresFromTab()
+
+    // Graph popups: the main window loads graph data from App.svelte, which
+    // doesn't run here — sync the derived graph stores to the popup's tab
+    // (level/coloring from URL params) and trigger the initial load ourselves.
+    if (kind === 'graph') {
+      syncGraphStoresFromTab()
+      loadGraphData().catch(() => {})
+    }
 
     // 4. Load file content in the background (skip for untitled — no file on disk)
     if (kind === 'document' && filePath && !popupIsUntitled) {

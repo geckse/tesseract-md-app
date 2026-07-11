@@ -2,12 +2,12 @@
   import { onDestroy } from 'svelte'
   import Badge from './ui/Badge.svelte'
   import ResizeHandle from './ResizeHandle.svelte'
-  import { graphOpenedNode, graphSelectedNode } from '../stores/graph'
+  import { graphOpenedNode, graphSelectedNode, graphData } from '../stores/graph'
   import { syncFileStoresFromTab } from '../stores/files'
   import { workspace } from '../stores/workspace.svelte'
   import { activeCollection } from '../stores/collections'
   import { renderMarkdown, formatFrontmatterValue } from '../lib/markdown-render'
-  import type { GraphNode, JsonValue } from '../types/cli'
+  import type { GraphData, GraphNode, JsonValue } from '../types/cli'
 
   // Panel width management with persistence
   const STORAGE_KEY = 'graphPreviewWidth'
@@ -36,10 +36,12 @@
   // Store subscriptions
   let currentNode: GraphNode | null = $state(null)
   let currentCollectionPath: string | null = $state(null)
+  let currentGraphData: GraphData | null = $state(null)
 
   const unsubs = [
     graphOpenedNode.subscribe((v) => (currentNode = v)),
     activeCollection.subscribe((v) => (currentCollectionPath = v?.path ?? null)),
+    graphData.subscribe((v) => (currentGraphData = v)),
   ]
 
   onDestroy(() => unsubs.forEach((u) => u()))
@@ -113,6 +115,25 @@
     return []
   })
 
+  // Topic (custom cluster) memberships of the opened node, with scores
+  let topics = $derived.by(() => {
+    const node = currentNode
+    if (!node) return []
+    const ids =
+      node.custom_cluster_ids && node.custom_cluster_ids.length > 0
+        ? node.custom_cluster_ids
+        : node.custom_cluster_id != null
+          ? [node.custom_cluster_id]
+          : []
+    const scores = node.custom_cluster_scores ?? []
+    return ids.map((id, i) => ({
+      id,
+      name:
+        currentGraphData?.custom_clusters?.find((c) => c.id === id)?.label ?? `Topic ${id}`,
+      score: scores[i] ?? null,
+    }))
+  })
+
   function handleOpenInEditor() {
     if (!currentNode) return
     workspace.openTabFromGraph(currentNode.path)
@@ -163,6 +184,20 @@
         {#each tags as tag}
           <Badge variant="default">{tag}</Badge>
         {/each}
+      </div>
+    {/if}
+
+    <!-- Topic memberships (custom clusters) with assignment scores -->
+    {#if topics.length > 0}
+      <div class="topics-section">
+        <span class="topics-title">Topics</span>
+        <div class="topics-badges">
+          {#each topics as topic (topic.id)}
+            <span class="topic-badge">
+              {topic.name}{topic.score != null ? ` · ${Math.round(topic.score * 100)}%` : ''}
+            </span>
+          {/each}
+        </div>
       </div>
     {/if}
 
@@ -266,6 +301,42 @@
     padding: var(--space-3, 12px) var(--space-4, 16px);
     border-bottom: 1px solid var(--color-border, #27272a);
     flex-shrink: 0;
+  }
+
+  /* Topics section */
+  .topics-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1, 4px);
+    padding: var(--space-3, 12px) var(--space-4, 16px);
+    border-bottom: 1px solid var(--color-border, #27272a);
+    flex-shrink: 0;
+  }
+
+  .topics-title {
+    font-size: var(--text-xs, 10px);
+    font-weight: var(--weight-bold, 700);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-text-dim, #71717a);
+  }
+
+  .topics-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1, 4px);
+  }
+
+  .topic-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    background: var(--color-surface, #161617);
+    border: 1px solid var(--color-border, #27272a);
+    border-radius: var(--radius-full, 9999px);
+    font-size: var(--text-xs, 10px);
+    color: var(--color-text, #e4e4e7);
+    white-space: nowrap;
   }
 
   /* Markdown body */

@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, beforeAll } from 'vitest'
-import { execFile } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { promisify } from 'node:util'
 import { mkdtemp, writeFile, mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -15,33 +15,23 @@ import { tmpdir } from 'node:os'
 
 const execFileAsync = promisify(execFile)
 
-/** Check if mdvdb binary is available on PATH */
-async function isMdvdbAvailable(): Promise<boolean> {
+/**
+ * Resolve the mdvdb binary path synchronously at module load — the
+ * `describe.skipIf` conditions below are evaluated at collection time,
+ * so an async beforeAll would always leave the real-binary suite skipped.
+ */
+function findMdvdbSync(): string {
   const whichCmd = process.platform === 'win32' ? 'where' : 'which'
   try {
-    const { stdout } = await execFileAsync(whichCmd, ['mdvdb'], { timeout: 5_000 })
-    return stdout.trim().length > 0
+    const stdout = execFileSync(whichCmd, ['mdvdb'], { timeout: 5_000 }).toString()
+    return stdout.trim().split('\n')[0].trim()
   } catch {
-    return false
+    return ''
   }
 }
 
-/** Get the mdvdb binary path */
-async function getMdvdbPath(): Promise<string> {
-  const whichCmd = process.platform === 'win32' ? 'where' : 'which'
-  const { stdout } = await execFileAsync(whichCmd, ['mdvdb'], { timeout: 5_000 })
-  return stdout.trim().split('\n')[0].trim()
-}
-
-let cliAvailable = false
-let cliPath = ''
-
-beforeAll(async () => {
-  cliAvailable = await isMdvdbAvailable()
-  if (cliAvailable) {
-    cliPath = await getMdvdbPath()
-  }
-})
+const cliPath = findMdvdbSync()
+const cliAvailable = cliPath.length > 0
 
 /**
  * Helper to run mdvdb commands directly (bypasses the app's cli.ts module
@@ -82,10 +72,9 @@ describe.skipIf(!cliAvailable)('CLI Bridge Integration (real binary)', () => {
     })
 
     it('reports a version string', async () => {
+      // mdvdb --version prints an ASCII logo followed by "v <semver>".
       const { stdout } = await runMdvdb(['--version'])
-      const version = stdout.trim().replace(/^mdvdb\s+/, '')
-      // Version should match semver-like pattern
-      expect(version).toMatch(/^\d+\.\d+\.\d+/)
+      expect(stdout).toMatch(/v\s*\d+\.\d+\.\d+/)
     })
   })
 
@@ -278,6 +267,124 @@ describe.skipIf(!cliAvailable)('CLI Bridge Integration (real binary)', () => {
       } catch {
         // Schema may require indexed data — acceptable to fail
       }
+    })
+  })
+
+  describe('topics round-trip (add → list → --custom → update → remove)', () => {
+    let tempDir: string
+
+    beforeAll(async () => {
+      tempDir = await mkdtemp(join(tmpdir(), 'mdvdb-topics-'))
+      await mkdir(join(tempDir, '.markdownvdb'), { recursive: true })
+      // Mock provider so ingest needs no API keys.
+      await writeFile(
+        join(tempDir, '.markdownvdb', 'config.yaml'),
+        'embedding:\n  provider: mock\n  dimensions: 8\n'
+      )
+      await writeFile(join(tempDir, 'ai.md'), '# AI\n\nMachine learning notes.\n')
+      await writeFile(join(tempDir, 'web.md'), '# Web\n\nHTML and CSS notes.\n')
+    })
+
+    afterAll(async () => {
+      await rm(tempDir, { recursive: true, force: true }).catch(() => {})
+    })
+
+    it('adds a topic with description and threshold', async () => {
+      await runMdvdb([
+        'clusters',
+        'add',
+        'AI',
+        '--seeds',
+        'machine learning,neural networks',
+        '--description',
+        'Notes about machine learning',
+        '--threshold',
+        '0.2',
+        '--json',
+        '--root',
+        tempDir
+      ])
+
+      const defs = await runMdvdbJson<
+        Array<{ name: string; description?: string; seeds: string[]; threshold?: number }>
+      >('clusters', ['list'], tempDir)
+      expect(defs).toHaveLength(1)
+      expect(defs[0].name).toBe('AI')
+      expect(defs[0].description).toBe('Notes about machine learning')
+      expect(defs[0].seeds).toEqual(['machine learning', 'neural networks'])
+      expect(defs[0].threshold).toBeCloseTo(0.2)
+    })
+
+    it('computes topic summaries after ingest', async () => {
+      await runMdvdb(['ingest', '--root', tempDir], { timeout: 120_000 })
+
+      const summaries = await runMdvdbJson<
+        Array<{
+          id: number
+          name: string
+          document_count: number
+          mean_score?: number
+          description?: string
+        }>
+      >('clusters', ['--custom'], tempDir)
+      expect(summaries).toHaveLength(1)
+      expect(summaries[0].name).toBe('AI')
+      expect(summaries[0].description).toBe('Notes about machine learning')
+      if (summaries[0].document_count > 0) {
+        expect(summaries[0].mean_score).toBeGreaterThan(0)
+      }
+
+      const unassigned = await runMdvdbJson<{ count: number; paths: string[] }>(
+        'clusters',
+        ['unassigned'],
+        tempDir
+      )
+      // Every document is either a member or unassigned.
+      expect(unassigned.count + summaries[0].document_count).toBeGreaterThanOrEqual(2)
+      expect(unassigned.paths).toHaveLength(unassigned.count)
+    })
+
+    it('updates (rename + clear description) and removes the topic', async () => {
+      await runMdvdb([
+        'clusters',
+        'update',
+        'AI',
+        '--description',
+        '',
+        '--threshold=-1',
+        '--rename',
+        'ML',
+        '--json',
+        '--root',
+        tempDir
+      ])
+
+      let defs = await runMdvdbJson<
+        Array<{ name: string; description?: string; threshold?: number }>
+      >('clusters', ['list'], tempDir)
+      expect(defs).toHaveLength(1)
+      expect(defs[0].name).toBe('ML')
+      expect(defs[0].description ?? null).toBeNull()
+      expect(defs[0].threshold ?? null).toBeNull()
+
+      await runMdvdb(['clusters', 'remove', 'ML', '--json', '--root', tempDir])
+      defs = await runMdvdbJson<Array<{ name: string }>>('clusters', ['list'], tempDir)
+      expect(defs).toHaveLength(0)
+    })
+
+    it('config set writes dotted keys into config.yaml', async () => {
+      await runMdvdb([
+        'config',
+        'set',
+        'clustering.topics.min_similarity',
+        '0.35',
+        '--json',
+        '--root',
+        tempDir
+      ])
+      const { readFile } = await import('node:fs/promises')
+      const yaml = await readFile(join(tempDir, '.markdownvdb', 'config.yaml'), 'utf8')
+      expect(yaml).toContain('min_similarity: 0.35')
     })
   })
 })

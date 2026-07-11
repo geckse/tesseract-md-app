@@ -121,6 +121,17 @@ describe('StringCell', () => {
     expect(oncommit).toHaveBeenCalledWith('blurred')
   })
 
+  it('keeps the in-progress draft when the value refreshes in the background', async () => {
+    const { props } = cellProps('String', 'old', { editing: true })
+    const { container, rerender } = render(StringCell, { props })
+    const input = container.querySelector('input')!
+
+    await fireEvent.input(input, { target: { value: 'typing' } })
+    await rerender({ value: 'changed elsewhere' })
+
+    expect((container.querySelector('input') as HTMLInputElement).value).toBe('typing')
+  })
+
   describe('select mode (allowed_values)', () => {
     const allowed = { column: { allowed_values: ['draft', 'published'] } }
 
@@ -305,6 +316,22 @@ describe('ListCell', () => {
 
     expect(oncancel).toHaveBeenCalled()
     expect(oncommit).not.toHaveBeenCalled()
+  })
+
+  it('keeps in-progress input when the value refreshes in the background', async () => {
+    const { props } = cellProps('List', ['a'], { editing: true })
+    const { container, rerender } = render(ListCell, { props })
+    const input = container.querySelector('input')!
+
+    await fireEvent.input(input, { target: { value: 'b' } })
+    await fireEvent.keyDown(input, { key: 'Enter' }) // stage chip 'b' (uncommitted)
+    await fireEvent.input(container.querySelector('input')!, { target: { value: 'ty' } })
+
+    // A background table refetch delivers a fresh array identity for the same value.
+    await rerender({ value: ['a'] })
+
+    expect((container.querySelector('input') as HTMLInputElement).value).toBe('ty')
+    expect(screen.getByText('b')).toBeTruthy() // the staged chip survives too
   })
 })
 

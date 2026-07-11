@@ -2,7 +2,7 @@ import { writable, derived, get } from 'svelte/store'
 import type { Writable } from 'svelte/store'
 import type { GraphData, GraphLevel, GraphNode, NeighborhoodResult, NeighborhoodNode } from '../types/cli'
 import { activeCollection } from './collections'
-import { workspace } from './workspace.svelte'
+import { workspace, saveDefaultGraphColoringMode } from './workspace.svelte'
 import type { GraphTab, GraphColoringMode } from './workspace.svelte'
 
 // Re-export the type for backward compat (consumers import it from graph.ts)
@@ -86,7 +86,9 @@ export const graphLevel: Writable<GraphLevel> = {
 
 /**
  * Current graph coloring mode — derived from focused pane's graph tab.
- * Retains .set()/.update() for backward compat.
+ * Retains .set()/.update() for backward compat. Every change is also
+ * persisted as the user's default view mode for future graph tabs and
+ * app restarts.
  */
 export const graphColoringMode: Writable<GraphColoringMode> = {
   subscribe: derived(_graphSync, () => {
@@ -97,6 +99,7 @@ export const graphColoringMode: Writable<GraphColoringMode> = {
     if (graphTab) {
       graphTab.graphColoringMode = value
     }
+    saveDefaultGraphColoringMode(value)
     _graphSync.update((n) => n + 1)
   },
   update(fn: (value: GraphColoringMode) => GraphColoringMode) {
@@ -106,6 +109,7 @@ export const graphColoringMode: Writable<GraphColoringMode> = {
     if (graphTab) {
       graphTab.graphColoringMode = newValue
     }
+    saveDefaultGraphColoringMode(newValue)
     _graphSync.update((n) => n + 1)
   },
 }
@@ -384,13 +388,13 @@ export function openGraphWithNeighborhood(filePath: string, neighborhood: Neighb
   const edges: GraphData['edges'] = []
 
   // Add center node
-  nodes.set(filePath, { id: filePath, path: filePath, label: null, cluster_id: null, chunk_index: null })
+  nodes.set(filePath, { id: filePath, path: filePath, label: null, cluster_id: null, custom_cluster_id: null, chunk_index: null })
 
   // Walk neighborhood tree and collect nodes + edges
   function walk(items: NeighborhoodNode[], parentPath: string, direction: 'out' | 'in'): void {
     for (const item of items) {
       if (!nodes.has(item.path)) {
-        nodes.set(item.path, { id: item.path, path: item.path, label: null, cluster_id: null, chunk_index: null })
+        nodes.set(item.path, { id: item.path, path: item.path, label: null, cluster_id: null, custom_cluster_id: null, chunk_index: null })
       }
       const src = direction === 'out' ? parentPath : item.path
       const tgt = direction === 'out' ? item.path : parentPath
@@ -416,7 +420,7 @@ export function openGraphWithNeighborhood(filePath: string, neighborhood: Neighb
   graphLoadMode.set('replace')
   graphDataSource.set('adhoc')
   graphData.set(data)
-  const nodeData: GraphNode = { id: filePath, path: filePath, label: null, cluster_id: null, chunk_index: null }
+  const nodeData: GraphNode = { id: filePath, path: filePath, label: null, cluster_id: null, custom_cluster_id: null, chunk_index: null }
   graphSelectedNode.set(nodeData)
   graphOpenedNode.set(nodeData)
 

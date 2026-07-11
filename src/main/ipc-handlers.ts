@@ -77,7 +77,8 @@ import type {
   NeighborhoodResult,
   ClusterSummary,
   CustomClusterSummary,
-  CustomClusterDef,
+  TopicDef,
+  TopicUnassigned,
   GraphData,
   Schema,
   Config,
@@ -303,14 +304,53 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
     wrapHandler(() => execCommand<ClusterSummary[]>('clusters', [], root))
   )
 
-  // Custom clusters (computed assignments from index)
+  // Custom clusters / topics (computed assignments from index)
   ipcMain.handle('cli:custom-clusters', (_event, root: string) =>
     wrapHandler(() => execCommand<CustomClusterSummary[]>('clusters', ['--custom'], root))
   )
 
-  // Custom cluster definitions (from config, no index needed)
+  // Topic definitions (from config, no index needed).
+  // NOTE: execCommand already injects --json — do not add it again.
   ipcMain.handle('cli:clusters-list', (_event, root: string) =>
-    wrapHandler(() => execCommand<CustomClusterDef[]>('clusters', ['list', '--json'], root))
+    wrapHandler(() => execCommand<TopicDef[]>('clusters', ['list'], root))
+  )
+
+  // Add a topic definition (writes .markdownvdb/config.yaml via the CLI;
+  // with --json the CLI prints only to stderr, so stdout stays empty)
+  ipcMain.handle('cli:clusters-add', (_event, root: string, def: TopicDef) => {
+    const args = ['add', def.name]
+    if (def.seeds.length > 0) args.push('--seeds', def.seeds.join(','))
+    if (def.description) args.push('--description', def.description)
+    if (def.threshold != null) args.push('--threshold', String(def.threshold))
+    return wrapHandler(() => execCommand<void>('clusters', args, root))
+  })
+
+  // Update a topic definition. Always sends --description and --threshold so
+  // clearing works: --description "" clears it, and a negative threshold
+  // (equals-form, clap rejects a bare `-1` value) clears the threshold.
+  ipcMain.handle('cli:clusters-update', (_event, root: string, name: string, def: TopicDef) => {
+    const args = ['update', name]
+    if (def.seeds.length > 0) args.push('--seeds', def.seeds.join(','))
+    args.push('--description', def.description ?? '')
+    if (def.threshold != null) args.push('--threshold', String(def.threshold))
+    else args.push('--threshold=-1')
+    if (def.name && def.name !== name) args.push('--rename', def.name)
+    return wrapHandler(() => execCommand<void>('clusters', args, root))
+  })
+
+  // Remove a topic definition
+  ipcMain.handle('cli:clusters-remove', (_event, root: string, name: string) =>
+    wrapHandler(() => execCommand<void>('clusters', ['remove', name], root))
+  )
+
+  // Documents matching no topic (the Unassigned bucket)
+  ipcMain.handle('cli:clusters-unassigned', (_event, root: string) =>
+    wrapHandler(() => execCommand<TopicUnassigned>('clusters', ['unassigned'], root))
+  )
+
+  // Generic YAML config write: `mdvdb config set <dotted.key> <value>`
+  ipcMain.handle('cli:config-set', (_event, root: string, key: string, value: string) =>
+    wrapHandler(() => execCommand<void>('config', ['set', key, value], root))
   )
 
   // Graph data

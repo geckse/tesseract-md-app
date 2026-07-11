@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { valueToString } from '../../../stores/table.svelte'
   import PopoverMenu, { type PopoverMenuItem } from '../../ui/PopoverMenu.svelte'
   import { type CellProps, isEmptyValue, autofocus } from './types'
@@ -11,8 +12,13 @@
   let draft = $state('')
   let cellEl: HTMLDivElement | null = $state(null)
 
+  // Seed the draft only when edit mode OPENS (false → true, `value` untracked)
+  // so a background refetch can't clobber in-progress typing.
+  let wasEditing = false
   $effect(() => {
-    if (editing) draft = valueToString(value)
+    const isEditing = editing
+    if (isEditing && !wasEditing) untrack(() => (draft = valueToString(value)))
+    wasEditing = isEditing
   })
 
   const CLEAR_ID = '__clear__'

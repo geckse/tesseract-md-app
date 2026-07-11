@@ -1,10 +1,10 @@
 <script lang="ts">
-  import type { CustomClusterDef } from '../types/cli'
+  import type { TopicDef } from '../types/cli'
 
   interface Props {
-    existingDef: CustomClusterDef | null
+    existingDef: TopicDef | null
     existingNames: string[]
-    onsave: (def: CustomClusterDef) => void
+    onsave: (def: TopicDef) => void
     onclose: () => void
   }
 
@@ -12,9 +12,19 @@
 
   let name = $state(existingDef?.name ?? '')
   let seedsText = $state(existingDef?.seeds.join(', ') ?? '')
+  let description = $state(existingDef?.description ?? '')
+  let thresholdEnabled = $state(existingDef?.threshold != null)
+  let threshold = $state(existingDef?.threshold ?? 0.3)
   let error = $state('')
 
   let isEditing = $derived(existingDef !== null)
+
+  function parseSeeds(): string[] {
+    return seedsText
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0)
+  }
 
   function validate(): string {
     const trimmedName = name.trim()
@@ -22,14 +32,15 @@
     if (trimmedName.includes(':') || trimmedName.includes('|'))
       return 'Name cannot contain ":" or "|".'
     if (existingNames.includes(trimmedName))
-      return `A cluster named "${trimmedName}" already exists.`
+      return `A topic named "${trimmedName}" already exists.`
 
-    const seeds = seedsText
-      .split(',')
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0)
-    if (seeds.length === 0) return 'At least one seed phrase is required.'
+    const seeds = parseSeeds()
+    if (seeds.length === 0 && description.trim().length === 0)
+      return 'Provide at least one seed phrase or a description.'
     if (seeds.some((s) => s.includes('|'))) return 'Seed phrases cannot contain "|".'
+
+    if (thresholdEnabled && (threshold < 0.05 || threshold > 0.95))
+      return 'Threshold must be between 0.05 and 0.95.'
 
     return ''
   }
@@ -41,12 +52,12 @@
       return
     }
 
-    const seeds = seedsText
-      .split(',')
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0)
-
-    onsave({ name: name.trim(), seeds })
+    onsave({
+      name: name.trim(),
+      seeds: parseSeeds(),
+      description: description.trim() ? description.trim() : null,
+      threshold: thresholdEnabled ? threshold : null
+    })
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -71,11 +82,11 @@
     class="modal-content"
     role="dialog"
     aria-modal="true"
-    aria-label={isEditing ? 'Edit Custom Cluster' : 'Add Custom Cluster'}
+    aria-label={isEditing ? 'Edit Topic' : 'Add Topic'}
   >
     <div class="modal-header">
       <span class="material-symbols-outlined modal-icon">category</span>
-      <h2 class="modal-title">{isEditing ? 'Edit Custom Cluster' : 'Add Custom Cluster'}</h2>
+      <h2 class="modal-title">{isEditing ? 'Edit Topic' : 'Add Topic'}</h2>
       <button class="modal-close" onclick={onclose} title="Close">
         <span class="material-symbols-outlined">close</span>
       </button>
@@ -91,6 +102,14 @@
         autofocus
       />
 
+      <label class="field-label" style="margin-top: 12px;">Description</label>
+      <textarea
+        class="field-textarea"
+        bind:value={description}
+        placeholder="Optional — a sentence describing this topic improves matching accuracy"
+        rows="2"
+      ></textarea>
+
       <label class="field-label" style="margin-top: 12px;">Seed phrases (comma-separated)</label>
       <textarea
         class="field-textarea"
@@ -100,9 +119,32 @@
       ></textarea>
 
       <p class="field-hint">
-        Describe what this cluster is about. Documents will be assigned by semantic similarity to
-        these phrases.
+        Documents are assigned to this topic by semantic similarity to the description and seed
+        phrases. Provide at least one of the two.
       </p>
+
+      <label class="threshold-toggle" style="margin-top: 12px;">
+        <input type="checkbox" bind:checked={thresholdEnabled} />
+        Custom similarity threshold
+      </label>
+      {#if thresholdEnabled}
+        <div class="threshold-row">
+          <input
+            class="threshold-slider"
+            type="range"
+            min="0.05"
+            max="0.95"
+            step="0.05"
+            bind:value={threshold}
+            aria-label="Similarity threshold"
+          />
+          <span class="threshold-value">{Number(threshold).toFixed(2)}</span>
+        </div>
+        <p class="field-hint">
+          Documents below this similarity are not assigned to this topic. Unchecked = the global
+          floor applies.
+        </p>
+      {/if}
 
       {#if error}
         <p class="field-error">{error}</p>
@@ -112,7 +154,7 @@
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick={onclose}>Cancel</button>
       <button class="btn btn-primary" onclick={handleSave}>
-        {isEditing ? 'Save Changes' : 'Add Cluster'}
+        {isEditing ? 'Save Changes' : 'Add Topic'}
       </button>
     </div>
   </div>
@@ -244,6 +286,56 @@
     font-size: 12px;
     color: #ef4444;
     margin-top: 8px;
+  }
+
+  .threshold-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--color-text-main);
+    cursor: pointer;
+  }
+
+  .threshold-toggle input[type='checkbox'] {
+    accent-color: var(--color-primary);
+  }
+
+  .threshold-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 8px;
+  }
+
+  .threshold-slider {
+    flex: 1;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    background: var(--color-border);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+  }
+
+  .threshold-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--color-primary);
+    cursor: pointer;
+    border: none;
+  }
+
+  .threshold-value {
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-size: 12px;
+    color: var(--color-text-main);
+    min-width: 36px;
+    text-align: right;
   }
 
   .btn {

@@ -37,6 +37,12 @@ export interface Graph3DNode {
   path: string
   label: string | null
   cluster_id: number | null
+  /** PRIMARY topic (custom cluster) id — null = Unassigned. */
+  custom_cluster_id: number | null
+  /** All topic memberships, score-descending (empty when none). */
+  custom_cluster_ids: number[]
+  /** Scores parallel to custom_cluster_ids (empty when none). */
+  custom_cluster_scores: number[]
   chunk_index: number | null
   size: number | null
   /** Sphere size value for 3d-force-graph. */
@@ -114,10 +120,32 @@ function getTopLevelFolder(path: string): string {
 }
 
 /**
- * Compute the node color based on coloring mode, cluster assignment, and level.
+ * Escape HTML special characters for safe tooltip rendering.
  */
-function nodeColor(
-  node: GraphNode,
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+// ─── Exported Functions ──────────────────────────────────────────────
+
+/**
+ * Compute the node color based on coloring mode, cluster assignment, and level.
+ *
+ * Single source of truth for node coloring — used both at build time
+ * (buildGraph3DData) and by the live nodeColor accessor in GraphView.
+ *
+ * - cluster: palette by auto cluster_id; unclustered docs → default color
+ * - custom-cluster: custom palette by PRIMARY topic (custom_cluster_id);
+ *   Unassigned (null) docs → default color; chunks keep file-hash color
+ * - folder: folderColorMap by top-level directory
+ * - none: file-hash color for chunks, default for documents
+ */
+export function nodeColorForMode(
+  node: Pick<GraphNode, 'path' | 'cluster_id' | 'custom_cluster_id'>,
   mode: ColoringMode,
   folderColorMap: Map<string, string> | null,
   isChunk: boolean,
@@ -145,19 +173,6 @@ function nodeColor(
   // 'none' mode: per-file hash color for chunks, default for documents
   return isChunk ? fileColor(node.path, palette) : getDefaultNodeColor()
 }
-
-/**
- * Escape HTML special characters for safe tooltip rendering.
- */
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-}
-
-// ─── Exported Functions ──────────────────────────────────────────────
 
 /**
  * Compute a degree map from graph edges.
@@ -430,13 +445,16 @@ export function buildGraph3DData(data: GraphData, options: BuildGraph3DOptions):
   const nodes: Graph3DNode[] = data.nodes.map((node) => {
     const degree = degreeMap.get(node.id) ?? 0
     const val = nodeSizeValue(options.level, degree, node.size ?? 0, maxSize)
-    const color = nodeColor(node, options.coloringMode, folderColorMap, isChunk, options.clusterPalette, options.customClusterPalette)
+    const color = nodeColorForMode(node, options.coloringMode, folderColorMap, isChunk, options.clusterPalette, options.customClusterPalette)
 
     return {
       id: node.id,
       path: node.path,
       label: node.label,
       cluster_id: node.cluster_id,
+      custom_cluster_id: node.custom_cluster_id ?? null,
+      custom_cluster_ids: node.custom_cluster_ids ?? [],
+      custom_cluster_scores: node.custom_cluster_scores ?? [],
       chunk_index: node.chunk_index,
       size: node.size ?? null,
       val,

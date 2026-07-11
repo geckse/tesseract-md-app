@@ -7,12 +7,20 @@ const mockApi = {
   collection: vi.fn(),
   readFile: vi.fn(),
   ingestFile: vi.fn(),
-  updateFrontmatter: vi.fn()
+  updateFrontmatter: vi.fn(),
+  listTableViews: vi.fn(),
+  // Called by the content-load pipeline (syncFileStoresFromTab → _autoLoadTabContent)
+  addRecent: vi.fn(),
+  getFile: vi.fn(),
+  backlinks: vi.fn(),
+  links: vi.fn(),
+  neighborhood: vi.fn()
 }
 
 Object.defineProperty(window, 'api', { value: mockApi, writable: true })
 
 import { workspace } from '@renderer/stores/workspace.svelte'
+import { collections, activeCollectionId } from '@renderer/stores/collections'
 import { tableStore } from '@renderer/stores/table.svelte'
 import TableView from '@renderer/components/table/TableView.svelte'
 import type { CollectionOutput, CollectionRow } from '../../src/renderer/types/cli'
@@ -55,7 +63,10 @@ describe('TableView', () => {
   beforeEach(() => {
     workspace.reset()
     tableStore.dispose?.('')
+    collections.set([])
+    activeCollectionId.set(null)
     mockApi.collection.mockReset()
+    mockApi.listTableViews.mockReset()
   })
 
   afterEach(() => {
@@ -127,5 +138,92 @@ describe('TableView', () => {
 
     await fireEvent.keyDown(grid, { key: 'Enter' })
     expect(openFile).toHaveBeenCalledWith('docs/a.md')
+  })
+
+  it('opening a row loads the document content into the new tab', async () => {
+    collections.set([{ id: 'c1', name: 'Root', path: '/root', addedAt: 1, lastOpenedAt: 1 }])
+    activeCollectionId.set('c1')
+    mockApi.collection.mockResolvedValue(fixture)
+    mockApi.listTableViews.mockResolvedValue([])
+    mockApi.readFile.mockResolvedValue('# Doc A')
+
+    const tabId = workspace.openTableTab('docs')
+    await tableStore.load(tabId, 'c1', '/root')
+
+    const { container } = render(TableView, { props: { tabId } })
+    const grid = container.querySelector('.table-view')!
+
+    await fireEvent.keyDown(grid, { key: 'ArrowDown' })
+    await fireEvent.keyDown(grid, { key: 'Enter' })
+
+    // The regression: the tab opened but content never loaded because
+    // syncFileStoresFromTab() wasn't called after workspace.openFile().
+    await vi.waitFor(() => expect(mockApi.readFile).toHaveBeenCalledWith('/root/docs/a.md'))
+    await vi.waitFor(() => {
+      const docTab = Object.values(workspace.tabs).find(
+        (t) => t.kind === 'document' && t.filePath === 'docs/a.md'
+      )
+      expect(docTab && docTab.kind === 'document' ? docTab.content : null).toBe('# Doc A')
+    })
+  })
+
+  it('the load effect settles — data + views arriving must not re-trigger a refetch loop', async () => {
+    collections.set([{ id: 'c-settle', name: 'Root', path: '/root', addedAt: 1, lastOpenedAt: 1 }])
+    activeCollectionId.set('c-settle')
+    mockApi.collection.mockResolvedValue(fixture)
+    mockApi.listTableViews.mockResolvedValue([])
+
+    const tabId = workspace.openTableTab('docs')
+    render(TableView, { props: { tabId } })
+
+    // Each loop cycle only needs a few microtasks; plenty of rounds to expose one.
+    for (let i = 0; i < 25; i++) await tick()
+    expect(mockApi.collection).toHaveBeenCalledTimes(1)
+    expect(mockApi.listTableViews).toHaveBeenCalledTimes(1)
+
+    for (let i = 0; i < 25; i++) await tick()
+    expect(mockApi.collection).toHaveBeenCalledTimes(1)
+  })
+
+  it('keys inside a cell editor never drive grid navigation (Enter must not open the doc)', async () => {
+    const tabId = workspace.openTableTab('docs')
+    mockApi.collection.mockResolvedValue(fixture)
+    mockApi.updateFrontmatter.mockResolvedValue({ status: 'x' })
+    mockApi.ingestFile.mockResolvedValue({})
+    await tableStore.load(tabId, 'c1', '/root')
+
+    const openFile = vi.spyOn(workspace, 'openFile').mockImplementation(() => {})
+    const { container } = render(TableView, { props: { tabId } })
+
+    const cell = container.querySelector('.data-cell')!
+    await fireEvent.click(cell) // selects the row
+    await fireEvent.dblClick(cell) // enters edit mode
+    const input = container.querySelector<HTMLInputElement>('.data-cell input')!
+    await fireEvent.keyDown(input, { key: 'Enter' }) // commits the edit; bubbles to the grid
+
+    expect(openFile).not.toHaveBeenCalled()
+  })
+
+  it('an open cell editor follows its row when a reload reorders the data', async () => {
+    const tabId = workspace.openTableTab('docs')
+    mockApi.collection.mockResolvedValue(fixture)
+    await tableStore.load(tabId, 'c1', '/root')
+
+    const { container } = render(TableView, { props: { tabId } })
+
+    // Open the editor on docs/a.md (first row).
+    await fireEvent.dblClick(container.querySelector('.data-cell')!)
+    expect(container.querySelector('.data-cell input')).toBeTruthy()
+
+    // A background refetch delivers the same rows in reverse order.
+    const reordered = { ...fixture, rows: [fixture.rows[2], fixture.rows[1], fixture.rows[0]] }
+    mockApi.collection.mockResolvedValueOnce(JSON.parse(JSON.stringify(reordered)))
+    await tableStore.reload(tabId)
+    await tick()
+
+    // The editor must still sit in docs/a.md's row — now rendered last.
+    const editingRow = container.querySelector('.data-cell input')!.closest('.virtual-row')!
+    expect(editingRow.querySelector('.title-cell')!.textContent).toContain('a')
+    expect((editingRow as HTMLElement).style.top).toBe('72px')
   })
 })

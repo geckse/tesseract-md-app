@@ -320,7 +320,13 @@ describe('registerIpcHandlers', () => {
     // Persisted per-collection mdvdb watcher enabled state
     expect(channels).toContain('store:get-watcher-enabled')
     expect(channels).toContain('store:set-watcher-enabled')
-    expect(channels).toHaveLength(113)
+    // Topics (custom clusters) management + generic YAML config write
+    expect(channels).toContain('cli:clusters-add')
+    expect(channels).toContain('cli:clusters-update')
+    expect(channels).toContain('cli:clusters-remove')
+    expect(channels).toContain('cli:clusters-unassigned')
+    expect(channels).toContain('cli:config-set')
+    expect(channels).toHaveLength(118)
   })
 })
 
@@ -1269,6 +1275,143 @@ describe('Watcher event envelope wrapping', () => {
 
       mockIsPrimary.mockReturnValue(true)
       expect(await handler({ sender: { id: 1 } })).toEqual(session)
+    })
+  })
+})
+
+// ─── Topics (custom clusters) handlers ───────────────────────────────
+
+describe('Topics IPC handlers', () => {
+  function getHandler(channel: string): (...args: unknown[]) => Promise<unknown> {
+    const { wm } = createMockWindowManager()
+    registerIpcHandlers(wm)
+    const call = mockHandle.mock.calls.find((c: unknown[]) => c[0] === channel)
+    if (!call) throw new Error(`No handler for channel: ${channel}`)
+    return call[1] as (...args: unknown[]) => Promise<unknown>
+  }
+
+  const fakeEvent = {}
+
+  beforeEach(() => {
+    mockExecCommand.mockResolvedValue(undefined)
+  })
+
+  describe('cli:clusters-add', () => {
+    it('passes name, seeds, description, and threshold', async () => {
+      const handler = getHandler('cli:clusters-add')
+      await handler(fakeEvent, '/vault', {
+        name: 'AI',
+        seeds: ['neural nets', 'transformers'],
+        description: 'Machine learning notes',
+        threshold: 0.4
+      })
+      expect(mockExecCommand).toHaveBeenCalledWith(
+        'clusters',
+        [
+          'add',
+          'AI',
+          '--seeds',
+          'neural nets,transformers',
+          '--description',
+          'Machine learning notes',
+          '--threshold',
+          '0.4'
+        ],
+        '/vault'
+      )
+    })
+
+    it('omits optional flags for a seeds-only topic', async () => {
+      const handler = getHandler('cli:clusters-add')
+      await handler(fakeEvent, '/vault', { name: 'Web', seeds: ['html'] })
+      expect(mockExecCommand).toHaveBeenCalledWith(
+        'clusters',
+        ['add', 'Web', '--seeds', 'html'],
+        '/vault'
+      )
+    })
+
+    it('supports description-only topics (no --seeds)', async () => {
+      const handler = getHandler('cli:clusters-add')
+      await handler(fakeEvent, '/vault', {
+        name: 'Rust',
+        seeds: [],
+        description: 'Notes about Rust'
+      })
+      const args = mockExecCommand.mock.calls[0][1] as string[]
+      expect(args).not.toContain('--seeds')
+      expect(args).toContain('--description')
+    })
+
+    it('never injects a duplicate --json flag', async () => {
+      const handler = getHandler('cli:clusters-add')
+      await handler(fakeEvent, '/vault', { name: 'X', seeds: ['y'] })
+      const args = mockExecCommand.mock.calls[0][1] as string[]
+      expect(args).not.toContain('--json')
+    })
+  })
+
+  describe('cli:clusters-update', () => {
+    it('clears description and threshold when unset, renames when name differs', async () => {
+      const handler = getHandler('cli:clusters-update')
+      await handler(fakeEvent, '/vault', 'Old', { name: 'New', seeds: ['a', 'b'] })
+      expect(mockExecCommand).toHaveBeenCalledWith(
+        'clusters',
+        ['update', 'Old', '--seeds', 'a,b', '--description', '', '--threshold=-1', '--rename', 'New'],
+        '/vault'
+      )
+    })
+
+    it('sends threshold and description when present, no rename for same name', async () => {
+      const handler = getHandler('cli:clusters-update')
+      await handler(fakeEvent, '/vault', 'AI', {
+        name: 'AI',
+        seeds: ['nets'],
+        description: 'ML',
+        threshold: 0.5
+      })
+      const args = mockExecCommand.mock.calls[0][1] as string[]
+      expect(args).toEqual(['update', 'AI', '--seeds', 'nets', '--description', 'ML', '--threshold', '0.5'])
+      expect(args).not.toContain('--rename')
+    })
+  })
+
+  describe('cli:clusters-remove', () => {
+    it('passes the topic name', async () => {
+      const handler = getHandler('cli:clusters-remove')
+      await handler(fakeEvent, '/vault', 'Old Topic')
+      expect(mockExecCommand).toHaveBeenCalledWith('clusters', ['remove', 'Old Topic'], '/vault')
+    })
+  })
+
+  describe('cli:clusters-unassigned', () => {
+    it('calls clusters unassigned', async () => {
+      mockExecCommand.mockResolvedValue({ count: 2, paths: ['a.md', 'b.md'] })
+      const handler = getHandler('cli:clusters-unassigned')
+      const result = await handler(fakeEvent, '/vault')
+      expect(mockExecCommand).toHaveBeenCalledWith('clusters', ['unassigned'], '/vault')
+      expect(result).toEqual({ count: 2, paths: ['a.md', 'b.md'] })
+    })
+  })
+
+  describe('cli:config-set', () => {
+    it('passes dotted key and value to config set', async () => {
+      const handler = getHandler('cli:config-set')
+      await handler(fakeEvent, '/vault', 'clustering.topics.min_similarity', '0.45')
+      expect(mockExecCommand).toHaveBeenCalledWith(
+        'config',
+        ['set', 'clustering.topics.min_similarity', '0.45'],
+        '/vault'
+      )
+    })
+  })
+
+  describe('cli:clusters-list', () => {
+    it('does not pass a duplicate --json (execCommand injects it)', async () => {
+      mockExecCommand.mockResolvedValue([])
+      const handler = getHandler('cli:clusters-list')
+      await handler(fakeEvent, '/vault')
+      expect(mockExecCommand).toHaveBeenCalledWith('clusters', ['list'], '/vault')
     })
   })
 })

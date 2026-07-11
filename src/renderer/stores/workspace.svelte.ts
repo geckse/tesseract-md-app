@@ -63,6 +63,32 @@ function detectAssetMime(filePath: string): MimeCategory | null {
 /** Graph coloring mode (duplicated from graph.ts to avoid circular deps). */
 export type GraphColoringMode = 'cluster' | 'custom-cluster' | 'folder' | 'none'
 
+/** localStorage key for the user's preferred graph view mode. */
+const GRAPH_COLORING_MODE_KEY = 'graphColoringModeDefault'
+
+/** Load the persisted default graph view mode ('cluster' if never set). */
+export function loadDefaultGraphColoringMode(): GraphColoringMode {
+  try {
+    const v =
+      typeof localStorage !== 'undefined' ? localStorage.getItem(GRAPH_COLORING_MODE_KEY) : null
+    if (v === 'cluster' || v === 'custom-cluster' || v === 'folder' || v === 'none') return v
+  } catch {
+    // localStorage unavailable (e.g. non-browser test env) — fall through
+  }
+  return 'cluster'
+}
+
+/** Persist the default graph view mode so new graph tabs (and app restarts) start with it. */
+export function saveDefaultGraphColoringMode(mode: GraphColoringMode): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(GRAPH_COLORING_MODE_KEY, mode)
+    }
+  } catch {
+    // best-effort — never break mode switching over persistence
+  }
+}
+
 /** Per-tab navigation history. */
 export interface TabNavigation {
   backStack: string[]
@@ -173,7 +199,7 @@ function fileNameFromPath(filePath: string): string {
   return parts[parts.length - 1] || filePath
 }
 
-/** Create a new graph tab. */
+/** Create a new graph tab. Starts in the user's persisted default view mode. */
 function createGraphTab(): GraphTab {
   return {
     id: crypto.randomUUID(),
@@ -181,7 +207,7 @@ function createGraphTab(): GraphTab {
     title: 'Graph',
     graphLevel: 'document',
     graphPathFilter: null,
-    graphColoringMode: 'cluster'
+    graphColoringMode: loadDefaultGraphColoringMode()
   }
 }
 
@@ -2006,12 +2032,17 @@ class WorkspaceStore {
         title: 'Graph',
         graphLevel: options.graphLevel ?? 'document',
         graphPathFilter: null,
-        graphColoringMode: options.graphColoringMode ?? 'cluster'
+        graphColoringMode: options.graphColoringMode ?? loadDefaultGraphColoringMode()
       } as GraphTab
     }
 
     pane.tabOrder = [tab.id]
     pane.activeTabId = tab.id
+    if (kind === 'graph') {
+      // Register the graph tab on the pane so getFocusedGraphTab() resolves it —
+      // graphLevel/graphColoringMode reads and writes depend on pane.graphTabId.
+      pane.graphTabId = tab.id
+    }
 
     this.tabs = { [tab.id]: tab }
     this.panes = { [pane.id]: pane }

@@ -236,22 +236,49 @@ export interface ClusterSummary {
   document_count: number
   label: string | null
   keywords: string[]
+  /** Leiden hierarchy parent cluster id — ignored by the UI in v1. */
+  parent_id?: number | null
+  /** Representative document path for the cluster. */
+  representative?: string
 }
 
-// ─── Custom Clusters ────────────────────────────────────────────
+// ─── Topics (Custom Clusters) ────────────────────────────────────
 
-/** User-defined cluster definition (from config, not computed). */
-export interface CustomClusterDef {
+/**
+ * User-defined topic definition (from config, not computed).
+ * Mirrors `mdvdb clusters list --json` entries.
+ */
+export interface TopicDef {
   name: string
   seeds: string[]
+  /** Natural-language description — improves matching accuracy. */
+  description?: string | null
+  /** Per-topic similarity threshold. null/absent = global floor. */
+  threshold?: number | null
 }
 
-/** Computed custom cluster summary (from index after ingest). */
+/** @deprecated Use TopicDef. Kept as an alias for older call sites. */
+export type CustomClusterDef = TopicDef
+
+/**
+ * Computed topic (custom cluster) summary from the index after ingest.
+ * Mirrors `mdvdb clusters --custom --json` entries (top-level array).
+ */
 export interface CustomClusterSummary {
   id: number
   name: string
   seed_phrases: string[]
   document_count: number
+  description?: string | null
+  threshold?: number | null
+  /** Mean assignment score across member documents (0-1). */
+  mean_score?: number
+}
+
+/** Output of `mdvdb clusters unassigned --json`. */
+export interface TopicUnassigned {
+  count: number
+  paths: string[]
 }
 
 // ─── Graph ───────────────────────────────────────────────────────
@@ -265,8 +292,15 @@ export interface GraphNode {
   path: string
   label: string | null
   cluster_id: number | null
-  /** Custom cluster assignment (separate layer from auto-clusters). */
+  /**
+   * PRIMARY topic assignment (highest score; separate layer from
+   * auto-clusters). null = Unassigned.
+   */
   custom_cluster_id: number | null
+  /** All topic memberships, score-descending. Omitted when empty. */
+  custom_cluster_ids?: number[]
+  /** Scores parallel to custom_cluster_ids. Omitted when empty. */
+  custom_cluster_scores?: number[]
   chunk_index: number | null
   /** Optional size metric (e.g. content length for chunks). */
   size?: number | null
@@ -300,6 +334,12 @@ export interface GraphCluster {
   label: string
   keywords: string[]
   member_count: number
+  /** Topic description (custom clusters only). */
+  description?: string | null
+  /** Per-topic similarity threshold (custom clusters only). */
+  threshold?: number | null
+  /** Leiden hierarchy parent cluster id — ignored by the UI in v1. */
+  parent_id?: number | null
 }
 
 /** Complete graph topology combining nodes, edges, and clusters. */
@@ -490,6 +530,12 @@ export interface Config {
   chunk_overlap_tokens: number
   clustering_enabled: boolean
   clustering_rebalance_threshold: number
+  /** Auto-clustering algorithm: 'leiden' (default) or 'kmeans'. Optional for older CLIs. */
+  clustering_algorithm?: string
+  /** Cluster granularity multiplier. Optional for older CLIs. */
+  clustering_granularity?: number
+  /** Global topics similarity floor (clustering.topics.min_similarity). Optional for older CLIs. */
+  topics_min_similarity?: number
   search_default_limit: number
   search_min_score: number
   search_default_mode: SearchMode

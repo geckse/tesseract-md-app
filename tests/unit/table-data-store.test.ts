@@ -161,6 +161,90 @@ describe('tableStore (renderer data store)', () => {
     await tableStore.load(tabId, 'c1', '/root')
     expect(tableStore.state(tabId).error).toBe('boom')
   })
+
+  it('skips a refetch for an already-loaded signature; reload() forces one', async () => {
+    const tabId = workspace.openTableTab('blog')
+    await tableStore.load(tabId, 'c1', '/root')
+    expect(mockCollection).toHaveBeenCalledTimes(1)
+
+    // Same server-affecting signature (e.g. client-only config changes) → no refetch.
+    await tableStore.load(tabId, 'c1', '/root')
+    expect(mockCollection).toHaveBeenCalledTimes(1)
+
+    // Explicit reload bypasses the signature memo.
+    await tableStore.reload(tabId)
+    expect(mockCollection).toHaveBeenCalledTimes(2)
+  })
+
+  it('a failed load is not memoized — the next load retries', async () => {
+    mockCollection.mockRejectedValueOnce(new Error('boom'))
+    const tabId = workspace.openTableTab('blog')
+    await tableStore.load(tabId, 'c1', '/root')
+    expect(tableStore.state(tabId).error).toBe('boom')
+
+    await tableStore.load(tabId, 'c1', '/root')
+    expect(mockCollection).toHaveBeenCalledTimes(2)
+    expect(tableStore.state(tabId).error).toBeNull()
+    expect(tableStore.state(tabId).data?.rows).toHaveLength(3)
+  })
+
+  it('reload reuses row objects when the refetched data is equivalent', async () => {
+    const tabId = workspace.openTableTab('blog')
+    await tableStore.load(tabId, 'c1', '/root')
+    const before = tableStore.state(tabId).data!.rows
+
+    // Same content, freshly parsed objects (as a real refetch delivers).
+    mockCollection.mockResolvedValueOnce(JSON.parse(JSON.stringify(fixture)))
+    await tableStore.reload(tabId)
+
+    const after = tableStore.state(tabId).data!.rows
+    expect(after[0]).toBe(before[0])
+    expect(after[1]).toBe(before[1])
+    expect(after[2]).toBe(before[2])
+  })
+
+  it('reload keeps augmented frontmatter for rows still reported as new/empty', async () => {
+    const withNew = {
+      ...fixture,
+      rows: [...fixture.rows, row('blog/new.md', {}, 'new')]
+    }
+    mockCollection = vi.fn().mockResolvedValue(JSON.parse(JSON.stringify(withNew)))
+    const readFile = vi.fn().mockResolvedValue('---\ntitle: Draft\nstatus: wip\n---\n')
+    Object.defineProperty(globalThis, 'window', {
+      value: { api: { collection: mockCollection, readFile } },
+      configurable: true
+    })
+
+    const tabId = workspace.openTableTab('blog')
+    await tableStore.load(tabId, 'c1', '/root')
+    await tableStore.augmentNewRow(tabId, 'blog/new.md')
+    const augmented = tableStore.state(tabId).data!.rows.find((r) => r.path === 'blog/new.md')!
+    expect(augmented.frontmatter).toEqual({ title: 'Draft', status: 'wip' })
+
+    // A refetch reports the row as `new` with empty frontmatter again.
+    mockCollection.mockResolvedValueOnce(JSON.parse(JSON.stringify(withNew)))
+    await tableStore.reload(tabId)
+
+    const kept = tableStore.state(tabId).data!.rows.find((r) => r.path === 'blog/new.md')!
+    expect(kept.frontmatter).toEqual({ title: 'Draft', status: 'wip' })
+  })
+
+  it('reload applies genuinely changed rows without touching unchanged ones', async () => {
+    const tabId = workspace.openTableTab('blog')
+    await tableStore.load(tabId, 'c1', '/root')
+    const before = tableStore.state(tabId).data!.rows
+
+    const changed = JSON.parse(JSON.stringify(fixture)) as CollectionOutput
+    changed.rows[1] = { ...changed.rows[1], frontmatter: { status: 'archived' } }
+    mockCollection.mockResolvedValueOnce(changed)
+    await tableStore.reload(tabId)
+
+    const after = tableStore.state(tabId).data!.rows
+    expect(after[0]).toBe(before[0])
+    expect(after[1]).not.toBe(before[1])
+    expect(after[1].frontmatter).toEqual({ status: 'archived' })
+    expect(after[2]).toBe(before[2])
+  })
 })
 
 describe('tableStore editing (39b)', () => {

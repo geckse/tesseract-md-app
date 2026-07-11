@@ -25,6 +25,8 @@ import {
   graphError,
   graphSelectedNode,
   graphColoringMode,
+  graphLevel,
+  setGraphLevel,
   graphHighlightedFolder,
   graphEdgeFilter,
   graphSemanticEdgesEnabled,
@@ -92,6 +94,9 @@ function activateGraphTab() {
 }
 
 beforeEach(() => {
+  // Clear the persisted default view mode so workspace.reset() creates
+  // graph tabs in the 'cluster' baseline mode regardless of test order.
+  localStorage.removeItem('graphColoringModeDefault')
   resetStores()
   vi.resetAllMocks()
 })
@@ -155,6 +160,38 @@ describe('graph store', () => {
 
       // Results should still be from second load
       expect(get(graphData)).toEqual(sampleGraphData)
+    })
+  })
+
+  describe('popup graph window', () => {
+    it('initAsPopup registers the graph tab so level/coloring come from URL params', async () => {
+      activateCollection(collection)
+      mockApi.graphData.mockResolvedValue(sampleGraphData)
+
+      workspace.initAsPopup('graph', { graphLevel: 'chunk', graphColoringMode: 'folder' })
+      syncGraphStoresFromTab()
+
+      expect(get(graphViewActive)).toBe(true)
+      expect(get(graphLevel)).toBe('chunk')
+      expect(get(graphColoringMode)).toBe('folder')
+
+      // The PopupShell load path: loadGraphData must use the popup tab's level
+      await loadGraphData()
+      expect(mockApi.graphData).toHaveBeenCalledWith('/test', 'chunk', undefined)
+      expect(get(graphData)).toEqual(sampleGraphData)
+    })
+
+    it('setGraphLevel persists on the popup graph tab and reloads', async () => {
+      activateCollection(collection)
+      mockApi.graphData.mockResolvedValue(sampleGraphData)
+
+      workspace.initAsPopup('graph', { graphLevel: 'document' })
+      syncGraphStoresFromTab()
+
+      setGraphLevel('chunk')
+
+      expect(get(graphLevel)).toBe('chunk')
+      expect(mockApi.graphData).toHaveBeenCalledWith('/test', 'chunk', undefined)
     })
   })
 
@@ -236,6 +273,36 @@ describe('graph store', () => {
 
       cycleColoringMode()
       expect(get(graphColoringMode)).toBe('cluster')
+    })
+  })
+
+  describe('coloring mode default persistence', () => {
+    it('persists the mode to localStorage when set', () => {
+      activateGraphTab()
+      graphColoringMode.set('folder')
+      expect(localStorage.getItem('graphColoringModeDefault')).toBe('folder')
+
+      graphColoringMode.set('none')
+      expect(localStorage.getItem('graphColoringModeDefault')).toBe('none')
+    })
+
+    it('persists the mode when cycled', () => {
+      activateGraphTab()
+      graphColoringMode.set('cluster')
+
+      cycleColoringMode()
+      expect(localStorage.getItem('graphColoringModeDefault')).toBe('folder')
+    })
+
+    it('restores the persisted mode after a workspace reset (fresh graph tab)', () => {
+      activateGraphTab()
+      graphColoringMode.set('none')
+
+      // Simulate an app restart: workspace rebuilds its panes/tabs
+      workspace.reset()
+      activateGraphTab()
+
+      expect(get(graphColoringMode)).toBe('none')
     })
   })
 

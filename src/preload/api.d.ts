@@ -11,7 +11,8 @@ import type {
   NeighborhoodResult,
   ClusterSummary,
   CustomClusterSummary,
-  CustomClusterDef,
+  TopicDef,
+  TopicUnassigned,
   GraphData,
   GraphLevel,
   Schema,
@@ -271,7 +272,12 @@ export interface MdvdbApi {
   orphans(root: string): Promise<OrphansOutput>
   clusters(root: string): Promise<ClusterSummary[]>
   customClusters(root: string): Promise<CustomClusterSummary[]>
-  clusterDefinitions(root: string): Promise<CustomClusterDef[]>
+  clusterDefinitions(root: string): Promise<TopicDef[]>
+  addTopic(root: string, def: TopicDef): Promise<void>
+  updateTopic(root: string, name: string, def: TopicDef): Promise<void>
+  removeTopic(root: string, name: string): Promise<void>
+  topicUnassigned(root: string): Promise<TopicUnassigned>
+  setConfigValue(root: string, key: string, value: string): Promise<void>
   graphData(root: string, level?: GraphLevel, path?: string): Promise<GraphData>
   schema(root: string, path?: string): Promise<Schema>
   collection(

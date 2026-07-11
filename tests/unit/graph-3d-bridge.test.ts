@@ -21,6 +21,7 @@ function makeNode(overrides: Partial<GraphNode> = {}): GraphNode {
     path: 'docs/readme.md',
     label: null,
     cluster_id: null,
+    custom_cluster_id: null,
     chunk_index: null,
     ...overrides
   }
@@ -57,6 +58,7 @@ function makeGraphData(overrides: Partial<GraphData> = {}): GraphData {
 
 /** Default test palettes matching the old hardcoded color count */
 const testClusterPalette = generateHarmonicPalette('#00E5FF', 12)
+const testCustomClusterPalette = generateHarmonicPalette('#FF9100', 12)
 const testEdgePalette = generateHarmonicPalette('#00E5FF', 8)
 
 function defaultOptions(overrides: Partial<BuildGraph3DOptions> = {}): BuildGraph3DOptions {
@@ -66,6 +68,7 @@ function defaultOptions(overrides: Partial<BuildGraph3DOptions> = {}): BuildGrap
     weakThreshold: 0.3,
     level: 'document',
     clusterPalette: testClusterPalette,
+    customClusterPalette: testCustomClusterPalette,
     edgePalette: testEdgePalette,
     ...overrides
   }
@@ -1050,5 +1053,140 @@ describe('seedNearNeighbors', () => {
       20
     )
     expect(Math.abs(n.x! - 200)).toBeLessThanOrEqual(10)
+  })
+})
+
+// ─── Topics: multi-label fields + nodeColorForMode ───────────────────
+
+import { nodeColorForMode } from '@renderer/lib/graph-3d-bridge'
+import { paletteColor } from '@renderer/lib/harmonic-palette'
+
+describe('buildGraph3DData topic fields', () => {
+  it('carries custom_cluster_id, ids, and scores through to Graph3DNode', () => {
+    const data = makeGraphData({
+      nodes: [
+        makeNode({
+          id: 'n1',
+          custom_cluster_id: 3,
+          custom_cluster_ids: [3, 1],
+          custom_cluster_scores: [0.82, 0.41]
+        })
+      ]
+    })
+    const result = buildGraph3DData(data, defaultOptions())
+    const node = result.nodes[0]
+    expect(node.custom_cluster_id).toBe(3)
+    expect(node.custom_cluster_ids).toEqual([3, 1])
+    expect(node.custom_cluster_scores).toEqual([0.82, 0.41])
+  })
+
+  it('defaults missing topic fields (old CLI binaries) to null/empty', () => {
+    const data = makeGraphData({
+      nodes: [makeNode({ id: 'n1' })]
+    })
+    // Simulate an old binary omitting the fields entirely.
+    delete (data.nodes[0] as Partial<GraphNode>).custom_cluster_ids
+    delete (data.nodes[0] as Partial<GraphNode>).custom_cluster_scores
+    const result = buildGraph3DData(data, defaultOptions())
+    const node = result.nodes[0]
+    expect(node.custom_cluster_id).toBeNull()
+    expect(node.custom_cluster_ids).toEqual([])
+    expect(node.custom_cluster_scores).toEqual([])
+  })
+
+  it('keeps ids and scores as parallel arrays', () => {
+    const data = makeGraphData({
+      nodes: [
+        makeNode({
+          id: 'n1',
+          custom_cluster_id: 0,
+          custom_cluster_ids: [0, 2, 5],
+          custom_cluster_scores: [0.9, 0.6, 0.35]
+        })
+      ]
+    })
+    const result = buildGraph3DData(data, defaultOptions())
+    const node = result.nodes[0]
+    expect(node.custom_cluster_ids.length).toBe(node.custom_cluster_scores.length)
+  })
+})
+
+describe('nodeColorForMode custom-cluster mode', () => {
+  const folderMap = null
+
+  it('colors documents by PRIMARY topic via the custom palette', () => {
+    const color = nodeColorForMode(
+      { path: 'docs/a.md', cluster_id: 1, custom_cluster_id: 4 },
+      'custom-cluster',
+      folderMap,
+      false,
+      testClusterPalette,
+      testCustomClusterPalette
+    )
+    expect(color).toBe(paletteColor(testCustomClusterPalette, 4))
+    // and NOT the auto-cluster palette color for cluster_id
+    expect(color).not.toBe(paletteColor(testClusterPalette, 1))
+  })
+
+  it('renders Unassigned documents with the default node color', () => {
+    const unassigned = nodeColorForMode(
+      { path: 'docs/a.md', cluster_id: 2, custom_cluster_id: null },
+      'custom-cluster',
+      folderMap,
+      false,
+      testClusterPalette,
+      testCustomClusterPalette
+    )
+    const noneModeDefault = nodeColorForMode(
+      { path: 'docs/a.md', cluster_id: null, custom_cluster_id: null },
+      'none',
+      folderMap,
+      false,
+      testClusterPalette,
+      testCustomClusterPalette
+    )
+    expect(unassigned).toBe(noneModeDefault)
+  })
+
+  it('keeps file-hash colors for unassigned chunk nodes', () => {
+    const chunkColor = nodeColorForMode(
+      { path: 'docs/a.md', cluster_id: null, custom_cluster_id: null },
+      'custom-cluster',
+      folderMap,
+      true,
+      testClusterPalette,
+      testCustomClusterPalette
+    )
+    const sameFileChunk = nodeColorForMode(
+      { path: 'docs/a.md', cluster_id: null, custom_cluster_id: null },
+      'custom-cluster',
+      folderMap,
+      true,
+      testClusterPalette,
+      testCustomClusterPalette
+    )
+    // Deterministic per-file hash color, not the default document color
+    expect(chunkColor).toBe(sameFileChunk)
+    const docDefault = nodeColorForMode(
+      { path: 'docs/a.md', cluster_id: null, custom_cluster_id: null },
+      'none',
+      folderMap,
+      false,
+      testClusterPalette,
+      testCustomClusterPalette
+    )
+    expect(chunkColor).not.toBe(docDefault)
+  })
+
+  it('cluster mode is unaffected by topic membership', () => {
+    const color = nodeColorForMode(
+      { path: 'docs/a.md', cluster_id: 7, custom_cluster_id: 3 },
+      'cluster',
+      folderMap,
+      false,
+      testClusterPalette,
+      testCustomClusterPalette
+    )
+    expect(color).toBe(paletteColor(testClusterPalette, 7))
   })
 })
