@@ -6,11 +6,15 @@
     anchorEl: HTMLElement
     onSelect: (type: string) => void
     onDismiss: () => void
+    /** Highlight this type as the property's current type (phase 41). */
+    currentType?: string | null
+    /** Hide these types from the picker (e.g. 'complex' is not a convert target). */
+    excludeTypes?: string[]
   }
 
-  let { anchorEl, onSelect, onDismiss }: Props = $props()
+  let { anchorEl, onSelect, onDismiss, currentType = null, excludeTypes = [] }: Props = $props()
 
-  const typeOptions = [
+  const allTypeOptions = [
     { type: 'text', icon: 'notes', label: 'Text' },
     { type: 'number', icon: 'tag', label: 'Number' },
     { type: 'boolean', icon: 'check_box', label: 'Boolean' },
@@ -23,8 +27,17 @@
     { type: 'complex', icon: 'data_object', label: 'JSON' },
   ] as const
 
+  const typeOptions = $derived(allTypeOptions.filter((o) => !excludeTypes.includes(o.type)))
+
   let menuEl: HTMLDivElement | undefined = $state(undefined)
   let selectedIndex = $state(0)
+
+  $effect(() => {
+    if (currentType) {
+      const idx = typeOptions.findIndex((o) => o.type === currentType)
+      if (idx >= 0) selectedIndex = idx
+    }
+  })
 
   function handleKeyDown(e: KeyboardEvent) {
     const len = typeOptions.length
@@ -67,6 +80,7 @@
     <button
       class="tp-option"
       class:selected={i === selectedIndex}
+      class:current={opt.type === currentType}
       role="option"
       aria-selected={i === selectedIndex}
       onmousedown={(e) => { e.preventDefault(); onSelect(opt.type) }}
@@ -74,6 +88,9 @@
     >
       <span class="material-symbols-outlined tp-icon">{opt.icon}</span>
       <span class="tp-label">{opt.label}</span>
+      {#if opt.type === currentType}
+        <span class="material-symbols-outlined tp-current-check">check</span>
+      {/if}
     </button>
   {/each}
 </div>
@@ -118,6 +135,11 @@
     color: var(--color-primary, #00E5FF);
   }
   .tp-label { flex: 1; }
+  .tp-option.current .tp-icon { color: var(--color-primary, #00E5FF); }
+  .tp-current-check {
+    font-size: 14px;
+    color: var(--color-primary, #00E5FF);
+  }
   @media (prefers-reduced-motion: reduce) {
     .tp-option, .tp-icon { transition: none; }
   }

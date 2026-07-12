@@ -170,6 +170,101 @@ export interface SavedTableView {
   updatedAt: number
 }
 
+// ─── Property type conversion / schema editing (phase 41) ────────────
+
+/**
+ * UI-level property type. Mirrors the renderer's `DetectedType`
+ * (`PropertyRow.svelte`) — defined here too so the main process can share it.
+ */
+export type PropertyTargetType =
+  | 'text'
+  | 'number'
+  | 'boolean'
+  | 'date'
+  | 'datetime'
+  | 'url'
+  | 'email'
+  | 'select'
+  | 'tags'
+  | 'complex'
+
+/** A recursive property operation: retype a key, or rename it. */
+export type PropertyOp =
+  | { kind: 'convert'; target: PropertyTargetType; allowedValues?: string[] }
+  | { kind: 'rename'; newKey: string }
+
+/**
+ * Request for a property operation. `scope` is the folder subtree (relative
+ * path, no trailing slash; `''`/`'.'` = whole vault); `scope: null` targets the
+ * single `filePath` only (vault-root files — no overlay pin).
+ */
+export interface PropertyOpRequest {
+  collectionId: string
+  scope: string | null
+  filePath: string | null
+  key: string
+  op: PropertyOp
+}
+
+/** Per-file outcome the preview predicts. */
+export type PropertyOpPlanAction = 'convert' | 'rename' | 'unchanged' | 'no-value' | 'skip'
+
+/** One file's row in the preview plan (values display-truncated). */
+export interface PropertyOpPlanEntry {
+  path: string
+  action: PropertyOpPlanAction
+  before: string | null
+  after: string | null
+  /** Present for 'skip' — why the value can't convert. */
+  reason?: string
+}
+
+/** The schema-overlay pin the apply step will write (null = no pin). */
+export interface PropertyOpSchemaPin {
+  /** Overlay scope key (no trailing slash), or null for the global `fields:` section. */
+  scopeKey: string | null
+  fieldType: string
+  allowedValues?: string[]
+}
+
+/** Full preview of a property operation across its scope. */
+export interface PropertyOpPlan {
+  scope: string | null
+  files: PropertyOpPlanEntry[]
+  totals: { convert: number; unchanged: number; noValue: number; skip: number }
+  schemaPin: PropertyOpSchemaPin | null
+}
+
+/** One file's outcome after apply. */
+export interface PropertyOpResultEntry {
+  path: string
+  status: 'ok' | 'skipped' | 'failed'
+  reason?: string
+}
+
+/** Batch result: every enumerated file is accounted for. */
+export interface PropertyOpResult {
+  entries: PropertyOpResultEntry[]
+  totals: { ok: number; skipped: number; failed: number }
+  overlayWritten: boolean
+}
+
+/** Streaming progress for a running property operation. */
+export interface PropertyOpProgress {
+  opId: string
+  done: number
+  total: number
+  path: string
+}
+
+/** Overlay annotation patch (null clears the annotation). */
+export interface OverlayFieldPatch {
+  fieldType?: string
+  description?: string | null
+  required?: boolean | null
+  allowedValues?: string[] | null
+}
+
 /** A persisted slot in the legacy bottom panel (terminal) — shell + cwd only. */
 export interface PersistedTerminalSlot {
   shell: string
@@ -371,6 +466,25 @@ export interface MdvdbApi {
     folderPath: string,
     viewId: string
   ): Promise<SavedTableView[]>
+
+  // Property type conversion / schema editing (phase 41)
+  /** Compute the per-file conversion/rename plan for a property op (no writes). */
+  previewPropertyOp(req: PropertyOpRequest): Promise<PropertyOpPlan>
+  /**
+   * Apply a property op: batch-convert/rename across the scope (watcher paused,
+   * atomic per-file writes), pin the schema overlay, stream progress events
+   * keyed by `opId`. Returns per-file results.
+   */
+  applyPropertyOp(opId: string, req: PropertyOpRequest): Promise<PropertyOpResult>
+  /** Write schema-overlay annotations (description/required/allowed values) — no file rewrites. */
+  updateOverlayField(
+    collectionId: string,
+    scope: string | null,
+    key: string,
+    patch: OverlayFieldPatch
+  ): Promise<void>
+  /** Subscribe to property-op progress events. Returns an unsubscribe function. */
+  onPropertyOpProgress(callback: (progress: PropertyOpProgress) => void): () => void
 
   // Window state persistence
   setSidebarWidth(width: number): Promise<void>

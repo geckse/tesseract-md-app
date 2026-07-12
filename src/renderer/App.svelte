@@ -7,6 +7,7 @@
   import SplitPaneContainer from './components/SplitPaneContainer.svelte';
   import PropertiesPanel from './components/PropertiesPanel.svelte';
   import IngestModal from './components/IngestModal.svelte';
+  import ConvertTypeModal from './components/ConvertTypeModal.svelte';
   import QuickOpen from './components/QuickOpen.svelte';
   import Onboarding from './components/Onboarding.svelte';
   import Settings from './components/Settings.svelte';
@@ -18,6 +19,7 @@
   import { loadFavorites } from './stores/favorites';
   import { openQuickOpen } from './stores/quickopen';
   import { shortcutManager } from './lib/shortcuts';
+  import { openNewNotePopup } from './lib/new-note';
   import { setupWatcherListener, teardownWatcherListener, fetchWatcherStatus, clearWatcherEvents, restoreWatcherForCollection } from './stores/watcher';
   import { setupVaultListener, teardownVaultListener } from './stores/vault-events';
   import { setupFileSyncListener, teardownFileSyncListener, resetFileSyncState, applyDiskContentToTab } from './stores/file-sync';
@@ -235,6 +237,15 @@
             workspace.openTab(entry.tab.filePath);
             syncFileStoresFromTab();
           }
+        },
+      }),
+
+      // Cmd+N / Ctrl+N: New note in a popped-out window
+      shortcutManager.register({
+        key: 'n',
+        meta: true,
+        handler: () => {
+          openNewNotePopup();
         },
       }),
 
@@ -648,6 +659,7 @@
   <IngestModal />
   <QuickOpen />
   <DiffView />
+  <ConvertTypeModal />
 </div>
 {/if}
 

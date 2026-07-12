@@ -139,6 +139,21 @@ const api: MdvdbApi = {
   setDefaultTableView: (collectionId, folderPath, viewId) =>
     invoke('tableviews:set-default', collectionId, folderPath, viewId),
 
+  // Property type conversion / schema editing (phase 41)
+  previewPropertyOp: (req) => invoke('schema:preview-property-op', req),
+  applyPropertyOp: (opId, req) => invoke('schema:apply-property-op', opId, req),
+  updateOverlayField: (collectionId, scope, key, patch) =>
+    invoke('schema:update-overlay-field', collectionId, scope, key, patch),
+  onPropertyOpProgress: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: unknown): void => {
+      callback(data as Parameters<typeof callback>[0])
+    }
+    ipcRenderer.on('schema:property-op-progress', listener)
+    return () => {
+      ipcRenderer.removeListener('schema:property-op-progress', listener)
+    }
+  },
+
   // Window state persistence
   setSidebarWidth: (width) => invoke('store:set-sidebar-width', width),
   setMetadataPanelWidth: (width) => invoke('store:set-metadata-panel-width', width),

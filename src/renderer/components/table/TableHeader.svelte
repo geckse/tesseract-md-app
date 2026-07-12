@@ -1,6 +1,11 @@
 <script lang="ts">
   import { workspace } from '../../stores/workspace.svelte'
   import { tableStore } from '../../stores/table.svelte'
+  import { propertyOps } from '../../stores/property-ops.svelte'
+  import { detectedTypeForField } from '../../lib/property-types'
+  import PopoverMenu, { type PopoverMenuItem } from '../ui/PopoverMenu.svelte'
+  import TypePickerDropdown from '../wysiwyg/TypePickerDropdown.svelte'
+  import PropertySettingsPopover from '../PropertySettingsPopover.svelte'
   import type { CollectionColumn } from '../../types/cli'
   import type { TableSort } from '../../../preload/api'
 
@@ -12,6 +17,85 @@
   let { tabId, columns, titleWidth }: Props = $props()
 
   const sort = $derived<TableSort | undefined>(tableStore.mergedConfig(tabId).sort[0])
+
+  // ── Phase 41: per-column property menu (change type / rename / settings) ──
+  const folderPath = $derived.by(() => {
+    const tab = workspace.tabs[tabId]
+    return tab && tab.kind === 'table' ? tab.folderPath : ''
+  })
+
+  let menuColumn = $state<CollectionColumn | null>(null)
+  let menuAnchor = $state<HTMLElement | null>(null)
+  let showTypePicker = $state(false)
+  let showSettings = $state(false)
+
+  const columnMenuItems = $derived<PopoverMenuItem[]>(
+    menuColumn
+      ? [
+          { id: 'sort-asc', label: 'Sort ascending', icon: 'arrow_upward' },
+          { id: 'sort-desc', label: 'Sort descending', icon: 'arrow_downward' },
+          {
+            id: 'sort-clear',
+            label: 'Clear sort',
+            icon: 'unfold_more',
+            disabled: sortDir(menuColumn.name) === null
+          },
+          { id: 'change-type', label: 'Change type…', icon: 'swap_horiz', separatorBefore: true },
+          { id: 'rename', label: 'Rename property…', icon: 'drive_file_rename_outline' },
+          { id: 'settings', label: 'Property settings…', icon: 'tune' }
+        ]
+      : []
+  )
+
+  function openColumnMenu(e: MouseEvent, col: CollectionColumn): void {
+    e.stopPropagation()
+    showTypePicker = false
+    showSettings = false
+    menuColumn = col
+    menuAnchor = e.currentTarget as HTMLElement
+  }
+
+  function closeColumnMenu(): void {
+    menuColumn = null
+    menuAnchor = null
+  }
+
+  function handleColumnMenuSelect(id: string): void {
+    const col = menuColumn
+    if (!col) return
+    if (id === 'sort-asc') {
+      workspace.setTableEphemeral(tabId, { sort: [{ columnName: col.name, direction: 'asc' }] })
+    } else if (id === 'sort-desc') {
+      workspace.setTableEphemeral(tabId, { sort: [{ columnName: col.name, direction: 'desc' }] })
+    } else if (id === 'sort-clear') {
+      workspace.setTableEphemeral(tabId, { sort: [] })
+    } else if (id === 'change-type') {
+      showTypePicker = true
+      return // keep menuColumn/anchor for the picker
+    } else if (id === 'rename') {
+      propertyOps.openRename({ kind: 'table', tabId, folderPath }, col.name)
+    } else if (id === 'settings') {
+      showSettings = true
+      return // keep menuColumn/anchor for the popover
+    }
+    closeColumnMenu()
+  }
+
+  function handleTypeSelect(type: string): void {
+    const col = menuColumn
+    showTypePicker = false
+    closeColumnMenu()
+    if (!col) return
+    const current = detectedTypeForField(col.field_type, col.allowed_values)
+    if (type !== current) {
+      propertyOps.openConvert(
+        { kind: 'table', tabId, folderPath },
+        col.name,
+        type as typeof current,
+        current
+      )
+    }
+  }
 
   /** Material Symbols icon per FieldType (mirrors PropertyRow's type icons). */
   const TYPE_ICONS: Record<string, string> = {
@@ -109,6 +193,17 @@
           {sortIcon(col.name)}
         </span>
       </button>
+      <button
+        class="col-menu-btn"
+        class:open={menuColumn?.name === col.name}
+        title="Column options"
+        aria-label="Column options for {col.name}"
+        aria-haspopup="menu"
+        aria-expanded={menuColumn?.name === col.name}
+        onclick={(e) => openColumnMenu(e, col)}
+      >
+        <span class="material-symbols-outlined">more_vert</span>
+      </button>
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
         class="resize-handle"
@@ -118,6 +213,48 @@
     </div>
   {/each}
 </div>
+
+{#if menuColumn && menuAnchor && !showTypePicker && !showSettings}
+  <PopoverMenu
+    anchorEl={menuAnchor}
+    items={columnMenuItems}
+    ariaLabel="Column options for {menuColumn.name}"
+    onselect={handleColumnMenuSelect}
+    ondismiss={() => {
+      // 'change-type'/'settings' hand the anchor to a follow-up popover; the
+      // menu's own dismiss must not tear it down in that case.
+      if (!showTypePicker && !showSettings) closeColumnMenu()
+    }}
+  />
+{/if}
+
+{#if menuColumn && menuAnchor && showTypePicker}
+  <TypePickerDropdown
+    anchorEl={menuAnchor}
+    currentType={detectedTypeForField(menuColumn.field_type, menuColumn.allowed_values)}
+    excludeTypes={['complex']}
+    onSelect={handleTypeSelect}
+    onDismiss={() => {
+      showTypePicker = false
+      closeColumnMenu()
+    }}
+  />
+{/if}
+
+{#if menuColumn && menuAnchor && showSettings}
+  <PropertySettingsPopover
+    anchorEl={menuAnchor}
+    scope={folderPath === '' ? null : folderPath}
+    fieldKey={menuColumn.name}
+    description={menuColumn.description}
+    required={menuColumn.required}
+    allowedValues={menuColumn.allowed_values}
+    onclose={() => {
+      showSettings = false
+      closeColumnMenu()
+    }}
+  />
+{/if}
 
 <style>
   .header-row {
@@ -167,6 +304,36 @@
   .header-col {
     position: relative;
     box-sizing: border-box;
+  }
+
+  .col-menu-btn {
+    position: absolute;
+    top: 50%;
+    right: 8px;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--color-surface);
+    border: none;
+    border-radius: var(--radius-sm, 4px);
+    color: var(--color-text-dim);
+    cursor: pointer;
+    padding: 2px;
+    opacity: 0;
+    z-index: 1;
+    transition: opacity var(--transition-fast, 150ms ease);
+  }
+  .header-col:hover .col-menu-btn,
+  .col-menu-btn:focus-visible,
+  .col-menu-btn.open {
+    opacity: 1;
+  }
+  .col-menu-btn:hover {
+    color: var(--color-primary);
+  }
+  .col-menu-btn .material-symbols-outlined {
+    font-size: 14px;
   }
 
   .resize-handle {
@@ -247,6 +414,7 @@
   @media (prefers-reduced-motion: reduce) {
     .sortable,
     .sort-icon,
+    .col-menu-btn,
     .resize-handle::after {
       transition: none;
     }

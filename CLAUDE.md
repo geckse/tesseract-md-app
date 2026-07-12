@@ -127,9 +127,10 @@ Key details:
 
 | Prefix | Channels | Purpose |
 |--------|----------|---------|
-| `cli:` | find, version, search, status, ingest, ingest-preview, tree, get, links, backlinks, orphans, clusters, schema, config, doctor, init | mdvdb CLI commands |
+| `cli:` | find, version, search, status, ingest, ingest-preview, tree, get, links, backlinks, orphans, clusters, schema, collection, config, doctor, init | mdvdb CLI commands |
 | `collections:` | list, add, remove, set-active, get-active | Collection management (electron-store) |
-| `fs:` | read-file, write-file | File I/O (validated against collection paths) |
+| `fs:` | read-file, write-file, update-frontmatter, … | File I/O (validated against collection paths) |
+| `schema:` | preview-property-op, apply-property-op, update-overlay-field (+ `property-op-progress` event) | Phase 41: recursive property type conversion / rename + schema-overlay annotation edits |
 
 ## Core Design Decisions
 
@@ -139,6 +140,7 @@ Key details:
 - **Dark theme only**: No light mode. CSS custom properties in `tokens.css` are the single source of truth. Primary accent: `#00E5FF` (cyan).
 - **Types mirror Rust**: `src/renderer/types/cli.ts` contains TypeScript interfaces that mirror the Rust `Serialize` structs. Keep in sync when Rust types change.
 - **Error serialization**: Electron IPC can't transport Error instances. Custom error classes serialize to `{ error: true, type, message }` objects. Preload deserializes them back to thrown Errors.
+- **Schema overlay writer (phase 41)**: `src/main/schema-overlay.ts` is the app's only write path for `.markdownvdb.schema.yml` (eemeli `yaml` Document API, comment-preserving, atomic write, own-write registered). Scope keys are relative folder paths WITHOUT a trailing slash — the CLI's `schema_key` format. Batch property conversion/rename lives in `src/main/property-ops.ts` (deterministic conversion matrix, skip + report, watcher paused, per-file atomic writes via the shared `frontmatter.ts` tail). After an apply, the renderer owns the follow-up: one incremental ingest → schema/table refresh → routing changed paths through `file-sync.ts` (required — own writes are watcher-suppressed).
 
 ## Development Workflow
 

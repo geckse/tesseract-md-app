@@ -171,6 +171,51 @@ export async function setDefaultTableView(
 }
 
 /**
+ * Best-effort rename of a frontmatter key inside saved views (phase 41).
+ * Touches views for the scope folder AND its descendants (`scope: ''` =
+ * vault-wide). Anything missed degrades via the client-side column-aware
+ * view degradation — this never errors on absent folders.
+ */
+export async function renamePropertyInViews(
+  collectionId: string,
+  scope: string,
+  oldKey: string,
+  newKey: string
+): Promise<void> {
+  const folders = await readFolders(collectionId)
+  const inScope = (folderPath: string): boolean =>
+    scope === '' || folderPath === scope || folderPath.startsWith(`${scope}/`)
+
+  let dirty = false
+  const now = Date.now()
+  for (const [folderPath, views] of Object.entries(folders)) {
+    if (!inScope(folderPath)) continue
+    folders[folderPath] = views.map((raw) => {
+      const v = migrateView(raw)
+      let changed = false
+      const rename = (name: string): string => {
+        if (name === oldKey) {
+          changed = true
+          return newKey
+        }
+        return name
+      }
+      const config: TableViewConfig = {
+        ...v.config,
+        sort: v.config.sort.map((s) => ({ ...s, columnName: rename(s.columnName) })),
+        filters: v.config.filters.map((f) => ({ ...f, columnName: rename(f.columnName) })),
+        columns: v.config.columns.map((c) => ({ ...c, name: rename(c.name) })),
+        groupBy: v.config.groupBy === null ? null : rename(v.config.groupBy)
+      }
+      if (!changed) return v
+      dirty = true
+      return { ...v, config, updatedAt: now }
+    })
+  }
+  if (dirty) await writeFolders(collectionId, folders)
+}
+
+/**
  * On collection removal, clear only any legacy electron-store entry. The
  * `.markdownvdb/table-views.json` file belongs to the vault and is left
  * intact so re-adding the collection (or another machine) keeps its views.

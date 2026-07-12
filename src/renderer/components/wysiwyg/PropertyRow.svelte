@@ -3,6 +3,9 @@
   import AutocompleteDropdown from './AutocompleteDropdown.svelte'
   import DatePicker from './DatePicker.svelte'
   import DateTimePicker from './DateTimePicker.svelte'
+  import TypePickerDropdown from './TypePickerDropdown.svelte'
+  import PopoverMenu, { type PopoverMenuItem } from '../ui/PopoverMenu.svelte'
+  import PropertySettingsPopover from '../PropertySettingsPopover.svelte'
 
   export type DetectedType = 'text' | 'number' | 'boolean' | 'date' | 'datetime' | 'url' | 'email' | 'select' | 'tags' | 'complex'
 
@@ -14,9 +17,54 @@
     onKeyChange: (newKey: string) => void
     onValueChange: (newValue: JsonValue) => void
     onRemove: () => void
+    /** Phase 41: request a recursive type conversion (enables the type picker + menu). */
+    onTypeChange?: (target: DetectedType) => void
+    /** Phase 41: request a recursive key rename. */
+    onRename?: () => void
+    /** Phase 41: overlay scope for Property settings (null = global section). */
+    settingsScope?: string | null
   }
 
-  let { rowKey, value, fieldType, schemaField, onKeyChange, onValueChange, onRemove }: Props = $props()
+  let {
+    rowKey,
+    value,
+    fieldType,
+    schemaField,
+    onKeyChange,
+    onValueChange,
+    onRemove,
+    onTypeChange,
+    onRename,
+    settingsScope
+  }: Props = $props()
+
+  // ── Phase 41: type change / rename / settings affordances ─────────────
+  let showTypePicker = $state(false)
+  let typeAnchor = $state<HTMLElement | null>(null)
+  let showRowMenu = $state(false)
+  let rowMenuAnchor = $state<HTMLElement | null>(null)
+  let showSettings = $state(false)
+
+  const rowMenuItems: PopoverMenuItem[] = [
+    { id: 'change-type', label: 'Change type…', icon: 'swap_horiz' },
+    { id: 'rename', label: 'Rename property…', icon: 'drive_file_rename_outline' },
+    { id: 'settings', label: 'Property settings…', icon: 'tune' }
+  ]
+
+  function handleRowMenuSelect(id: string): void {
+    if (id === 'change-type') {
+      showTypePicker = true
+    } else if (id === 'rename') {
+      onRename?.()
+    } else if (id === 'settings') {
+      showSettings = true
+    }
+  }
+
+  function handleTypeSelect(type: string): void {
+    showTypePicker = false
+    if (type !== fieldType) onTypeChange?.(type as DetectedType)
+  }
 
   const typeIcons: Record<DetectedType, string> = {
     text: 'notes',
@@ -92,7 +140,21 @@
 </script>
 
 <div class="pr" role="row">
-  <span class="material-symbols-outlined pr-type-icon">{fieldType === 'boolean' ? booleanIcon : typeIcons[fieldType]}</span>
+  {#if onTypeChange}
+    <button
+      class="pr-type-btn"
+      bind:this={typeAnchor}
+      onclick={() => (showTypePicker = !showTypePicker)}
+      title="Change type of {rowKey}"
+      aria-label="Change type of {rowKey}"
+      aria-haspopup="listbox"
+      aria-expanded={showTypePicker}
+    >
+      <span class="material-symbols-outlined pr-type-icon">{fieldType === 'boolean' ? booleanIcon : typeIcons[fieldType]}</span>
+    </button>
+  {:else}
+    <span class="material-symbols-outlined pr-type-icon">{fieldType === 'boolean' ? booleanIcon : typeIcons[fieldType]}</span>
+  {/if}
 
   <div class="pr-key-cell">
     {#if schemaField?.required}
@@ -320,9 +382,55 @@
     {/if}
   </div>
 
+  {#if onTypeChange}
+    <button
+      class="pr-more"
+      bind:this={rowMenuAnchor}
+      onclick={() => (showRowMenu = !showRowMenu)}
+      title="Property options"
+      aria-label="Property options for {rowKey}"
+      aria-haspopup="menu"
+      aria-expanded={showRowMenu}
+    >
+      <span class="material-symbols-outlined">more_horiz</span>
+    </button>
+  {/if}
+
   <button class="pr-remove" onclick={onRemove} title="Remove property" aria-label="Remove property">
     <span class="material-symbols-outlined">close</span>
   </button>
+
+  {#if showTypePicker && typeAnchor}
+    <TypePickerDropdown
+      anchorEl={typeAnchor}
+      currentType={fieldType}
+      excludeTypes={['complex']}
+      onSelect={handleTypeSelect}
+      onDismiss={() => (showTypePicker = false)}
+    />
+  {/if}
+
+  {#if showRowMenu && rowMenuAnchor}
+    <PopoverMenu
+      anchorEl={rowMenuAnchor}
+      items={rowMenuItems}
+      ariaLabel="Property options"
+      onselect={handleRowMenuSelect}
+      ondismiss={() => (showRowMenu = false)}
+    />
+  {/if}
+
+  {#if showSettings && rowMenuAnchor}
+    <PropertySettingsPopover
+      anchorEl={rowMenuAnchor}
+      scope={settingsScope ?? null}
+      fieldKey={rowKey}
+      description={schemaField?.description ?? null}
+      required={schemaField?.required ?? false}
+      allowedValues={schemaField?.allowed_values ?? null}
+      onclose={() => (showSettings = false)}
+    />
+  {/if}
 </div>
 
 <style>
@@ -346,6 +454,36 @@
     transition: color 150ms ease;
   }
   .pr:hover .pr-type-icon { color: var(--color-primary, #00E5FF); }
+
+  .pr-type-btn {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    flex-shrink: 0;
+    transition: background 150ms ease;
+  }
+  .pr-type-btn:hover { background: var(--overlay-hover, rgba(255, 255, 255, 0.06)); }
+  .pr-type-btn:focus-visible {
+    outline: 1px solid var(--color-primary, #00E5FF);
+    outline-offset: 1px;
+  }
+  .pr-type-btn .pr-type-icon { width: 24px; }
+
+  .pr-more {
+    background: none; border: none; color: var(--color-text-dim, #71717a);
+    cursor: pointer; padding: 3px; border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; transition: all 150ms ease; flex-shrink: 0;
+  }
+  .pr:hover .pr-more, .pr-more:focus-visible { opacity: 1; }
+  .pr-more:hover { color: var(--color-primary, #00E5FF); }
+  .pr-more .material-symbols-outlined { font-size: 14px; }
 
   .pr-key-cell {
     display: flex;
@@ -504,6 +642,6 @@
 
   @media (prefers-reduced-motion: reduce) {
     .pr, .pr-type-icon, .pr-key, .pr-val, .pr-toggle, .pr-toggle-knob,
-    .pr-tag, .pr-tag-remove, .pr-remove, .pr-icon-btn { transition: none; }
+    .pr-tag, .pr-tag-remove, .pr-remove, .pr-icon-btn, .pr-type-btn, .pr-more { transition: none; }
   }
 </style>

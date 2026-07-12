@@ -326,7 +326,11 @@ describe('registerIpcHandlers', () => {
     expect(channels).toContain('cli:clusters-remove')
     expect(channels).toContain('cli:clusters-unassigned')
     expect(channels).toContain('cli:config-set')
-    expect(channels).toHaveLength(118)
+    // Property type conversion / schema-overlay editing (phase 41)
+    expect(channels).toContain('schema:preview-property-op')
+    expect(channels).toContain('schema:apply-property-op')
+    expect(channels).toContain('schema:update-overlay-field')
+    expect(channels).toHaveLength(121)
   })
 })
 

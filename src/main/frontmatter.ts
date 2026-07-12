@@ -24,7 +24,7 @@ import { registerOwnWrite } from './own-writes'
 import type { WindowManager } from './window-manager'
 
 /** JSON value patch from the renderer (typed scalars/sequences). */
-type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
+export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
 
 export interface FrontmatterPatch {
   set?: Record<string, JsonValue>
@@ -143,7 +143,7 @@ export function applyFrontmatterPatch(
 }
 
 /** Resolve + validate an absolute path from a collection id and relative path. */
-function resolveWithinCollection(collectionId: string, relativePath: string): string {
+export function resolveWithinCollection(collectionId: string, relativePath: string): string {
   const collection = getCollections().find((c) => c.id === collectionId)
   if (!collection) {
     throw new Error('Unknown collection')
@@ -155,19 +155,23 @@ function resolveWithinCollection(collectionId: string, relativePath: string): st
   return absolutePath
 }
 
-/**
- * Read-modify-write a single file's frontmatter atomically, then broadcast the
- * change to other windows. Returns the updated frontmatter object.
- */
-export async function updateFrontmatter(
-  event: IpcMainInvokeEvent,
-  windowManager: WindowManager,
-  collectionId: string,
-  relativePath: string,
-  patch: FrontmatterPatch
-): Promise<Record<string, JsonValue>> {
-  const absolutePath = resolveWithinCollection(collectionId, relativePath)
+/** How to notify other windows after a write (null = no broadcast). */
+export interface WriteBroadcast {
+  windowManager: WindowManager
+  /** webContents id of the initiating window (excluded from the broadcast). */
+  senderId: number | null
+}
 
+/**
+ * The shared write tail: read → patch → atomic write → broadcast. Used by the
+ * single-cell `fs:update-frontmatter` handler and the phase-41 batch converter
+ * so there is exactly one owner of the mutation sequence.
+ */
+export async function writePatchedFile(
+  absolutePath: string,
+  patch: FrontmatterPatch,
+  broadcast: WriteBroadcast | null
+): Promise<{ content: string; frontmatter: Record<string, JsonValue> }> {
   const original = await fs.readFile(absolutePath, 'utf-8')
   const { content, frontmatter } = applyFrontmatterPatch(original, patch)
 
@@ -185,12 +189,32 @@ export async function updateFrontmatter(
   }
 
   // Notify OTHER windows so they reload silently (no conflict prompt).
-  const senderId = event.sender.id
-  for (const win of windowManager.getAllWindows()) {
-    if (win.webContents.id !== senderId && !win.isDestroyed()) {
-      win.webContents.send('file:saved-externally', { path: absolutePath, content })
+  if (broadcast) {
+    for (const win of broadcast.windowManager.getAllWindows()) {
+      if (win.webContents.id !== broadcast.senderId && !win.isDestroyed()) {
+        win.webContents.send('file:saved-externally', { path: absolutePath, content })
+      }
     }
   }
 
+  return { content, frontmatter }
+}
+
+/**
+ * Read-modify-write a single file's frontmatter atomically, then broadcast the
+ * change to other windows. Returns the updated frontmatter object.
+ */
+export async function updateFrontmatter(
+  event: IpcMainInvokeEvent,
+  windowManager: WindowManager,
+  collectionId: string,
+  relativePath: string,
+  patch: FrontmatterPatch
+): Promise<Record<string, JsonValue>> {
+  const absolutePath = resolveWithinCollection(collectionId, relativePath)
+  const { frontmatter } = await writePatchedFile(absolutePath, patch, {
+    windowManager,
+    senderId: event.sender.id
+  })
   return frontmatter
 }

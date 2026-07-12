@@ -34,6 +34,7 @@
     {
       name: 'Editing',
       shortcuts: [
+        { label: 'New Note (popup window)', keys: getShortcutDisplay('N', true) },
         { label: 'Toggle Mode', keys: getShortcutDisplay('E', true) },
         { label: 'Save', keys: getShortcutDisplay('S', true) },
       ],

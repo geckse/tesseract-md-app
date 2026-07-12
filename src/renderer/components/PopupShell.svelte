@@ -12,11 +12,12 @@
   import AssetInfoCard from './AssetInfoCard.svelte'
   import SaveAsModal from './SaveAsModal.svelte'
   import { workspace } from '../stores/workspace.svelte'
-  import { syncFileStoresFromTab } from '../stores/files'
+  import { syncFileStoresFromTab, loadFileTree } from '../stores/files'
   import { loadGraphData, syncGraphStoresFromTab } from '../stores/graph'
   import { setupVaultListener, teardownVaultListener } from '../stores/vault-events'
   import { setupFileSyncListener, teardownFileSyncListener, applyDiskContentToTab } from '../stores/file-sync'
   import DiffView from './DiffView.svelte'
+  import ConvertTypeModal from './ConvertTypeModal.svelte'
   import { saveAsTabId, requestSaveAs, dismissSaveAs } from '../stores/save-as'
   import { collections, activeCollectionId } from '../stores/collections'
   import { loadAccentColors, primaryVariants } from '../stores/accent-color'
@@ -25,6 +26,7 @@
   import { applyTheme } from '../lib/apply-theme'
   import { reinitMermaid } from '../lib/mermaid-renderer'
   import { shortcutManager } from '../lib/shortcuts'
+  import { openNewNotePopup } from '../lib/new-note'
   import { loadEditorFontSize, editorFontSize } from '../stores/ui'
   import type { EditorMode } from '../stores/editor'
   import type { PopupInitData, TabTransferData } from '../../preload/api'
@@ -148,6 +150,12 @@
       loadGraphData().catch(() => {})
     }
 
+    // Untitled notes: load the file tree so the Save As dialog can offer
+    // the collection's folders in its directory picker.
+    if (kind === 'document' && popupIsUntitled) {
+      loadFileTree().catch(() => {})
+    }
+
     // 4. Load file content in the background (skip for untitled — no file on disk)
     if (kind === 'document' && filePath && !popupIsUntitled) {
       const absolutePath = collectionPath ? `${collectionPath}/${filePath}` : filePath
@@ -216,6 +224,15 @@
           })
         : null
 
+    // Cmd+N: new untitled note in another popup window
+    const unregisterNewNote = shortcutManager.register({
+      key: 'n',
+      meta: true,
+      handler: () => {
+        openNewNotePopup()
+      }
+    })
+
     shortcutManager.attach()
 
     // True external edits (agents, other editors) reach this window via the
@@ -225,6 +242,7 @@
 
     return () => {
       unregisterSave?.()
+      unregisterNewNote()
       shortcutManager.detach()
       teardownVaultListener()
       teardownFileSyncListener()
@@ -406,6 +424,7 @@
     {/if}
   </div>
   <DiffView />
+  <ConvertTypeModal />
 
   {#if currentSaveAsTabId === tabId && tabId}
     <SaveAsModal

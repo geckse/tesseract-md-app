@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { JsonValue, Schema, SchemaField } from '../../types/cli'
   import { parseFrontmatterData, serializeFrontmatter } from '../../lib/tiptap/markdown-bridge'
+  import { propertyOps, scopeForPanelFile } from '../../stores/property-ops.svelte'
   import FileNameEditor from './FileNameEditor.svelte'
   import PropertyRow, { type DetectedType } from './PropertyRow.svelte'
   import AddPropertyRow from './AddPropertyRow.svelte'
@@ -127,6 +128,18 @@
     emitUpdate()
   }
 
+  // Phase 41: recursive type conversion / rename. The header does NOT mutate
+  // the row locally — the change flows disk → file-sync → editor reload, so
+  // the triggering file is never double-applied.
+  function handleTypeChangeRequest(key: string, value: JsonValue, target: DetectedType) {
+    propertyOps.openConvert({ kind: 'panel', filePath }, key, target, detectType(key, value))
+  }
+
+  function handleRenameRequest(key: string) {
+    propertyOps.openRename({ kind: 'panel', filePath }, key)
+  }
+
+  let panelScope = $derived(scopeForPanelFile(filePath))
   let existingKeys = $derived(rows.map((r) => r.key))
 </script>
 
@@ -145,6 +158,9 @@
           onKeyChange={(k) => handleKeyChange(row.id, k)}
           onValueChange={(v) => handleValueChange(row.id, v)}
           onRemove={() => handleRemove(row.id)}
+          onTypeChange={(t) => handleTypeChangeRequest(row.key, row.value, t)}
+          onRename={() => handleRenameRequest(row.key)}
+          settingsScope={panelScope}
         />
       {/each}
     </div>

@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Schema } from '../../types/cli'
+  import { detectedTypeForField } from '../../lib/property-types'
   import AutocompleteDropdown from './AutocompleteDropdown.svelte'
   import TypePickerDropdown from './TypePickerDropdown.svelte'
 
@@ -36,20 +37,10 @@
 
   function handleFieldSelect(name: string) {
     nameInput = name
-    // If schema field selected, auto-pick type
+    // If schema field selected, auto-pick type (allowed_values → select)
     const sf = schema?.fields?.find((f) => f.name === name)
     if (sf) {
-      const typeMap: Record<string, string> = {
-        String: 'text', Number: 'number', Boolean: 'boolean',
-        Date: 'date', List: 'tags', Mixed: 'text',
-      }
-      const t = typeMap[sf.field_type] ?? 'text'
-      // If it has allowed_values, use select
-      if (sf.allowed_values?.length) {
-        onAdd(name, 'select')
-      } else {
-        onAdd(name, t)
-      }
+      onAdd(name, detectedTypeForField(sf.field_type, sf.allowed_values))
       mode = 'idle'
       return
     }

@@ -40,7 +40,13 @@ import {
   setTerminalFontSize
 } from './store'
 import type { PersistedWindowState } from './store'
-import type { TabTransferData, PopupOpenOptions, SavedTableView } from '../preload/api'
+import type {
+  TabTransferData,
+  PopupOpenOptions,
+  SavedTableView,
+  PropertyOpRequest,
+  OverlayFieldPatch
+} from '../preload/api'
 import type { FrontmatterPatch } from './frontmatter'
 import { WatcherManager, type WatcherState } from './watcher'
 import { getVaultWatcher } from './vault-watcher'
@@ -180,8 +186,9 @@ export async function destroyWatcherManager(): Promise<void> {
  * Run a callback with the watcher temporarily paused.
  * Stops the watcher if running, executes the callback, then restarts it.
  * If the watcher was not running, just executes the callback directly.
+ * Exported for the phase-41 batch property converter (`property-ops.ts`).
  */
-async function withWatcherPaused<T>(root: string, fn: () => Promise<T>): Promise<T> {
+export async function withWatcherPaused<T>(root: string, fn: () => Promise<T>): Promise<T> {
   const watcher = watcherManager
   const wasRunning = watcher?.isRunning() ?? false
 
@@ -719,6 +726,34 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
       wrapHandler(async () => {
         const m = await import('./frontmatter')
         return m.updateFrontmatter(event, windowManager, collectionId, relativePath, patch)
+      })
+  )
+
+  // Property type conversion / rename across a folder database (phase 41).
+  // Preview computes the per-file plan (no writes); apply runs the batch with
+  // the watcher paused and streams `schema:property-op-progress` events.
+  ipcMain.handle('schema:preview-property-op', (_event, req: PropertyOpRequest) =>
+    wrapHandler(async () => {
+      const m = await import('./property-ops')
+      return m.previewPropertyOp(req)
+    })
+  )
+
+  ipcMain.handle('schema:apply-property-op', (event, opId: string, req: PropertyOpRequest) =>
+    wrapHandler(async () => {
+      const m = await import('./property-ops')
+      return m.applyPropertyOp(event, windowManager, opId, req)
+    })
+  )
+
+  // Schema-overlay annotation edits (description/required/allowed values) —
+  // writes only `.markdownvdb.schema.yml`, never markdown files.
+  ipcMain.handle(
+    'schema:update-overlay-field',
+    (_event, collectionId: string, scope: string | null, key: string, patch: OverlayFieldPatch) =>
+      wrapHandler(async () => {
+        const m = await import('./property-ops')
+        return m.updateOverlayField(collectionId, scope, key, patch)
       })
   )
 
