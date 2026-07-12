@@ -1,4 +1,4 @@
-import type { CollectionColumn, JsonValue } from '../../../types/cli'
+import type { CollectionColumn, JsonValue, RelationValue } from '../../../types/cli'
 
 /**
  * Shared props contract for all data-cell editors.
@@ -15,6 +15,12 @@ export interface CellProps {
   readOnly: boolean
   oncommit: (value: JsonValue | null) => void
   oncancel: () => void
+  /** Server-resolved relations for THIS cell = `row.relations?.[column.name]` (phase 42). */
+  relations?: RelationValue[]
+  /** Collection root — needed by cells that spawn CLI-backed pickers (RelationCell). */
+  root?: string
+  /** Collection id (recents lookup in the picker); optional. */
+  collectionId?: string | null
 }
 
 /** Missing / cleared frontmatter values render as an em-dash placeholder. */

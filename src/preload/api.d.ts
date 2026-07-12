@@ -74,6 +74,14 @@ export interface CollectionViewOptions {
   filter?: string[]
   limit?: number
   offset?: number
+  /** Resolve frontmatter relations on the returned page rows (phase 42). Never pass on unsupported CLIs. */
+  populate?: boolean
+}
+
+/** Options for the get (single document) command. */
+export interface GetFileOptions {
+  /** Resolve frontmatter relations + referenced_by (phase 42). Never pass on unsupported CLIs. */
+  populate?: boolean
 }
 
 /** Result of CLI detection. */
@@ -186,6 +194,7 @@ export type PropertyTargetType =
   | 'email'
   | 'select'
   | 'tags'
+  | 'relation'
   | 'complex'
 
 /** A recursive property operation: retype a key, or rename it. */
@@ -263,6 +272,8 @@ export interface OverlayFieldPatch {
   description?: string | null
   required?: boolean | null
   allowedValues?: string[] | null
+  /** Relation target folder annotation (phase 42; no trailing slash; null clears). */
+  target?: string | null
 }
 
 /** A persisted slot in the legacy bottom panel (terminal) — shell + cwd only. */
@@ -360,7 +371,7 @@ export interface MdvdbApi {
   ingest(root: string, options?: IngestOptions): Promise<IngestResult>
   ingestPreview(root: string): Promise<IngestPreview>
   tree(root: string, path?: string): Promise<FileTree>
-  getFile(root: string, filePath: string): Promise<DocumentInfo>
+  getFile(root: string, filePath: string, options?: GetFileOptions): Promise<DocumentInfo>
   links(root: string, filePath: string): Promise<LinksOutput>
   backlinks(root: string, filePath: string): Promise<BacklinksOutput>
   neighborhood(root: string, filePath: string, depth: number): Promise<NeighborhoodResult>

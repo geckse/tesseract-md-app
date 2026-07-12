@@ -3,6 +3,7 @@
   import Badge from './ui/Badge.svelte'
   import ResizeHandle from './ResizeHandle.svelte'
   import LocalGraph from './LocalGraph.svelte'
+  import RelationChip from './RelationChip.svelte'
   import {
     documentInfo,
     backlinksInfo,
@@ -117,7 +118,39 @@
   let metadataOpen = $state(true)
   let localGraphOpen = $state(true)
   let linksOpen = $state(true)
+  let referencedByOpen = $state(true)
   let outlineOpen = $state(true)
+
+  // ── Referenced by (phase 42: reverse frontmatter relations) ───────────
+  /** Long lists collapse — referenced_by is unbounded by contract. */
+  const REFERENCED_BY_COLLAPSE = 50
+  let showAllReferencedBy = $state(false)
+
+  const referencedBy = $derived(currentDocInfo?.referenced_by ?? [])
+
+  /** Entries grouped by originating field (already sorted by (source, field)). */
+  const referencedByGroups = $derived.by(() => {
+    const shown = showAllReferencedBy ? referencedBy : referencedBy.slice(0, REFERENCED_BY_COLLAPSE)
+    const order: string[] = []
+    const map = new Map<string, typeof shown>()
+    for (const entry of shown) {
+      if (!map.has(entry.field)) {
+        map.set(entry.field, [])
+        order.push(entry.field)
+      }
+      map.get(entry.field)!.push(entry)
+    }
+    return order.map((field) => ({ field, entries: map.get(field)! }))
+  })
+
+  /** Server-resolved relations for a frontmatter key (populate only). */
+  function relationsFor(key: string) {
+    return currentDocInfo?.relations?.[key]
+  }
+
+  function handleRelationNavigate(path: string) {
+    onfileselect?.({ path })
+  }
 
   // Links tab: 'incoming' or 'outgoing'
   type LinksTab = 'incoming' | 'outgoing'
@@ -257,10 +290,21 @@
           {#if currentFrontmatter}
             <div class="properties-grid">
               {#each Object.entries(currentFrontmatter) as [key, value]}
+                {@const keyRelations = relationsFor(key)}
                 <div class="property-row">
                   <span class="property-label">{key}</span>
                   <div class="property-value">
-                    {#if key.toLowerCase() === 'status' && typeof value === 'string'}
+                    {#if keyRelations && keyRelations.length > 0}
+                      <div class="tags-list">
+                        {#each keyRelations as relation, i (i)}
+                          <RelationChip
+                            {relation}
+                            raw={relation.raw}
+                            onnavigate={handleRelationNavigate}
+                          />
+                        {/each}
+                      </div>
+                    {:else if key.toLowerCase() === 'status' && typeof value === 'string'}
                       <Badge variant={statusVariant(value)}>{value}</Badge>
                     {:else if key.toLowerCase() === 'tags' && isArrayValue(value)}
                       <div class="tags-list">
@@ -391,7 +435,16 @@
                   >
                     <span class="material-symbols-outlined link-icon link-icon-in">arrow_back</span>
                     <div class="link-info">
-                      <span class="link-name">{getFileName(link.entry.source)}</span>
+                      <span class="link-name">
+                        {getFileName(link.entry.source)}
+                        {#if link.entry.field}
+                          <span
+                            class="field-tag"
+                            title="Frontmatter relation via `{link.entry.field}`"
+                            >{link.entry.field}</span
+                          >
+                        {/if}
+                      </span>
                       {#if link.entry.text}
                         <span class="link-snippet">{link.entry.text}</span>
                       {/if}
@@ -426,7 +479,16 @@
                       >arrow_forward</span
                     >
                     <div class="link-info">
-                      <span class="link-name">{getFileName(link.entry.target)}</span>
+                      <span class="link-name">
+                        {getFileName(link.entry.target)}
+                        {#if link.entry.field}
+                          <span
+                            class="field-tag"
+                            title="Frontmatter relation via `{link.entry.field}`"
+                            >{link.entry.field}</span
+                          >
+                        {/if}
+                      </span>
                       {#if link.entry.text}
                         <span class="link-snippet">{link.entry.text}</span>
                       {/if}
@@ -441,6 +503,60 @@
         </div>
       {/if}
     </section>
+
+    <!-- REFERENCED BY section (phase 42: reverse frontmatter relations).
+         Distinct from Backlinks: "Referenced by" lists documents whose
+         FRONTMATTER points here; Backlinks lists body links. -->
+    {#if referencedBy.length > 0}
+      <section class="panel-section">
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class="section-header" onclick={() => (referencedByOpen = !referencedByOpen)}>
+          <span class="material-symbols-outlined section-chevron" class:rotated={referencedByOpen}
+            >chevron_right</span
+          >
+          <h3 class="section-title">Referenced by</h3>
+          <span class="section-count">{referencedBy.length}</span>
+        </div>
+
+        {#if referencedByOpen}
+          <div class="section-content">
+            <span class="muted-text refby-hint"
+              >Documents whose frontmatter points here (body links are under Links).</span
+            >
+            {#each referencedByGroups as group (group.field)}
+              <div class="refby-group">
+                <span class="refby-field">{group.field}</span>
+                <div class="links-list">
+                  {#each group.entries as entry, i (`${entry.source} ${i}`)}
+                    <!-- svelte-ignore a11y_click_events_have_key_events -->
+                    <div
+                      class="link-item"
+                      role="button"
+                      tabindex="0"
+                      onclick={() => handleBacklinkClick(entry.source)}
+                    >
+                      <span class="material-symbols-outlined link-icon link-icon-in"
+                        >account_tree</span
+                      >
+                      <div class="link-info">
+                        <span class="link-name">{entry.title}</span>
+                        <span class="link-snippet">{entry.source}</span>
+                      </div>
+                    </div>
+                  {/each}
+                </div>
+              </div>
+            {/each}
+            {#if !showAllReferencedBy && referencedBy.length > REFERENCED_BY_COLLAPSE}
+              <button class="refby-show-all" onclick={() => (showAllReferencedBy = true)}>
+                Show all ({referencedBy.length})
+              </button>
+            {/if}
+          </div>
+        {/if}
+      </section>
+    {/if}
 
     <!-- OUTLINE section -->
     <section class="panel-section">
@@ -869,6 +985,54 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  /* Frontmatter-relation tag on link entries (phase 42) */
+  .field-tag {
+    display: inline-block;
+    margin-left: 4px;
+    padding: 0 5px;
+    border-radius: var(--radius-full, 9999px);
+    border: 1px solid var(--color-border, #27272a);
+    color: var(--color-text-dim, #71717a);
+    font-size: 9px;
+    font-family: var(--font-mono, 'JetBrains Mono'), monospace;
+    vertical-align: middle;
+  }
+
+  /* Referenced by (phase 42) */
+  .refby-hint {
+    display: block;
+    margin-bottom: 6px;
+    font-size: var(--text-xs, 10px);
+  }
+
+  .refby-group {
+    margin-bottom: 8px;
+  }
+
+  .refby-field {
+    display: block;
+    margin-bottom: 2px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-text-dim, #71717a);
+    font-family: var(--font-mono, 'JetBrains Mono'), monospace;
+  }
+
+  .refby-show-all {
+    background: none;
+    border: none;
+    color: var(--color-primary, #00e5ff);
+    font-size: var(--text-xs, 11px);
+    cursor: pointer;
+    padding: 4px 0;
+  }
+
+  .refby-show-all:hover {
+    text-decoration: underline;
   }
 
   /* Outline */

@@ -10,6 +10,7 @@
   import ListCell from './cells/ListCell.svelte'
   import DateCell from './cells/DateCell.svelte'
   import MixedCell from './cells/MixedCell.svelte'
+  import RelationCell from './cells/RelationCell.svelte'
 
   interface Props {
     tabId: string
@@ -28,7 +29,10 @@
     Boolean: BooleanCell,
     List: ListCell,
     Date: DateCell,
-    Mixed: MixedCell
+    Mixed: MixedCell,
+    // Renders regardless of CLI version (never gate rendering — phase 42):
+    // without populate the chips fall back to a neutral client parse.
+    Relation: RelationCell
   }
 
   // Only one cell per row is in edit mode at a time.
@@ -122,6 +126,9 @@
         {readOnly}
         oncommit={(value) => handleCommit(col, value)}
         oncancel={handleCancel}
+        relations={row.relations?.[col.name]}
+        root={tableStore.rootFor(tabId)}
+        collectionId={tableStore.collectionIdFor(tabId)}
       />
       {#if cs.saving}
         <span class="saving-dot" aria-hidden="true"></span>

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { get } from 'svelte/store'
+  import { cliFeatures } from './lib/cli-features.svelte'
   import Sidebar from './components/Sidebar.svelte'
   import Titlebar from './components/Titlebar.svelte'
   import StatusBar from './components/StatusBar.svelte'
@@ -105,6 +106,10 @@
   // Split pane state is managed by workspace + SplitPaneContainer
 
   onMount(() => {
+    // Detect CLI capabilities (phase 42: relation UI gates on the CLI version).
+    // Runs in popup windows too — popped-out tables also gate on it.
+    void cliFeatures.init()
+
     // Popup windows render PopupShell — skip all heavyweight initialization
     if (isPopupMode) return
 

@@ -4,7 +4,13 @@
  */
 
 import type { GraphCluster, GraphData, GraphEdge, GraphLevel, GraphNode } from '../types/cli'
-import { edgeLinkColor, edgeLinkWidth, isEdgeVisible } from './edge-utils'
+import {
+  edgeLinkColor,
+  edgeLinkWidth,
+  isEdgeVisible,
+  isFrontmatterEdge,
+  FRONTMATTER_EDGE_COLOR
+} from './edge-utils'
 import { paletteColor, type HarmonicPalette } from './harmonic-palette'
 
 // ─── Constants ───────────────────────────────────────────────────────
@@ -65,6 +71,8 @@ export interface Graph3DLink {
   strength: number | null
   context_text: string | null
   edge_cluster_id: number | null
+  /** Originating frontmatter field (phase 42); null = body/similarity edge. */
+  field: string | null
   /** Hex color string for the link line. */
   color: string
   /** Line width derived from strength. */
@@ -470,7 +478,8 @@ export function buildGraph3DData(data: GraphData, options: BuildGraph3DOptions):
     }
   })
 
-  // 6. Map edges to Graph3DLink format
+  // 6. Map edges to Graph3DLink format. Frontmatter relation edges (phase 42)
+  // get a distinct hue; GraphView additionally renders them dashed.
   const links: Graph3DLink[] = visibleEdges.map((edge) => ({
     source: edge.source,
     target: edge.target,
@@ -478,12 +487,15 @@ export function buildGraph3DData(data: GraphData, options: BuildGraph3DOptions):
     strength: edge.strength ?? null,
     context_text: edge.context_text ?? null,
     edge_cluster_id: edge.edge_cluster_id ?? null,
-    color: edgeLinkColor(
-      edge.edge_cluster_id,
-      edge.strength ?? 0.5,
-      options.weakThreshold,
-      options.edgePalette
-    ),
+    field: edge.field ?? null,
+    color: isFrontmatterEdge(edge)
+      ? FRONTMATTER_EDGE_COLOR
+      : edgeLinkColor(
+          edge.edge_cluster_id,
+          edge.strength ?? 0.5,
+          options.weakThreshold,
+          options.edgePalette
+        ),
     width: edgeLinkWidth(edge.strength ?? 0.5)
   }))
 

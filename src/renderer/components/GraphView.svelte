@@ -65,7 +65,13 @@
   import { workspace } from '../stores/workspace.svelte'
   import GraphPreview from './GraphPreview.svelte'
   import PopoverMenu, { type PopoverMenuItem } from './ui/PopoverMenu.svelte'
-  import { edgeClusterColor, isEdgeVisible, edgeLinkColor, edgeLinkWidth } from '../lib/edge-utils'
+  import {
+    edgeClusterColor,
+    isEdgeVisible,
+    edgeLinkColor,
+    edgeLinkWidth,
+    isFrontmatterEdge
+  } from '../lib/edge-utils'
   import { diffGraphData, shouldPatch, isEmptyDelta, type GraphDelta } from '../lib/graph-delta'
   import { paletteColor, paletteTextColor, type HarmonicPalette } from '../lib/harmonic-palette'
   import {
@@ -2586,6 +2592,9 @@
       .linkColor((link: ForceLink) => link.color)
       // Link width: 0 = ThreeJS Line (constant 1px hairline, very fast)
       .linkWidth(0)
+      // Frontmatter relation edges render short-dashed (phase 42). Dash only
+      // works on hairline (width 0) Line links — which is what we use.
+      .linkLineDash((link: ForceLink) => (isFrontmatterEdge(link) ? [2, 1] : null))
       // Directional arrows: visible in document mode, hidden in chunk mode (symmetric similarity)
       .linkDirectionalArrowLength((_link: ForceLink) => (isChunkMode() ? 0 : 6))
       .linkDirectionalArrowRelPos(1)
@@ -3126,6 +3135,9 @@
           {#if edgeSrc && edgeTgt}
             <div class="edge-tooltip-nodes">{edgeSrc.path} → {edgeTgt.path}</div>
           {/if}
+          {#if hoveredEdge.field}
+            <div class="edge-tooltip-field">via frontmatter: {hoveredEdge.field}</div>
+          {/if}
           {#if hoveredEdge.strength != null}
             <div class="edge-tooltip-strength">
               <span class="edge-tooltip-strength-label">Strength</span>
@@ -3617,6 +3629,13 @@
     margin-top: var(--space-2, 0.5rem);
     line-height: 1.4;
     font-style: italic;
+  }
+
+  .edge-tooltip-field {
+    color: var(--color-text-dim, #71717a);
+    font-family: var(--font-mono, 'JetBrains Mono', ui-monospace, monospace);
+    font-size: var(--text-xs, 0.625rem);
+    margin-top: 2px;
   }
 
   /* Context menu */

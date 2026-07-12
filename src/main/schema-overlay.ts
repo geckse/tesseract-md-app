@@ -38,7 +38,8 @@ const VALID_FIELD_TYPES = new Set([
   'list',
   'array',
   'date',
-  'mixed'
+  'mixed',
+  'relation'
 ])
 
 async function loadOverlayDocument(root: string): Promise<{ doc: Document; existed: boolean }> {
@@ -99,6 +100,17 @@ export async function upsertOverlayField(
   if (patch.fieldType !== undefined && !VALID_FIELD_TYPES.has(patch.fieldType)) {
     throw new Error(`Invalid overlay field_type: "${patch.fieldType}"`)
   }
+  // Relation target folders follow the phase-41 folder-key grammar: relative
+  // path, non-empty, NO trailing slash (the CLI emits `relation_target`
+  // slash-less and accepts only this form from the app).
+  if (patch.target !== undefined && patch.target !== null) {
+    const target = patch.target
+    if (target === '' || target.endsWith('/')) {
+      throw new Error(
+        `Relation target folders must be non-empty and have no trailing slash: "${target}"`
+      )
+    }
+  }
 
   const { doc } = await loadOverlayDocument(root)
   const base = fieldPath(scopeKey, key)
@@ -118,6 +130,10 @@ export async function upsertOverlayField(
     } else {
       doc.setIn([...base, 'allowed_values'], patch.allowedValues)
     }
+  }
+  if (patch.target !== undefined) {
+    if (patch.target === null) doc.deleteIn([...base, 'target'])
+    else doc.setIn([...base, 'target'], patch.target)
   }
 
   await writeOverlayDocument(root, doc)

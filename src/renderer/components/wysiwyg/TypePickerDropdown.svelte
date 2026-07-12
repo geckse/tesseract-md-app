@@ -24,6 +24,7 @@
     { type: 'email', icon: 'mail', label: 'Email' },
     { type: 'tags', icon: 'sell', label: 'Tags' },
     { type: 'select', icon: 'arrow_drop_down_circle', label: 'Select' },
+    { type: 'relation', icon: 'account_tree', label: 'Relation' },
     { type: 'complex', icon: 'data_object', label: 'JSON' }
   ] as const
 

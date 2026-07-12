@@ -1,7 +1,9 @@
 <script lang="ts">
-  import type { JsonValue, Schema, SchemaField } from '../../types/cli'
+  import type { JsonValue, RelationValue, Schema, SchemaField } from '../../types/cli'
   import { parseFrontmatterData, serializeFrontmatter } from '../../lib/tiptap/markdown-bridge'
+  import { isLinkShaped } from '../../lib/relation-format'
   import { propertyOps, scopeForPanelFile } from '../../stores/property-ops.svelte'
+  import { documentInfo } from '../../stores/properties'
   import FileNameEditor from './FileNameEditor.svelte'
   import PropertyRow, { type DetectedType } from './PropertyRow.svelte'
   import AddPropertyRow from './AddPropertyRow.svelte'
@@ -79,7 +81,9 @@
   function detectType(key: string, value: JsonValue): DetectedType {
     const sf = getSchemaField(key)
 
-    // Schema-driven overrides
+    // Schema-driven overrides (Relation wins — a relation renders chips even
+    // when the schema also declares allowed_values)
+    if (sf?.field_type === 'Relation') return 'relation'
     if (sf?.allowed_values?.length) return 'select'
     if (sf?.field_type === 'Boolean' || typeof value === 'boolean') return 'boolean'
     if (sf?.field_type === 'Number' || typeof value === 'number') return 'number'
@@ -92,10 +96,23 @@
       if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return 'date'
       if (/^https?:\/\//.test(value)) return 'url'
       if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value)) return 'email'
+      // Value-shape fallback: whole-value [[wiki-link]] renders chips even
+      // for ad-hoc fields and old CLIs (rendering is never version-gated).
+      if (/^\[\[[^\]]+\]\]$/.test(value.trim()) && isLinkShaped(value)) return 'relation'
     }
 
     if (value !== null && typeof value === 'object' && !Array.isArray(value)) return 'complex'
     return 'text'
+  }
+
+  /**
+   * Phase 42: server-resolved relations from the properties store's populated
+   * `get` — only trusted when it describes THIS file (the store follows the
+   * selected file, which normally matches the open document).
+   */
+  function relationValuesFor(key: string): RelationValue[] | undefined {
+    if (!$documentInfo || $documentInfo.path !== filePath) return undefined
+    return $documentInfo.relations?.[key]
   }
 
   function getDefaultValue(type: string): JsonValue {
@@ -117,6 +134,8 @@
       case 'tags':
         return []
       case 'select':
+        return ''
+      case 'relation':
         return ''
       case 'complex':
         return {}
@@ -184,6 +203,8 @@
           onTypeChange={(t) => handleTypeChangeRequest(row.key, row.value, t)}
           onRename={() => handleRenameRequest(row.key)}
           settingsScope={panelScope}
+          relationValues={relationValuesFor(row.key)}
+          {collectionPath}
         />
       {/each}
     </div>

@@ -371,3 +371,157 @@ describe('tableStore editing (39b)', () => {
     expect(r.frontmatter.status).toBe('edited-elsewhere')
   })
 })
+
+// ─── Phase 42: frontmatter relations ─────────────────────────────────────
+
+import { cliFeatures } from '@renderer/lib/cli-features.svelte'
+import type { RelationValue } from '@renderer/types/cli'
+
+function relationRow(
+  path: string,
+  frontmatter: Record<string, unknown>,
+  relations?: Record<string, RelationValue[]>
+): CollectionRow {
+  return { ...row(path, frontmatter), relations }
+}
+
+const relationFixture: CollectionOutput = {
+  scope: 'invoices/',
+  recursive: false,
+  columns: [col('client', 'Relation'), col('status', 'String')],
+  rows: [
+    relationRow(
+      'invoices/i1.md',
+      { client: '[[clients/acme|Acme]]', status: 'sent' },
+      {
+        client: [
+          {
+            raw: '[[clients/acme|Acme]]',
+            path: 'clients/acme.md',
+            exists: true,
+            title: 'Acme Corp',
+            frontmatter: {}
+          }
+        ]
+      }
+    ),
+    relationRow(
+      'invoices/i2.md',
+      { client: 'clients/acme.md', status: 'draft' },
+      {
+        client: [
+          {
+            raw: 'clients/acme.md',
+            path: 'clients/acme.md',
+            exists: true,
+            title: 'Acme Corp',
+            frontmatter: {}
+          }
+        ]
+      }
+    ),
+    relationRow('invoices/i3.md', { client: 'not-a-link', status: 'draft' })
+  ],
+  total_rows: 3,
+  offset: 0
+}
+
+describe('tableStore — relations (phase 42)', () => {
+  beforeEach(() => {
+    workspace.reset()
+    cliFeatures.reset()
+    mockCollection = vi.fn().mockResolvedValue(relationFixture)
+    Object.defineProperty(globalThis, 'window', {
+      value: { api: { collection: mockCollection } },
+      configurable: true
+    })
+  })
+
+  async function setupRelations(): Promise<string> {
+    const tabId = workspace.openTableTab('invoices')
+    await tableStore.load(tabId, 'c1', '/root')
+    return tabId
+  }
+
+  it('passes populate iff the CLI supports relations (NEVER on old CLIs)', async () => {
+    // Unsupported (version unknown): no populate key value.
+    let tabId = await setupRelations()
+    expect(mockCollection.mock.calls[0][2].populate).toBeUndefined()
+    tableStore.dispose(tabId)
+
+    // Supported: populate: true.
+    cliFeatures.version = '0.2.0'
+    tabId = workspace.openTableTab('invoices')
+    await tableStore.load(tabId, 'c1', '/root')
+    const lastCall = mockCollection.mock.calls[mockCollection.mock.calls.length - 1]
+    expect(lastCall[2].populate).toBe(true)
+  })
+
+  it('equals filter matches [[wiki]], path.md, and bare-path forms interchangeably', async () => {
+    const tabId = await setupRelations()
+    for (const value of ['clients/acme', 'clients/acme.md', '[[clients/acme]]']) {
+      workspace.setTableEphemeral(tabId, {
+        filters: [{ columnName: 'client', op: 'equals', value }]
+      })
+      const paths = tableStore.filteredRows(tabId).map((r) => r.path)
+      expect(paths).toEqual(['invoices/i1.md', 'invoices/i2.md'])
+    }
+  })
+
+  it('equals filter behaves exactly as before for non-link values', async () => {
+    const tabId = await setupRelations()
+    workspace.setTableEphemeral(tabId, {
+      filters: [{ columnName: 'status', op: 'equals', value: 'draft' }]
+    })
+    expect(tableStore.filteredRows(tabId).map((r) => r.path)).toEqual([
+      'invoices/i2.md',
+      'invoices/i3.md'
+    ])
+    // A relation-looking filter never matches a plain string.
+    workspace.setTableEphemeral(tabId, {
+      filters: [{ columnName: 'client', op: 'equals', value: 'not-a-link.md' }]
+    })
+    expect(tableStore.filteredRows(tabId)).toHaveLength(0)
+  })
+
+  it('in filter uses the same normalization', async () => {
+    const tabId = await setupRelations()
+    workspace.setTableEphemeral(tabId, {
+      filters: [{ columnName: 'client', op: 'in', values: ['clients/acme'] }]
+    })
+    expect(tableStore.filteredRows(tabId).map((r) => r.path)).toEqual([
+      'invoices/i1.md',
+      'invoices/i2.md'
+    ])
+  })
+
+  it('contains matches the server-resolved title', async () => {
+    const tabId = await setupRelations()
+    workspace.setTableEphemeral(tabId, {
+      filters: [{ columnName: 'client', op: 'contains', value: 'Acme Corp' }]
+    })
+    expect(tableStore.filteredRows(tabId).map((r) => r.path)).toEqual([
+      'invoices/i1.md',
+      'invoices/i2.md'
+    ])
+    // Raw values still match (non-link items are never dropped).
+    workspace.setTableEphemeral(tabId, {
+      filters: [{ columnName: 'client', op: 'contains', value: 'not-a-link' }]
+    })
+    expect(tableStore.filteredRows(tabId).map((r) => r.path)).toEqual(['invoices/i3.md'])
+  })
+
+  it('group-by canonicalizes on the resolved path and labels with the title', async () => {
+    const tabId = await setupRelations()
+    workspace.setTableEphemeral(tabId, { groupBy: 'client' })
+    const groups = tableStore.groups(tabId)!
+    // i1 ([[clients/acme|Acme]]) and i2 (clients/acme.md) land in ONE group.
+    const acme = groups.find((g) => g.value === 'clients/acme.md')!
+    expect(acme.rows.map((r) => r.path)).toEqual(['invoices/i1.md', 'invoices/i2.md'])
+    expect(acme.label).toBe('Acme Corp')
+    // The non-link value keeps its raw key and no label.
+    const plain = groups.find((g) => g.value === 'not-a-link')!
+    expect(plain.rows.map((r) => r.path)).toEqual(['invoices/i3.md'])
+    expect(plain.label).toBeUndefined()
+  })
+})

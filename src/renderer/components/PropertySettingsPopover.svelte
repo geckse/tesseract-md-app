@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte'
   import { computePosition, flip, shift, offset } from '@floating-ui/dom'
   import { propertyOps } from '../stores/property-ops.svelte'
+  import { cliFeatures } from '../lib/cli-features.svelte'
   import { focusTrap } from '../lib/focus-trap'
   import Button from './ui/Button.svelte'
 
@@ -14,6 +15,10 @@
     description?: string | null
     required?: boolean
     allowedValues?: string[] | null
+    /** Phase 42: whether the field is a relation (shows the target-folder input). */
+    isRelation?: boolean
+    /** Phase 42: current overlay-declared target folder to prefill. */
+    relationTarget?: string | null
     onclose: () => void
   }
 
@@ -24,6 +29,8 @@
     description: initialDescription = null,
     required: initialRequired = false,
     allowedValues: initialAllowed = null,
+    isRelation = false,
+    relationTarget: initialTarget = null,
     onclose
   }: Props = $props()
 
@@ -36,9 +43,13 @@
   let required = $state(initialRequired)
   // svelte-ignore state_referenced_locally
   let values = $state<string[]>(initialAllowed ? [...initialAllowed] : [])
+  // svelte-ignore state_referenced_locally
+  let targetFolder = $state(initialTarget ?? '')
   let newValue = $state('')
   let saving = $state(false)
   let error = $state<string | null>(null)
+
+  const showTargetField = $derived(isRelation && cliFeatures.supportsRelations)
 
   let popEl = $state<HTMLDivElement | undefined>(undefined)
 
@@ -56,11 +67,18 @@
     saving = true
     error = null
     try {
-      await propertyOps.applyOverlayFieldPatch(scope, fieldKey, {
+      const patch: Parameters<typeof propertyOps.applyOverlayFieldPatch>[2] = {
         description: description.trim() === '' ? null : description.trim(),
         required: required ? true : null,
         allowedValues: values.length > 0 ? values : null
-      })
+      }
+      if (showTargetField) {
+        // Folder-key grammar: relative path, NO trailing slash (normalized here;
+        // the overlay writer rejects trailing slashes outright).
+        const t = targetFolder.trim().replace(/\/+$/, '')
+        patch.target = t === '' ? null : t
+      }
+      await propertyOps.applyOverlayFieldPatch(scope, fieldKey, patch)
       onclose()
     } catch (err) {
       error = err instanceof Error ? err.message : String(err)
@@ -143,6 +161,18 @@
     <input type="checkbox" bind:checked={required} />
     <span>Required</span>
   </label>
+
+  {#if showTargetField}
+    <label class="psp-field">
+      <span class="psp-label">Target folder</span>
+      <input
+        class="psp-input mono"
+        type="text"
+        placeholder="e.g. clients"
+        bind:value={targetFolder}
+      />
+    </label>
+  {/if}
 
   <div class="psp-field">
     <span class="psp-label">Allowed values</span>

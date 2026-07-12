@@ -1,11 +1,16 @@
 <script lang="ts">
-  import type { JsonValue, SchemaField } from '../../types/cli'
+  import type { JsonValue, RelationValue, SchemaField } from '../../types/cli'
+  import { cliFeatures } from '../../lib/cli-features.svelte'
+  import { formatRelationValue } from '../../lib/relation-format'
+  import { workspace } from '../../stores/workspace.svelte'
   import AutocompleteDropdown from './AutocompleteDropdown.svelte'
   import DatePicker from './DatePicker.svelte'
   import DateTimePicker from './DateTimePicker.svelte'
   import TypePickerDropdown from './TypePickerDropdown.svelte'
   import PopoverMenu, { type PopoverMenuItem } from '../ui/PopoverMenu.svelte'
   import PropertySettingsPopover from '../PropertySettingsPopover.svelte'
+  import RelationChip from '../RelationChip.svelte'
+  import RelationPicker from '../RelationPicker.svelte'
 
   export type DetectedType =
     | 'text'
@@ -17,6 +22,7 @@
     | 'email'
     | 'select'
     | 'tags'
+    | 'relation'
     | 'complex'
 
   interface Props {
@@ -33,6 +39,10 @@
     onRename?: () => void
     /** Phase 41: overlay scope for Property settings (null = global section). */
     settingsScope?: string | null
+    /** Phase 42: server-resolved relations for THIS key (from `get --populate`). */
+    relationValues?: RelationValue[]
+    /** Phase 42: collection root (relation picker needs it for CLI calls). */
+    collectionPath?: string
   }
 
   let {
@@ -45,7 +55,9 @@
     onRemove,
     onTypeChange,
     onRename,
-    settingsScope
+    settingsScope,
+    relationValues,
+    collectionPath
   }: Props = $props()
 
   // ── Phase 41: type change / rename / settings affordances ─────────────
@@ -86,8 +98,43 @@
     email: 'mail',
     select: 'arrow_drop_down_circle',
     tags: 'sell',
+    relation: 'account_tree', // NOT 'link' — the url type already uses it
     complex: 'data_object'
   }
+
+  // ── Phase 42: relation editing ─────────────────────────────────────────
+  let showRelationPicker = $state(false)
+  let relationAnchor = $state<HTMLElement | null>(null)
+
+  /** Server-resolved RelationValue for a raw string (null → neutral chip). */
+  function matchRelation(raw: string): RelationValue | null {
+    return relationValues?.find((r) => r.raw === raw) ?? null
+  }
+
+  function openRelationTarget(path: string): void {
+    workspace.openFile(path)
+  }
+
+  function pickRelation(path: string): void {
+    showRelationPicker = false
+    if (Array.isArray(value)) {
+      onValueChange([...value, formatRelationValue(path)])
+    } else {
+      onValueChange(formatRelationValue(path))
+    }
+  }
+
+  function removeRelationAt(index: number): void {
+    if (Array.isArray(value)) {
+      onValueChange(value.filter((_, i) => i !== index))
+    }
+  }
+
+  const relationRawValues = $derived.by<string[]>(() => {
+    if (Array.isArray(value)) return value.filter((v): v is string => typeof v === 'string')
+    if (typeof value === 'string' && value !== '') return [value]
+    return []
+  })
 
   let showDatePicker = $state(false)
   let showDateTimePicker = $state(false)
@@ -374,6 +421,54 @@
           />
         {/if}
       {/if}
+    {:else if fieldType === 'relation'}
+      <div class="pr-relation" bind:this={relationAnchor}>
+        {#each relationRawValues as raw, i (i)}
+          <RelationChip
+            relation={matchRelation(raw)}
+            {raw}
+            onnavigate={openRelationTarget}
+            onremove={Array.isArray(value) ? () => removeRelationAt(i) : undefined}
+          />
+        {/each}
+        <button
+          class="pr-relation-pick"
+          onclick={() => (showRelationPicker = !showRelationPicker)}
+          aria-label="Pick document for {rowKey}"
+          aria-haspopup="dialog"
+          aria-expanded={showRelationPicker}
+        >
+          {#if relationRawValues.length === 0}
+            Pick document…
+          {:else}
+            <span class="material-symbols-outlined pr-relation-pick-icon"
+              >{Array.isArray(value) ? 'add' : 'edit'}</span
+            >
+          {/if}
+        </button>
+        {#if relationRawValues.length > 0 && !Array.isArray(value)}
+          <button
+            class="pr-icon-btn"
+            onclick={() => onValueChange('')}
+            aria-label="Clear {rowKey}"
+            title="Clear"
+          >
+            <span class="material-symbols-outlined">backspace</span>
+          </button>
+        {/if}
+      </div>
+      {#if showRelationPicker && relationAnchor && collectionPath}
+        <RelationPicker
+          anchorEl={relationAnchor}
+          root={collectionPath}
+          targetFolder={schemaField?.relation_target ?? null}
+          excludePaths={Array.isArray(value)
+            ? (relationValues ?? []).map((r) => r.path).filter((p): p is string => p !== null)
+            : []}
+          onpick={pickRelation}
+          ondismiss={() => (showRelationPicker = false)}
+        />
+      {/if}
     {:else if fieldType === 'complex'}
       <textarea
         class="pr-val pr-textarea"
@@ -452,7 +547,7 @@
     <TypePickerDropdown
       anchorEl={typeAnchor}
       currentType={fieldType}
-      excludeTypes={['complex']}
+      excludeTypes={cliFeatures.supportsRelations ? ['complex'] : ['complex', 'relation']}
       onSelect={handleTypeSelect}
       onDismiss={() => (showTypePicker = false)}
     />
@@ -476,6 +571,8 @@
       description={schemaField?.description ?? null}
       required={schemaField?.required ?? false}
       allowedValues={schemaField?.allowed_values ?? null}
+      isRelation={fieldType === 'relation'}
+      relationTarget={schemaField?.relation_target ?? null}
       onclose={() => (showSettings = false)}
     />
   {/if}
@@ -785,6 +882,40 @@
     font-size: 14px;
   }
 
+  .pr-relation {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+    width: 100%;
+    min-height: 24px;
+  }
+
+  .pr-relation-pick {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    background: none;
+    border: 1px dashed var(--color-border, #27272a);
+    border-radius: var(--radius-full, 9999px);
+    color: var(--color-text-dim, #71717a);
+    font-size: var(--text-xs, 0.625rem);
+    padding: 1px 8px;
+    cursor: pointer;
+    transition:
+      color 150ms ease,
+      border-color 150ms ease;
+  }
+
+  .pr-relation-pick:hover {
+    color: var(--color-primary, #00e5ff);
+    border-color: var(--color-primary-glow, rgba(0, 229, 255, 0.25));
+  }
+
+  .pr-relation-pick-icon {
+    font-size: 12px;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .pr,
     .pr-type-icon,
@@ -797,7 +928,8 @@
     .pr-remove,
     .pr-icon-btn,
     .pr-type-btn,
-    .pr-more {
+    .pr-more,
+    .pr-relation-pick {
       transition: none;
     }
   }

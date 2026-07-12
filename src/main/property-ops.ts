@@ -56,10 +56,12 @@ type StorageKind = 'string' | 'number' | 'boolean' | 'list' | 'date' | 'datetime
 /** Map a UI target type to its stored YAML shape (null = not a valid target). */
 export function storageKindFor(target: PropertyTargetType): StorageKind | null {
   switch (target) {
+    // A relation is stored as a plain string (or string[]) wiki-link value.
     case 'text':
     case 'url':
     case 'email':
     case 'select':
+    case 'relation':
       return 'string'
     case 'number':
       return 'number'
@@ -78,6 +80,7 @@ export function storageKindFor(target: PropertyTargetType): StorageKind | null {
 
 /** Overlay `field_type` string for a UI target type (datetime pins as date). */
 export function overlayFieldTypeFor(target: PropertyTargetType): string {
+  if (target === 'relation') return 'relation'
   const kind = storageKindFor(target)
   return kind === 'datetime' ? 'date' : (kind ?? 'mixed')
 }
@@ -95,6 +98,17 @@ function isScalar(v: JsonValue): v is string | number | boolean {
  * Callers handle null/missing/empty-string ("no value") before calling.
  */
 export function convertValue(value: JsonValue, target: PropertyTargetType): ConvertOutcome {
+  // Converting to relation is a SCHEMA PIN, never a value rewrite: existing
+  // strings and string arrays pass through untouched; everything else skips.
+  // (The CLI resolves whatever link syntax the value already uses.)
+  if (target === 'relation') {
+    if (typeof value === 'string') return { ok: true, value, changed: false }
+    if (Array.isArray(value) && value.every((v) => typeof v === 'string')) {
+      return { ok: true, value, changed: false }
+    }
+    return { ok: false, reason: 'only text values can become relations' }
+  }
+
   const kind = storageKindFor(target)
   if (kind === null) return { ok: false, reason: 'not a convertible target type' }
 

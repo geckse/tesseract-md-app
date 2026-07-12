@@ -278,9 +278,15 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
     return wrapHandler(() => execCommand<FileTree>('tree', args, root))
   })
 
-  // Get document
-  ipcMain.handle('cli:get', (_event, root: string, filePath: string) =>
-    wrapHandler(() => execCommand<DocumentInfo>('get', [filePath], root))
+  // Get document. `populate` (phase 42) resolves frontmatter relations +
+  // referenced_by inline — only pass it when the CLI supports phase 31.
+  ipcMain.handle(
+    'cli:get',
+    (_event, root: string, filePath: string, options?: { populate?: boolean }) => {
+      const args = [filePath]
+      if (options?.populate) args.push('--populate')
+      return wrapHandler(() => execCommand<DocumentInfo>('get', args, root))
+    }
   )
 
   // Links
@@ -391,6 +397,7 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
         filter?: string[]
         limit?: number
         offset?: number
+        populate?: boolean
       }
     ) => {
       const args: string[] = [folderPath || '.']
@@ -400,6 +407,7 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
       for (const f of options?.filter ?? []) args.push('--filter', f)
       if (options?.limit != null) args.push('--limit', String(options.limit))
       if (options?.offset != null) args.push('--offset', String(options.offset))
+      if (options?.populate) args.push('--populate')
       return wrapHandler(() => execCommand<CollectionOutput>('collection', args, root))
     }
   )

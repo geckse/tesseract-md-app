@@ -421,7 +421,7 @@ export function openGraphWithNeighborhood(
       const tgt = direction === 'out' ? item.path : parentPath
       // Avoid duplicate edges
       if (!edges.some((e) => e.source === src && e.target === tgt)) {
-        edges.push({ source: src, target: tgt, weight: null })
+        edges.push({ source: src, target: tgt, weight: null, field: null })
       }
       walk(item.children, item.path, direction)
     }

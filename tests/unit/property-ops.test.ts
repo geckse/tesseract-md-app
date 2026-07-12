@@ -331,3 +331,38 @@ describe('overlayScopeKey', () => {
     expect(overlayScopeKey('')).toBeNull()
   })
 })
+
+describe('convertValue — to Relation (phase 42: schema pin, never a rewrite)', () => {
+  it('passes strings through UNCHANGED (no value rewrite)', () => {
+    expect(convertValue('[[clients/acme]]', 'relation')).toEqual({
+      ok: true,
+      value: '[[clients/acme]]',
+      changed: false
+    })
+    // Even plain strings pass — the pin is on the schema, the CLI decides
+    // what is link-shaped.
+    expect(convertValue('acme', 'relation')).toEqual({ ok: true, value: 'acme', changed: false })
+  })
+
+  it('passes string arrays through unchanged', () => {
+    expect(convertValue(['[[a]]', '[[b]]'], 'relation')).toEqual({
+      ok: true,
+      value: ['[[a]]', '[[b]]'],
+      changed: false
+    })
+  })
+
+  it('skips (reports) numbers, booleans, mixed arrays, and objects', () => {
+    expect(convertValue(42, 'relation').ok).toBe(false)
+    expect(convertValue(true, 'relation').ok).toBe(false)
+    expect(convertValue(['[[a]]', 42], 'relation').ok).toBe(false)
+    expect(convertValue({ a: 1 }, 'relation').ok).toBe(false)
+  })
+})
+
+describe('relation storage kind + overlay type (phase 42)', () => {
+  it('stores as string, pins as relation', () => {
+    expect(storageKindFor('relation')).toBe('string')
+    expect(overlayFieldTypeFor('relation')).toBe('relation')
+  })
+})

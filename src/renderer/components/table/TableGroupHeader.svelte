@@ -28,7 +28,7 @@
   onclick={toggle}
 >
   <span class="material-symbols-outlined chevron" class:expanded={!collapsed}>chevron_right</span>
-  <span class="group-value">{group.value || '(empty)'}</span>
+  <span class="group-value">{group.label ?? (group.value || '(empty)')}</span>
   <span class="group-count">{group.rows.length}</span>
 </button>
 

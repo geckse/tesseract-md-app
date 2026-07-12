@@ -126,7 +126,8 @@ describe('properties store', () => {
 
       await loadProperties('docs/test.md')
 
-      expect(mockApi.getFile).toHaveBeenCalledWith('/alpha', 'docs/test.md')
+      // Third arg is the phase-42 populate options — undefined on unsupported CLIs.
+      expect(mockApi.getFile).toHaveBeenCalledWith('/alpha', 'docs/test.md', undefined)
       expect(mockApi.backlinks).toHaveBeenCalledWith('/alpha', 'docs/test.md')
       expect(mockApi.links).toHaveBeenCalledWith('/alpha', 'docs/test.md')
       expect(mockApi.neighborhood).toHaveBeenCalledWith('/alpha', 'docs/test.md', 1)
@@ -370,5 +371,34 @@ describe('properties store', () => {
         { level: 3, heading: 'Third', line: 13 }
       ])
     })
+  })
+})
+
+// ─── Phase 42: populate threading ────────────────────────────────────────
+
+import { cliFeatures } from '../../src/renderer/lib/cli-features.svelte'
+
+describe('properties store — populate (phase 42)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    cliFeatures.reset()
+    collections.set([col1])
+    activeCollectionId.set('a')
+    mockApi.getFile.mockResolvedValue(sampleDoc)
+    mockApi.backlinks.mockResolvedValue({ file: 'f', backlinks: [], total_backlinks: 0 })
+    mockApi.links.mockResolvedValue({ file: 'f', links: { file: 'f', outgoing: [], incoming: [] } })
+    mockApi.neighborhood.mockResolvedValue({ outgoing: [], incoming: [] })
+  })
+
+  it('passes { populate: true } when the CLI supports relations', async () => {
+    cliFeatures.version = '0.2.0'
+    await loadProperties('docs/test.md')
+    expect(mockApi.getFile).toHaveBeenCalledWith('/alpha', 'docs/test.md', { populate: true })
+  })
+
+  it('passes NO options when the CLI does not support relations', async () => {
+    cliFeatures.version = '0.1.0'
+    await loadProperties('docs/test.md')
+    expect(mockApi.getFile).toHaveBeenCalledWith('/alpha', 'docs/test.md', undefined)
   })
 })

@@ -526,6 +526,30 @@ describe('IPC handler argument passing', () => {
 
       expect(mockExecCommand).toHaveBeenCalledWith('collection', ['blog'], '/tmp/project')
     })
+
+    it('appends --populate when requested (phase 42)', async () => {
+      mockExecCommand.mockResolvedValue({ rows: [] })
+      const handler = getHandler('cli:collection')
+      await handler(fakeEvent, '/tmp/project', 'invoices', { populate: true })
+
+      expect(mockExecCommand).toHaveBeenCalledWith(
+        'collection',
+        ['invoices', '--populate'],
+        '/tmp/project'
+      )
+    })
+
+    it('NEVER passes --populate when the option is absent or false', async () => {
+      mockExecCommand.mockResolvedValue({ rows: [] })
+      const handler = getHandler('cli:collection')
+      await handler(fakeEvent, '/tmp/project', 'invoices', { populate: false })
+      await handler(fakeEvent, '/tmp/project', 'invoices', {})
+      await handler(fakeEvent, '/tmp/project', 'invoices')
+
+      for (const call of mockExecCommand.mock.calls) {
+        expect(call[1]).not.toContain('--populate')
+      }
+    })
   })
 
   describe('cli:get', () => {
@@ -535,6 +559,24 @@ describe('IPC handler argument passing', () => {
       await handler(fakeEvent, '/tmp/project', 'readme.md')
 
       expect(mockExecCommand).toHaveBeenCalledWith('get', ['readme.md'], '/tmp/project')
+    })
+
+    it('appends --populate when requested and never otherwise (phase 42)', async () => {
+      mockExecCommand.mockResolvedValue({ path: 'readme.md' })
+      const handler = getHandler('cli:get')
+      await handler(fakeEvent, '/tmp/project', 'readme.md', { populate: true })
+      expect(mockExecCommand).toHaveBeenCalledWith(
+        'get',
+        ['readme.md', '--populate'],
+        '/tmp/project'
+      )
+
+      mockExecCommand.mockClear()
+      await handler(fakeEvent, '/tmp/project', 'readme.md', { populate: false })
+      await handler(fakeEvent, '/tmp/project', 'readme.md', undefined)
+      for (const call of mockExecCommand.mock.calls) {
+        expect(call[1]).not.toContain('--populate')
+      }
     })
   })
 

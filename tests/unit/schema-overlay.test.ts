@@ -121,3 +121,49 @@ describe('renameOverlayField', () => {
     await expect(access(join(root, OVERLAY_FILENAME))).rejects.toThrow()
   })
 })
+
+describe('upsertOverlayField — relation target (phase 42)', () => {
+  it('accepts the relation field_type', async () => {
+    await upsertOverlayField(root, 'invoices', 'client', { fieldType: 'relation' })
+    const parsed = parseYaml(await readOverlay())
+    expect(parsed.scopes.invoices.fields.client.field_type).toBe('relation')
+  })
+
+  it('writes and clears the target annotation', async () => {
+    await upsertOverlayField(root, 'invoices', 'client', {
+      fieldType: 'relation',
+      target: 'clients'
+    })
+    let parsed = parseYaml(await readOverlay())
+    expect(parsed.scopes.invoices.fields.client.target).toBe('clients')
+
+    await upsertOverlayField(root, 'invoices', 'client', { target: null })
+    parsed = parseYaml(await readOverlay())
+    expect(parsed.scopes.invoices.fields.client.target).toBeUndefined()
+    // The field_type pin survives a target-only clear.
+    expect(parsed.scopes.invoices.fields.client.field_type).toBe('relation')
+  })
+
+  it('rejects trailing-slash and empty targets (phase-41 folder-key grammar)', async () => {
+    await expect(
+      upsertOverlayField(root, 'invoices', 'client', { target: 'clients/' })
+    ).rejects.toThrow(/trailing slash/)
+    await expect(upsertOverlayField(root, 'invoices', 'client', { target: '' })).rejects.toThrow(
+      /non-empty/
+    )
+  })
+
+  it('preserves comments when writing a target', async () => {
+    await writeFile(
+      join(root, OVERLAY_FILENAME),
+      '# my overlay\nscopes:\n  invoices:\n    fields:\n      client:\n        field_type: relation\n',
+      'utf-8'
+    )
+    await upsertOverlayField(root, 'invoices', 'client', { target: 'clients' })
+    const raw = await readOverlay()
+    expect(raw).toContain('# my overlay')
+    const parsed = parseYaml(raw)
+    expect(parsed.scopes.invoices.fields.client.target).toBe('clients')
+    expect(parsed.scopes.invoices.fields.client.field_type).toBe('relation')
+  })
+})

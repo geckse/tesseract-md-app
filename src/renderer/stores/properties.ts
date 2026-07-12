@@ -6,6 +6,7 @@ import type {
   NeighborhoodResult,
   JsonValue
 } from '../types/cli'
+import { cliFeatures } from '../lib/cli-features.svelte'
 import { activeCollection } from './collections'
 
 /** Document info for the selected file (from CLI `get` command). */
@@ -181,8 +182,14 @@ export async function loadProperties(filePath: string): Promise<void> {
   propertiesError.set(null)
 
   // Run all read operations in parallel — Tantivy supports concurrent reads.
+  // Populate (phase 42) resolves relations + referenced_by in the same `get`
+  // call — never passed on CLIs that predate the flag.
   const [docResult, backlinksResult, linksResult, neighborhoodResult] = await Promise.allSettled([
-    window.api.getFile(collection.path, filePath),
+    window.api.getFile(
+      collection.path,
+      filePath,
+      cliFeatures.supportsRelations ? { populate: true } : undefined
+    ),
     window.api.backlinks(collection.path, filePath),
     window.api.links(collection.path, filePath),
     window.api.neighborhood(collection.path, filePath, 1)

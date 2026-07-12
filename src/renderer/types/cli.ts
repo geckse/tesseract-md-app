@@ -33,6 +33,8 @@ export interface SearchResultFile {
   file_size: number
   path_components: string[]
   modified_at: number | null
+  /** Resolved frontmatter relations (phase 42) — present only under `--populate`. Mirrored for completeness; unused by the app in v1. */
+  relations?: Record<string, RelationValue[]>
 }
 
 /** A single search result with relevance score, chunk, and file context. */
@@ -143,12 +145,42 @@ export interface DocumentInfo {
   file_size: number
   indexed_at: number
   modified_at: number | null
+  /** Resolved frontmatter relations (phase 42) — present only under `--populate`. */
+  relations?: Record<string, RelationValue[]>
+  /** Reverse relation lookups, sorted by (source, field) — present only under `--populate`. */
+  referenced_by?: ReferencedByEntry[]
+}
+
+// ─── Relations (phase 42, mirrors CLI phase-31 contract) ─────────────
+
+/**
+ * A resolved frontmatter relation value. Emitted wherever a relation
+ * resolves — always inside arrays. `frontmatter` is an ALWAYS-present key
+ * (`object | null` — null when the target is missing or has none); a
+ * populated target's frontmatter is never itself populated (depth 1).
+ */
+export interface RelationValue {
+  raw: string
+  /** Resolved root-relative candidate path; null only if unresolvable. */
+  path: string | null
+  exists: boolean
+  /** Server-derived display title; null when `!exists`. */
+  title: string | null
+  /** Always-present key; null when `!exists` or the target has no frontmatter. */
+  frontmatter: Record<string, JsonValue> | null
+}
+
+/** One reverse relation lookup: which document references this one, via which field. */
+export interface ReferencedByEntry {
+  source: string
+  field: string
+  title: string
 }
 
 // ─── Schema ──────────────────────────────────────────────────────────
 
 /** The type of a frontmatter field. */
-export type FieldType = 'String' | 'Number' | 'Boolean' | 'List' | 'Date' | 'Mixed'
+export type FieldType = 'String' | 'Number' | 'Boolean' | 'List' | 'Date' | 'Mixed' | 'Relation'
 
 /** A merged schema field combining inferred data with overlay annotations. */
 export interface SchemaField {
@@ -159,6 +191,8 @@ export interface SchemaField {
   sample_values: string[]
   allowed_values: string[] | null
   required: boolean
+  /** Overlay-declared FK target folder for relation fields (NO trailing slash). */
+  relation_target: string | null
 }
 
 /** The complete metadata schema. */
@@ -178,13 +212,15 @@ export type TitleSource = 'frontmatter' | 'filename'
  */
 export interface CollectionColumn {
   name: string // == frontmatter key
-  field_type: FieldType // PascalCase: String|Number|Boolean|List|Date|Mixed
+  field_type: FieldType // PascalCase: String|Number|Boolean|List|Date|Mixed|Relation
   description: string | null
   occurrence_count: number
   sample_values: string[]
   allowed_values: string[] | null
   required: boolean
   in_schema: boolean // false = key found only in a row's frontmatter, not the scoped schema
+  /** Overlay-declared FK target folder for relation columns (NO trailing slash). */
+  relation_target: string | null
 }
 
 /** One table row = one Markdown document. */
@@ -192,13 +228,15 @@ export interface CollectionRow {
   path: string
   title: string
   title_source: TitleSource
-  /** Always a JSON object (`{}` when none) — never null. */
+  /** Always a JSON object (`{}` when none) — never null. RAW even under populate. */
   frontmatter: Record<string, JsonValue>
   content_hash: string | null // null for state:'new'
   file_size: number
   modified_at: number | null
   indexed_at: number | null // null for state:'new'
   state: FileState
+  /** Resolved frontmatter relations (phase 42) — present only under `--populate`. */
+  relations?: Record<string, RelationValue[]>
 }
 
 /** Top-level `mdvdb collection <PATH> --json` response. */
@@ -319,6 +357,11 @@ export interface GraphEdge {
   context_text?: string | null
   /** ID of the edge cluster this edge belongs to. */
   edge_cluster_id?: number | null
+  /**
+   * Originating frontmatter field for relation edges (phase 42). REQUIRED key,
+   * not optional — the CLI always emits it; `null` = body/similarity edge.
+   */
+  field: string | null
 }
 
 /** A cluster of semantically similar edges. */
@@ -419,8 +462,14 @@ export interface LinkEntry {
   source: string
   target: string
   text: string
+  /** 1-based; `0` is the frontmatter sentinel — invariant: `field != null ⇔ line_number == 0`. */
   line_number: number
   is_wikilink: boolean
+  /**
+   * Originating frontmatter field for relation edges (phase 42). REQUIRED key,
+   * not optional — the CLI always emits it; `null` = body link.
+   */
+  field: string | null
 }
 
 /** Whether a link target is valid or broken. */

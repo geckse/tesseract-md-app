@@ -51,6 +51,23 @@ export function isWeakEdge(strength: number, threshold: number): boolean {
 }
 
 /**
+ * Determine if an edge originates from a frontmatter relation (phase 42).
+ * The CLI tags relation edges with their originating field; `null` = body or
+ * similarity edge. The SINGLE source of truth for frontmatter-edge styling —
+ * every renderer path must use this, never re-check `field` inline.
+ */
+export function isFrontmatterEdge(edge: { field?: string | null }): boolean {
+  return edge.field != null
+}
+
+/**
+ * Line color for frontmatter relation edges — a distinct violet hue so
+ * relation edges read differently from body-link/semantic edges in every
+ * coloring mode (relation edges carry no strength or edge cluster).
+ */
+export const FRONTMATTER_EDGE_COLOR = '#8b7cf6'
+
+/**
  * Compute the 3D link width for an edge based on its strength.
  *
  * Maps strength [0, 1] → line width [0.5, 3.0]. No zoom adjustment needed
