@@ -15,6 +15,9 @@
 /** The mdvdb version that ships phase-31 frontmatter relations. */
 export const MDVDB_RELATIONS_MIN_VERSION = '0.2.0'
 
+/** Oldest mdvdb version supported by this app release. */
+export const MDVDB_MIN_SUPPORTED_VERSION = '0.2.0'
+
 /** Plain numeric semver compare: negative/zero/positive like `a - b`. NaN-safe. */
 export function compareSemver(a: string, b: string): number | null {
   const parse = (v: string): number[] | null => {
@@ -42,6 +45,13 @@ class CliFeatures {
     if (this.version === null) return false
     const cmp = compareSemver(this.version, MDVDB_RELATIONS_MIN_VERSION)
     return cmp !== null && cmp >= 0
+  }
+
+  /** Whether the detected CLI is valid semver but too old for this app. */
+  get isOutdated(): boolean {
+    if (this.version === null) return false
+    const cmp = compareSemver(this.version, MDVDB_MIN_SUPPORTED_VERSION)
+    return cmp !== null && cmp < 0
   }
 
   /**

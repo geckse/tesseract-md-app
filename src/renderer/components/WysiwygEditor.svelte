@@ -25,6 +25,7 @@
     type EditorCommandSignal
   } from '../stores/editor'
   import { computeFixedHeadingLevels, type ParsedHeading } from '../lib/markdown-structure'
+  import { relativeToCollection } from '../lib/path'
   import { buildTocTiptapJSON } from '../lib/tiptap/toc-content'
   import { propertiesFileContent } from '../stores/properties'
   import ConflictNotification from './ConflictNotification.svelte'
@@ -886,10 +887,7 @@
 
         if (checkResult.within && checkResult.collectionPath === collection.path) {
           // File is inside the collection — just link it
-          const collPath = collection.path.endsWith('/') ? collection.path : collection.path + '/'
-          const relToCollection = absolutePath.startsWith(collPath)
-            ? absolutePath.slice(collPath.length)
-            : file.name
+          const relToCollection = relativeToCollection(absolutePath, collection.path) ?? file.name
           const relPath = getRelativePath(currentFile, relToCollection)
           const name = file.name
 

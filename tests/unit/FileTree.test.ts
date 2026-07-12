@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/svelte'
+import { get } from 'svelte/store'
 
 // Mock window.api before importing stores
 const mockApi = {
@@ -10,7 +11,8 @@ const mockApi = {
   addCollection: vi.fn(),
   removeCollection: vi.fn(),
   setActiveCollection: vi.fn(),
-  status: vi.fn()
+  status: vi.fn(),
+  info: vi.fn()
 }
 
 Object.defineProperty(globalThis, 'window', {
@@ -19,7 +21,12 @@ Object.defineProperty(globalThis, 'window', {
 })
 
 import { fileTree, fileTreeLoading, fileTreeError } from '../../src/renderer/stores/files'
-import { collections, activeCollectionId } from '../../src/renderer/stores/collections'
+import {
+  collections,
+  activeCollectionId,
+  infoModalOpen,
+  infoScope
+} from '../../src/renderer/stores/collections'
 import { ingestRunning } from '../../src/renderer/stores/ingest'
 import FileTree from '@renderer/components/FileTree.svelte'
 import type { FileTree as FileTreeType } from '../../src/renderer/types/cli'
@@ -83,6 +90,8 @@ function resetStores() {
   collections.set([])
   activeCollectionId.set(null)
   ingestRunning.set(false)
+  infoModalOpen.set(false)
+  infoScope.set(null)
 }
 
 beforeEach(() => {
@@ -300,5 +309,21 @@ describe('FileTree component', () => {
     await fireEvent.keyDown(treeContainer, { key: 'Enter' })
 
     expect(onfolderopen).toHaveBeenCalledWith({ path: 'docs' })
+  })
+
+  it('offers scoped Information from a Markdown directory menu', async () => {
+    setActiveCollection()
+    fileTree.set(sampleTree)
+    mockApi.info.mockResolvedValue({ scope: 'docs/' })
+
+    render(FileTree)
+    const docsRow = screen.getByText('docs').closest('button')!
+    await fireEvent.contextMenu(docsRow, { clientX: 20, clientY: 20 })
+
+    await fireEvent.click(screen.getByText('Information'))
+
+    expect(get(infoModalOpen)).toBe(true)
+    expect(get(infoScope)).toBe('docs')
+    expect(mockApi.info).toHaveBeenCalledWith('/test', 'docs')
   })
 })

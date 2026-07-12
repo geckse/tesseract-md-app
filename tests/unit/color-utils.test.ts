@@ -267,7 +267,7 @@ describe('contrastRatio', () => {
 describe('THEME_BACKGROUNDS', () => {
   it('has dark and light backgrounds', () => {
     expect(THEME_BACKGROUNDS.dark).toBe('#0f0f10')
-    expect(THEME_BACKGROUNDS.light).toBe('#f6f6f6')
+    expect(THEME_BACKGROUNDS.light).toBe('#e9e9e9')
   })
 })
 

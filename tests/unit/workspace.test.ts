@@ -667,6 +667,38 @@ describe('WorkspaceStore', () => {
         expect(workspace.selectedFilePath).toBe('pane1-file.md')
       })
     })
+
+    describe('hasDirtyTabs (dirty-close guard)', () => {
+      it('is false with no tabs open', () => {
+        expect(workspace.hasDirtyTabs).toBe(false)
+      })
+
+      it('is false when all document tabs are clean', () => {
+        workspace.openTab('a.md')
+        workspace.openTab('b.md')
+        expect(workspace.hasDirtyTabs).toBe(false)
+      })
+
+      it('is true when any document tab is dirty, even unfocused ones', () => {
+        workspace.openTab('a.md')
+        workspace.openTab('b.md')
+        const dirtyTab = asDocTab(workspace.tabs[workspace.findTabByFilePath('a.md')!])
+        dirtyTab.isDirty = true
+        // b.md is focused, a.md is dirty in the background
+        expect(workspace.selectedFilePath).toBe('b.md')
+        expect(workspace.hasDirtyTabs).toBe(true)
+      })
+
+      it('goes back to false when the dirty tab is closed', () => {
+        workspace.openTab('a.md')
+        const tab = asDocTab(workspace.tabs[workspace.findTabByFilePath('a.md')!])
+        tab.isDirty = true
+        expect(workspace.hasDirtyTabs).toBe(true)
+
+        workspace.closeTab(tab.id)
+        expect(workspace.hasDirtyTabs).toBe(false)
+      })
+    })
   })
 
   describe('switchToGraphTab', () => {

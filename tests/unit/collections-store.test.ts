@@ -8,7 +8,9 @@ const mockApi = {
   addCollection: vi.fn(),
   removeCollection: vi.fn(),
   setActiveCollection: vi.fn(),
-  status: vi.fn()
+  status: vi.fn(),
+  doctor: vi.fn(),
+  info: vi.fn()
 }
 
 Object.defineProperty(globalThis, 'window', {
@@ -21,11 +23,19 @@ import {
   activeCollectionId,
   activeCollection,
   collectionStatus,
+  collectionInfo,
+  infoModalOpen,
+  infoLoading,
+  infoError,
+  infoScope,
   collectionsLoading,
   loadCollections,
   addCollection,
   removeCollection,
-  setActiveCollection
+  setActiveCollection,
+  openInfoModal,
+  closeInfoModal,
+  fetchCollectionInfo
 } from '../../src/renderer/stores/collections'
 
 beforeEach(() => {
@@ -33,6 +43,11 @@ beforeEach(() => {
   collections.set([])
   activeCollectionId.set(null)
   collectionStatus.set(null)
+  collectionInfo.set(null)
+  infoModalOpen.set(false)
+  infoLoading.set(false)
+  infoError.set(null)
+  infoScope.set(null)
   collectionsLoading.set(false)
 
   // Reset mocks
@@ -162,6 +177,48 @@ describe('collections store', () => {
       activeCollectionId.set('nonexistent')
 
       expect(get(activeCollection)).toBeNull()
+    })
+  })
+
+  describe('collection information', () => {
+    it('opens whole-vault information and stores the result', async () => {
+      collections.set([col1])
+      activeCollectionId.set('a')
+      mockApi.info.mockResolvedValue({ scope: '.', file_count: 2 })
+
+      openInfoModal()
+
+      expect(get(infoModalOpen)).toBe(true)
+      expect(get(infoScope)).toBeNull()
+      await vi.waitFor(() => expect(get(collectionInfo)).toEqual({ scope: '.', file_count: 2 }))
+      expect(mockApi.info).toHaveBeenCalledWith('/alpha', undefined)
+      expect(get(infoLoading)).toBe(false)
+    })
+
+    it('passes a folder scope and closes without discarding the result', async () => {
+      collections.set([col1])
+      activeCollectionId.set('a')
+      mockApi.info.mockResolvedValue({ scope: 'notes/', file_count: 1 })
+
+      openInfoModal('notes')
+
+      expect(get(infoScope)).toBe('notes')
+      await vi.waitFor(() => expect(mockApi.info).toHaveBeenCalledWith('/alpha', 'notes'))
+      closeInfoModal()
+      expect(get(infoModalOpen)).toBe(false)
+      expect(get(collectionInfo)).toEqual({ scope: 'notes/', file_count: 1 })
+    })
+
+    it('exposes request failures for the modal retry state', async () => {
+      collections.set([col1])
+      activeCollectionId.set('a')
+      mockApi.info.mockRejectedValue(new Error('[CliExecutionError] unknown command info'))
+
+      await fetchCollectionInfo()
+
+      expect(get(collectionInfo)).toBeNull()
+      expect(get(infoError)).toContain('unknown command info')
+      expect(get(infoLoading)).toBe(false)
     })
   })
 })

@@ -1,5 +1,6 @@
 import { writable, get } from 'svelte/store'
 import type { IngestResult, IngestPreview } from '../types/cli'
+import { classifyCliError, type ClassifiedError } from '../lib/cli-errors'
 import { activeCollection, collectionStatus } from './collections'
 import { loadFileTree, loadAssetTree } from './files'
 import { refreshGraphData } from './graph'
@@ -22,8 +23,8 @@ export const ingestElapsed = writable<number>(0)
 /** The result of the last completed ingest operation. */
 export const ingestResult = writable<IngestResult | null>(null)
 
-/** Error message if ingest failed. */
-export const ingestError = writable<string | null>(null)
+/** Classified error if ingest failed. */
+export const ingestError = writable<ClassifiedError | null>(null)
 
 /** Whether the ingest modal is open. */
 export const ingestModalOpen = writable<boolean>(false)
@@ -67,7 +68,7 @@ export async function runPreview(): Promise<void> {
     const result = await window.api.ingestPreview(collection.path)
     ingestPreviewResult.set(result)
   } catch (err) {
-    ingestError.set(err instanceof Error ? err.message : String(err))
+    ingestError.set(classifyCliError(err))
     ingestState.set('error')
     return
   } finally {
@@ -98,7 +99,7 @@ export async function runIngest(reindex = false): Promise<void> {
     ingestResult.set(result)
     ingestState.set('done')
   } catch (err) {
-    ingestError.set(err instanceof Error ? err.message : String(err))
+    ingestError.set(classifyCliError(err))
     ingestState.set('error')
   } finally {
     stopTimer()
@@ -123,7 +124,7 @@ export async function cancelIngest(): Promise<void> {
   try {
     await window.api.cancelIngest()
   } catch (err) {
-    ingestError.set(err instanceof Error ? err.message : String(err))
+    ingestError.set(classifyCliError(err))
   }
 }
 
@@ -137,7 +138,7 @@ export async function rebuildIndex(): Promise<void> {
   try {
     await window.api.resetIndex(collection.path)
   } catch (err) {
-    ingestError.set(err instanceof Error ? err.message : String(err))
+    ingestError.set(classifyCliError(err))
     ingestState.set('error')
     return
   }

@@ -93,14 +93,15 @@
     align-items: center;
     gap: 8px;
     padding: 6px 12px;
-    background: var(--color-accent, #4a9eff);
-    color: var(--color-on-accent, #fff);
+    background: var(--color-primary, #00e5ff);
+    color: var(--color-surface-dark, #0a0a0a);
     font-size: 13px;
     min-height: 32px;
   }
 
   .update-banner.update-error {
     background: var(--color-error, #e53935);
+    color: #fff;
   }
 
   .update-icon {

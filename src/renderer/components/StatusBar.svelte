@@ -12,6 +12,7 @@
   import type { DoctorResult } from '../types/cli'
   import mdvdbIcon from '../../../resources/mdvdb.png'
   import type { MimeCategory } from '../types/cli'
+  import { cliFeatures } from '../lib/cli-features.svelte'
 
   interface StatusBarProps {
     language?: string
@@ -40,6 +41,8 @@
 
   let cliVersion: string | null = $state(null)
   let cliFound = $state(false)
+  let cliInstalling = $state(false)
+  const cliOutdated = $derived(cliFound && cliFeatures.isOutdated)
 
   // Active tab awareness for asset vs document display
   const activeTab = $derived(workspace.focusedTab)
@@ -91,18 +94,38 @@
       if (path) {
         cliFound = true
         cliVersion = await window.api.getCliVersion()
+        cliFeatures.version = cliVersion
       }
     } catch {
       cliFound = false
       cliVersion = null
     }
   })
+
+  async function installCli() {
+    if (cliInstalling) return
+    cliInstalling = true
+    try {
+      const result = await window.api.installCli()
+      if (result.success) {
+        cliFound = true
+        cliVersion = result.version ?? (await window.api.getCliVersion())
+        cliFeatures.version = cliVersion
+      }
+    } catch {
+      // Keep the current missing/outdated state so the user can retry.
+    } finally {
+      cliInstalling = false
+    }
+  }
 </script>
 
 <div class="status-bar">
   <!-- Screen reader announcements for status changes -->
   <div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
-    {#if cliFound}
+    {#if cliOutdated}
+      mdvdb CLI version {cliVersion || 'unknown'} is outdated and must be updated
+    {:else if cliFound}
       mdvdb CLI found, version {cliVersion || 'unknown'}
     {:else}
       mdvdb CLI not found
@@ -158,18 +181,36 @@
         <span class="material-symbols-outlined status-icon">warning</span>
       </button>
     {/if}
-    <span
+    <button
+      type="button"
       class="status-item cli-indicator"
-      class:cli-found={cliFound}
+      class:cli-found={cliFound && !cliOutdated}
+      class:cli-outdated={cliOutdated}
       class:cli-missing={!cliFound}
+      disabled={cliInstalling || (cliFound && !cliOutdated)}
+      title={cliOutdated
+        ? 'Update mdvdb CLI'
+        : cliFound
+          ? 'mdvdb CLI is ready'
+          : 'Install mdvdb CLI'}
+      onclick={() => void installCli()}
     >
-      <span class="cli-dot" class:cli-dot-found={cliFound} class:cli-dot-missing={!cliFound}></span>
-      {#if cliFound}
+      <span
+        class="cli-dot"
+        class:cli-dot-found={cliFound && !cliOutdated}
+        class:cli-dot-outdated={cliOutdated}
+        class:cli-dot-missing={!cliFound}
+      ></span>
+      {#if cliInstalling}
+        Installing CLI…
+      {:else if cliOutdated}
+        mdvdb {cliVersion ? `v${cliVersion}` : ''} — update required
+      {:else if cliFound}
         mdvdb {cliVersion ? `v${cliVersion}` : ''}
       {:else}
         CLI not found
       {/if}
-    </span>
+    </button>
     <img class="status-logo" src={mdvdbIcon} alt="Tesseract" />
   </div>
 </div>
@@ -229,6 +270,14 @@
     display: flex;
     align-items: center;
     gap: 6px;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    padding: 0;
+  }
+
+  .cli-indicator:not(:disabled) {
+    cursor: pointer;
   }
 
   .cli-found {
@@ -237,6 +286,10 @@
 
   .cli-missing {
     color: #ef4444;
+  }
+
+  .cli-outdated {
+    color: #f59e0b;
   }
 
   .cli-dot {
@@ -252,6 +305,10 @@
 
   .cli-dot-missing {
     background: #ef4444;
+  }
+
+  .cli-dot-outdated {
+    background: #f59e0b;
   }
 
   .terminal-toggle {

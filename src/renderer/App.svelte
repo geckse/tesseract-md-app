@@ -13,6 +13,8 @@
   import Onboarding from './components/Onboarding.svelte'
   import Settings from './components/Settings.svelte'
   import UpdateNotification from './components/UpdateNotification.svelte'
+  import ObsidianImportNotification from './components/ObsidianImportNotification.svelte'
+  import { setupObsidianImportListener } from './stores/obsidian-import'
   import {
     loadCollections,
     setActiveCollection,
@@ -80,6 +82,7 @@
     cycleTab
   } from './stores/workspace-actions'
   import DoctorModal from './components/DoctorModal.svelte'
+  import CollectionInfoModal from './components/CollectionInfoModal.svelte'
   import KeyboardShortcuts from './components/KeyboardShortcuts.svelte'
   import { setupUpdateListener, teardownUpdateListener } from './stores/updater'
   import {
@@ -152,6 +155,7 @@
     setupVaultListener()
     setupFileSyncListener()
     setupUpdateListener()
+    setupObsidianImportListener()
     fetchWatcherStatus()
     loadOnboardingState()
     loadEditorFontSize()
@@ -162,6 +166,24 @@
     // would silently drop a layout change made in its last 500ms.
     const flushSession = (): void => workspace.flushSessionSync()
     window.addEventListener('beforeunload', flushSession)
+
+    // Dirty-close guard: main intercepts native window close and asks us.
+    // Flush the session first, then confirm immediately when clean or after
+    // an explicit discard confirmation when any document tab is dirty.
+    window.api.onCloseRequest(() => {
+      flushSession()
+      if (!workspace.hasDirtyTabs) {
+        void window.api.confirmClose()
+        return
+      }
+      const shouldClose = window.confirm(
+        'This window has unsaved changes. Discard changes and close?'
+      )
+      if (shouldClose) {
+        void window.api.confirmClose()
+      }
+      // On cancel: do nothing — the window stays open.
+    })
 
     // System preference listener for auto theme mode
     const cleanupSystemPref = initSystemPreference()
@@ -582,11 +604,13 @@
       unregisterShortcuts.forEach((unregister) => unregister())
       shortcutManager.detach()
       window.removeEventListener('beforeunload', flushSession)
+      window.api.removeCloseRequestListener()
       document.removeEventListener('mousedown', handleClickAway)
       teardownWatcherListener()
       teardownVaultListener()
       teardownFileSyncListener()
       teardownUpdateListener()
+      window.api.removeObsidianTopicsSyncedListener()
       window.api.removeMenuOpenRecentListener()
       window.api.removeMenuCommandListener()
       window.api.removeFileSavedExternallyListener()
@@ -682,6 +706,7 @@
 
   <div class="app-shell bg-grain" style="--editor-font-size: {$editorFontSize}px">
     <UpdateNotification />
+    <ObsidianImportNotification />
     <div class="titlebar-region" bind:this={searchAreaEl}>
       <Titlebar onsearchresultclick={navigateToResult} />
     </div>
@@ -730,6 +755,7 @@
     {/if}
     <IngestModal />
     <DoctorModal />
+    <CollectionInfoModal />
     <QuickOpen />
     <DiffView />
     <ConvertTypeModal />
@@ -756,7 +782,7 @@
   .skip-link:focus {
     top: 8px;
     left: 8px;
-    outline: 2px solid var(--color-text-main, #e4e4e7);
+    outline: 2px solid var(--color-text, #e4e4e7);
     outline-offset: 2px;
   }
 
@@ -766,8 +792,8 @@
     height: 100vh;
     width: 100vw;
     overflow: hidden;
-    background: var(--color-background, #0f0f10);
-    color: var(--color-text-main, #e4e4e7);
+    background: var(--color-bg, #0f0f10);
+    color: var(--color-text, #e4e4e7);
     font-family: var(--font-display, 'Space Grotesk', sans-serif);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;

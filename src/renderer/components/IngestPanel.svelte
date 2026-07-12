@@ -183,7 +183,7 @@
     border: none;
     background: none;
     border-radius: 6px;
-    color: var(--color-text-secondary, #a1a1aa);
+    color: var(--color-text-muted, #a1a1aa);
     cursor: pointer;
     font-family: inherit;
     text-align: left;

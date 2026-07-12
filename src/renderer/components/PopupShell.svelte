@@ -245,6 +245,23 @@
     setupVaultListener({ getCollectionPath: () => collectionPath || null })
     setupFileSyncListener({ getCollectionPath: () => collectionPath || null })
 
+    // Dirty-close guard: App.svelte skips this registration in popup mode,
+    // so popups (which can hold dirty editors) answer close requests here.
+    window.api.onCloseRequest(() => {
+      const docTab = tabId ? workspace.tabs[tabId] : undefined
+      if (docTab?.kind !== 'document' || !docTab.isDirty) {
+        void window.api.confirmClose()
+        return
+      }
+      const shouldClose = window.confirm(
+        `"${docTab.title}" has unsaved changes. Discard changes and close?`
+      )
+      if (shouldClose) {
+        void window.api.confirmClose()
+      }
+      // On cancel: do nothing — the window stays open.
+    })
+
     return () => {
       unregisterSave?.()
       unregisterNewNote()
@@ -253,6 +270,7 @@
       teardownFileSyncListener()
       window.api.removePopupInitListener()
       window.api.removeFileSavedExternallyListener()
+      window.api.removeCloseRequestListener()
       unsubTheme()
       unsubThemeTokens()
       unsubAccent()
@@ -450,8 +468,8 @@
     height: 100vh;
     width: 100vw;
     overflow: hidden;
-    background: var(--color-background, #0f0f10);
-    color: var(--color-text-main, #e4e4e7);
+    background: var(--color-bg, #0f0f10);
+    color: var(--color-text, #e4e4e7);
     font-family: var(--font-display, 'Space Grotesk', sans-serif);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -465,8 +483,15 @@
     -webkit-app-region: drag;
     user-select: none;
     padding: 0 12px;
-    background: var(--color-background, #0f0f10);
+    background: var(--color-bg, #0f0f10);
     position: relative;
+  }
+
+  /* Windows/Linux (Window Controls Overlay): keep the strip buttons clear of
+     the native window controls drawn over the top-right corner. */
+  :global([data-platform='win32']) .popup-drag-strip,
+  :global([data-platform='linux']) .popup-drag-strip {
+    padding-right: calc(100vw - env(titlebar-area-width, 100vw) + 12px);
   }
 
   /* Center element uses absolute positioning so it's truly centered regardless of left/right content */
@@ -507,7 +532,7 @@
   }
 
   .strip-btn:hover {
-    color: var(--color-text-main, #e4e4e7);
+    color: var(--color-text, #e4e4e7);
     background: var(--color-surface, #161617);
   }
 
@@ -577,12 +602,12 @@
   }
 
   .mode-btn:hover {
-    color: var(--color-text-main, #e4e4e7);
+    color: var(--color-text, #e4e4e7);
   }
 
   .mode-btn.active {
     background: var(--color-surface-darker, #0a0a0a);
-    color: var(--color-text-main, #e4e4e7);
+    color: var(--color-text, #e4e4e7);
   }
 
   @media (prefers-reduced-motion: reduce) {

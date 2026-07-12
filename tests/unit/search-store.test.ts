@@ -99,7 +99,11 @@ describe('search store', () => {
       // At 300ms, exactly one call
       vi.advanceTimersByTime(1)
       expect(mockApi.search).toHaveBeenCalledTimes(1)
-      expect(mockApi.search).toHaveBeenCalledWith('/test', 'test', { mode: 'hybrid' })
+      expect(mockApi.search).toHaveBeenCalledWith(
+        '/test',
+        'test',
+        expect.objectContaining({ mode: 'hybrid' })
+      )
     })
   })
 
@@ -134,7 +138,11 @@ describe('search store', () => {
       executeSearch('test')
       vi.advanceTimersByTime(300)
 
-      expect(mockApi.search).toHaveBeenCalledWith('/test', 'test', { mode: 'semantic' })
+      expect(mockApi.search).toHaveBeenCalledWith(
+        '/test',
+        'test',
+        expect.objectContaining({ mode: 'semantic' })
+      )
     })
 
     it('passes lexical mode correctly', () => {
@@ -146,7 +154,11 @@ describe('search store', () => {
       executeSearch('test query')
       vi.advanceTimersByTime(300)
 
-      expect(mockApi.search).toHaveBeenCalledWith('/test', 'test query', { mode: 'lexical' })
+      expect(mockApi.search).toHaveBeenCalledWith(
+        '/test',
+        'test query',
+        expect.objectContaining({ mode: 'lexical' })
+      )
     })
   })
 
@@ -156,7 +168,12 @@ describe('search store', () => {
       searchResults.set({ results: [], query: 'test', total_results: 0 } as never)
       searchLoading.set(true)
       searchOpen.set(true)
-      searchError.set('some error')
+      searchError.set({
+        kind: 'unknown',
+        title: 'Command failed',
+        message: 'some error',
+        settingsCta: false
+      })
       highlightedIndex.set(3)
 
       clearSearch()
@@ -184,7 +201,29 @@ describe('search store', () => {
 
       expect(get(searchResults)).toBeNull()
       expect(get(searchLoading)).toBe(false)
-      expect(get(searchError)).toBe('Network error')
+      expect(get(searchError)).toEqual({
+        kind: 'unknown',
+        title: 'Command failed',
+        message: 'Network error',
+        settingsCta: false
+      })
+    })
+
+    it('classifies provider errors into actionable states', async () => {
+      vi.useFakeTimers()
+      activateCollection(collection)
+      // Verbatim Rust message from src/embedding/provider.rs (see cli-errors.test.ts)
+      mockApi.search.mockRejectedValue(
+        new Error('embedding provider error: OpenAI provider requires OPENAI_API_KEY to be set')
+      )
+
+      executeSearch('test')
+      vi.advanceTimersByTime(300)
+      await vi.advanceTimersByTimeAsync(0)
+
+      const error = get(searchError)
+      expect(error?.kind).toBe('missing-key')
+      expect(error?.settingsCta).toBe(true)
     })
   })
 

@@ -7,6 +7,11 @@ import {
   getAppUpdater
 } from './ipc-handlers'
 import { getVaultWatcher, destroyVaultWatcher } from './vault-watcher'
+import {
+  maybeSyncObsidianTopics,
+  watchObsidianConfig,
+  cancelScheduledObsidianSyncs
+} from './obsidian-import'
 import { getActiveCollection } from './store'
 import { buildAppMenu } from './menu'
 import { WindowManager } from './window-manager'
@@ -22,6 +27,17 @@ export const ptyManager = new PtyManager()
 // Set the app name explicitly so macOS menu and About dialog show "Tesseract"
 // (in dev mode, Electron defaults to the package.json "name" field)
 app.setName('Tesseract')
+
+// Single-instance lock (data safety): two instances would race on the same
+// electron-store/session files and vault watchers. A second launch exits
+// immediately and the running instance's primary window is focused instead.
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    windowManager.focusPrimaryWindow()
+  })
+}
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('md.tesseract.app')
@@ -50,6 +66,11 @@ app.whenReady().then(() => {
       .catch(() => {
         // Non-fatal: renderers fall back to focus-time verification
       })
+
+    // Obsidian topic sync (phase 44): catch up on tag/graph-group changes
+    // made while the app was closed, and watch .obsidian/ config edits.
+    void maybeSyncObsidianTopics(activeCollection, windowManager)
+    watchObsidianConfig(activeCollection, windowManager)
   }
 
   // Initialize auto-updater via the singleton (same instance used by IPC handlers)
@@ -80,6 +101,10 @@ app.on('before-quit', () => {
   destroyVaultWatcher().catch(() => {
     // Best-effort cleanup during shutdown
   })
+
+  // Drop pending Obsidian topic syncs and the .obsidian config watcher
+  cancelScheduledObsidianSyncs()
+  watchObsidianConfig(null, windowManager)
 })
 
 app.on('window-all-closed', () => {

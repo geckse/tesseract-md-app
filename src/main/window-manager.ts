@@ -7,10 +7,60 @@
  * IPC messages to prevent crashes.
  */
 
-import { BrowserWindow, shell } from 'electron'
+import { BrowserWindow, nativeTheme, shell } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 import { initStore, setZoomLevel } from './store'
+
+/**
+ * Native window background matching the renderer's `--color-bg` token,
+ * so no white (or wrong-theme) flash shows before first paint.
+ * 'auto' follows the OS via nativeTheme.
+ */
+function windowBackgroundColor(store: ReturnType<typeof initStore>): string {
+  const mode = store.get('themeMode', 'dark')
+  const dark = mode === 'dark' || (mode === 'auto' && nativeTheme.shouldUseDarkColors)
+  return dark ? '#0f0f10' : '#e9e9e9'
+}
+
+/**
+ * Colors for the Windows/Linux Window Controls Overlay, matching the
+ * renderer theme: overlay background follows `--color-bg` (same source as
+ * windowBackgroundColor) and the control symbols follow `--color-text`.
+ */
+function titleBarOverlayColors(store: ReturnType<typeof initStore>): {
+  color: string
+  symbolColor: string
+} {
+  const mode = store.get('themeMode', 'dark')
+  const dark = mode === 'dark' || (mode === 'auto' && nativeTheme.shouldUseDarkColors)
+  return {
+    color: windowBackgroundColor(store),
+    symbolColor: dark ? '#e4e4e7' : '#1a1a1a'
+  }
+}
+
+/**
+ * Platform-conditional titlebar window options: macOS keeps the inset
+ * traffic lights ('hiddenInset'); Windows and Linux get a hidden native
+ * titlebar with the Window Controls Overlay so the app draws its own
+ * titlebar while native minimize/maximize/close controls stay usable.
+ */
+function titleBarOptions(
+  store: ReturnType<typeof initStore>,
+  overlayHeight: number
+): Electron.BrowserWindowConstructorOptions {
+  if (process.platform === 'darwin') {
+    return { titleBarStyle: 'hiddenInset' }
+  }
+  return {
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { ...titleBarOverlayColors(store), height: overlayHeight }
+  }
+}
+
+/** How long main waits for the renderer to answer a close request (ms). */
+const CLOSE_CONFIRM_TIMEOUT_MS = 3000
 
 const ZOOM_MIN = 0.5
 const ZOOM_MAX = 2.0
@@ -55,6 +105,12 @@ export class WindowManager {
   /** Callbacks invoked (with webContents.id) when a tracked window is closed. */
   private closeListeners: ((webContentsId: number) => void)[] = []
 
+  /** webContents.id values allowed to close without the dirty-close guard. */
+  private forceClose: Set<number> = new Set()
+
+  /** Pending hung-renderer fallback timers keyed by webContents.id. */
+  private closeTimers: Map<number, NodeJS.Timeout> = new Map()
+
   /** Register a callback fired when any tracked window closes. */
   onWindowClosed(cb: (webContentsId: number) => void): void {
     this.closeListeners.push(cb)
@@ -78,6 +134,71 @@ export class WindowManager {
   }
 
   /**
+   * Bring the primary main window to the foreground (restore if minimized,
+   * show, focus). Falls back to any live window when no main window exists.
+   * Used by the single-instance lock when a second launch is attempted.
+   */
+  focusPrimaryWindow(): void {
+    const primaryId = this.getPrimaryWindowId()
+    const target =
+      (primaryId !== null ? this.getWindow(primaryId) : undefined) ?? this.getAllWindows()[0]
+    if (!target) return
+
+    if (target.isMinimized()) target.restore()
+    target.show()
+    target.focus()
+  }
+
+  /**
+   * Dirty-close guard (data safety): intercept the first native close, ask
+   * the renderer to flush + confirm via 'app:close-request', and only close
+   * for real once the renderer answers with 'app:confirm-close'. A fallback
+   * timer force-closes hung/crashed renderers that never answer — the timer
+   * is cancelled by the renderer's receipt ack ('app:close-ack').
+   */
+  private installCloseGuard(win: BrowserWindow, id: number): void {
+    win.on('close', (event) => {
+      if (this.forceClose.has(id)) return
+
+      event.preventDefault()
+      win.webContents.send('app:close-request')
+
+      if (!this.closeTimers.has(id)) {
+        const timer = setTimeout(() => {
+          this.closeTimers.delete(id)
+          if (!win.isDestroyed()) {
+            this.forceClose.add(id)
+            win.close()
+          }
+        }, CLOSE_CONFIRM_TIMEOUT_MS)
+        this.closeTimers.set(id, timer)
+      }
+    })
+  }
+
+  /** Cancel the hung-renderer fallback timer (renderer acked the request). */
+  clearCloseTimer(webContentsId: number): void {
+    const timer = this.closeTimers.get(webContentsId)
+    if (timer) {
+      clearTimeout(timer)
+      this.closeTimers.delete(webContentsId)
+    }
+  }
+
+  /**
+   * Close a window for real, bypassing the dirty-close guard. Called when
+   * the renderer confirmed the close (or main already handled its state,
+   * e.g. popup pop-back after the tab was transferred).
+   */
+  confirmClose(webContentsId: number): void {
+    this.clearCloseTimer(webContentsId)
+    const win = this.getWindow(webContentsId)
+    if (!win) return
+    this.forceClose.add(webContentsId)
+    win.close()
+  }
+
+  /**
    * Create a new BrowserWindow, register it for tracking, and set up
    * standard event handlers (zoom, bounds persistence, external links).
    *
@@ -95,8 +216,8 @@ export class WindowManager {
       minWidth: 800,
       minHeight: 600,
       show: false,
-      backgroundColor: store.get('themeMode', 'dark') === 'light' ? '#f2eeea' : '#0f0f10',
-      titleBarStyle: 'hiddenInset',
+      backgroundColor: windowBackgroundColor(store),
+      ...titleBarOptions(store, 35),
       webPreferences: {
         preload: join(__dirname, '../preload/index.js'),
         contextIsolation: true,
@@ -108,9 +229,13 @@ export class WindowManager {
     const id = win.webContents.id
     this.windows.set(id, win)
 
+    this.installCloseGuard(win, id)
+
     // Remove from tracking when the window is closed
     win.on('closed', () => {
       this.windows.delete(id)
+      this.forceClose.delete(id)
+      this.clearCloseTimer(id)
       for (const cb of this.closeListeners) {
         try {
           cb(id)
@@ -202,8 +327,8 @@ export class WindowManager {
       minWidth: 400,
       minHeight: 300,
       show: false,
-      backgroundColor: store.get('themeMode', 'dark') === 'light' ? '#f2eeea' : '#0f0f10',
-      titleBarStyle: 'hiddenInset',
+      backgroundColor: windowBackgroundColor(store),
+      ...titleBarOptions(store, 28),
       webPreferences: {
         preload: join(__dirname, '../preload/index.js'),
         contextIsolation: true,
@@ -216,9 +341,13 @@ export class WindowManager {
     this.windows.set(id, win)
     this.popups.add(id)
 
+    this.installCloseGuard(win, id)
+
     win.on('closed', () => {
       this.windows.delete(id)
       this.popups.delete(id)
+      this.forceClose.delete(id)
+      this.clearCloseTimer(id)
       for (const cb of this.closeListeners) {
         try {
           cb(id)
@@ -392,6 +521,26 @@ export class WindowManager {
     // Clean up any stale entries
     for (const id of stale) {
       this.windows.delete(id)
+    }
+  }
+
+  /**
+   * Re-color the Windows/Linux Window Controls Overlay on all windows after
+   * a theme change so the native controls match the new renderer theme.
+   * No-op on macOS (traffic lights are not overlay-styled) and on windows
+   * whose Electron build lacks setTitleBarOverlay.
+   */
+  updateTitleBarOverlay(): void {
+    if (process.platform !== 'win32' && process.platform !== 'linux') return
+
+    const colors = titleBarOverlayColors(initStore())
+    for (const win of this.getAllWindows()) {
+      if (typeof win.setTitleBarOverlay !== 'function') continue
+      try {
+        win.setTitleBarOverlay(colors)
+      } catch {
+        // Window may lack an overlay (or was destroyed mid-iteration) — skip
+      }
     }
   }
 

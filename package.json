@@ -119,24 +119,31 @@
     "publish": {
       "provider": "github"
     },
+    "afterSign": "scripts/notarize.js",
     "mac": {
       "target": [
         {
           "target": "dmg",
-          "arch": "universal"
+          "arch": [
+            "arm64",
+            "x64"
+          ]
         },
         {
           "target": "zip",
-          "arch": "universal"
+          "arch": [
+            "arm64",
+            "x64"
+          ]
         }
       ],
+      "minimumSystemVersion": "11.0",
       "category": "public.app-category.developer-tools",
       "icon": "resources/icon.png",
       "hardenedRuntime": true,
       "entitlements": "resources/entitlements.mac.plist",
       "entitlementsInherit": "resources/entitlements.mac.plist",
-      "notarize": false,
-      "afterSign": "scripts/notarize.js"
+      "notarize": false
     },
     "win": {
       "target": [
@@ -155,7 +162,10 @@
         "deb"
       ],
       "category": "Development",
-      "icon": "resources/icon.png"
+      "icon": "resources/icon.png",
+      "maintainer": "geckse",
+      "synopsis": "Markdown editor with semantic search, powered by mdvdb",
+      "description": "Tesseract is a desktop markdown editor and knowledge base with semantic, hybrid, and lexical search, graph views, topics/clusters, a database table view, and frontmatter relations, powered by the mdvdb CLI."
     }
   }
 }

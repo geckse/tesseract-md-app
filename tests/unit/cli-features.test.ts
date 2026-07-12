@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import {
   cliFeatures,
   compareSemver,
+  MDVDB_MIN_SUPPORTED_VERSION,
   MDVDB_RELATIONS_MIN_VERSION
 } from '@renderer/lib/cli-features.svelte'
 
@@ -50,6 +51,19 @@ describe('cliFeatures', () => {
   it('treats an unparseable version as unsupported (safe default)', () => {
     cliFeatures.version = 'not-a-version'
     expect(cliFeatures.supportsRelations).toBe(false)
+  })
+
+  it('marks only parseable versions below the supported boundary as outdated', () => {
+    cliFeatures.version = '0.1.9'
+    expect(cliFeatures.isOutdated).toBe(true)
+    cliFeatures.version = MDVDB_MIN_SUPPORTED_VERSION
+    expect(cliFeatures.isOutdated).toBe(false)
+    cliFeatures.version = '0.2.1'
+    expect(cliFeatures.isOutdated).toBe(false)
+    cliFeatures.version = 'dev'
+    expect(cliFeatures.isOutdated).toBe(false)
+    cliFeatures.version = null
+    expect(cliFeatures.isOutdated).toBe(false)
   })
 
   it('init() fetches once and records the version; failures stay unsupported', async () => {

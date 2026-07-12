@@ -50,6 +50,7 @@
   } from '../stores/topics'
   import { runIngest, ingestRunning } from '../stores/ingest'
   import CustomClusterModal from './CustomClusterModal.svelte'
+  import { compareSemver } from '../lib/cli-features.svelte'
 
   interface SettingsProps {
     onclose: () => void
@@ -131,8 +132,11 @@
   // CLI state
   let cliPath = $state('')
   let cliVersion = $state('')
+  let appVersion = $state('')
   let checkingUpdate = $state(false)
   let latestVersion = $state('')
+  let updateComparison = $derived(compareSemver(latestVersion, cliVersion))
+  let updateAvailable = $derived(updateComparison !== null && updateComparison > 0)
 
   // Appearance state
   let fontSize = $state(14)
@@ -267,6 +271,10 @@
     window.api
       .getCliVersion()
       .then((v) => (cliVersion = v))
+      .catch(() => {})
+    window.api
+      .getAppVersion()
+      .then((v) => (appVersion = v))
       .catch(() => {})
     window.api
       .getEditorFontSize()
@@ -583,11 +591,17 @@
                 </button>
               </div>
               {#if latestVersion}
-                <div class="field-hint">Latest: {latestVersion}</div>
+                <div class="field-hint" class:update-hint={updateAvailable}>
+                  {updateAvailable
+                    ? `Update available: ${latestVersion}`
+                    : `Latest: ${latestVersion}`}
+                </div>
               {/if}
             </div>
             <div class="field-group">
-              <button class="action-btn" onclick={reinstallCli}>Reinstall CLI</button>
+              <button class="action-btn" onclick={reinstallCli}>
+                {updateAvailable ? 'Update CLI' : 'Reinstall CLI'}
+              </button>
             </div>
           </div>
         {:else if currentSection === 'embedding'}
@@ -683,6 +697,16 @@
                   </button>
                 {/if}
               </div>
+              {#if !isGlobal}
+                <div class="plaintext-warning" role="note">
+                  <span class="material-symbols-outlined">warning</span>
+                  <span>
+                    Collection API keys are stored in plaintext in
+                    <code>.markdownvdb/.config</code> inside this potentially syncable vault. Prefer
+                    Global Settings, stored in <code>~/.mdvdb/config</code>.
+                  </span>
+                </div>
+              {/if}
             </div>
             <div class="field-group">
               <label class="field-label" for="setting-embedding-dimensions">
@@ -1549,14 +1573,17 @@
             <p class="section-explainer">{sectionExplainers.about}</p>
             <div class="field-group">
               <span class="field-label">App Version</span>
+              <div class="field-value mono">{appVersion || 'Unknown'}</div>
+            </div>
+            <div class="field-group">
+              <span class="field-label">CLI Version</span>
               <div class="field-value mono">{cliVersion || 'Unknown'}</div>
             </div>
             <div class="field-group">
               <span class="field-label">Links</span>
               <button
                 class="link-btn"
-                onclick={() =>
-                  window.api.openPath('https://github.com/nicholasgriffintn/markdown-vdb')}
+                onclick={() => window.api.openPath('https://github.com/geckse/tesseract-md-app')}
               >
                 <span class="material-symbols-outlined">open_in_new</span>
                 GitHub Repository
@@ -1692,6 +1719,33 @@
 
   .save-toast.error {
     color: #ef4444;
+  }
+
+  .update-hint {
+    color: #f59e0b;
+  }
+
+  .plaintext-warning {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-top: 8px;
+    padding: 10px 12px;
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    border-radius: var(--radius-sm, 2px);
+    background: rgba(245, 158, 11, 0.08);
+    color: #f59e0b;
+    font-size: var(--text-xs, 10px);
+    line-height: 1.5;
+  }
+
+  .plaintext-warning .material-symbols-outlined {
+    flex-shrink: 0;
+    font-size: 16px;
+  }
+
+  .plaintext-warning code {
+    color: inherit;
   }
 
   .save-toast-icon {
@@ -2303,7 +2357,7 @@
 
   .cluster-name {
     font-weight: 600;
-    color: var(--color-text-main);
+    color: var(--color-text);
     font-size: 13px;
   }
 

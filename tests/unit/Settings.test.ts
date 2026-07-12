@@ -13,6 +13,10 @@ const mockApi = {
   readFile: vi.fn(),
   writeFile: vi.fn(),
   search: vi.fn().mockResolvedValue({ results: [], query: '', total_results: 0 }),
+  config: vi.fn().mockResolvedValue({}),
+  clusterDefinitions: vi.fn().mockResolvedValue([]),
+  customClusters: vi.fn().mockResolvedValue([]),
+  topicUnassigned: vi.fn().mockResolvedValue(null),
   getUserConfig: vi.fn().mockResolvedValue({}),
   getCollectionConfig: vi.fn().mockResolvedValue({}),
   setUserConfig: vi.fn().mockResolvedValue(undefined),
@@ -21,6 +25,7 @@ const mockApi = {
   deleteCollectionConfig: vi.fn().mockResolvedValue(undefined),
   findCli: vi.fn().mockResolvedValue('/usr/local/bin/mdvdb'),
   getCliVersion: vi.fn().mockResolvedValue('1.2.3'),
+  getAppVersion: vi.fn().mockResolvedValue('0.1.0'),
   checkLatestCliVersion: vi.fn().mockResolvedValue('1.3.0'),
   installCli: vi.fn().mockResolvedValue(undefined),
   getEditorFontSize: vi.fn().mockResolvedValue(14),
@@ -72,6 +77,7 @@ beforeEach(() => {
   mockApi.findCli.mockResolvedValue('/usr/local/bin/mdvdb')
   mockApi.getCliVersion.mockResolvedValue('1.2.3')
   mockApi.getEditorFontSize.mockResolvedValue(14)
+  mockApi.getAppVersion.mockResolvedValue('0.1.0')
   mockApi.getUserConfig.mockResolvedValue({})
 })
 
@@ -256,6 +262,39 @@ describe('Settings component', () => {
     expect(
       screen.getByText('Manage the mdvdb command-line binary used for indexing and search.')
     ).toBeTruthy()
+  })
+
+  it('shows an update label and hint when a newer CLI is available', async () => {
+    activeSection.set('cli')
+    render(Settings, { props: { onclose: vi.fn() } })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    await fireEvent.click(screen.getByText('Check for Update'))
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    expect(screen.getByText('Update available: 1.3.0')).toBeTruthy()
+    expect(screen.getByText('Update CLI')).toBeTruthy()
+  })
+
+  it('warns when an API key is edited at collection scope', () => {
+    collections.set([{ id: 'c1', name: 'My Notes', path: '/tmp/notes' }])
+    settingsTarget.set('c1')
+    activeSection.set('embedding')
+    render(Settings, { props: { onclose: vi.fn() } })
+
+    expect(screen.getByText(/Collection API keys are stored in plaintext/)).toBeTruthy()
+    expect(screen.getByText(/Collection API keys/).textContent).toContain('.markdownvdb/.config')
+    expect(screen.getByText(/Collection API keys/).textContent).toContain('~/.mdvdb/config')
+  })
+
+  it('shows app and CLI versions separately in About', async () => {
+    activeSection.set('about')
+    render(Settings, { props: { onclose: vi.fn() } })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    expect(screen.getByText('App Version')).toBeTruthy()
+    expect(screen.getByText('0.1.0')).toBeTruthy()
+    expect(screen.getByText('CLI Version')).toBeTruthy()
+    expect(screen.getByText('1.2.3')).toBeTruthy()
   })
 
   it('collection view shows annotations for overridden and inherited fields', async () => {

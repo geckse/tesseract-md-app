@@ -7,7 +7,8 @@
     addAndActivateCollection,
     removeCollection,
     setActiveCollection,
-    openDoctorModal
+    openDoctorModal,
+    openInfoModal
   } from '../stores/collections'
   import { loadFileTree, loadAssetTree, syncFileStoresFromTab } from '../stores/files'
   import { workspace } from '../stores/workspace.svelte'
@@ -161,6 +162,13 @@
     await ensureContextCollectionActive()
     closeContextMenu()
     openDoctorModal()
+  }
+
+  async function handleInformation() {
+    if (!contextMenuCollection) return
+    await ensureContextCollectionActive()
+    closeContextMenu()
+    openInfoModal()
   }
 
   function handleWatcherToggle() {
@@ -372,6 +380,10 @@
         <span class="material-symbols-outlined">troubleshoot</span>
         Run Doctor…
       </button>
+      <button class="context-menu-item" onclick={handleInformation}>
+        <span class="material-symbols-outlined">info</span>
+        Information
+      </button>
       <div class="context-menu-separator"></div>
       <div
         class="submenu-wrapper"
@@ -480,7 +492,7 @@
     border-radius: 6px;
     background: var(--color-surface, #161617);
     border: 1px solid var(--color-border, #27272a);
-    color: var(--color-text-main, #e4e4e7);
+    color: var(--color-text, #e4e4e7);
     cursor: pointer;
     font-family: inherit;
     transition: all 0.15s ease;
@@ -586,7 +598,7 @@
   }
 
   .switcher-trigger:hover .switcher-chevron {
-    color: var(--color-text-main, #e4e4e7);
+    color: var(--color-text, #e4e4e7);
   }
 
   @media (prefers-reduced-motion: reduce) {

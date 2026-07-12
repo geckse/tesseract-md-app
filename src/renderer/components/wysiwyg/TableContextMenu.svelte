@@ -320,7 +320,7 @@
 
   .menu-group-label {
     padding: var(--space-1, 4px) var(--space-3, 12px);
-    color: var(--color-text-secondary, #a1a1aa);
+    color: var(--color-text-muted, #a1a1aa);
     font-size: 11px;
     font-weight: 600;
     text-transform: uppercase;
@@ -367,7 +367,7 @@
 
   .menu-icon {
     font-size: 18px;
-    color: var(--color-text-secondary, #a1a1aa);
+    color: var(--color-text-muted, #a1a1aa);
     width: 20px;
     text-align: center;
   }
@@ -378,7 +378,7 @@
 
   .menu-check {
     font-size: 16px;
-    color: var(--color-text-secondary, #a1a1aa);
+    color: var(--color-text-muted, #a1a1aa);
     width: 16px;
     text-align: center;
   }

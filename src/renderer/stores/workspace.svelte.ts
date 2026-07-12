@@ -399,6 +399,11 @@ class WorkspaceStore {
     return this.tabs[pane.activeTabId]
   }
 
+  /** True when any open document tab (any pane) has unsaved changes. */
+  get hasDirtyTabs(): boolean {
+    return Object.values(this.tabs).some((tab) => tab.kind === 'document' && tab.isDirty)
+  }
+
   /** The active document tab in the focused pane, or undefined if active tab is not a document. */
   get focusedDocumentTab(): DocumentTab | undefined {
     const tab = this.focusedTab

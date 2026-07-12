@@ -211,7 +211,7 @@
     margin: 0;
     font-size: 14px;
     font-weight: 600;
-    color: var(--color-text-main, #e4e4e7);
+    color: var(--color-text, #e4e4e7);
     flex: 1;
   }
 
@@ -225,7 +225,7 @@
   }
 
   .close-btn:hover {
-    color: var(--color-text-main, #e4e4e7);
+    color: var(--color-text, #e4e4e7);
     background: var(--overlay-hover, rgba(255, 255, 255, 0.05));
   }
 
@@ -246,7 +246,7 @@
     flex: 1;
     background: none;
     border: none;
-    color: var(--color-text-main, #e4e4e7);
+    color: var(--color-text, #e4e4e7);
     font-size: 13px;
     outline: none;
   }
@@ -274,7 +274,7 @@
     border: none;
     cursor: pointer;
     text-align: left;
-    color: var(--color-text-main, #e4e4e7);
+    color: var(--color-text, #e4e4e7);
   }
 
   .asset-item:hover {

@@ -205,7 +205,7 @@
   }
 
   .filename {
-    color: var(--color-text-main, #e4e4e7);
+    color: var(--color-text, #e4e4e7);
     font-family: var(--font-mono, 'JetBrains Mono', monospace);
   }
 
@@ -226,7 +226,7 @@
   }
 
   .zoom-btn:hover {
-    color: var(--color-text-main, #e4e4e7);
+    color: var(--color-text, #e4e4e7);
     border-color: var(--color-text-dim, #71717a);
   }
 

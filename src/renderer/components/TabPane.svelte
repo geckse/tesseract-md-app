@@ -138,7 +138,7 @@
     {trailingActions}
   />
 
-  <!-- Mode bar (context-aware: document mode toggle or graph level switcher) -->
+  <!-- Mode bar (document tabs only: editor mode toggle + copy/save actions) -->
   <ModeBar {paneId} />
 
   <!-- Content area -->

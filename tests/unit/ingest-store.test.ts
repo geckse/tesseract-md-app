@@ -117,7 +117,8 @@ describe('ingest store', () => {
 
       await runPreview()
 
-      expect(get(ingestError)).toBe('preview fail')
+      expect(get(ingestError)?.kind).toBe('unknown')
+      expect(get(ingestError)?.message).toBe('preview fail')
       expect(get(ingestState)).toBe('error')
       expect(get(ingestPreviewLoading)).toBe(false)
     })
@@ -180,9 +181,28 @@ describe('ingest store', () => {
 
       await runIngest()
 
-      expect(get(ingestError)).toBe('ingest fail')
+      expect(get(ingestError)?.kind).toBe('unknown')
+      expect(get(ingestError)?.message).toBe('ingest fail')
       expect(get(ingestState)).toBe('error')
       expect(get(ingestRunning)).toBe(false)
+    })
+
+    it('classifies provider errors into actionable states', async () => {
+      collections.set([col1])
+      activeCollectionId.set('a')
+      // Verbatim Rust message from src/embedding/openai.rs (see cli-errors.test.ts)
+      mockApi.ingest.mockRejectedValue(
+        new Error('embedding provider error: authentication failed (401): invalid API key')
+      )
+      mockApi.fileTree.mockResolvedValue(null)
+      mockApi.status.mockResolvedValue({})
+
+      await runIngest()
+
+      const error = get(ingestError)
+      expect(error?.kind).toBe('bad-key')
+      expect(error?.settingsCta).toBe(true)
+      expect(get(ingestState)).toBe('error')
     })
 
     it('tracks elapsed time with timer', async () => {
@@ -238,7 +258,8 @@ describe('ingest store', () => {
 
       await cancelIngest()
 
-      expect(get(ingestError)).toBe('cancel fail')
+      expect(get(ingestError)?.kind).toBe('unknown')
+      expect(get(ingestError)?.message).toBe('cancel fail')
     })
   })
 

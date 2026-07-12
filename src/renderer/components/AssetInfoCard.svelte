@@ -117,7 +117,7 @@
   .filename {
     font-size: 18px;
     font-weight: 500;
-    color: var(--color-text-main, #e4e4e7);
+    color: var(--color-text, #e4e4e7);
     word-break: break-all;
     text-align: center;
     margin: 0;
@@ -153,7 +153,7 @@
 
   .meta-value {
     font-size: 13px;
-    color: var(--color-text-main, #e4e4e7);
+    color: var(--color-text, #e4e4e7);
     font-family: var(--font-mono, 'JetBrains Mono', monospace);
   }
 
@@ -179,7 +179,7 @@
     background: var(--color-surface, #161617);
     border: 1px solid var(--color-border, #27272a);
     border-radius: 6px;
-    color: var(--color-text-main, #e4e4e7);
+    color: var(--color-text, #e4e4e7);
     font-size: 12px;
     cursor: pointer;
     transition: border-color 0.15s ease;

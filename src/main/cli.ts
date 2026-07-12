@@ -7,8 +7,12 @@
 
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { access, constants as fsConstants } from 'node:fs/promises'
+import { join } from 'node:path'
 
 import { CliNotFoundError, CliExecutionError, CliParseError, CliTimeoutError } from './errors'
+import { getInstallPath, getWellKnownBinDirs } from './cli-paths'
+import { getCliInfo } from './store'
 
 const execFileAsync = promisify(execFile)
 
@@ -58,12 +62,37 @@ function calculateRetryDelay(attempt: number): number {
   return BASE_RETRY_DELAY_MS * Math.pow(2, attempt)
 }
 
+/** Cached resolved CLI path — repeated CLI calls skip re-resolution */
+let cachedCliPath: string | null = null
+
 /**
- * Find the mdvdb CLI binary on the system PATH.
- * Returns the absolute path to the binary.
- * Throws CliNotFoundError if not found.
+ * Clear the cached CLI path so the next findCli() re-resolves from scratch.
+ * Called after a successful install so the fresh binary is picked up.
  */
-export async function findCli(): Promise<string> {
+export function resetCliPathCache(): void {
+  cachedCliPath = null
+}
+
+/**
+ * Check whether a candidate binary path is usable.
+ * On win32 this is a plain existence check (X_OK is meaningless there);
+ * elsewhere the file must be executable.
+ */
+async function isUsableBinary(path: string): Promise<boolean> {
+  const mode = process.platform === 'win32' ? fsConstants.F_OK : fsConstants.X_OK
+  try {
+    await access(path, mode)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Find the mdvdb CLI binary on the system PATH via which/where.
+ * Returns the absolute path, or null if not found.
+ */
+async function findCliOnPath(): Promise<string | null> {
   const whichCmd = process.platform === 'win32' ? 'where' : 'which'
 
   try {
@@ -71,16 +100,66 @@ export async function findCli(): Promise<string> {
       timeout: 5_000
     })
     const path = stdout.trim().split('\n')[0].trim()
-    if (!path) {
-      throw new CliNotFoundError()
-    }
-    return path
-  } catch (error) {
-    if (error instanceof CliNotFoundError) {
-      throw error
-    }
-    throw new CliNotFoundError()
+    return path || null
+  } catch {
+    return null
   }
+}
+
+/**
+ * Find the mdvdb CLI binary. Resolution order:
+ *
+ * 1. Persisted store path (from a previous detection/install), if still usable
+ * 2. App-managed install path (getInstallPath()), if usable
+ * 3. System PATH lookup via which/where
+ * 4. Well-known bin directories (GUI apps often inherit a minimal PATH)
+ *
+ * The resolved path is cached module-locally; use resetCliPathCache() to
+ * force re-resolution (done automatically after a successful install).
+ * Throws CliNotFoundError if nothing resolves.
+ */
+export async function findCli(): Promise<string> {
+  if (cachedCliPath) {
+    return cachedCliPath
+  }
+
+  // 1. Persisted store path from a previous detection/install
+  let storedPath: string | null = null
+  try {
+    storedPath = getCliInfo().path
+  } catch {
+    // Store unavailable — skip the persisted path
+  }
+  if (storedPath && (await isUsableBinary(storedPath))) {
+    cachedCliPath = storedPath
+    return storedPath
+  }
+
+  // 2. App-managed install location
+  const installPath = getInstallPath()
+  if (await isUsableBinary(installPath)) {
+    cachedCliPath = installPath
+    return installPath
+  }
+
+  // 3. System PATH lookup
+  const pathLookup = await findCliOnPath()
+  if (pathLookup) {
+    cachedCliPath = pathLookup
+    return pathLookup
+  }
+
+  // 4. Well-known bin directories
+  const binaryName = process.platform === 'win32' ? `${CLI_BINARY_NAME}.exe` : CLI_BINARY_NAME
+  for (const dir of getWellKnownBinDirs()) {
+    const candidate = join(dir, binaryName)
+    if (await isUsableBinary(candidate)) {
+      cachedCliPath = candidate
+      return candidate
+    }
+  }
+
+  throw new CliNotFoundError()
 }
 
 /**

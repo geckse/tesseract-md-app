@@ -1,6 +1,8 @@
 <script lang="ts">
   import { completeOnboarding } from '../stores/ui'
   import type { CliDetectResult, CliInstallProgress } from '../../preload/api'
+  import type { Collection } from '../../preload/api'
+  import { openSettingsSection } from '../stores/settings'
 
   interface Props {
     oncomplete: () => void
@@ -15,8 +17,14 @@
   let installPercent = $state(0)
   let installStage = $state('')
   let installError: string | null = $state(null)
+  let provider: 'openai' | 'ollama' | null = $state(null)
+  let openAiKey = $state('')
+  let ollamaHost = $state('http://localhost:11434')
+  let ollamaModel = $state('nomic-embed-text')
+  let providerError: string | null = $state(null)
+  let doctorWarning: string | null = $state(null)
 
-  const totalSteps = 3
+  const totalSteps = 4
 
   async function detectCli() {
     cliDetecting = true
@@ -62,8 +70,50 @@
   async function handleAddCollection() {
     const collection = await window.api.addCollection()
     if (collection) {
-      await finish()
+      await finishWithDoctor(collection)
     }
+  }
+
+  async function saveProviderAndContinue() {
+    if (!provider) return
+    providerError = null
+    try {
+      await window.api.setUserConfig('MDVDB_EMBEDDING_PROVIDER', provider)
+      if (provider === 'openai') {
+        await window.api.setUserConfig('OPENAI_API_KEY', openAiKey.trim())
+      } else {
+        await window.api.setUserConfig('MDVDB_EMBEDDING_MODEL', ollamaModel.trim())
+        await window.api.setUserConfig('OLLAMA_HOST', ollamaHost.trim())
+      }
+      step = 3
+    } catch (error) {
+      providerError = error instanceof Error ? error.message : 'Could not save provider settings'
+    }
+  }
+
+  async function finishWithDoctor(collection: Collection) {
+    doctorWarning = null
+    try {
+      const result = await window.api.doctor(collection.path)
+      const failures = result.checks.filter(
+        (check) =>
+          check.status === 'Fail' &&
+          (check.name === 'API key' || check.name === 'Provider reachable')
+      )
+      if (failures.length > 0) {
+        doctorWarning = failures.map((check) => check.detail).join(' ')
+        return
+      }
+    } catch {
+      // Doctor is advisory during onboarding; CLI errors must not trap the user here.
+    }
+    await finish()
+  }
+
+  async function openEmbeddingSettings() {
+    await completeOnboarding()
+    openSettingsSection('global', 'embedding')
+    oncomplete()
   }
 
   async function finish() {
@@ -151,13 +201,86 @@
         {/if}
       </div>
     {:else if step === 2}
-      <!-- Step 3: First Collection -->
+      <!-- Step 3: Embedding Provider -->
+      <div class="step-content">
+        <span class="material-symbols-outlined step-icon">hub</span>
+        <h2 class="step-title">Choose an Embedding Provider</h2>
+        <p class="step-desc">Embeddings power semantic search. Settings are saved globally.</p>
+
+        <div class="provider-cards">
+          <button
+            type="button"
+            class="provider-card"
+            class:selected={provider === 'openai'}
+            onclick={() => (provider = 'openai')}
+          >
+            <strong>OpenAI</strong>
+            <span>Cloud embeddings using your API key</span>
+          </button>
+          <button
+            type="button"
+            class="provider-card"
+            class:selected={provider === 'ollama'}
+            onclick={() => (provider = 'ollama')}
+          >
+            <strong>Ollama</strong>
+            <span>Local embeddings with a running Ollama server</span>
+          </button>
+          <button type="button" class="provider-card" onclick={() => (step = 3)}>
+            <strong>Skip for now</strong>
+            <span>Semantic search and indexing will not work until a provider is configured.</span>
+          </button>
+        </div>
+
+        {#if provider === 'openai'}
+          <label class="provider-field">
+            <span>OpenAI API key</span>
+            <input type="password" bind:value={openAiKey} placeholder="sk-..." autocomplete="off" />
+          </label>
+        {:else if provider === 'ollama'}
+          <label class="provider-field">
+            <span>Ollama host</span>
+            <input type="url" bind:value={ollamaHost} />
+          </label>
+          <label class="provider-field">
+            <span>Embedding model</span>
+            <input type="text" bind:value={ollamaModel} />
+          </label>
+        {/if}
+
+        {#if providerError}
+          <div class="error-box" role="alert">
+            <span class="material-symbols-outlined error-icon">error</span>
+            <p>{providerError}</p>
+          </div>
+        {/if}
+
+        {#if provider}
+          <button class="primary-btn" onclick={saveProviderAndContinue}>Continue</button>
+        {/if}
+      </div>
+    {:else if step === 3}
+      <!-- Step 4: First Collection -->
       <div class="step-content">
         <span class="material-symbols-outlined step-icon">folder_open</span>
         <h2 class="step-title">Add Your First Collection</h2>
         <p class="step-desc">Choose a folder of Markdown files to index and search.</p>
-        <button class="primary-btn" onclick={handleAddCollection}>Choose Folder</button>
-        <button class="skip-link" onclick={finish}>Skip</button>
+        {#if !doctorWarning}
+          <button class="primary-btn" onclick={handleAddCollection}>Choose Folder</button>
+          <button class="skip-link" onclick={finish}>Skip</button>
+        {:else}
+          <div class="doctor-warning" role="alert">
+            <span class="material-symbols-outlined">warning</span>
+            <div>
+              <strong>Embedding setup needs attention</strong>
+              <p>{doctorWarning}</p>
+            </div>
+          </div>
+          <button class="primary-btn" onclick={openEmbeddingSettings}
+            >Open Embedding Settings</button
+          >
+          <button class="skip-link" onclick={finish}>Continue anyway</button>
+        {/if}
       </div>
     {/if}
 
@@ -209,7 +332,7 @@
 
   .welcome .logo-icon {
     font-size: 64px;
-    color: var(--color-accent, #3b82f6);
+    color: var(--color-primary, #00e5ff);
     margin-bottom: 8px;
   }
 
@@ -222,13 +345,13 @@
 
   .tagline {
     font-size: 16px;
-    color: var(--color-text-secondary, #a1a1aa);
+    color: var(--color-text-muted, #a1a1aa);
     margin: 0 0 16px;
   }
 
   .step-icon {
     font-size: 48px;
-    color: var(--color-accent, #3b82f6);
+    color: var(--color-primary, #00e5ff);
     margin-bottom: 4px;
   }
 
@@ -241,15 +364,87 @@
 
   .step-desc {
     font-size: 14px;
-    color: var(--color-text-secondary, #a1a1aa);
+    color: var(--color-text-muted, #a1a1aa);
     margin: 0;
+  }
+
+  .provider-cards {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    width: 100%;
+    margin-top: 8px;
+  }
+
+  .provider-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 108px;
+    padding: 12px;
+    border: 1px solid var(--color-border, #27272a);
+    border-radius: 8px;
+    background: var(--color-surface-dark, #0a0a0a);
+    color: var(--color-text, #fafafa);
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .provider-card.selected {
+    border-color: var(--color-primary, #00e5ff);
+    box-shadow: 0 0 0 1px var(--color-primary, #00e5ff);
+  }
+
+  .provider-card span {
+    color: var(--color-text-muted, #a1a1aa);
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .provider-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
+    color: var(--color-text-muted, #a1a1aa);
+    font-size: 12px;
+    text-align: left;
+  }
+
+  .provider-field input {
+    padding: 9px 10px;
+    border: 1px solid var(--color-border, #27272a);
+    border-radius: 6px;
+    background: var(--color-surface-dark, #0a0a0a);
+    color: var(--color-text, #fafafa);
+    font: inherit;
+  }
+
+  .doctor-warning {
+    display: flex;
+    gap: 10px;
+    width: 100%;
+    box-sizing: border-box;
+    margin-top: 8px;
+    padding: 12px;
+    border: 1px solid rgba(245, 158, 11, 0.4);
+    border-radius: 8px;
+    background: rgba(245, 158, 11, 0.1);
+    color: #f59e0b;
+    text-align: left;
+  }
+
+  .doctor-warning p {
+    margin: 4px 0 0;
+    color: var(--color-text-muted, #a1a1aa);
+    font-size: 12px;
   }
 
   .primary-btn {
     margin-top: 12px;
     padding: 10px 32px;
-    background: var(--color-accent, #3b82f6);
-    color: var(--color-text-white, #fff);
+    background: var(--color-primary, #00e5ff);
+    color: var(--color-surface-dark, #0a0a0a);
     border: none;
     border-radius: 6px;
     font-size: 15px;
@@ -259,13 +454,13 @@
   }
 
   .primary-btn:hover {
-    background: var(--color-accent-hover, #2563eb);
+    background: var(--color-primary-dark, #00b8cc);
   }
 
   .skip-link {
     background: none;
     border: none;
-    color: var(--color-text-secondary, #a1a1aa);
+    color: var(--color-text-muted, #a1a1aa);
     font-size: 13px;
     cursor: pointer;
     padding: 4px 8px;
@@ -309,7 +504,7 @@
 
   .cli-version {
     font-size: 12px;
-    color: var(--color-text-secondary, #a1a1aa);
+    color: var(--color-text-muted, #a1a1aa);
   }
 
   .progress-bar-track {
@@ -323,7 +518,7 @@
 
   .progress-bar-fill {
     height: 100%;
-    background: var(--color-accent, #3b82f6);
+    background: var(--color-primary, #00e5ff);
     border-radius: 3px;
     transition: width 0.3s ease;
   }
@@ -331,14 +526,14 @@
   .progress-bar-indeterminate {
     height: 100%;
     width: 40%;
-    background: var(--color-accent, #3b82f6);
+    background: var(--color-primary, #00e5ff);
     border-radius: 3px;
     animation: indeterminate 1.5s ease-in-out infinite;
   }
 
   .progress-percent {
     font-size: 13px;
-    color: var(--color-text-secondary, #a1a1aa);
+    color: var(--color-text-muted, #a1a1aa);
     margin-top: 4px;
   }
 
@@ -381,7 +576,7 @@
   }
 
   .dot.active {
-    background: var(--color-accent, #3b82f6);
+    background: var(--color-primary, #00e5ff);
   }
 
   .dot.completed {

@@ -1,5 +1,6 @@
 import { writable, get } from 'svelte/store'
 import type { SearchOutput, SearchMode } from '../types/cli'
+import { classifyCliError, type ClassifiedError } from '../lib/cli-errors'
 import { activeCollection } from './collections'
 import { graphHoveredFilePath } from './graph'
 
@@ -24,8 +25,8 @@ export const searchExpandEnabled = writable<boolean>(false)
 /** Index of the currently highlighted result. */
 export const highlightedIndex = writable<number>(-1)
 
-/** Error message if search failed. */
-export const searchError = writable<string | null>(null)
+/** Classified error if search failed. */
+export const searchError = writable<ClassifiedError | null>(null)
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 let searchGeneration = 0
@@ -110,7 +111,7 @@ async function performSearch(query: string): Promise<void> {
     searchError.set(null)
   } catch (err) {
     if (generation !== searchGeneration) return
-    searchError.set(err instanceof Error ? err.message : String(err))
+    searchError.set(classifyCliError(err))
     searchResults.set(null)
   } finally {
     if (generation === searchGeneration) {

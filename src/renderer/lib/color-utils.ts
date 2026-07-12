@@ -154,7 +154,7 @@ export function contrastRatio(hex1: string, hex2: string): number {
 /** Background colors for each theme mode */
 export const THEME_BACKGROUNDS = {
   dark: '#0f0f10',
-  light: '#f6f6f6'
+  light: '#e9e9e9'
 } as const
 
 /** Check if a color has sufficient luminance for visibility on dark backgrounds */

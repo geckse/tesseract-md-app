@@ -4,6 +4,10 @@ on:
   push:
     tags:
       - 'v*'
+  # Manual smoke build: runs the exact same matrix but with --publish never,
+  # so packaging (signing, notarization, installers) can be verified without
+  # cutting a release.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -39,7 +43,10 @@ jobs:
       - name: Build with electron-vite
         run: npx electron-vite build
 
-      - name: Build Electron app (${{ matrix.platform }})
+      # Signing/notarization secrets are scoped to the mac leg ONLY.
+      # win (unsigned beta) and linux get nothing but GH_TOKEN.
+      - name: Build Electron app (mac, signed + notarized)
+        if: matrix.platform == 'mac'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
@@ -47,4 +54,10 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: npx electron-builder --${{ matrix.platform }} --publish always
+        run: npx electron-builder --mac --publish ${{ github.event_name == 'workflow_dispatch' && 'never' || 'always' }}
+
+      - name: Build Electron app (${{ matrix.platform }})
+        if: matrix.platform != 'mac'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --${{ matrix.platform }} --publish ${{ github.event_name == 'workflow_dispatch' && 'never' || 'always' }}

@@ -23,7 +23,9 @@ import {
   addCollection,
   removeCollection,
   setActiveCollection,
-  getActiveCollection
+  getActiveCollection,
+  getObsidianSyncState,
+  setObsidianSyncState
 } from '../../src/main/store'
 
 beforeEach(() => {
@@ -198,5 +200,34 @@ describe('getActiveCollection', () => {
 
     const result = getActiveCollection()
     expect(result).toBeNull()
+  })
+})
+
+describe('obsidianTopicSync state', () => {
+  const state = { managed: true, topics: { rag: 'hash-1', old: 'deleted' } }
+
+  it('returns null for collections never scanned', () => {
+    mockGet.mockReturnValue({})
+    expect(getObsidianSyncState('col-1')).toBeNull()
+    expect(mockGet).toHaveBeenCalledWith('obsidianTopicSync', {})
+  })
+
+  it('returns the stored state once set', () => {
+    mockGet.mockReturnValue({ 'col-1': state })
+    expect(getObsidianSyncState('col-1')).toEqual(state)
+  })
+
+  it('persists the state for a collection', () => {
+    mockGet.mockReturnValue({})
+    setObsidianSyncState('col-1', state)
+    expect(mockSet).toHaveBeenCalledWith('obsidianTopicSync', { 'col-1': state })
+  })
+
+  it('clears the state when passed null', () => {
+    mockGet.mockReturnValue({ 'col-1': state, 'col-2': { managed: false, topics: {} } })
+    setObsidianSyncState('col-1', null)
+    expect(mockSet).toHaveBeenCalledWith('obsidianTopicSync', {
+      'col-2': { managed: false, topics: {} }
+    })
   })
 })

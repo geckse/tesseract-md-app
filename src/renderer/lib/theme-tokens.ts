@@ -69,7 +69,7 @@ export const DARK_TOKENS: ThemeTokens = {
 }
 
 export const LIGHT_TOKENS: ThemeTokens = {
-  'color-bg': '#f6f6f6',
+  'color-bg': '#e9e9e9',
   'color-surface': '#fbfbfb',
   'color-surface-dark': '#eeeeee',
   'color-surface-elevated': '#ffffff',

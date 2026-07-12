@@ -1,9 +1,15 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { join } from 'node:path'
 
-// Use vi.hoisted so the mock variable is available before vi.mock runs
-const { mockExecFile } = vi.hoisted(() => ({
-  mockExecFile: vi.fn()
-}))
+// Use vi.hoisted so the mock variables are available before vi.mock runs
+const { mockExecFile, mockAccess, mockGetCliInfo, mockGetInstallPath, mockGetWellKnownBinDirs } =
+  vi.hoisted(() => ({
+    mockExecFile: vi.fn(),
+    mockAccess: vi.fn(),
+    mockGetCliInfo: vi.fn(),
+    mockGetInstallPath: vi.fn(),
+    mockGetWellKnownBinDirs: vi.fn()
+  }))
 
 vi.mock('node:child_process', () => {
   const mod = { execFile: mockExecFile }
@@ -23,8 +29,19 @@ vi.mock('node:util', () => {
   const mod = { promisify }
   return { ...mod, default: mod }
 })
+vi.mock('node:fs/promises', () => {
+  const mod = { access: mockAccess, constants: { F_OK: 0, X_OK: 1 } }
+  return { ...mod, default: mod }
+})
+vi.mock('../../src/main/store', () => ({
+  getCliInfo: mockGetCliInfo
+}))
+vi.mock('../../src/main/cli-paths', () => ({
+  getInstallPath: mockGetInstallPath,
+  getWellKnownBinDirs: mockGetWellKnownBinDirs
+}))
 
-import { findCli, getCliVersion, execCommand, execRaw } from '../../src/main/cli'
+import { findCli, getCliVersion, execCommand, execRaw, resetCliPathCache } from '../../src/main/cli'
 import {
   CliNotFoundError,
   CliExecutionError,
@@ -34,6 +51,17 @@ import {
 
 beforeEach(() => {
   mockExecFile.mockReset()
+  // Nothing on the store path or install path by default; the well-known-dir
+  // probe finds nothing — resolution falls through to the which/where lookup.
+  mockAccess.mockReset()
+  mockAccess.mockRejectedValue(new Error('ENOENT'))
+  mockGetCliInfo.mockReset()
+  mockGetCliInfo.mockReturnValue({ path: null, version: null })
+  mockGetInstallPath.mockReset()
+  mockGetInstallPath.mockReturnValue('/mock/install/mdvdb')
+  mockGetWellKnownBinDirs.mockReset()
+  mockGetWellKnownBinDirs.mockReturnValue([])
+  resetCliPathCache()
 })
 
 describe('findCli', () => {
@@ -97,6 +125,215 @@ describe('findCli', () => {
 
     const path = await findCli()
     expect(path).toBe('/usr/local/bin/mdvdb')
+  })
+})
+
+describe('findCli resolution order', () => {
+  const originalPlatform = process.platform
+
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: originalPlatform })
+  })
+
+  function whichSucceeds(path = '/usr/local/bin/mdvdb'): void {
+    mockExecFile.mockImplementation(
+      (
+        _cmd: string,
+        _args: string[],
+        _opts: unknown,
+        cb: (err: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        cb(null, `${path}\n`, '')
+      }
+    )
+  }
+
+  function whichFails(): void {
+    mockExecFile.mockImplementation(
+      (
+        _cmd: string,
+        _args: string[],
+        _opts: unknown,
+        cb: (err: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        cb(new Error('not found'), '', '')
+      }
+    )
+  }
+
+  /** Make only the given paths pass the fs access check */
+  function onlyUsable(...paths: string[]): void {
+    mockAccess.mockImplementation(async (p: string) => {
+      if (!paths.includes(p)) {
+        throw new Error('ENOENT')
+      }
+    })
+  }
+
+  it('uses the persisted store path when it is executable, without spawning which', async () => {
+    mockGetCliInfo.mockReturnValue({ path: '/stored/bin/mdvdb', version: '0.2.0' })
+    onlyUsable('/stored/bin/mdvdb')
+
+    const path = await findCli()
+    expect(path).toBe('/stored/bin/mdvdb')
+    // X_OK (1) on non-win32 platforms
+    expect(mockAccess).toHaveBeenCalledWith('/stored/bin/mdvdb', 1)
+    expect(mockExecFile).not.toHaveBeenCalled()
+  })
+
+  it('skips a stale store path and falls through to the PATH lookup', async () => {
+    mockGetCliInfo.mockReturnValue({ path: '/stale/bin/mdvdb', version: '0.1.0' })
+    whichSucceeds('/usr/local/bin/mdvdb')
+
+    const path = await findCli()
+    expect(path).toBe('/usr/local/bin/mdvdb')
+    expect(mockAccess).toHaveBeenCalledWith('/stale/bin/mdvdb', 1)
+  })
+
+  it('skips the store path when reading the store throws', async () => {
+    mockGetCliInfo.mockImplementation(() => {
+      throw new Error('store unavailable')
+    })
+    whichSucceeds('/usr/local/bin/mdvdb')
+
+    const path = await findCli()
+    expect(path).toBe('/usr/local/bin/mdvdb')
+  })
+
+  it('prefers the app-managed install path over the PATH lookup', async () => {
+    onlyUsable('/mock/install/mdvdb')
+
+    const path = await findCli()
+    expect(path).toBe('/mock/install/mdvdb')
+    expect(mockExecFile).not.toHaveBeenCalled()
+  })
+
+  it('falls back to well-known bin dirs when the PATH lookup fails', async () => {
+    whichFails()
+    mockGetWellKnownBinDirs.mockReturnValue(['/opt/homebrew/bin', '/usr/local/bin'])
+    onlyUsable('/opt/homebrew/bin/mdvdb')
+
+    const path = await findCli()
+    expect(path).toBe('/opt/homebrew/bin/mdvdb')
+  })
+
+  it('uses a plain existence check for the store path on win32', async () => {
+    Object.defineProperty(process, 'platform', { value: 'win32' })
+    const storedPath = 'C:\\bin\\mdvdb.exe'
+    mockGetCliInfo.mockReturnValue({ path: storedPath, version: '0.2.0' })
+    onlyUsable(storedPath)
+
+    const path = await findCli()
+    expect(path).toBe(storedPath)
+    // F_OK (0) on win32 — X_OK is meaningless there
+    expect(mockAccess).toHaveBeenCalledWith(storedPath, 0)
+  })
+
+  it('probes for mdvdb.exe in the LOCALAPPDATA well-known dir on win32', async () => {
+    Object.defineProperty(process, 'platform', { value: 'win32' })
+    const localAppDir = join('C:\\Users\\test\\AppData\\Local', 'mdvdb')
+    const candidate = join(localAppDir, 'mdvdb.exe')
+    whichFails()
+    mockGetWellKnownBinDirs.mockReturnValue([localAppDir])
+    onlyUsable(candidate)
+
+    const path = await findCli()
+    expect(path).toBe(candidate)
+    expect(mockAccess).toHaveBeenCalledWith(candidate, 0)
+  })
+
+  it('throws CliNotFoundError when nothing resolves', async () => {
+    whichFails()
+    mockGetWellKnownBinDirs.mockReturnValue(['/opt/homebrew/bin'])
+
+    await expect(findCli()).rejects.toThrow(CliNotFoundError)
+  })
+})
+
+describe('findCli caching', () => {
+  function whichSucceeds(path = '/usr/local/bin/mdvdb'): void {
+    mockExecFile.mockImplementation(
+      (
+        _cmd: string,
+        _args: string[],
+        _opts: unknown,
+        cb: (err: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        cb(null, `${path}\n`, '')
+      }
+    )
+  }
+
+  it('caches the resolved path — a second call does not re-probe', async () => {
+    whichSucceeds()
+
+    const first = await findCli()
+    const accessCallsAfterFirst = mockAccess.mock.calls.length
+    const second = await findCli()
+
+    expect(first).toBe('/usr/local/bin/mdvdb')
+    expect(second).toBe('/usr/local/bin/mdvdb')
+    expect(mockExecFile).toHaveBeenCalledTimes(1)
+    expect(mockAccess.mock.calls.length).toBe(accessCallsAfterFirst)
+  })
+
+  it('resetCliPathCache() forces re-resolution', async () => {
+    whichSucceeds()
+
+    await findCli()
+    expect(mockExecFile).toHaveBeenCalledTimes(1)
+
+    resetCliPathCache()
+
+    await findCli()
+    expect(mockExecFile).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('getWellKnownBinDirs (real implementation)', () => {
+  const originalPlatform = process.platform
+  const originalEnv = { ...process.env }
+
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: originalPlatform })
+    process.env = { ...originalEnv }
+  })
+
+  async function realCliPaths(): Promise<typeof import('../../src/main/cli-paths')> {
+    return vi.importActual<typeof import('../../src/main/cli-paths')>('../../src/main/cli-paths')
+  }
+
+  it('darwin: homebrew, /usr/local/bin, ~/.cargo/bin, ~/.local/bin', async () => {
+    const { getWellKnownBinDirs } = await realCliPaths()
+    Object.defineProperty(process, 'platform', { value: 'darwin' })
+
+    const dirs = getWellKnownBinDirs()
+    expect(dirs[0]).toBe('/opt/homebrew/bin')
+    expect(dirs[1]).toBe('/usr/local/bin')
+    expect(dirs[2]).toMatch(/\.cargo\/bin$/)
+    expect(dirs[3]).toMatch(/\.local\/bin$/)
+    expect(dirs).toHaveLength(4)
+  })
+
+  it('linux: /usr/local/bin, ~/.cargo/bin, ~/.local/bin', async () => {
+    const { getWellKnownBinDirs } = await realCliPaths()
+    Object.defineProperty(process, 'platform', { value: 'linux' })
+
+    const dirs = getWellKnownBinDirs()
+    expect(dirs[0]).toBe('/usr/local/bin')
+    expect(dirs[1]).toMatch(/\.cargo\/bin$/)
+    expect(dirs[2]).toMatch(/\.local\/bin$/)
+    expect(dirs).toHaveLength(3)
+  })
+
+  it('win32: only %LOCALAPPDATA%/mdvdb', async () => {
+    const { getWellKnownBinDirs } = await realCliPaths()
+    Object.defineProperty(process, 'platform', { value: 'win32' })
+    process.env.LOCALAPPDATA = 'C:\\Users\\test\\AppData\\Local'
+
+    const dirs = getWellKnownBinDirs()
+    expect(dirs).toHaveLength(1)
+    expect(dirs[0]).toBe(join('C:\\Users\\test\\AppData\\Local', 'mdvdb'))
   })
 })
 

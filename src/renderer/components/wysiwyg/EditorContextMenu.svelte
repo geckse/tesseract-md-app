@@ -468,7 +468,7 @@
     width: 18px;
     text-align: center;
     flex-shrink: 0;
-    color: var(--color-text-secondary, #a1a1aa);
+    color: var(--color-text-muted, #a1a1aa);
   }
 
   .menu-item.active .material-symbols-outlined {
@@ -522,7 +522,7 @@
     width: 18px;
     text-align: center;
     flex-shrink: 0;
-    color: var(--color-text-secondary, #a1a1aa);
+    color: var(--color-text-muted, #a1a1aa);
   }
 
   .submenu-trigger > .submenu-arrow {

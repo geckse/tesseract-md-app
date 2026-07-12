@@ -37,6 +37,8 @@ vi.mock('../../src/main/store', () => ({
   getWindowSessions: vi.fn().mockReturnValue([]),
   setWindowSessions: vi.fn(),
   setCliInfo: vi.fn(),
+  getThemeMode: vi.fn().mockReturnValue('dark'),
+  setThemeMode: vi.fn(),
   initStore: vi.fn()
 }))
 
@@ -71,20 +73,24 @@ vi.mock('../../src/main/collections', () => ({
 }))
 
 // Mock node:fs for fs:read-file, fs:write-file, and cli:reset-index handlers
+// (rename backs the atomic temp+rename write path in atomic-write.ts)
 const mockReadFile = vi.fn()
 const mockWriteFile = vi.fn()
+const mockRename = vi.fn().mockResolvedValue(undefined)
 const mockRm = vi.fn().mockResolvedValue(undefined)
 vi.mock('node:fs', () => ({
   default: {
     promises: {
       readFile: (...args: unknown[]) => mockReadFile(...args),
       writeFile: (...args: unknown[]) => mockWriteFile(...args),
+      rename: (...args: unknown[]) => mockRename(...args),
       rm: (...args: unknown[]) => mockRm(...args)
     }
   },
   promises: {
     readFile: (...args: unknown[]) => mockReadFile(...args),
     writeFile: (...args: unknown[]) => mockWriteFile(...args),
+    rename: (...args: unknown[]) => mockRename(...args),
     rm: (...args: unknown[]) => mockRm(...args)
   }
 }))
@@ -119,6 +125,18 @@ vi.mock('../../src/main/watcher', () => ({
 const mockRefreshAppMenu = vi.fn()
 vi.mock('../../src/main/menu', () => ({
   refreshAppMenu: (...args: unknown[]) => mockRefreshAppMenu(...args)
+}))
+
+// Mock Obsidian topic auto-import & sync (phase 44)
+const mockMaybeSyncObsidianTopics = vi.fn().mockResolvedValue(undefined)
+const mockScheduleObsidianSync = vi.fn()
+const mockCancelScheduledObsidianSyncs = vi.fn()
+const mockWatchObsidianConfig = vi.fn()
+vi.mock('../../src/main/obsidian-import', () => ({
+  maybeSyncObsidianTopics: (...args: unknown[]) => mockMaybeSyncObsidianTopics(...args),
+  scheduleObsidianSync: (...args: unknown[]) => mockScheduleObsidianSync(...args),
+  cancelScheduledObsidianSyncs: (...args: unknown[]) => mockCancelScheduledObsidianSyncs(...args),
+  watchObsidianConfig: (...args: unknown[]) => mockWatchObsidianConfig(...args)
 }))
 
 // Mock updater module (the AppUpdater singleton lives here since phase 43)
@@ -200,6 +218,10 @@ function createMockWindowManager() {
   const mockGetWindow = vi.fn()
   const mockCloseWindow = vi.fn()
   const mockIsPrimary = vi.fn().mockReturnValue(true)
+  const mockUpdateTitleBarOverlay = vi.fn()
+  const mockConfirmClose = vi.fn()
+  const mockClearCloseTimer = vi.fn()
+  const mockIsPopup = vi.fn().mockReturnValue(false)
 
   const wm = {
     broadcastToAll: mockBroadcastToAll,
@@ -207,7 +229,11 @@ function createMockWindowManager() {
     getAllWindows: mockGetAllWindows,
     getWindow: mockGetWindow,
     closeWindow: mockCloseWindow,
-    isPrimary: mockIsPrimary
+    isPrimary: mockIsPrimary,
+    updateTitleBarOverlay: mockUpdateTitleBarOverlay,
+    confirmClose: mockConfirmClose,
+    clearCloseTimer: mockClearCloseTimer,
+    isPopup: mockIsPopup
   } as unknown as WindowManager
 
   return {
@@ -217,7 +243,11 @@ function createMockWindowManager() {
     mockGetAllWindows,
     mockGetWindow,
     mockIsPrimary,
-    mockCloseWindow
+    mockCloseWindow,
+    mockUpdateTitleBarOverlay,
+    mockConfirmClose,
+    mockClearCloseTimer,
+    mockIsPopup
   }
 }
 
@@ -239,6 +269,8 @@ beforeEach(() => {
   mockPromptInitCollection.mockReset()
   mockReadFile.mockReset()
   mockWriteFile.mockReset()
+  mockRename.mockReset().mockResolvedValue(undefined)
+  mockRm.mockReset().mockResolvedValue(undefined)
   mockWatcherStart.mockReset()
   mockWatcherStop.mockReset()
   mockWatcherDestroy.mockReset()
@@ -250,6 +282,10 @@ beforeEach(() => {
   mockWatcherOnStateChange.mockReset()
   mockWatcherRemoveAllListeners.mockReset()
   mockRefreshAppMenu.mockReset()
+  mockMaybeSyncObsidianTopics.mockReset().mockResolvedValue(undefined)
+  mockScheduleObsidianSync.mockReset()
+  mockCancelScheduledObsidianSyncs.mockReset()
+  mockWatchObsidianConfig.mockReset()
   mockShellOpenPath.mockReset()
   mockClipboardWriteText.mockReset()
   mockFromWebContents.mockReset()
@@ -276,6 +312,7 @@ describe('registerIpcHandlers', () => {
     expect(channels).toContain('cli:schema')
     expect(channels).toContain('cli:config')
     expect(channels).toContain('cli:doctor')
+    expect(channels).toContain('cli:info')
     expect(channels).toContain('cli:init')
     expect(channels).toContain('collections:list')
     expect(channels).toContain('collections:add')
@@ -344,7 +381,9 @@ describe('registerIpcHandlers', () => {
     // Export via native save dialog (phase 43)
     expect(channels).toContain('export:save')
     expect(channels).toContain('export:pdf')
-    expect(channels).toHaveLength(123)
+    // Dirty-close guard (data safety)
+    expect(channels).toContain('app:confirm-close')
+    expect(channels).toHaveLength(125)
   })
 })
 
@@ -664,6 +703,24 @@ describe('IPC handler argument passing', () => {
     })
   })
 
+  describe('cli:info', () => {
+    it('passes a folder scope when provided', async () => {
+      mockExecCommand.mockResolvedValue({ scope: 'notes/' })
+      const handler = getHandler('cli:info')
+      await handler(fakeEvent, '/tmp/project', 'notes')
+
+      expect(mockExecCommand).toHaveBeenCalledWith('info', ['notes'], '/tmp/project')
+    })
+
+    it('uses empty args for whole-vault information', async () => {
+      mockExecCommand.mockResolvedValue({ scope: '.' })
+      const handler = getHandler('cli:info')
+      await handler(fakeEvent, '/tmp/project')
+
+      expect(mockExecCommand).toHaveBeenCalledWith('info', [], '/tmp/project')
+    })
+  })
+
   describe('cli:init', () => {
     it('calls with empty args', async () => {
       mockExecRaw.mockResolvedValue('')
@@ -753,6 +810,23 @@ describe('Collection IPC handlers', () => {
         expect.objectContaining({ error: true, message: 'Path does not exist' })
       )
     })
+
+    it('kicks off the Obsidian topic sync for the new collection', async () => {
+      const col = { id: '1', name: 'vault', path: '/vault', addedAt: 1, lastOpenedAt: 1 }
+      mockPickCollectionFolder.mockResolvedValue('/vault')
+      mockValidateCollectionPath.mockResolvedValue({ valid: true, hasConfig: true, name: 'vault' })
+      mockAddCollection.mockReturnValue(col)
+      const handler = getHandler('collections:add')
+      await handler()
+      expect(mockMaybeSyncObsidianTopics).toHaveBeenCalledWith(col, expect.anything())
+    })
+
+    it('does not attempt the Obsidian sync when the picker is canceled', async () => {
+      mockPickCollectionFolder.mockResolvedValue(null)
+      const handler = getHandler('collections:add')
+      await handler()
+      expect(mockMaybeSyncObsidianTopics).not.toHaveBeenCalled()
+    })
   })
 
   describe('collections:remove', () => {
@@ -786,6 +860,24 @@ describe('Collection IPC handlers', () => {
       const handler = getHandler('collections:set-active')
       await handler(fakeEvent, 'abc')
       expect(mockSetActiveCollection).toHaveBeenCalledWith('abc')
+    })
+
+    it('kicks off the Obsidian topic sync and retargets the config watcher', async () => {
+      const col = { id: 'abc', name: 'vault', path: '/vault', addedAt: 1, lastOpenedAt: 1 }
+      mockGetActiveCollection.mockReturnValue(col)
+      const handler = getHandler('collections:set-active')
+      await handler(fakeEvent, 'abc')
+      expect(mockCancelScheduledObsidianSyncs).toHaveBeenCalled()
+      expect(mockWatchObsidianConfig).toHaveBeenCalledWith(col, expect.anything())
+      expect(mockMaybeSyncObsidianTopics).toHaveBeenCalledWith(col, expect.anything())
+    })
+
+    it('skips the Obsidian sync when activation yields no collection', async () => {
+      mockGetActiveCollection.mockReturnValue(null)
+      const handler = getHandler('collections:set-active')
+      await handler(fakeEvent, 'abc')
+      expect(mockMaybeSyncObsidianTopics).not.toHaveBeenCalled()
+      expect(mockWatchObsidianConfig).toHaveBeenCalledWith(null, expect.anything())
     })
   })
 
@@ -831,19 +923,31 @@ describe('Collection IPC handlers', () => {
   })
 
   describe('fs:write-file', () => {
-    it('writes file within a known collection', async () => {
+    // fs:write-file reads event.sender.id to exclude the sender from the
+    // cross-window saved broadcast.
+    const writeEvent = { sender: { id: 1 } }
+
+    it('writes atomically within a known collection (dotfile temp + rename)', async () => {
       mockGetCollections.mockReturnValue([{ id: '1', name: 'proj', path: '/proj' }])
       mockWriteFile.mockResolvedValue(undefined)
       const handler = getHandler('fs:write-file')
-      const result = await handler(fakeEvent, '/proj/readme.md', '# Updated')
-      expect(mockWriteFile).toHaveBeenCalledWith('/proj/readme.md', '# Updated', 'utf-8')
+      const result = await handler(writeEvent, '/proj/readme.md', '# Updated')
+      // Content goes to a dotfile temp in the SAME directory...
+      expect(mockWriteFile).toHaveBeenCalledWith(
+        expect.stringMatching(/^\/proj\/\.\d+\.\d+\.mdvdb\.tmp$/),
+        '# Updated',
+        'utf-8'
+      )
+      // ...then the temp is renamed over the target.
+      const tmpPath = mockWriteFile.mock.calls[0][0]
+      expect(mockRename).toHaveBeenCalledWith(tmpPath, '/proj/readme.md')
       expect(result).toBeUndefined()
     })
 
     it('denies access to paths outside collections', async () => {
       mockGetCollections.mockReturnValue([{ id: '1', name: 'proj', path: '/proj' }])
       const handler = getHandler('fs:write-file')
-      const result = await handler(fakeEvent, '/etc/shadow', 'malicious')
+      const result = await handler(writeEvent, '/etc/shadow', 'malicious')
       expect(result).toEqual(
         expect.objectContaining({
           error: true,
@@ -857,18 +961,25 @@ describe('Collection IPC handlers', () => {
       mockGetCollections.mockReturnValue([{ id: '1', name: 'proj', path: '/proj' }])
       mockWriteFile.mockResolvedValue(undefined)
       const handler = getHandler('fs:write-file')
-      await handler(fakeEvent, '/proj/notes.md', 'Héllo wörld 日本語')
-      expect(mockWriteFile).toHaveBeenCalledWith('/proj/notes.md', 'Héllo wörld 日本語', 'utf-8')
+      await handler(writeEvent, '/proj/notes.md', 'Héllo wörld 日本語')
+      expect(mockWriteFile).toHaveBeenCalledWith(
+        expect.stringMatching(/\.mdvdb\.tmp$/),
+        'Héllo wörld 日本語',
+        'utf-8'
+      )
     })
 
-    it('returns serialized error when writeFile fails', async () => {
+    it('returns serialized error and never touches the target when the temp write fails', async () => {
       mockGetCollections.mockReturnValue([{ id: '1', name: 'proj', path: '/proj' }])
       mockWriteFile.mockRejectedValue(new Error('EACCES: permission denied'))
       const handler = getHandler('fs:write-file')
-      const result = await handler(fakeEvent, '/proj/readme.md', 'content')
+      const result = await handler(writeEvent, '/proj/readme.md', 'content')
       expect(result).toEqual(
         expect.objectContaining({ error: true, message: 'EACCES: permission denied' })
       )
+      // The target file is never written directly, and the temp is cleaned up.
+      expect(mockRename).not.toHaveBeenCalled()
+      expect(mockRm).toHaveBeenCalledWith(expect.stringMatching(/\.mdvdb\.tmp$/), { force: true })
     })
   })
 })
@@ -1492,5 +1603,69 @@ describe('Topics IPC handlers', () => {
       await handler(fakeEvent, '/vault')
       expect(mockExecCommand).toHaveBeenCalledWith('clusters', ['list'], '/vault')
     })
+  })
+})
+
+// ─── Dirty-close guard + titlebar overlay handlers (D1/E3) ───────────
+
+describe('Close guard & titlebar overlay IPC handlers', () => {
+  function getHandlerFor(
+    wm: WindowManager,
+    channel: string
+  ): (...args: unknown[]) => Promise<unknown> {
+    registerIpcHandlers(wm)
+    const call = mockHandle.mock.calls.find((c: unknown[]) => c[0] === channel)
+    if (!call) throw new Error(`No handler for channel: ${channel}`)
+    return call[1] as (...args: unknown[]) => Promise<unknown>
+  }
+
+  it('store:set-theme re-colors the window controls overlay on every window', async () => {
+    const { wm, mockUpdateTitleBarOverlay } = createMockWindowManager()
+    const handler = getHandlerFor(wm, 'store:set-theme')
+    const storeModule = await import('../../src/main/store')
+
+    await handler({ sender: { id: 1 } }, 'light')
+
+    expect(vi.mocked(storeModule.setThemeMode)).toHaveBeenCalledWith('light')
+    expect(mockUpdateTitleBarOverlay).toHaveBeenCalledTimes(1)
+  })
+
+  it("app:confirm-close force-closes the sender's window", async () => {
+    const { wm, mockConfirmClose } = createMockWindowManager()
+    const handler = getHandlerFor(wm, 'app:confirm-close')
+
+    const result = await handler({ sender: { id: 42 } })
+
+    expect(mockConfirmClose).toHaveBeenCalledWith(42)
+    expect(result).toBeUndefined()
+  })
+
+  it('app:close-ack clears the hung-renderer fallback timer via ipcMain.on', async () => {
+    const { wm, mockClearCloseTimer } = createMockWindowManager()
+    registerIpcHandlers(wm)
+    const { ipcMain } = await import('electron')
+    // The ipcMain.on mock accumulates across tests — take THIS registration.
+    const calls = vi
+      .mocked(ipcMain.on)
+      .mock.calls.filter((c: unknown[]) => c[0] === 'app:close-ack')
+    expect(calls.length).toBeGreaterThan(0)
+
+    const listener = calls[calls.length - 1][1] as (event: unknown) => void
+    listener({ sender: { id: 7 } })
+
+    expect(mockClearCloseTimer).toHaveBeenCalledWith(7)
+  })
+
+  it('popup:pop-back bypasses the dirty-close guard when closing the popup', async () => {
+    const { wm, mockConfirmClose, mockGetAllWindows } = createMockWindowManager()
+    mockGetAllWindows.mockReturnValue([])
+    const senderWin = { isDestroyed: () => false, webContents: { id: 9 } }
+    mockFromWebContents.mockReturnValue(senderWin)
+    const handler = getHandlerFor(wm, 'popup:pop-back')
+
+    await handler({ sender: { id: 9 } }, { kind: 'graph' })
+
+    // The transferred tab was already handed off — closing must not re-prompt.
+    expect(mockConfirmClose).toHaveBeenCalledWith(9)
   })
 })

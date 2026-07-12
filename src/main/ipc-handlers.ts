@@ -51,6 +51,7 @@ import type { FrontmatterPatch } from './frontmatter'
 import { WatcherManager, type WatcherState } from './watcher'
 import { getVaultWatcher } from './vault-watcher'
 import { registerOwnWrite, clearOwnWrites } from './own-writes'
+import { atomicWriteFile } from './atomic-write'
 import { getAppUpdater } from './updater'
 import { registerExportHandlers } from './export'
 import type { WindowManager } from './window-manager'
@@ -71,6 +72,12 @@ import {
   promptInitCollection
 } from './collections'
 import { refreshAppMenu } from './menu'
+import {
+  maybeSyncObsidianTopics,
+  scheduleObsidianSync,
+  cancelScheduledObsidianSyncs,
+  watchObsidianConfig
+} from './obsidian-import'
 import type {
   SearchOutput,
   IndexStatus,
@@ -90,6 +97,7 @@ import type {
   Schema,
   Config,
   DoctorResult,
+  VaultInfo,
   CollectionOutput
 } from '../renderer/types/cli'
 import type { SerializedError } from './errors'
@@ -407,6 +415,11 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
     wrapHandler(() => execCommand<DoctorResult>('doctor', [], root))
   )
 
+  // Vault/folder information
+  ipcMain.handle('cli:info', (_event, root: string, path?: string) =>
+    wrapHandler(() => execCommand<VaultInfo>('info', path ? [path] : [], root))
+  )
+
   // Init
   ipcMain.handle('cli:init', (_event, root: string) => wrapHandler(() => execRaw('init', [], root)))
 
@@ -442,6 +455,9 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
 
       const collection = addCollection(path)
       refreshAppMenu()
+      // Obsidian vaults: derive topics from the user's tags/graph groups
+      // (phase 44). Fire-and-forget — never blocks adding the collection.
+      void maybeSyncObsidianTopics(collection, windowManager)
       return collection
     })
   )
@@ -496,6 +512,13 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
         delete themes[id]
         s.set('collectionThemes', themes)
       }
+
+      // Clean up the Obsidian topic sync state for this collection
+      const obsidianSync = s.get('obsidianTopicSync', {})
+      if (id in obsidianSync) {
+        delete obsidianSync[id]
+        s.set('obsidianTopicSync', obsidianSync)
+      }
     })
   )
 
@@ -522,6 +545,14 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
 
       // Collection menu reflects the active collection (radio, watcher checkbox)
       refreshAppMenu()
+
+      // Obsidian topic sync (phase 44): sync now, retarget the .obsidian
+      // config watcher, and drop pending debounced syncs for the old root.
+      cancelScheduledObsidianSyncs()
+      watchObsidianConfig(active ?? null, windowManager)
+      if (active) {
+        void maybeSyncObsidianTopics(active, windowManager)
+      }
     })
   )
 
@@ -702,7 +733,7 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
         throw new Error('Access denied: path is not within a known collection')
       }
       registerOwnWrite(normalizedPath, 'write', content)
-      await fs.writeFile(normalizedPath, content, 'utf-8')
+      await atomicWriteFile(normalizedPath, content)
 
       // Notify all OTHER windows that this file was saved, so they can
       // silently reload it instead of showing a conflict prompt.
@@ -839,7 +870,7 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
       await fs.mkdir(dirname(normalizedPath), { recursive: true })
       const buffer = Buffer.from(base64Data, 'base64')
       registerOwnWrite(normalizedPath, 'write', buffer)
-      await fs.writeFile(normalizedPath, buffer)
+      await atomicWriteFile(normalizedPath, buffer)
     })
   )
 
@@ -1041,7 +1072,7 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
     })
   )
 
-  ipcMain.handle('cli:check-update', () => wrapHandler(() => checkLatestVersion()))
+  ipcMain.handle('cli:check-latest-version', () => wrapHandler(() => checkLatestVersion()))
 
   // User-level config (~/.mdvdb/config)
   ipcMain.handle('settings:get-user-config', () =>
@@ -1173,6 +1204,8 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
   ipcMain.handle('store:set-theme', (_event, mode: string) =>
     wrapHandler(async () => {
       setThemeMode(mode)
+      // Re-color the Windows/Linux native window controls to match (no-op on macOS)
+      windowManager.updateTitleBarOverlay()
     })
   )
 
@@ -1245,6 +1278,14 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
   vaultWatcher.removeAllListeners()
   vaultWatcher.onBatch((batch) => {
     windowManager.broadcastToAll('vault:file-events', batch)
+
+    // Obsidian topic sync (phase 44): external markdown edits (own writes are
+    // already filtered out of batches) may change tags — schedule a debounced
+    // re-sync for the collection that owns this batch.
+    if (batch.events.some((event) => event.fileKind === 'markdown')) {
+      const collection = getCollections().find((c) => c.path === batch.root)
+      if (collection) scheduleObsidianSync(collection, windowManager)
+    }
   })
   vaultWatcher.onStatusChange((status) => {
     windowManager.broadcastToAll('vault:watcher-status', status)
@@ -1469,10 +1510,28 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
         targetWin.focus()
       }
 
-      // Close the popup
+      // Close the popup. Bypass the dirty-close guard: the tab (including any
+      // dirty content) was just transferred to the target window, so prompting
+      // the popup renderer would be a false "unsaved changes" warning.
       if (senderWin && !senderWin.isDestroyed()) {
-        senderWin.close()
+        windowManager.confirmClose(senderWin.webContents.id)
       }
     })
   )
+
+  // Dirty-close guard (data safety): the renderer answers a main-initiated
+  // 'app:close-request' with this channel once it decided the window may
+  // really close (clean, or the user confirmed discarding changes).
+  ipcMain.handle('app:confirm-close', (event) =>
+    wrapHandler(async () => {
+      windowManager.confirmClose(event.sender.id)
+    })
+  )
+
+  // Receipt ack for 'app:close-request' — cancels the hung-renderer fallback
+  // timer so a slow user decision (confirm dialog) never force-closes a live
+  // window. Sent automatically by the preload listener wrapper.
+  ipcMain.on('app:close-ack', (event) => {
+    windowManager.clearCloseTimer(event.sender.id)
+  })
 }

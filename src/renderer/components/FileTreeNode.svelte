@@ -388,7 +388,7 @@
     height: 28px;
     border: none;
     background: none;
-    color: var(--color-text-secondary, #a1a1aa);
+    color: var(--color-text-muted, #a1a1aa);
     font-size: 13px;
     cursor: pointer;
     gap: 4px;
@@ -399,12 +399,12 @@
   }
 
   .tree-row:hover {
-    background: var(--color-surface-hover, rgba(255, 255, 255, 0.05));
+    background: var(--overlay-hover, rgba(255, 255, 255, 0.05));
     color: var(--color-text, #fafafa);
   }
 
   .tree-row.active {
-    background: var(--color-primary-alpha, rgba(0, 229, 255, 0.1));
+    background: var(--color-primary-dim, rgba(0, 229, 255, 0.1));
     color: var(--color-primary, #00e5ff);
   }
 
@@ -464,7 +464,7 @@
     background: var(--color-surface-darker, #0a0a0a);
     border: 1px solid var(--color-primary, #00e5ff);
     border-radius: 4px;
-    color: var(--color-text-main, #e4e4e7);
+    color: var(--color-text, #e4e4e7);
     font: inherit;
     font-size: 13px;
     padding: 1px 6px;

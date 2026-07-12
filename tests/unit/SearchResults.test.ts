@@ -35,6 +35,7 @@ Object.defineProperty(globalThis, 'localStorage', {
   writable: true
 })
 
+import { get } from 'svelte/store'
 import {
   searchQuery,
   searchResults,
@@ -44,6 +45,9 @@ import {
   highlightedIndex
 } from '../../src/renderer/stores/search'
 import { collections, activeCollectionId } from '../../src/renderer/stores/collections'
+import { activeSection } from '../../src/renderer/stores/settings'
+import { settingsOpen } from '../../src/renderer/stores/ui'
+import { classifyCliError } from '../../src/renderer/lib/cli-errors'
 import type { SearchOutput, SearchResult } from '../../src/renderer/types/cli'
 import SearchResults from '@renderer/components/SearchResults.svelte'
 
@@ -86,6 +90,8 @@ function resetStores() {
   highlightedIndex.set(-1)
   collections.set([])
   activeCollectionId.set(null)
+  settingsOpen.set(false)
+  activeSection.set('cli')
 }
 
 beforeEach(() => {
@@ -246,5 +252,76 @@ describe('SearchResults component', () => {
     render(SearchResults)
 
     expect(screen.getByText('1 result')).toBeTruthy()
+  })
+})
+
+describe('SearchResults error states', () => {
+  it('renders title, message, and settings CTA for a missing-key error', () => {
+    searchQuery.set('test query')
+    searchError.set(
+      classifyCliError(
+        new Error('embedding provider error: OpenAI provider requires OPENAI_API_KEY to be set')
+      )
+    )
+
+    render(SearchResults)
+
+    expect(screen.getByText('API key missing')).toBeTruthy()
+    // Message appears in both the visible error detail and the sr-only live region
+    expect(screen.getAllByText(/No OpenAI API key is configured/).length).toBeGreaterThan(0)
+    expect(screen.getByText('Open Embedding Settings')).toBeTruthy()
+  })
+
+  it('renders settings CTA for a bad-key error', () => {
+    searchQuery.set('test query')
+    searchError.set(
+      classifyCliError(
+        new Error('embedding provider error: authentication failed (401): invalid API key')
+      )
+    )
+
+    render(SearchResults)
+
+    expect(screen.getByText('Invalid API key')).toBeTruthy()
+    expect(screen.getByText('Open Embedding Settings')).toBeTruthy()
+  })
+
+  it('does NOT render a settings CTA for a rate-limit error', () => {
+    searchQuery.set('test query')
+    searchError.set(classifyCliError(new Error('embedding provider error: rate limited (429)')))
+
+    render(SearchResults)
+
+    expect(screen.getByText('Rate limited')).toBeTruthy()
+    expect(screen.queryByText('Open Embedding Settings')).toBeNull()
+    expect(screen.queryByText('Open CLI Settings')).toBeNull()
+  })
+
+  it('renders unknown errors as passthrough message without CTA', () => {
+    searchQuery.set('test query')
+    searchError.set(classifyCliError(new Error('something exploded')))
+
+    render(SearchResults)
+
+    expect(screen.getByText('something exploded')).toBeTruthy()
+    expect(screen.queryByText('Open Embedding Settings')).toBeNull()
+  })
+
+  it('clicking the CTA opens embedding settings and closes the overlay', async () => {
+    searchQuery.set('test query')
+    searchError.set(
+      classifyCliError(
+        new Error('embedding provider error: OpenAI provider requires OPENAI_API_KEY to be set')
+      )
+    )
+
+    const closeHandler = vi.fn()
+    render(SearchResults, { props: { oncloserequest: closeHandler } })
+
+    await fireEvent.click(screen.getByText('Open Embedding Settings'))
+
+    expect(closeHandler).toHaveBeenCalledTimes(1)
+    expect(get(settingsOpen)).toBe(true)
+    expect(get(activeSection)).toBe('embedding')
   })
 })

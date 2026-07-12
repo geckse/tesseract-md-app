@@ -1,6 +1,6 @@
 import { writable, derived, get } from 'svelte/store'
 import type { Collection } from '../../preload/api'
-import type { IndexStatus, DoctorResult } from '../types/cli'
+import type { IndexStatus, DoctorResult, VaultInfo } from '../types/cli'
 
 /** All collections managed by the app. */
 export const collections = writable<Collection[]>([])
@@ -26,6 +26,21 @@ export const doctorModalOpen = writable<boolean>(false)
 
 /** Whether a doctor run is currently in flight. */
 export const doctorRunning = writable<boolean>(false)
+
+/** Information snapshot for the active collection and current scope. */
+export const collectionInfo = writable<VaultInfo | null>(null)
+
+/** Whether the collection information modal is open. */
+export const infoModalOpen = writable<boolean>(false)
+
+/** Whether an information request is currently in flight. */
+export const infoLoading = writable<boolean>(false)
+
+/** User-facing information request error. */
+export const infoError = writable<string | null>(null)
+
+/** Relative folder scope, or null for the whole vault. */
+export const infoScope = writable<string | null>(null)
 
 /** Whether collections are currently loading. */
 export const collectionsLoading = writable<boolean>(false)
@@ -76,6 +91,7 @@ export async function removeCollection(id: string): Promise<void> {
   activeCollectionId.update((current) => (current === id ? null : current))
   collectionStatus.set(null)
   collectionDoctorResult.set(null)
+  resetCollectionInfo()
 }
 
 /** Set the active collection and fetch its status. */
@@ -84,6 +100,7 @@ export async function setActiveCollection(id: string): Promise<void> {
   activeCollectionId.set(id)
   collectionStatus.set(null)
   collectionDoctorResult.set(null)
+  resetCollectionInfo()
   // Fire status/doctor fetches in the background — don't block callers
   fetchCollectionStatus(id).catch(() => {})
   fetchCollectionDoctorStatus(id).catch(() => {})
@@ -133,4 +150,45 @@ export async function runDoctor(): Promise<void> {
 export function openDoctorModal(): void {
   doctorModalOpen.set(true)
   void runDoctor()
+}
+
+/** Fetch information for the active collection and selected scope. */
+export async function fetchCollectionInfo(): Promise<void> {
+  const collection = get(activeCollection)
+  if (!collection) return
+
+  const scope = get(infoScope)
+  infoLoading.set(true)
+  infoError.set(null)
+  try {
+    const result = await window.api.info(collection.path, scope ?? undefined)
+    collectionInfo.set(result)
+  } catch (error) {
+    collectionInfo.set(null)
+    infoError.set(error instanceof Error ? error.message : 'Unable to load collection information.')
+  } finally {
+    infoLoading.set(false)
+  }
+}
+
+/** Open collection information for the whole vault or a relative folder scope. */
+export function openInfoModal(scopePath?: string): void {
+  infoScope.set(scopePath ?? null)
+  collectionInfo.set(null)
+  infoError.set(null)
+  infoModalOpen.set(true)
+  void fetchCollectionInfo()
+}
+
+/** Close the collection information modal. */
+export function closeInfoModal(): void {
+  infoModalOpen.set(false)
+}
+
+function resetCollectionInfo(): void {
+  collectionInfo.set(null)
+  infoModalOpen.set(false)
+  infoLoading.set(false)
+  infoError.set(null)
+  infoScope.set(null)
 }

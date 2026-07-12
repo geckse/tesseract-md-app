@@ -16,10 +16,11 @@
  */
 
 import { promises as fs } from 'node:fs'
-import { resolve, sep, dirname, join } from 'node:path'
+import { resolve, sep, join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { Document, Scalar, parseDocument } from 'yaml'
 import { getCollections } from './store'
+import { atomicWriteFile } from './atomic-write'
 import { registerOwnWrite } from './own-writes'
 import type { WindowManager } from './window-manager'
 
@@ -185,14 +186,7 @@ export async function writePatchedFile(
   // The temp file is a dotfile, so the vault watcher never sees it; the final
   // rename surfaces as a 'change' on absolutePath (chokidar atomic handling).
   registerOwnWrite(absolutePath, 'write', content)
-  const tmpPath = join(dirname(absolutePath), `.${Date.now()}.${process.pid}.mdvdb.tmp`)
-  await fs.writeFile(tmpPath, content, 'utf-8')
-  try {
-    await fs.rename(tmpPath, absolutePath)
-  } catch (err) {
-    await fs.rm(tmpPath, { force: true }).catch(() => {})
-    throw err
-  }
+  await atomicWriteFile(absolutePath, content)
 
   // Notify OTHER windows so they reload silently (no conflict prompt).
   if (broadcast) {

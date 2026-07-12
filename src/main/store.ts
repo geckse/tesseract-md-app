@@ -108,6 +108,8 @@ export interface AppStore {
   primaryColor: string | null
   collectionColors: Record<string, string>
   watcherEnabled: Record<string, boolean>
+  /** Obsidian topic sync provenance per collection (phase 44). */
+  obsidianTopicSync: Record<string, ObsidianSyncState>
   themeMode: string
   collectionThemes: Record<string, string>
   terminalShellPath: string
@@ -307,6 +309,10 @@ const schema = {
   watcherEnabled: {
     type: 'object' as const,
     default: {} as Record<string, boolean>
+  },
+  obsidianTopicSync: {
+    type: 'object' as const,
+    default: {} as Record<string, ObsidianSyncState>
   },
   themeMode: {
     type: 'string' as const,
@@ -580,6 +586,36 @@ export function setWatcherEnabled(collectionId: string, enabled: boolean): void 
     delete flags[collectionId]
   }
   s.set('watcherEnabled', flags)
+}
+
+/**
+ * Obsidian topic sync state for a collection (phase 44).
+ * `managed: false` = the vault already had user topics at first scan — never
+ * sync it. `topics` maps managed topic names to the name+seeds hash last
+ * written, or the literal 'deleted' tombstone for user-deleted topics.
+ */
+export interface ObsidianSyncState {
+  managed: boolean
+  topics: Record<string, string>
+}
+
+/** Get the Obsidian topic sync state for a collection (null = never scanned). */
+export function getObsidianSyncState(collectionId: string): ObsidianSyncState | null {
+  const s = initStore()
+  const states = s.get('obsidianTopicSync', {})
+  return states[collectionId] ?? null
+}
+
+/** Persist (or clear, with null) the Obsidian topic sync state for a collection. */
+export function setObsidianSyncState(collectionId: string, state: ObsidianSyncState | null): void {
+  const s = initStore()
+  const states = s.get('obsidianTopicSync', {})
+  if (state) {
+    states[collectionId] = state
+  } else {
+    delete states[collectionId]
+  }
+  s.set('obsidianTopicSync', states)
 }
 
 /** Get the global theme mode */

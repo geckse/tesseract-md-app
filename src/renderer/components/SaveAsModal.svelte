@@ -226,7 +226,7 @@
     margin: 0;
     font-size: 14px;
     font-weight: 600;
-    color: var(--color-text-main, #e4e4e7);
+    color: var(--color-text, #e4e4e7);
   }
 
   .modal-body {
@@ -254,7 +254,7 @@
     border-radius: 6px;
     border: 1px solid var(--color-border, #27272a);
     background: var(--color-surface-dark, #0a0a0a);
-    color: var(--color-text-main, #e4e4e7);
+    color: var(--color-text, #e4e4e7);
     font-family: var(--font-mono, 'JetBrains Mono', monospace);
     font-size: 13px;
     outline: none;
@@ -321,7 +321,7 @@
   }
 
   .btn-secondary:hover:not(:disabled) {
-    color: var(--color-text-main, #e4e4e7);
+    color: var(--color-text, #e4e4e7);
     border-color: var(--color-text-dim, #71717a);
   }
 

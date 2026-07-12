@@ -12,13 +12,15 @@
     cancelIngest,
     rebuildIndex
   } from '../stores/ingest'
+  import { openSettingsSection } from '../stores/settings'
   import type { IngestResult, IngestPreview } from '../types/cli'
+  import { settingsCtaFor, type ClassifiedError } from '../lib/cli-errors'
 
   let currentRunning = $state(false)
   let currentIsReindex = $state(false)
   let currentElapsed = $state(0)
   let currentResult: IngestResult | null = $state(null)
-  let currentError: string | null = $state(null)
+  let currentError: ClassifiedError | null = $state(null)
   let currentOpen = $state(false)
   let currentPreview: IngestPreview | null = $state(null)
   let currentPreviewLoading = $state(false)
@@ -35,11 +37,19 @@
   let hasErrors = $derived(currentResult !== null && currentResult.errors.length > 0)
 
   let isCorrupted = $derived(
-    currentError !== null && currentError.toLowerCase().includes('index corrupted')
+    currentError !== null && currentError.message.toLowerCase().includes('index corrupted')
   )
+
+  let errorCta = $derived(currentError ? settingsCtaFor(currentError) : null)
 
   function handleRebuild() {
     rebuildIndex()
+  }
+
+  function handleOpenSettings() {
+    if (!errorCta) return
+    closeIngestModal()
+    openSettingsSection('global', errorCta.section)
   }
 
   function formatElapsed(secs: number): string {
@@ -198,21 +208,31 @@
       {:else if currentError}
         <div class="modal-header">
           <span class="material-symbols-outlined modal-icon error-icon">error</span>
-          <h2 class="modal-title">Indexing Failed</h2>
+          <h2 class="modal-title">
+            {currentError.kind === 'unknown' ? 'Indexing Failed' : currentError.title}
+          </h2>
         </div>
         <div class="modal-body">
           <div class="error-box">
-            <p class="error-message">{currentError}</p>
+            <p class="error-message">{currentError.message}</p>
           </div>
-          <p class="rebuild-hint">
-            If the issue persists, try deleting the index and re-indexing from scratch.
-          </p>
+          {#if !errorCta}
+            <p class="rebuild-hint">
+              If the issue persists, try deleting the index and re-indexing from scratch.
+            </p>
+          {/if}
         </div>
         <div class="modal-footer">
           <button class="modal-btn modal-btn-cancel" onclick={closeIngestModal}>Close</button>
-          <button class="modal-btn modal-btn-rebuild" onclick={handleRebuild}
-            >Delete Index & Rebuild</button
-          >
+          {#if errorCta}
+            <button class="modal-btn modal-btn-primary" onclick={handleOpenSettings}
+              >{errorCta.label}</button
+            >
+          {:else}
+            <button class="modal-btn modal-btn-rebuild" onclick={handleRebuild}
+              >Delete Index & Rebuild</button
+            >
+          {/if}
         </div>
       {:else if currentResult}
         <div class="modal-header">

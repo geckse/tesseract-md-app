@@ -5,7 +5,6 @@
   import { editorMode, requestSave, requestDiscard } from '../stores/editor'
   import { isDirty } from '../stores/editor'
   import { fileContent } from '../stores/files'
-  import { graphLevel, setGraphLevel } from '../stores/graph'
   import { renderMarkdown } from '../lib/markdown-render'
 
   interface ModeBarProps {
@@ -148,32 +147,6 @@
         </button>
       {/if}
     </div>
-  </div>
-{:else if tabKind === 'graph'}
-  <!-- Graph tab: Document/Chunk level switcher -->
-  <div class="mode-toggle-bar">
-    <div class="mode-toggle-spacer"></div>
-    <div class="mode-toggle" role="tablist" aria-label="Graph level">
-      <button
-        class="mode-tab"
-        class:active={$graphLevel === 'document'}
-        role="tab"
-        aria-selected={$graphLevel === 'document'}
-        onclick={() => setGraphLevel('document')}
-      >
-        Document
-      </button>
-      <button
-        class="mode-tab"
-        class:active={$graphLevel === 'chunk'}
-        role="tab"
-        aria-selected={$graphLevel === 'chunk'}
-        onclick={() => setGraphLevel('chunk')}
-      >
-        Chunk
-      </button>
-    </div>
-    <div class="mode-toggle-spacer"></div>
   </div>
 {/if}
 

@@ -708,7 +708,7 @@
   }
 
   .graph-node.neighbor-node circle {
-    fill: var(--color-neighbor, rgba(228, 228, 231, 0.4));
+    fill: color-mix(in srgb, var(--color-text, #e4e4e7) 40%, transparent);
   }
 
   .graph-node.depth2-node circle {
@@ -727,7 +727,7 @@
 
   .node-label {
     font-size: 11px;
-    fill: var(--color-text-main, rgba(228, 228, 231, 0.85));
+    fill: var(--color-text, rgba(228, 228, 231, 0.85));
     pointer-events: none;
   }
 

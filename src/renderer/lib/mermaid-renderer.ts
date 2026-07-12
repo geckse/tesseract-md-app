@@ -124,9 +124,13 @@ function makeScalableSvg(svg: string): string {
   // Remove fixed dimensions — let CSS control the rendered size
   svgEl.removeAttribute('width')
   svgEl.removeAttribute('height')
-  // Make it fill its container
-  svgEl.style.width = '100%'
-  svgEl.style.height = '100%'
+  // Make it fill its container. setAttribute also works for SVGs parsed as
+  // XML, where DOM implementations do not always expose a `.style` object.
+  const existingStyle = svgEl.getAttribute('style')?.trim()
+  svgEl.setAttribute(
+    'style',
+    `${existingStyle ? `${existingStyle.replace(/;?$/, ';')} ` : ''}width: 100%; height: 100%;`
+  )
 
   return svgEl.outerHTML
 }

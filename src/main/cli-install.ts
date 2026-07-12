@@ -9,12 +9,15 @@
 import { createWriteStream } from 'node:fs'
 import { mkdir, chmod, rename, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
-import { homedir } from 'node:os'
 import type { BrowserWindow } from 'electron'
-import { findCli, getCliVersion } from './cli'
+import { findCli, getCliVersion, resetCliPathCache } from './cli'
+import { getInstallPath } from './cli-paths'
+
+// Re-export so existing importers of the install path keep working.
+export { getInstallPath } from './cli-paths'
 
 /** GitHub repository for releases */
-const GITHUB_REPO = 'nickarino/markdown-vdb'
+const GITHUB_REPO = 'geckse/markdown-vdb'
 
 /** GitHub Releases API URL */
 const GITHUB_RELEASES_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`
@@ -77,20 +80,6 @@ export async function detectCli(): Promise<CliDetectResult> {
   } catch {
     return { found: false }
   }
-}
-
-/**
- * Get the platform-specific install path for the CLI binary.
- *
- * - macOS/Linux: ~/.local/bin/mdvdb
- * - Windows: %LOCALAPPDATA%\mdvdb\mdvdb.exe
- */
-export function getInstallPath(): string {
-  if (process.platform === 'win32') {
-    const localAppData = process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local')
-    return join(localAppData, 'mdvdb', 'mdvdb.exe')
-  }
-  return join(homedir(), '.local', 'bin', 'mdvdb')
 }
 
 /**
@@ -235,6 +224,9 @@ export async function installCli(mainWindow: BrowserWindow): Promise<CliInstallR
     }
 
     await rename(tmpPath, installPath)
+
+    // Invalidate the cached CLI path so the next command picks up the fresh binary
+    resetCliPathCache()
 
     sendProgress({ stage: 'complete', percent: 100, message: 'Installation complete!' })
 

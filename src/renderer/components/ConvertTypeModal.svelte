@@ -380,7 +380,7 @@
   .overlay-backdrop {
     position: absolute;
     inset: 0;
-    background: var(--overlay-backdrop, rgba(0, 0, 0, 0.55));
+    background: var(--overlay-scrim, rgba(0, 0, 0, 0.55));
     border: none;
     cursor: default;
   }

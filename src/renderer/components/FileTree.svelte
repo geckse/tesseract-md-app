@@ -21,7 +21,7 @@
     insertFileNode,
     insertAssetNode
   } from '../stores/files'
-  import { activeCollection, activeCollectionId } from '../stores/collections'
+  import { activeCollection, activeCollectionId, openInfoModal } from '../stores/collections'
   import { runIngest, ingestRunning } from '../stores/ingest'
   import { favorites, toggleFavorite, retargetFavoritesOnRename } from '../stores/favorites'
   import { setGraphPathFilter, setGraphHighlightedFolder, graphViewActive } from '../stores/graph'
@@ -392,6 +392,13 @@
     const path = contextMenuPath
     closeContextMenu()
     onfolderopen?.({ path })
+  }
+
+  function handleInformation() {
+    if (!contextMenuPath || !contextMenuIsDir || contextMenuIsAsset) return
+    const path = contextMenuPath
+    closeContextMenu()
+    openInfoModal(path)
   }
 
   // New file/folder creation
@@ -938,6 +945,10 @@
             <span class="material-symbols-outlined">hub</span>
             Show in Graph
           </button>
+          <button class="context-menu-item" onclick={handleInformation}>
+            <span class="material-symbols-outlined">info</span>
+            Information
+          </button>
         {/if}
       {/if}
       {#if !contextMenuIsDir && !contextMenuIsAsset}
@@ -1004,7 +1015,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: var(--color-text-secondary, #a1a1aa);
+    color: var(--color-text-muted, #a1a1aa);
     margin: 0;
   }
 
@@ -1029,7 +1040,7 @@
     border: 1px solid var(--color-border, #27272a);
     border-right: none;
     background: none;
-    color: var(--color-text-secondary, #a1a1aa);
+    color: var(--color-text-muted, #a1a1aa);
     border-radius: 4px 0 0 4px;
     cursor: pointer;
     padding: 0 8px 0 6px;
@@ -1040,7 +1051,7 @@
   }
 
   .ingest-btn:hover {
-    background: var(--color-surface-hover, rgba(255, 255, 255, 0.05));
+    background: var(--overlay-hover, rgba(255, 255, 255, 0.05));
     color: var(--color-text, #fafafa);
   }
 
@@ -1062,14 +1073,14 @@
     border: 1px solid var(--color-border, #27272a);
     border-left: 1px solid var(--color-border, #27272a);
     background: none;
-    color: var(--color-text-secondary, #a1a1aa);
+    color: var(--color-text-muted, #a1a1aa);
     border-radius: 0 4px 4px 0;
     cursor: pointer;
     padding: 0;
   }
 
   .ingest-chevron:hover {
-    background: var(--color-surface-hover, rgba(255, 255, 255, 0.05));
+    background: var(--overlay-hover, rgba(255, 255, 255, 0.05));
     color: var(--color-text, #fafafa);
   }
 
@@ -1104,7 +1115,7 @@
     padding: 6px 10px;
     border: none;
     background: none;
-    color: var(--color-text-secondary, #a1a1aa);
+    color: var(--color-text-muted, #a1a1aa);
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
@@ -1112,7 +1123,7 @@
   }
 
   .ingest-menu-item:hover {
-    background: var(--color-surface-hover, rgba(255, 255, 255, 0.05));
+    background: var(--overlay-hover, rgba(255, 255, 255, 0.05));
     color: var(--color-text, #fafafa);
   }
 
@@ -1129,14 +1140,14 @@
     height: 24px;
     border: none;
     background: none;
-    color: var(--color-text-secondary, #a1a1aa);
+    color: var(--color-text-muted, #a1a1aa);
     border-radius: 4px;
     cursor: pointer;
     padding: 0;
   }
 
   .icon-btn:hover {
-    background: var(--color-surface-hover, rgba(255, 255, 255, 0.05));
+    background: var(--overlay-hover, rgba(255, 255, 255, 0.05));
     color: var(--color-text, #fafafa);
   }
 
@@ -1167,7 +1178,7 @@
     gap: 8px;
     padding: 6px 12px;
     font-size: 11px;
-    color: var(--color-text-secondary, #a1a1aa);
+    color: var(--color-text-muted, #a1a1aa);
     border-bottom: 1px solid var(--color-border, #27272a);
   }
 
@@ -1225,7 +1236,7 @@
     justify-content: center;
     padding: 32px 16px;
     gap: 8px;
-    color: var(--color-text-secondary, #a1a1aa);
+    color: var(--color-text-muted, #a1a1aa);
   }
 
   .empty-icon {
@@ -1252,12 +1263,12 @@
     border: 1px solid var(--color-border, #27272a);
     border-radius: 4px;
     background: none;
-    color: var(--color-text-secondary, #a1a1aa);
+    color: var(--color-text-muted, #a1a1aa);
     cursor: pointer;
   }
 
   .retry-btn:hover {
-    background: var(--color-surface-hover, rgba(255, 255, 255, 0.05));
+    background: var(--overlay-hover, rgba(255, 255, 255, 0.05));
     color: var(--color-text, #fafafa);
   }
 
@@ -1352,7 +1363,7 @@
     border: 1px solid var(--color-primary, #00e5ff);
     border-radius: 3px;
     background: var(--color-surface-dark, #0a0a0a);
-    color: var(--color-text-main, #e4e4e7);
+    color: var(--color-text, #e4e4e7);
     font-size: 12px;
     font-family: var(--font-mono, 'JetBrains Mono', monospace);
     padding: 0 6px;

@@ -129,8 +129,21 @@
     -webkit-app-region: drag;
     border-bottom: 1px solid var(--color-border, #27272a);
     z-index: 35;
-    padding: 0 12px 7px 80px;
+    padding: 0 12px 7px 12px;
     box-sizing: border-box;
+  }
+
+  /* macOS: inset traffic lights sit in the top-left corner */
+  :global([data-platform='darwin']) .titlebar {
+    padding-left: 80px;
+  }
+
+  /* Windows/Linux (Window Controls Overlay): keep our buttons clear of the
+     native minimize/maximize/close controls drawn over the top-right corner.
+     env(titlebar-area-width) is the drag-safe width left of the controls. */
+  :global([data-platform='win32']) .titlebar,
+  :global([data-platform='linux']) .titlebar {
+    padding-right: calc(100vw - env(titlebar-area-width, 100vw) + 12px);
   }
 
   .titlebar-left {
@@ -212,7 +225,7 @@
   }
 
   .nav-button:hover:not(:disabled) {
-    color: var(--color-text-main, #e4e4e7);
+    color: var(--color-text, #e4e4e7);
     background: var(--color-surface-darker, #0a0a0a);
   }
 

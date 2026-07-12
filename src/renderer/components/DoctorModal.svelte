@@ -380,13 +380,13 @@
   }
 
   .modal-btn-primary {
-    background: var(--color-accent, #3b82f6);
+    background: var(--color-primary, #00e5ff);
     border-color: transparent;
-    color: white;
+    color: var(--color-surface-dark, #0a0a0a);
   }
 
   .modal-btn-primary:hover {
-    opacity: 0.9;
+    background: var(--color-primary-dark, #00b8cc);
   }
 
   .spinner {

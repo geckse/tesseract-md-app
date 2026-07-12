@@ -7,7 +7,7 @@
  */
 
 import { promises as fs } from 'node:fs'
-import { join, relative, extname } from 'node:path'
+import { join, relative, extname, sep } from 'node:path'
 
 /** Mime category for display purposes. */
 export type MimeCategory = 'image' | 'pdf' | 'video' | 'audio' | 'other'
@@ -139,7 +139,9 @@ async function scanDirectory(
     if (ALWAYS_SKIP_DIRS.has(name)) continue
 
     const fullPath = join(dirPath, name)
-    const relPath = relative(collectionRoot, fullPath)
+    // Normalize to forward slashes: renderer paths (and gitignore matching)
+    // are always '/'-separated, while relative() is OS-native on Windows.
+    const relPath = relative(collectionRoot, fullPath).split(sep).join('/')
 
     // Check gitignore
     if (isIgnored) {

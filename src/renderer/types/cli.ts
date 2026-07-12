@@ -75,9 +75,37 @@ export interface IndexStatus {
   document_count: number
   chunk_count: number
   vector_count: number
+  /** Semantic-link vectors; optional for compatibility with older CLI versions. */
+  edge_count?: number
   last_updated: number
   file_size: number
   embedding_config: EmbeddingConfig
+}
+
+/** Sync state of on-disk Markdown files compared with the index. */
+export interface SyncBreakdown {
+  new: number
+  changed: number
+  unchanged: number
+  deleted: number
+}
+
+/** Whole-vault or folder-scoped statistics returned by `mdvdb info`. */
+export interface VaultInfo {
+  scope: string
+  is_whole_vault: boolean
+  file_count: number
+  indexed_file_count: number
+  chunk_count: number
+  vector_count: number
+  edge_count: number
+  reindex_chunks: number
+  reindex_estimated_tokens: number
+  reindex_estimated_api_calls: number
+  index_file_size: number
+  embedding: EmbeddingConfig
+  sync: SyncBreakdown
+  last_updated: number
 }
 
 // ─── Ingestion ───────────────────────────────────────────────────────

@@ -411,7 +411,7 @@
   .split-drop-label {
     font-size: 12px;
     font-weight: 500;
-    font-family: var(--font-sans, 'Space Grotesk', sans-serif);
+    font-family: var(--font-display, 'Space Grotesk', sans-serif);
   }
 
   @media (prefers-reduced-motion: reduce) {

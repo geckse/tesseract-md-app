@@ -222,7 +222,7 @@ describe('Favorites component', () => {
     await fireEvent.click(introButton!)
 
     // Should open the file via workspace.openTab
-    expect(openTabSpy).toHaveBeenCalledWith('guide/intro.md')
+    expect(openTabSpy).toHaveBeenCalledWith('guide/intro.md', expect.any(String))
     // Should sync file stores
     expect(syncFileStoresFromTab).toHaveBeenCalled()
 
@@ -249,7 +249,7 @@ describe('Favorites component', () => {
     expect(mockApi.setActiveCollection).toHaveBeenCalledWith('2')
 
     // Then open the file via workspace.openTab
-    expect(openTabSpy).toHaveBeenCalledWith('notes/meeting.md')
+    expect(openTabSpy).toHaveBeenCalledWith('notes/meeting.md', expect.any(String))
 
     openTabSpy.mockRestore()
   })
@@ -273,7 +273,7 @@ describe('Favorites component', () => {
     expect(mockApi.setActiveCollection).not.toHaveBeenCalled()
 
     // But should still open the file via workspace.openTab
-    expect(openTabSpy).toHaveBeenCalledWith('guide/intro.md')
+    expect(openTabSpy).toHaveBeenCalledWith('guide/intro.md', expect.any(String))
 
     openTabSpy.mockRestore()
   })

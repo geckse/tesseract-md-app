@@ -14,8 +14,9 @@
  */
 
 import { promises as fs } from 'node:fs'
-import { join, dirname } from 'node:path'
+import { join } from 'node:path'
 import { Document, parseDocument } from 'yaml'
+import { atomicWriteFile } from './atomic-write'
 import { registerOwnWrite } from './own-writes'
 import type { OverlayFieldPatch } from '../preload/api'
 
@@ -67,14 +68,7 @@ async function writeOverlayDocument(root: string, doc: Document): Promise<void> 
   const path = join(root, OVERLAY_FILENAME)
   const content = doc.toString()
   registerOwnWrite(path, 'write', content)
-  const tmpPath = join(dirname(path), `.${Date.now()}.${process.pid}.schema-overlay.tmp`)
-  await fs.writeFile(tmpPath, content, 'utf-8')
-  try {
-    await fs.rename(tmpPath, path)
-  } catch (err) {
-    await fs.rm(tmpPath, { force: true }).catch(() => {})
-    throw err
-  }
+  await atomicWriteFile(path, content)
 }
 
 /** The YAML path to a field's map for a scope (`null` = global `fields:`). */

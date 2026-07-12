@@ -159,7 +159,7 @@
   }
 
   .autocomplete-secondary {
-    color: var(--color-text-secondary, #a1a1aa);
+    color: var(--color-text-muted, #a1a1aa);
     font-size: var(--text-xs, 11px);
     flex-shrink: 0;
   }

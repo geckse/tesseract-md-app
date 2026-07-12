@@ -222,11 +222,11 @@
   }
 
   .modal-btn-primary {
-    background: var(--color-accent, #3b82f6);
-    color: white;
+    background: var(--color-primary, #00e5ff);
+    color: var(--color-surface-dark, #0a0a0a);
   }
 
   .modal-btn-primary:hover {
-    opacity: 0.9;
+    background: var(--color-primary-dark, #00b8cc);
   }
 </style>

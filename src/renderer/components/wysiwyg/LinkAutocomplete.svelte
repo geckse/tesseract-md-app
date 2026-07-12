@@ -430,7 +430,7 @@
 
   .link-icon {
     font-size: 18px;
-    color: var(--color-text-secondary, #a1a1aa);
+    color: var(--color-text-muted, #a1a1aa);
     width: 20px;
     text-align: center;
     flex-shrink: 0;
@@ -462,7 +462,7 @@
 
   .link-empty {
     padding: var(--space-2, 8px) var(--space-3, 12px);
-    color: var(--color-text-secondary, #a1a1aa);
+    color: var(--color-text-muted, #a1a1aa);
     font-size: var(--text-sm, 13px);
   }
 

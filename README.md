@@ -186,6 +186,39 @@ Grab the latest release for your platform:
 
 > [Releases on GitHub](https://github.com/geckse/tesseract-md-app/releases)
 
+### First-Run Setup
+
+On first launch, Tesseract looks for a compatible `mdvdb` CLI and offers to download it from
+GitHub Releases when it is missing or outdated. You do not need to install the CLI on your
+`PATH`; the app also checks its managed installation directory and standard system locations.
+
+The setup wizard then asks you to choose an embedding provider:
+
+- **OpenAI** stores the API key in your user config at `~/.mdvdb/config`.
+- **Ollama** stores its host and model settings in the same user config and runs embeddings
+  locally through your Ollama server.
+- **Skip** leaves semantic indexing and search unavailable until you configure a provider in
+  Settings.
+
+Collection-level settings are stored in `.markdownvdb/.config` inside that collection. API keys
+saved there are plaintext and may be copied by vault-sync tools, so user-level configuration is
+recommended for credentials.
+
+### Windows SmartScreen
+
+The Windows beta is currently unsigned. If Microsoft Defender SmartScreen warns about the
+installer, confirm that it came from the official Tesseract GitHub release, then choose **More
+info → Run anyway**.
+
+### Linux
+
+Linux releases include both an AppImage and a Debian package (`.deb`). Make the AppImage
+executable before launching it (`chmod +x Tesseract-*.AppImage`), or install the Debian package
+with your system package manager. Some distributions may require FUSE for AppImage support.
+
+Tesseract's only network egress is to GitHub for CLI/app release checks and to the embedding
+provider you choose. Your Markdown files and indexes remain local.
+
 ### Build from Source
 
 ```bash
@@ -203,7 +236,8 @@ npm run dev
 npm run build
 ```
 
-Requires the `mdvdb` CLI binary on your PATH. Install it from [markdown-vdb](https://github.com/geckse/markdown-vdb).
+Development builds can use `mdvdb` from `PATH`, the app-managed CLI directory, or a standard
+system install location. The first-run installer can acquire it automatically in packaged builds.
 
 ---
 

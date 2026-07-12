@@ -14,7 +14,9 @@
   } from '../stores/search'
   import { activeCollection } from '../stores/collections'
   import { setGraphHoveredFilePath } from '../stores/graph'
+  import { openSettingsSection } from '../stores/settings'
   import type { SearchResult, SearchMode, GraphContextItem } from '../types/cli'
+  import { settingsCtaFor, type ClassifiedError } from '../lib/cli-errors'
   import { calculateVirtualListState, throttleScroll } from '../lib/virtual-list'
 
   interface SearchResultsProps {
@@ -36,7 +38,7 @@
   let currentMode: SearchMode = $state('hybrid')
   const unsub4 = searchMode.subscribe((v) => (currentMode = v))
 
-  let currentError: string | null = $state(null)
+  let currentError: ClassifiedError | null = $state(null)
   const unsub5 = searchError.subscribe((v) => (currentError = v))
 
   let currentHighlighted = $state(-1)
@@ -59,6 +61,8 @@
     unsub8()
     setGraphHoveredFilePath(null)
   })
+
+  let errorCta = $derived(currentError ? settingsCtaFor(currentError) : null)
 
   let results = $derived(currentResults?.results ?? [])
   let graphContext = $derived(currentResults?.graph_context ?? [])
@@ -122,6 +126,12 @@
       oncloserequest?.()
     }
   }
+
+  function handleOpenSettings() {
+    if (!errorCta) return
+    oncloserequest?.()
+    openSettingsSection('global', errorCta.section)
+  }
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -133,7 +143,7 @@
       {#if currentLoading}
         Searching...
       {:else if currentError}
-        Search error: {currentError}
+        Search error: {currentError.title}. {currentError.message}
       {:else if hasQuery && hasResults}
         Found {totalResults} result{totalResults !== 1 ? 's' : ''} for {currentQuery}
       {:else if hasQuery && !hasResults}
@@ -179,7 +189,13 @@
           <span>Searching…</span>
         </div>
       {:else if currentError}
-        <div class="state-message error">{currentError}</div>
+        <div class="state-message error error-state">
+          <span class="error-title">{currentError.title}</span>
+          <span class="error-detail">{currentError.message}</span>
+          {#if errorCta}
+            <button class="settings-cta" onclick={handleOpenSettings}>{errorCta.label}</button>
+          {/if}
+        </div>
       {:else if hasQuery && !hasResults}
         <div class="state-message">No results for "{currentQuery}"</div>
       {:else if !hasQuery}
@@ -353,6 +369,48 @@
 
   .state-message.error {
     color: var(--color-error, #ef4444);
+  }
+
+  .state-message.error-state {
+    flex-direction: column;
+    gap: 6px;
+    text-align: center;
+  }
+
+  .error-title {
+    font-weight: var(--weight-medium, 500);
+    color: var(--color-error, #ef4444);
+  }
+
+  .error-detail {
+    color: var(--color-text-dim, #71717a);
+    font-size: var(--text-xs, 10px);
+    max-width: 420px;
+    line-height: var(--leading-normal, 1.5);
+  }
+
+  .settings-cta {
+    margin-top: 4px;
+    padding: 4px 12px;
+    border: none;
+    border-radius: var(--radius-full, 9999px);
+    font-size: var(--text-xs, 10px);
+    font-family: var(--font-mono, monospace);
+    font-weight: var(--weight-medium, 500);
+    cursor: pointer;
+    background: var(--color-primary, #00e5ff);
+    color: var(--color-bg, #0f0f10);
+    transition: background var(--transition-fast, 150ms ease);
+  }
+
+  .settings-cta:hover {
+    background: var(--color-primary-dark, #00b8cc);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .settings-cta {
+      transition: none;
+    }
   }
 
   .spinner {

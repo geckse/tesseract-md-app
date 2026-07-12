@@ -18,6 +18,7 @@ import type {
   Schema,
   Config,
   DoctorResult,
+  VaultInfo,
   AssetScanResult,
   CollectionOutput,
   JsonValue,
@@ -52,6 +53,19 @@ export interface RecentEntry {
 export interface MenuCommand {
   id: string
   payload?: unknown
+}
+
+/**
+ * Broadcast from main via `topics:obsidian-synced` after an Obsidian vault
+ * sync changed at least one topic (phase 44). The first sync of a fresh
+ * vault is a pure import (`updated`/`removed` empty).
+ */
+export interface ObsidianTopicsSyncedEvent {
+  collectionId: string
+  root: string
+  added: string[]
+  updated: string[]
+  removed: string[]
 }
 
 /**
@@ -412,6 +426,8 @@ export interface MdvdbApi {
   updateTopic(root: string, name: string, def: TopicDef): Promise<void>
   removeTopic(root: string, name: string): Promise<void>
   topicUnassigned(root: string): Promise<TopicUnassigned>
+  onObsidianTopicsSynced(callback: (event: ObsidianTopicsSyncedEvent) => void): void
+  removeObsidianTopicsSyncedListener(): void
   setConfigValue(root: string, key: string, value: string): Promise<void>
   graphData(root: string, level?: GraphLevel, path?: string): Promise<GraphData>
   schema(root: string, path?: string): Promise<Schema>
@@ -422,6 +438,7 @@ export interface MdvdbApi {
   ): Promise<CollectionOutput>
   config(root: string): Promise<Config>
   doctor(root: string): Promise<DoctorResult>
+  info(root: string, path?: string): Promise<VaultInfo>
   init(root: string): Promise<void>
   resetIndex(root: string): Promise<void>
 
@@ -612,6 +629,13 @@ export interface MdvdbApi {
 
   // Multi-window management
   newWindow(): Promise<void>
+
+  // Dirty-close guard (data safety): main intercepts native window close and
+  // asks the renderer; the renderer answers with confirmClose() once the
+  // window may really close (clean, or unsaved changes explicitly discarded).
+  onCloseRequest(callback: () => void): void
+  removeCloseRequestListener(): void
+  confirmClose(): Promise<void>
 
   // Cross-window tab transfer
   detachTab(tabData: TabTransferData): Promise<void>

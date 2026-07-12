@@ -3354,9 +3354,11 @@
     font-size: 12px;
     color: var(--color-text-muted, rgba(228, 228, 231, 0.7));
     white-space: nowrap;
+    /* Halo matches the canvas background (theme-aware) so labels stay readable
+       over hull fills and edges in both dark and light mode. */
     text-shadow:
-      0 0 4px rgba(0, 0, 0, 0.9),
-      0 0 8px rgba(0, 0, 0, 0.6);
+      0 0 4px color-mix(in srgb, var(--color-bg, #0f0f10) 90%, transparent),
+      0 0 8px color-mix(in srgb, var(--color-bg, #0f0f10) 60%, transparent);
     transition:
       left 60ms linear,
       top 60ms linear,
@@ -3430,8 +3432,8 @@
     pointer-events: none;
     white-space: nowrap;
     text-shadow:
-      0 0 6px rgba(0, 0, 0, 0.9),
-      0 0 12px rgba(0, 0, 0, 0.6);
+      0 0 6px color-mix(in srgb, var(--color-bg, #0f0f10) 90%, transparent),
+      0 0 12px color-mix(in srgb, var(--color-bg, #0f0f10) 60%, transparent);
     opacity: 0.85;
     transition:
       left 60ms linear,
@@ -3671,7 +3673,7 @@
     padding: 6px 12px;
     border: none;
     background: none;
-    color: var(--color-text-main, #e4e4e7);
+    color: var(--color-text, #e4e4e7);
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
@@ -3917,7 +3919,7 @@
   }
 
   .graph-popout-btn:hover {
-    color: var(--color-text-main, #e4e4e7);
+    color: var(--color-text, #e4e4e7);
   }
 
   /* Badges stack below the view-mode dropdown in the top-left corner */
@@ -4108,8 +4110,8 @@
   }
 
   .graph-recenter-btn:hover {
-    color: var(--color-text-main, #e4e4e7);
-    background: var(--color-surface-hover, #1e1e20);
+    color: var(--color-text, #e4e4e7);
+    background: var(--overlay-hover, #1e1e20);
   }
 
   .graph-recenter-btn .material-symbols-outlined {

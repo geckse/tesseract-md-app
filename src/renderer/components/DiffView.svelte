@@ -221,7 +221,7 @@
     margin: 0;
     font-size: 14px;
     font-weight: 600;
-    color: var(--color-text-main, #e4e4e7);
+    color: var(--color-text, #e4e4e7);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -262,7 +262,7 @@
 
   .mode-btn.active {
     background: var(--color-surface-dark, #0a0a0a);
-    color: var(--color-text-main, #e4e4e7);
+    color: var(--color-text, #e4e4e7);
   }
 
   .mode-btn:focus-visible {
@@ -336,7 +336,7 @@
 
   .btn-secondary:hover {
     background: var(--color-surface-dark, #0a0a0a);
-    color: var(--color-text-main, #e4e4e7);
+    color: var(--color-text, #e4e4e7);
   }
 
   .btn-secondary:focus-visible {

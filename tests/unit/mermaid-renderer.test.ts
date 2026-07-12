@@ -45,7 +45,9 @@ describe('generateMermaidId', () => {
 describe('renderMermaidDiagram', () => {
   it('returns svg for valid input', async () => {
     const result = await renderMermaidDiagram('test-1', 'graph TD\n    A --> B')
-    expect(result).toEqual({ svg: '<svg>mock diagram</svg>' })
+    expect(result).toHaveProperty('svg')
+    expect('svg' in result && result.svg).toContain('width: 100%')
+    expect('svg' in result && result.svg).toContain('mock diagram')
   })
 
   it('returns error for empty code', async () => {
@@ -91,8 +93,8 @@ describe('renderMermaidDiagram', () => {
       renderMermaidDiagram('q2', 'graph TD\nC-->D')
     ])
 
-    expect(r1).toEqual({ svg: '<svg>first</svg>' })
-    expect(r2).toEqual({ svg: '<svg>second</svg>' })
+    expect('svg' in r1 && r1.svg).toContain('first')
+    expect('svg' in r2 && r2.svg).toContain('second')
     // First call should complete before second starts
     expect(callOrder).toEqual([1, 2])
   })

@@ -71,9 +71,9 @@ test.describe('Onboarding Flow', () => {
     await expect(skipLink).toBeVisible()
     await skipLink.click()
 
-    // Should advance to collection step
+    // Should advance to provider step
     const stepTitle = window.locator('.step-title')
-    await expect(stepTitle).toContainText(/collection|folder/i)
+    await expect(stepTitle).toContainText(/embedding provider/i)
 
     await electronApp.close()
   })
@@ -90,14 +90,15 @@ test.describe('Onboarding Flow', () => {
     await getStartedBtn.click()
 
     // Step 2: CLI - skip
-    let skipLink = window.locator('.skip-link')
+    const skipLink = window.locator('.skip-link')
     await expect(skipLink).toBeVisible()
     await skipLink.click()
 
-    // Step 3: Collection - skip
-    skipLink = window.locator('.skip-link')
-    await expect(skipLink).toBeVisible()
-    await skipLink.click()
+    // Step 3: Provider - skip
+    await window.getByRole('button', { name: /skip for now/i }).click()
+
+    // Step 4: Collection - skip
+    await window.locator('.skip-link', { hasText: /^Skip$/ }).click()
 
     // Onboarding overlay should be gone
     const overlay = window.locator('.onboarding-overlay')
@@ -128,8 +129,8 @@ test.describe('Onboarding Flow', () => {
       await getStartedBtn.click()
       const skipLink1 = window.locator('.skip-link')
       await skipLink1.click()
-      const skipLink2 = window.locator('.skip-link')
-      await skipLink2.click()
+      await window.getByRole('button', { name: /skip for now/i }).click()
+      await window.locator('.skip-link', { hasText: /^Skip$/ }).click()
       await expect(overlay).not.toBeVisible()
     }
 
@@ -162,7 +163,7 @@ test.describe('Onboarding Flow', () => {
     // On welcome step, first dot should be active
     const dots = window.locator('.step-dots .dot')
     const count = await dots.count()
-    expect(count).toBeGreaterThanOrEqual(3)
+    expect(count).toBe(4)
 
     const firstDot = dots.nth(0)
     await expect(firstDot).toHaveClass(/active/)

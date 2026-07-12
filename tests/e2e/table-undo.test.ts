@@ -182,9 +182,9 @@ test.describe('Table undo/redo @table-undo', () => {
     await window.keyboard.press('Meta+z')
     await expect.poll(() => existsSync(filePath), { timeout: 15_000 }).toBe(true)
     expect(readFileSync(filePath, 'utf-8')).toBe(UNDO_ME_CONTENT)
-    await expect(
-      window.locator('.row:not(.deleted)', { hasText: 'undo-me' }).first()
-    ).toBeVisible({ timeout: 15_000 })
+    await expect(window.locator('.row:not(.deleted)', { hasText: 'undo-me' }).first()).toBeVisible({
+      timeout: 15_000
+    })
 
     await electronApp.close()
   })

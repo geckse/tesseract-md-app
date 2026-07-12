@@ -213,7 +213,7 @@
     flex: 1;
     font-size: 15px;
     font-weight: 600;
-    color: var(--color-text-main);
+    color: var(--color-text);
     margin: 0;
   }
 
@@ -228,7 +228,7 @@
   }
 
   .modal-close:hover {
-    color: var(--color-text-main);
+    color: var(--color-text);
     background: var(--color-surface);
   }
 
@@ -259,7 +259,7 @@
     background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: 6px;
-    color: var(--color-text-main);
+    color: var(--color-text);
     outline: none;
     box-sizing: border-box;
   }
@@ -276,7 +276,7 @@
     background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: 6px;
-    color: var(--color-text-main);
+    color: var(--color-text);
     outline: none;
     resize: vertical;
     font-family: inherit;
@@ -306,7 +306,7 @@
     align-items: center;
     gap: 8px;
     font-size: 12px;
-    color: var(--color-text-main);
+    color: var(--color-text);
     cursor: pointer;
   }
 
@@ -346,7 +346,7 @@
   .threshold-value {
     font-family: var(--font-mono, 'JetBrains Mono', monospace);
     font-size: 12px;
-    color: var(--color-text-main);
+    color: var(--color-text);
     min-width: 36px;
     text-align: right;
   }
@@ -371,7 +371,7 @@
 
   .btn-secondary {
     background: var(--color-surface);
-    color: var(--color-text-main);
+    color: var(--color-text);
     border: 1px solid var(--color-border);
   }
 

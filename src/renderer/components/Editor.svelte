@@ -11,6 +11,7 @@
   import { softRender } from '../lib/soft-render'
   import { frontmatterDecoration } from '../lib/frontmatter-decoration'
   import { computeMinimalChanges } from '../lib/external-apply'
+  import { relativeToCollection } from '../lib/path'
   import { activeCollection } from '../stores/collections'
   import { workspace, type DocumentTab } from '../stores/workspace.svelte'
   import {
@@ -846,10 +847,7 @@
         const checkResult = await window.api.isWithinCollection(absolutePath)
 
         if (checkResult.within && checkResult.collectionPath === collection.path) {
-          const collPath = collection.path.endsWith('/') ? collection.path : collection.path + '/'
-          const relToCollection = absolutePath.startsWith(collPath)
-            ? absolutePath.slice(collPath.length)
-            : file.name
+          const relToCollection = relativeToCollection(absolutePath, collection.path) ?? file.name
           const relPath = cmRelativePath(currentFile, relToCollection)
           const name = file.name
 

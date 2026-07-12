@@ -426,7 +426,7 @@
 
   .item-icon {
     font-size: 16px;
-    color: var(--color-text-secondary, #a1a1aa);
+    color: var(--color-text-muted, #a1a1aa);
   }
 
   @media (prefers-reduced-motion: reduce) {

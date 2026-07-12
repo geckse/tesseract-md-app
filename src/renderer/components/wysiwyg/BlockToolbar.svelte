@@ -207,7 +207,7 @@
 
   .block-toolbar-item-icon {
     font-size: 18px;
-    color: var(--color-text-secondary, #a1a1aa);
+    color: var(--color-text-muted, #a1a1aa);
     width: 20px;
     text-align: center;
   }

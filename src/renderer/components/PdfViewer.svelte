@@ -234,7 +234,7 @@
   }
 
   .tool-btn:hover:not(:disabled) {
-    color: var(--color-text-main, #e4e4e7);
+    color: var(--color-text, #e4e4e7);
     border-color: var(--color-text-dim, #71717a);
   }
 

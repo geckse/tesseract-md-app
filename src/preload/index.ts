@@ -70,12 +70,19 @@ const api: MdvdbApi = {
   updateTopic: (root, name, def) => invoke('cli:clusters-update', root, name, def),
   removeTopic: (root, name) => invoke('cli:clusters-remove', root, name),
   topicUnassigned: (root) => invoke('cli:clusters-unassigned', root),
+  onObsidianTopicsSynced: (callback) => {
+    ipcRenderer.on('topics:obsidian-synced', (_event, data) => callback(data))
+  },
+  removeObsidianTopicsSyncedListener: () => {
+    ipcRenderer.removeAllListeners('topics:obsidian-synced')
+  },
   setConfigValue: (root, key, value) => invoke('cli:config-set', root, key, value),
   graphData: (root, level?, path?) => invoke('cli:graph', root, level, path),
   schema: (root, path?) => invoke('cli:schema', root, path),
   collection: (root, folderPath, options?) => invoke('cli:collection', root, folderPath, options),
   config: (root) => invoke('cli:config', root),
   doctor: (root) => invoke('cli:doctor', root),
+  info: (root, path?) => invoke('cli:info', root, path),
   init: (root) => invoke('cli:init', root),
   resetIndex: (root) => invoke('cli:reset-index', root),
 
@@ -269,6 +276,20 @@ const api: MdvdbApi = {
 
   // Multi-window management
   newWindow: () => invoke('window:new'),
+
+  // Dirty-close guard: main asks before really closing the window.
+  // The ack is sent BEFORE the callback runs so main cancels its
+  // hung-renderer fallback timer even while a confirm dialog blocks.
+  onCloseRequest: (callback) => {
+    ipcRenderer.on('app:close-request', () => {
+      ipcRenderer.send('app:close-ack')
+      callback()
+    })
+  },
+  removeCloseRequestListener: () => {
+    ipcRenderer.removeAllListeners('app:close-request')
+  },
+  confirmClose: () => invoke('app:confirm-close'),
 
   // Cross-window tab transfer
   detachTab: (tabData) => invoke('tab:detach', tabData),

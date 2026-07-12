@@ -39,6 +39,10 @@ class MockBrowserWindow {
   }
 
   show = vi.fn()
+  focus = vi.fn()
+  restore = vi.fn()
+  isMinimized = vi.fn().mockReturnValue(false)
+  setTitleBarOverlay = vi.fn()
 
   close(): void {
     this._closed = true
@@ -75,8 +79,10 @@ class MockBrowserWindow {
 }
 
 // Mock electron
+const mockNativeTheme = vi.hoisted(() => ({ shouldUseDarkColors: true }))
 vi.mock('electron', () => ({
   BrowserWindow: vi.fn().mockImplementation(() => new MockBrowserWindow()),
+  nativeTheme: mockNativeTheme,
   shell: {
     openExternal: vi.fn()
   }
@@ -98,6 +104,7 @@ vi.mock('../../src/main/store', () => ({
   setZoomLevel: vi.fn()
 }))
 
+import { BrowserWindow } from 'electron'
 import { WindowManager } from '../../src/main/window-manager'
 
 // ── Tests ────────────────────────────────────────────────────────────────
@@ -164,6 +171,180 @@ describe('WindowManager', () => {
       wm.createWindow()
 
       expect(mockStoreGet).toHaveBeenCalledWith('windowBounds', expect.any(Object))
+    })
+  })
+
+  describe('window background color', () => {
+    function lastBrowserWindowOptions(): { backgroundColor: string } {
+      const calls = vi.mocked(BrowserWindow).mock.calls
+      return calls[calls.length - 1][0] as unknown as { backgroundColor: string }
+    }
+
+    function setThemeMode(mode: string | undefined) {
+      mockStoreGet.mockImplementation((key: string, defaultValue?: unknown) => {
+        if (key === 'windowBounds') return { x: 0, y: 0, width: 1200, height: 800 }
+        if (key === 'zoomLevel') return 1.0
+        if (key === 'themeMode') return mode ?? defaultValue
+        return defaultValue
+      })
+    }
+
+    it('paints dark for themeMode=dark', () => {
+      setThemeMode('dark')
+      wm.createWindow()
+      expect(lastBrowserWindowOptions().backgroundColor).toBe('#0f0f10')
+    })
+
+    it('paints the light --color-bg for themeMode=light', () => {
+      setThemeMode('light')
+      wm.createWindow()
+      expect(lastBrowserWindowOptions().backgroundColor).toBe('#e9e9e9')
+    })
+
+    it('follows the OS for themeMode=auto (dark OS)', () => {
+      setThemeMode('auto')
+      mockNativeTheme.shouldUseDarkColors = true
+      wm.createWindow()
+      expect(lastBrowserWindowOptions().backgroundColor).toBe('#0f0f10')
+    })
+
+    it('follows the OS for themeMode=auto (light OS)', () => {
+      setThemeMode('auto')
+      mockNativeTheme.shouldUseDarkColors = false
+      wm.createWindow()
+      expect(lastBrowserWindowOptions().backgroundColor).toBe('#e9e9e9')
+    })
+
+    it('popup windows use the same theme-aware background', () => {
+      setThemeMode('light')
+      wm.createPopupWindow({ kind: 'document' })
+      expect(lastBrowserWindowOptions().backgroundColor).toBe('#e9e9e9')
+    })
+  })
+
+  describe('platform titlebar options', () => {
+    /** Run `fn` with process.platform stubbed to `platform`. */
+    function withPlatform(platform: string, fn: () => void): void {
+      const original = process.platform
+      Object.defineProperty(process, 'platform', { value: platform, configurable: true })
+      try {
+        fn()
+      } finally {
+        Object.defineProperty(process, 'platform', { value: original, configurable: true })
+      }
+    }
+
+    function lastBrowserWindowOptions(): Record<string, unknown> {
+      const calls = vi.mocked(BrowserWindow).mock.calls
+      return calls[calls.length - 1][0] as unknown as Record<string, unknown>
+    }
+
+    it('darwin keeps inset traffic lights and no overlay', () => {
+      withPlatform('darwin', () => {
+        wm.createWindow()
+        const opts = lastBrowserWindowOptions()
+        expect(opts.titleBarStyle).toBe('hiddenInset')
+        expect(opts.titleBarOverlay).toBeUndefined()
+      })
+    })
+
+    it('win32 gets a hidden titlebar with a 35px Window Controls Overlay', () => {
+      withPlatform('win32', () => {
+        wm.createWindow()
+        const opts = lastBrowserWindowOptions()
+        expect(opts.titleBarStyle).toBe('hidden')
+        expect(opts.titleBarOverlay).toEqual({
+          color: '#0f0f10',
+          symbolColor: '#e4e4e7',
+          height: 35
+        })
+      })
+    })
+
+    it('linux gets the same overlay treatment as win32', () => {
+      withPlatform('linux', () => {
+        wm.createWindow()
+        const opts = lastBrowserWindowOptions()
+        expect(opts.titleBarStyle).toBe('hidden')
+        expect(opts.titleBarOverlay).toMatchObject({ height: 35 })
+      })
+    })
+
+    it('popup windows get a 28px overlay on win32', () => {
+      withPlatform('win32', () => {
+        wm.createPopupWindow({ kind: 'document' })
+        const opts = lastBrowserWindowOptions()
+        expect(opts.titleBarStyle).toBe('hidden')
+        expect(opts.titleBarOverlay).toMatchObject({ height: 28 })
+      })
+    })
+
+    it('popup windows keep hiddenInset on darwin', () => {
+      withPlatform('darwin', () => {
+        wm.createPopupWindow({ kind: 'document' })
+        const opts = lastBrowserWindowOptions()
+        expect(opts.titleBarStyle).toBe('hiddenInset')
+        expect(opts.titleBarOverlay).toBeUndefined()
+      })
+    })
+
+    it('overlay colors follow the light theme', () => {
+      mockStoreGet.mockImplementation((key: string, defaultValue?: unknown) => {
+        if (key === 'windowBounds') return { x: 0, y: 0, width: 1200, height: 800 }
+        if (key === 'zoomLevel') return 1.0
+        if (key === 'themeMode') return 'light'
+        return defaultValue
+      })
+      withPlatform('win32', () => {
+        wm.createWindow()
+        expect(lastBrowserWindowOptions().titleBarOverlay).toEqual({
+          color: '#e9e9e9',
+          symbolColor: '#1a1a1a',
+          height: 35
+        })
+      })
+    })
+
+    describe('updateTitleBarOverlay', () => {
+      it('re-colors every live window on win32', () => {
+        withPlatform('win32', () => {
+          const a = wm.createWindow() as unknown as MockBrowserWindow
+          const b = wm.createPopupWindow({ kind: 'document' }) as unknown as MockBrowserWindow
+
+          wm.updateTitleBarOverlay()
+
+          expect(a.setTitleBarOverlay).toHaveBeenCalledWith({
+            color: '#0f0f10',
+            symbolColor: '#e4e4e7'
+          })
+          expect(b.setTitleBarOverlay).toHaveBeenCalledWith({
+            color: '#0f0f10',
+            symbolColor: '#e4e4e7'
+          })
+        })
+      })
+
+      it('is a no-op on darwin', () => {
+        withPlatform('darwin', () => {
+          const win = wm.createWindow() as unknown as MockBrowserWindow
+          wm.updateTitleBarOverlay()
+          expect(win.setTitleBarOverlay).not.toHaveBeenCalled()
+        })
+      })
+
+      it('skips windows lacking setTitleBarOverlay and errors from it', () => {
+        withPlatform('linux', () => {
+          const a = wm.createWindow() as unknown as MockBrowserWindow
+          const b = wm.createWindow() as unknown as MockBrowserWindow
+          delete (a as unknown as Record<string, unknown>).setTitleBarOverlay
+          b.setTitleBarOverlay.mockImplementation(() => {
+            throw new Error('no overlay on this window')
+          })
+
+          expect(() => wm.updateTitleBarOverlay()).not.toThrow()
+          expect(b.setTitleBarOverlay).toHaveBeenCalled()
+        })
+      })
     })
   })
 
