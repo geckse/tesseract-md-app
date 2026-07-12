@@ -72,11 +72,7 @@ function ensureSweeper(): void {
  * the OS event can only fire after the write begins, so registry-before-event
  * ordering is guaranteed within the main process.
  */
-export function registerOwnWrite(
-  absPath: string,
-  op: OwnWriteOp,
-  content?: string | Buffer
-): void {
+export function registerOwnWrite(absPath: string, op: OwnWriteOp, content?: string | Buffer): void {
   const key = resolve(absPath)
   const size =
     content == null
@@ -95,7 +91,9 @@ function opMatchesKind(op: OwnWriteOp, kind: VaultFileEventKind): boolean {
   switch (kind) {
     case 'created':
     case 'modified':
-      return op === 'write' || op === 'create' || op === 'copy' || op === 'rename-to' || op === 'mkdir'
+      return (
+        op === 'write' || op === 'create' || op === 'copy' || op === 'rename-to' || op === 'mkdir'
+      )
     case 'deleted':
       return op === 'delete' || op === 'rename-from'
     case 'renamed':
@@ -124,8 +122,7 @@ export function matchAndConsumeOwnWrite(
 
   const idx = live.findIndex(
     (e) =>
-      opMatchesKind(e.op, kind) &&
-      (e.size === null || stat?.size == null || e.size === stat.size)
+      opMatchesKind(e.op, kind) && (e.size === null || stat?.size == null || e.size === stat.size)
   )
 
   if (idx === -1) {

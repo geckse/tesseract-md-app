@@ -34,16 +34,16 @@ Users cannot create new markdown files from within the app — they must switch 
 
 Add six new IPC channels to `app/src/main/ipc-handlers.ts`, all following the existing collection-boundary validation pattern from `fs:read-file` / `fs:write-file`:
 
-| Channel | Signature | Purpose |
-|---|---|---|
-| `fs:create-file` | `(absolutePath: string, content: string) → void` | Create a new file on disk. Uses `fs.writeFile` with `{ flag: 'wx' }` (exclusive create — fails if exists). |
-| `fs:create-directory` | `(absolutePath: string) → void` | Create a new directory. Uses `fs.mkdir` with `{ recursive: true }`. |
-| `fs:scan-assets` | `(collectionPath: string) → AssetScanResult` | Recursively scan collection for non-markdown files. Returns structured tree. |
-| `fs:read-binary` | `(absolutePath: string) → string` | Read a file as base64-encoded string. For images/PDFs that can't be read as UTF-8. |
-| `fs:write-binary` | `(absolutePath: string, base64Data: string) → void` | Write base64 data to a file on disk. For clipboard-pasted images. |
-| `fs:file-info` | `(absolutePath: string) → { size: number, mtime: string }` | Get file metadata (size, modified time). |
-| `fs:copy-file` | `(sourcePath: string, destPath: string) → void` | Copy a file into the collection. Source can be outside collection (for external drag-and-drop import). Destination must be within a collection. |
-| `fs:is-within-collection` | `(absolutePath: string) → { within: boolean, collectionPath?: string }` | Check if a path is inside any known collection. Used by the renderer to decide copy-vs-link for drag-and-drop. |
+| Channel                   | Signature                                                               | Purpose                                                                                                                                         |
+| ------------------------- | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fs:create-file`          | `(absolutePath: string, content: string) → void`                        | Create a new file on disk. Uses `fs.writeFile` with `{ flag: 'wx' }` (exclusive create — fails if exists).                                      |
+| `fs:create-directory`     | `(absolutePath: string) → void`                                         | Create a new directory. Uses `fs.mkdir` with `{ recursive: true }`.                                                                             |
+| `fs:scan-assets`          | `(collectionPath: string) → AssetScanResult`                            | Recursively scan collection for non-markdown files. Returns structured tree.                                                                    |
+| `fs:read-binary`          | `(absolutePath: string) → string`                                       | Read a file as base64-encoded string. For images/PDFs that can't be read as UTF-8.                                                              |
+| `fs:write-binary`         | `(absolutePath: string, base64Data: string) → void`                     | Write base64 data to a file on disk. For clipboard-pasted images.                                                                               |
+| `fs:file-info`            | `(absolutePath: string) → { size: number, mtime: string }`              | Get file metadata (size, modified time).                                                                                                        |
+| `fs:copy-file`            | `(sourcePath: string, destPath: string) → void`                         | Copy a file into the collection. Source can be outside collection (for external drag-and-drop import). Destination must be within a collection. |
+| `fs:is-within-collection` | `(absolutePath: string) → { within: boolean, collectionPath?: string }` | Check if a path is inside any known collection. Used by the renderer to decide copy-vs-link for drag-and-drop.                                  |
 
 All channels validate that the destination path is within a known collection before proceeding. The validation logic is identical to the existing `fs:read-file` handler (lines 469–481 of `ipc-handlers.ts`).
 
@@ -60,10 +60,10 @@ export type MimeCategory = 'image' | 'pdf' | 'video' | 'audio' | 'other'
 /** A non-markdown asset file discovered by the app scanner. */
 export interface AssetFileNode {
   name: string
-  path: string           // relative to collection root
+  path: string // relative to collection root
   is_dir: boolean
   children: AssetFileNode[]
-  fileSize?: number      // bytes, files only
+  fileSize?: number // bytes, files only
   mimeCategory?: MimeCategory
 }
 
@@ -80,8 +80,8 @@ export interface UnifiedTreeNode {
   path: string
   is_dir: boolean
   children: UnifiedTreeNode[]
-  state: FileState | null   // present for markdown files from CLI tree
-  isAsset: boolean          // true for non-markdown files
+  state: FileState | null // present for markdown files from CLI tree
+  isAsset: boolean // true for non-markdown files
   mimeCategory?: MimeCategory
   fileSize?: number
 }
@@ -93,7 +93,7 @@ export interface UnifiedTreeNode {
 export interface AssetTab {
   id: string
   kind: 'asset'
-  filePath: string        // relative to collection root
+  filePath: string // relative to collection root
   title: string
   mimeCategory: MimeCategory
   fileSize?: number
@@ -108,6 +108,7 @@ export type TabState = DocumentTab | GraphTab | AssetTab
 New module: `app/src/main/asset-scanner.ts`
 
 A recursive async file scanner that:
+
 1. Walks the collection directory using `fs.readdir` with `{ withFileTypes: true }`
 2. Respects `.gitignore` at collection root (parse with the `ignore` npm package or a lightweight gitignore parser)
 3. Always skips: `.markdownvdb/`, `.git/`, `node_modules/`, and common build output dirs (`dist/`, `build/`, `out/`, `.next/`, `target/`)
@@ -124,6 +125,7 @@ A recursive async file scanner that:
 New module: `app/src/renderer/lib/tree-merge.ts`
 
 A pure function `mergeTreeNodes(cliTree: FileTree, assetScan: AssetScanResult): UnifiedTreeNode` that:
+
 1. Converts CLI `FileTreeNode` children to `UnifiedTreeNode` (with `isAsset: false`)
 2. Converts `AssetFileNode` children to `UnifiedTreeNode` (with `isAsset: true`, `state: null`)
 3. Merges directories that exist in both trees (e.g., if both have `docs/`, their children combine)
@@ -146,16 +148,17 @@ User clicks "New File" button in tree header (or right-clicks folder → "New Fi
 ```
 
 Initial content: empty string by default. If the user triggers "New File with Frontmatter" (context menu variant), use:
+
 ```yaml
 ---
 title: <filename without extension>
 ---
-
 ```
 
 ### Asset Preview Routing
 
 When clicking a non-markdown file in the tree:
+
 1. `FileTree.svelte` checks `node.isAsset` — if true, calls `openAssetTab(path, mimeCategory)` instead of `selectFile(path)`
 2. `openAssetTab()` creates an `AssetTab` and adds it to the active pane
 3. Tab content routing: when `tab.kind === 'asset'`, render the appropriate viewer:
@@ -166,6 +169,7 @@ When clicking a non-markdown file in the tree:
 ### Image Viewer
 
 New component: `ImageViewer.svelte`
+
 - Loads image via `window.api.readBinary(absolutePath)` → base64 data URL
 - Centered in content area with dark background
 - Zoom: scroll wheel (0.1x–10x range), "Fit to View" button, "Actual Size" button
@@ -174,6 +178,7 @@ New component: `ImageViewer.svelte`
 ### PDF Viewer
 
 New component: `PdfViewer.svelte`
+
 - Uses `pdfjs-dist` (Mozilla pdf.js) as a new dependency
 - Loads PDF via `readBinary()`, passes `Uint8Array` to `pdfjsLib.getDocument()`
 - Renders pages into canvas elements in a scrollable container
@@ -183,6 +188,7 @@ New component: `PdfViewer.svelte`
 ### Asset Info Card (Fallback)
 
 New component: `AssetInfoCard.svelte`
+
 - Large file type icon (Material Symbol based on mime category)
 - File name, size (human-readable), file type/extension, full path
 - "Open in Default App" button → `window.api.openPath()`
@@ -195,6 +201,7 @@ Drag-and-drop supports two sources: **internal** (from the app's file tree) and 
 #### Internal Drag (from file tree)
 
 **WYSIWYG (TipTap)** — `WysiwygEditor.svelte`:
+
 - Add `ondrop` / `ondragover` handlers on the editor host element
 - Read `application/x-mdvdb-path` from `dataTransfer` (already set by `FileTreeNode.svelte` drag start)
 - Determine file type from extension
@@ -203,6 +210,7 @@ Drag-and-drop supports two sources: **internal** (from the app's file tree) and 
 - Non-images: insert `[filename](relativePath)` text at cursor
 
 **Source (CodeMirror)** — `Editor.svelte`:
+
 - Add drop handler that inserts raw markdown at the drop position
 - Images: `![filename](relativePath)`
 - Non-images: `[filename](relativePath)`
@@ -216,10 +224,12 @@ When a file is dragged from the OS (Finder, Explorer, desktop) onto the editor:
 3. Call `window.api.isWithinCollection(absolutePath)` to determine if the file is already inside the active collection
 
 **File is inside the collection:**
+
 - Compute relative path from current document to the dropped file
 - Insert markdown link/image syntax directly (no copy needed)
 
 **File is outside the collection:**
+
 - Show a confirmation dialog: "This file is outside your collection. Copy it to `<current-document-folder>/filename`?"
 - On confirm: call `window.api.copyFile(sourcePath, destPath)` where `destPath` is alongside the current markdown file (same directory)
 - If a file with the same name already exists at the destination, auto-suffix: `image.png` → `image-1.png`
@@ -236,6 +246,7 @@ Only files with recognized asset extensions are accepted: `png`, `jpg`, `jpeg`, 
 ### Clipboard Paste (Images)
 
 In `WysiwygEditor.svelte`, intercept paste events with image blobs:
+
 1. Check `event.clipboardData.items` for image MIME types
 2. Read blob as base64 via `FileReader`
 3. Generate filename: `pasted-{Date.now()}.png`
@@ -243,15 +254,12 @@ In `WysiwygEditor.svelte`, intercept paste events with image blobs:
 5. Insert `![](pasted-{timestamp}.png)` into editor (relative to current file)
 6. Trigger asset tree refresh
 
-No special `assets/` directory — pasted images go next to the markdown file, keeping assets co-located with content.
-4. Ensure `{collection}/assets/` directory exists via `window.api.createDirectory()`
-5. Save via `window.api.writeBinary(absolutePath, base64Data)`
-6. Insert `![](assets/pasted-{timestamp}.png)` into editor
-7. Trigger asset tree refresh
+No special `assets/` directory — pasted images go next to the markdown file, keeping assets co-located with content. 4. Ensure `{collection}/assets/` directory exists via `window.api.createDirectory()` 5. Save via `window.api.writeBinary(absolutePath, base64Data)` 6. Insert `![](assets/pasted-{timestamp}.png)` into editor 7. Trigger asset tree refresh
 
 ### Insert Asset Dialog
 
 New component: `InsertAssetDialog.svelte`
+
 - Triggered from editor toolbar button or TipTap slash command (`/image`, `/file`)
 - Searchable list of images/files from the cached asset scan
 - Thumbnail previews for images (loaded via `readBinary`)
@@ -261,6 +269,7 @@ New component: `InsertAssetDialog.svelte`
 ### WYSIWYG Inline Image Resolution
 
 For relative-path images (`![](images/photo.png)`) to render in WYSIWYG mode:
+
 - Add custom node view or `parseHTML` override for TipTap's Image extension
 - Detect relative `src` values (not starting with `http`, `data:`, or `/`)
 - Resolve against current document's directory + collection root

@@ -36,12 +36,12 @@ body {
    ============================================================ */
 
 ::selection {
-  background-color: var(--color-primary, #00E5FF);
+  background-color: var(--color-primary, #00e5ff);
   color: var(--color-surface-dark, #0a0a0a);
 }
 
 ::-moz-selection {
-  background-color: var(--color-primary, #00E5FF);
+  background-color: var(--color-primary, #00e5ff);
   color: var(--color-surface-dark, #0a0a0a);
 }
 
@@ -59,12 +59,12 @@ body {
 }
 
 *::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb, rgba(255, 255, 255, 0.10));
+  background: var(--scrollbar-thumb, rgba(255, 255, 255, 0.1));
   border-radius: calc(var(--scrollbar-width, 6px) / 2);
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: var(--scrollbar-thumb-hover, rgba(255, 255, 255, 0.20));
+  background: var(--scrollbar-thumb-hover, rgba(255, 255, 255, 0.2));
 }
 
 *::-webkit-scrollbar-corner {
@@ -74,7 +74,8 @@ body {
 /* Firefox scrollbar */
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar-thumb, rgba(255, 255, 255, 0.10)) var(--scrollbar-track, transparent);
+  scrollbar-color: var(--scrollbar-thumb, rgba(255, 255, 255, 0.1))
+    var(--scrollbar-track, transparent);
 }
 
 /* ============================================================
@@ -86,7 +87,7 @@ body {
 }
 
 .bg-grain::before {
-  content: "";
+  content: '';
   position: absolute;
   top: 0;
   left: 0;
@@ -118,22 +119,22 @@ body {
 
 /* Default focus ring for all interactive elements */
 :focus-visible {
-  outline: 2px solid var(--color-primary, #00E5FF);
+  outline: 2px solid var(--color-primary, #00e5ff);
   outline-offset: 2px;
   border-radius: 2px;
 }
 
 /* Enhanced focus for buttons */
 button:focus-visible,
-[role="button"]:focus-visible {
-  outline: 2px solid var(--color-primary, #00E5FF);
+[role='button']:focus-visible {
+  outline: 2px solid var(--color-primary, #00e5ff);
   outline-offset: 2px;
   box-shadow: 0 0 0 4px var(--color-primary-dim, rgba(0, 229, 255, 0.1));
 }
 
 /* Focus for links */
 a:focus-visible {
-  outline: 2px solid var(--color-primary, #00E5FF);
+  outline: 2px solid var(--color-primary, #00e5ff);
   outline-offset: 2px;
   border-radius: 2px;
 }
@@ -142,17 +143,17 @@ a:focus-visible {
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {
-  outline: 2px solid var(--color-primary, #00E5FF);
+  outline: 2px solid var(--color-primary, #00e5ff);
   outline-offset: 2px;
   box-shadow: 0 0 0 4px var(--color-primary-dim, rgba(0, 229, 255, 0.1));
 }
 
 /* Focus for custom interactive elements */
 [tabindex]:focus-visible,
-[role="tab"]:focus-visible,
-[role="menuitem"]:focus-visible,
-[role="option"]:focus-visible {
-  outline: 2px solid var(--color-primary, #00E5FF);
+[role='tab']:focus-visible,
+[role='menuitem']:focus-visible,
+[role='option']:focus-visible {
+  outline: 2px solid var(--color-primary, #00e5ff);
   outline-offset: 2px;
   box-shadow: 0 0 0 4px var(--color-primary-dim, rgba(0, 229, 255, 0.1));
 }
@@ -162,12 +163,12 @@ select:focus-visible {
    ============================================================ */
 
 a {
-  color: var(--color-primary, #00E5FF);
+  color: var(--color-primary, #00e5ff);
   text-decoration: none;
 }
 
 a:hover {
-  color: var(--color-primary-dark, #00B8CC);
+  color: var(--color-primary-dark, #00b8cc);
 }
 
 /* ============================================================
@@ -183,5 +184,4 @@ a:hover {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
-
 }

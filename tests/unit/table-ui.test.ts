@@ -41,7 +41,7 @@ function makeCellInfo(overrides: Partial<CellInfo> = {}): CellInfo {
     totalCols: 3,
     tablePos: 0,
     isHeader: false,
-    ...overrides,
+    ...overrides
   }
 }
 
@@ -153,7 +153,7 @@ describe('menu operation categories', () => {
     'Insert row below',
     'Move row up',
     'Move row down',
-    'Delete row',
+    'Delete row'
   ]
 
   const expectedColumnOps = [
@@ -161,7 +161,7 @@ describe('menu operation categories', () => {
     'Insert column right',
     'Move column left',
     'Move column right',
-    'Delete column',
+    'Delete column'
   ]
 
   const expectedTableOps = ['Header row', 'Delete table']

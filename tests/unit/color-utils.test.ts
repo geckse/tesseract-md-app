@@ -15,7 +15,7 @@ import {
   THEME_BACKGROUNDS,
   derivePrimaryVariants,
   PRESET_COLORS,
-  DEFAULT_PRIMARY,
+  DEFAULT_PRIMARY
 } from '../../src/renderer/lib/color-utils'
 
 describe('hexToHsl', () => {

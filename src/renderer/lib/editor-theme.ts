@@ -5,10 +5,10 @@
  * Colors and typography match the design tokens in tokens.css.
  */
 
-import { EditorView } from '@codemirror/view';
-import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
-import { tags } from '@lezer/highlight';
-import type { Extension } from '@codemirror/state';
+import { EditorView } from '@codemirror/view'
+import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
+import { tags } from '@lezer/highlight'
+import type { Extension } from '@codemirror/state'
 
 /* -------------------------------------------------------------------------- */
 /*  Base Editor Theme                                                         */
@@ -21,55 +21,55 @@ const baseTheme = EditorView.theme(
       color: 'var(--color-text, #e4e4e7)',
       fontFamily: "'Space Grotesk', system-ui, sans-serif",
       fontSize: '0.875rem',
-      lineHeight: '1.8',
+      lineHeight: '1.8'
     },
 
     '.cm-content': {
       caretColor: 'var(--color-primary, #00E5FF)',
-      padding: '1rem 0',
+      padding: '1rem 0'
     },
 
     '.cm-cursor, .cm-dropCursor': {
       borderLeftColor: 'var(--color-primary, #00E5FF)',
-      borderLeftWidth: '2px',
+      borderLeftWidth: '2px'
     },
 
     '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
-      backgroundColor: 'var(--color-primary-dim, rgba(0, 229, 255, 0.1))',
+      backgroundColor: 'var(--color-primary-dim, rgba(0, 229, 255, 0.1))'
     },
 
     '.cm-activeLine': {
-      backgroundColor: 'var(--overlay-hover, rgba(255, 255, 255, 0.03))',
+      backgroundColor: 'var(--overlay-hover, rgba(255, 255, 255, 0.03))'
     },
 
     '.cm-gutters': {
       backgroundColor: 'var(--color-canvas, #0a0a0a)',
       color: 'var(--color-text-dim, #7b8a8d)',
-      border: 'none',
+      border: 'none'
     },
 
     '.cm-activeLineGutter': {
       backgroundColor: 'var(--overlay-hover, rgba(255, 255, 255, 0.03))',
-      color: 'var(--color-text, #e4e4e7)',
+      color: 'var(--color-text, #e4e4e7)'
     },
 
     '.cm-lineNumbers .cm-gutterElement': {
       fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-      fontSize: '0.75rem',
+      fontSize: '0.75rem'
     },
 
     '.cm-scroller': {
-      overflow: 'auto',
+      overflow: 'auto'
     },
 
     '.cm-panels': {
       backgroundColor: 'var(--color-surface, #161617)',
       color: 'var(--color-text, #e4e4e7)',
-      borderBottom: '1px solid var(--color-border, #27272a)',
+      borderBottom: '1px solid var(--color-border, #27272a)'
     },
 
     '.cm-panels.cm-panels-top': {
-      borderBottom: '1px solid var(--color-border, #27272a)',
+      borderBottom: '1px solid var(--color-border, #27272a)'
     },
 
     /* Search panel */
@@ -80,12 +80,12 @@ const baseTheme = EditorView.theme(
       gap: '4px',
       alignItems: 'center',
       fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-      fontSize: '12px',
+      fontSize: '12px'
     },
 
     '.cm-search label': {
       color: 'var(--color-text-dim, #71717a)',
-      fontSize: '10px',
+      fontSize: '10px'
     },
 
     '.cm-search input, .cm-search [type=checkbox]': {
@@ -96,11 +96,11 @@ const baseTheme = EditorView.theme(
       padding: '3px 8px',
       fontSize: '12px',
       fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-      outline: 'none',
+      outline: 'none'
     },
 
     '.cm-search input:focus': {
-      borderColor: 'var(--color-primary, #00E5FF)',
+      borderColor: 'var(--color-primary, #00E5FF)'
     },
 
     '.cm-search button': {
@@ -111,41 +111,41 @@ const baseTheme = EditorView.theme(
       padding: '3px 8px',
       fontSize: '10px',
       fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-      cursor: 'pointer',
+      cursor: 'pointer'
     },
 
     '.cm-search button:hover': {
       borderColor: 'var(--color-border-hover, #3f3f46)',
-      color: 'var(--color-text-white, #ffffff)',
+      color: 'var(--color-text-white, #ffffff)'
     },
 
     'button[name="close"]': {
       color: 'var(--color-text-dim, #71717a)',
-      cursor: 'pointer',
+      cursor: 'pointer'
     },
 
     'button[name="close"]:hover': {
-      color: 'var(--color-text, #e4e4e7)',
+      color: 'var(--color-text, #e4e4e7)'
     },
 
     /* Search match highlights */
     '.cm-searchMatch': {
       backgroundColor: 'var(--color-primary-dim, rgba(0, 229, 255, 0.15))',
-      borderRadius: '2px',
+      borderRadius: '2px'
     },
 
     '.cm-searchMatch-selected': {
-      backgroundColor: 'var(--color-primary-glow, rgba(0, 229, 255, 0.35))',
+      backgroundColor: 'var(--color-primary-glow, rgba(0, 229, 255, 0.35))'
     },
 
     '.cm-tooltip': {
       backgroundColor: 'var(--color-surface, #161617)',
       border: '1px solid var(--color-border, #27272a)',
-      color: 'var(--color-text, #e4e4e7)',
-    },
+      color: 'var(--color-text, #e4e4e7)'
+    }
   },
-  { dark: true },
-);
+  { dark: true }
+)
 
 /* -------------------------------------------------------------------------- */
 /*  Markdown Syntax Highlighting                                              */
@@ -158,21 +158,21 @@ const markdownHighlightStyle = HighlightStyle.define([
     fontSize: '2.25rem',
     fontWeight: '700',
     color: 'var(--color-text-white, #ffffff)',
-    lineHeight: '1.2',
+    lineHeight: '1.2'
   },
   {
     tag: tags.heading2,
     fontSize: '1.5rem',
     fontWeight: '600',
     color: 'var(--color-text, #e4e4e7)',
-    lineHeight: '1.2',
+    lineHeight: '1.2'
   },
   {
     tag: tags.heading3,
     fontSize: '1.25rem',
     fontWeight: '500',
     color: 'var(--color-text, #e4e4e7)',
-    lineHeight: '1.2',
+    lineHeight: '1.2'
   },
 
   // Inline styles
@@ -189,7 +189,7 @@ const markdownHighlightStyle = HighlightStyle.define([
     fontFamily: "'JetBrains Mono', ui-monospace, monospace",
     color: 'var(--color-primary, #00E5FF)',
     backgroundColor: 'var(--color-primary-dim, rgba(0, 229, 255, 0.1))',
-    borderRadius: '0.25rem',
+    borderRadius: '0.25rem'
   },
 
   // Meta (frontmatter delimiters, heading markers, etc.)
@@ -206,8 +206,8 @@ const markdownHighlightStyle = HighlightStyle.define([
   { tag: tags.contentSeparator, color: 'var(--color-border-hover, #3f3f46)' },
 
   // Comments
-  { tag: tags.comment, color: 'var(--color-text-dim, #7b8a8d)', fontStyle: 'italic' },
-]);
+  { tag: tags.comment, color: 'var(--color-text-dim, #7b8a8d)', fontStyle: 'italic' }
+])
 
 /* -------------------------------------------------------------------------- */
 /*  Composable Extensions                                                     */
@@ -215,15 +215,15 @@ const markdownHighlightStyle = HighlightStyle.define([
 
 /** Base editor theme (dark background, caret, selections, gutters). */
 export function editorBaseTheme(): Extension {
-  return baseTheme;
+  return baseTheme
 }
 
 /** Markdown syntax highlighting (headings, emphasis, links, code, etc.). */
 export function editorHighlighting(): Extension {
-  return syntaxHighlighting(markdownHighlightStyle);
+  return syntaxHighlighting(markdownHighlightStyle)
 }
 
 /** Combined editor theme: base + syntax highlighting. */
 export function editorTheme(): Extension {
-  return [baseTheme, syntaxHighlighting(markdownHighlightStyle)];
+  return [baseTheme, syntaxHighlighting(markdownHighlightStyle)]
 }

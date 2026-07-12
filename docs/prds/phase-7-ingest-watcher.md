@@ -40,7 +40,7 @@ ingestState: Writable<'idle' | 'previewing' | 'ingesting' | 'done' | 'error'>
 ingestResult: Writable<IngestResult | IngestPreview | null>
 ingestErrors: Writable<IngestError[]>
 watcherState: Writable<'stopped' | 'starting' | 'running' | 'error'>
-watcherEvents: Writable<WatchEventReport[]>     // Ring buffer, last 50 events
+watcherEvents: Writable<WatchEventReport[]> // Ring buffer, last 50 events
 ```
 
 ### Interface Changes
@@ -49,22 +49,24 @@ watcherEvents: Writable<WatchEventReport[]>     // Ring buffer, last 50 events
 
 ```typescript
 class WatcherManager {
-  start(root: string): void              // Spawn `mdvdb watch --root <path>`
-  stop(): Promise<void>                  // Send SIGTERM, await exit
-  isRunning(): boolean                   // Check process state
+  start(root: string): void // Spawn `mdvdb watch --root <path>`
+  stop(): Promise<void> // Send SIGTERM, await exit
+  isRunning(): boolean // Check process state
   onEvent(callback: (event: WatchEventReport) => void): void
   onError(callback: (error: string) => void): void
-  destroy(): Promise<void>               // Force kill + cleanup
+  destroy(): Promise<void> // Force kill + cleanup
 }
 ```
 
 **New IPC channels:**
+
 - `'watcher:start'` → starts watcher for given root
 - `'watcher:stop'` → stops current watcher
 - `'watcher:status'` → returns current state
 - `'watcher:events'` → IPC push channel (main → renderer) for live events
 
 **Updated preload `window.api`:**
+
 ```typescript
 interface MdvdbApi {
   // ... existing methods ...
@@ -96,6 +98,7 @@ interface MdvdbApi {
 - Toast/notification on watcher events: "2 files re-indexed" (batch summarized, not per-file).
 
 **Status bar integration:**
+
 - Right side: watcher status indicator (replaces the "Synced" placeholder from Phase 1).
 - Green pulsing dot when watcher is active (matching mockup's `animate-pulse` on the "Synced" indicator).
 

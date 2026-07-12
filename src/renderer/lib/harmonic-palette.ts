@@ -68,7 +68,7 @@ export function generateHarmonicPalette(
     colors,
     baseHue: hsl.h,
     saturation: effectiveS,
-    lightness: effectiveL,
+    lightness: effectiveL
   }
 }
 

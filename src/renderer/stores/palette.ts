@@ -34,9 +34,8 @@ export const customClusterPalette = derived<typeof primaryVariants, HarmonicPale
  * 8-color palette for edge clusters.
  * Offset by 3 to skip the arrow palette slots.
  */
-export const edgePalette = derived<typeof primaryVariants, HarmonicPalette>(
-  primaryVariants,
-  ($v) => generateHarmonicPalette($v.primary, 8, 3)
+export const edgePalette = derived<typeof primaryVariants, HarmonicPalette>(primaryVariants, ($v) =>
+  generateHarmonicPalette($v.primary, 8, 3)
 )
 
 /** 3-color palette for directional arrows (outgoing, incoming, bidirectional) */

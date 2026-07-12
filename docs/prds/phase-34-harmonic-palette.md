@@ -57,11 +57,11 @@ This ensures the palette already meets contrast requirements against the active 
 
 ### Palette Sizes
 
-| Use Case | Size (N) | Current Source | Consumers |
-|---|---|---|---|
-| Cluster/folder nodes | 12 | `CLUSTER_COLORS` | GraphView.svelte, graph-3d-bridge.ts |
-| Edge clusters | 8 | `EDGE_CLUSTER_COLORS` | edge-utils.ts |
-| Directional arrows | 3 | Hardcoded hex | graph-3d-bridge.ts (outgoing=primary, incoming=palette[1], bidirectional=palette[2]) |
+| Use Case             | Size (N) | Current Source        | Consumers                                                                            |
+| -------------------- | -------- | --------------------- | ------------------------------------------------------------------------------------ |
+| Cluster/folder nodes | 12       | `CLUSTER_COLORS`      | GraphView.svelte, graph-3d-bridge.ts                                                 |
+| Edge clusters        | 8        | `EDGE_CLUSTER_COLORS` | edge-utils.ts                                                                        |
+| Directional arrows   | 3        | Hardcoded hex         | graph-3d-bridge.ts (outgoing=primary, incoming=palette[1], bidirectional=palette[2]) |
 
 ### Hue Offset Strategy
 
@@ -73,6 +73,7 @@ palette[i] = hue rotated by i * (360 / N), for i = 1..N-1
 ```
 
 For the directional arrows specifically (N=3):
+
 - `palette[0]` = primary (outgoing edges) — replaces cyan arrow
 - `palette[1]` = +120° rotation (incoming edges) — replaces red arrow
 - `palette[2]` = +240° rotation (bidirectional edges) — replaces green arrow
@@ -93,10 +94,10 @@ Pure-data module with no side effects:
 import { hexToHsl, hslToHex } from './color-utils'
 
 export interface HarmonicPalette {
-  colors: string[]        // hex colors, length = N
-  baseHue: number         // 0-360
-  saturation: number      // 0-100 (effective, after clamping)
-  lightness: number       // 0-100 (effective, after clamping)
+  colors: string[] // hex colors, length = N
+  baseHue: number // 0-360
+  saturation: number // 0-100 (effective, after clamping)
+  lightness: number // 0-100 (effective, after clamping)
 }
 
 /**
@@ -134,14 +135,10 @@ export const clusterPalette = derived(primaryVariants, ($v) =>
 )
 
 /** 8-color palette for edge clusters */
-export const edgePalette = derived(primaryVariants, ($v) =>
-  generateHarmonicPalette($v.primary, 8)
-)
+export const edgePalette = derived(primaryVariants, ($v) => generateHarmonicPalette($v.primary, 8))
 
 /** 3-color palette for directional arrows */
-export const arrowPalette = derived(primaryVariants, ($v) =>
-  generateHarmonicPalette($v.primary, 3)
-)
+export const arrowPalette = derived(primaryVariants, ($v) => generateHarmonicPalette($v.primary, 3))
 ```
 
 Since `primaryVariants` already resolves per-theme (dark/light adjusted color), all palettes automatically adapt.
@@ -156,15 +153,15 @@ Since `primaryVariants` already resolves per-theme (dark/light adjusted color), 
 
 All call sites that reference `CLUSTER_COLORS[id % CLUSTER_COLORS.length]` become `paletteColor($clusterPalette, id)`:
 
-| Function | Current | New |
-|---|---|---|
-| `getNodeColor()` (cluster mode) | `CLUSTER_COLORS[node.cluster_id % 12]` | `paletteColor($clusterPalette, node.cluster_id)` |
-| `getNodeColor()` (folder mode) | `folderColorMap.get(folder)` | `folderColorMap` built from `$clusterPalette` |
-| `fileHashColor()` | `CLUSTER_COLORS[hash % 12]` | `paletteColor($clusterPalette, hash)` |
-| `getClusters()` legend | `CLUSTER_COLORS[c.id % 12]` | `paletteColor($clusterPalette, c.id)` |
-| `getFolderLegendItems()` | `CLUSTER_COLORS[i % 12]` | `paletteColor($clusterPalette, i)` |
-| Cluster spheres | `new THREE.Color(CLUSTER_COLORS[id % 12])` | `new THREE.Color(paletteColor($clusterPalette, id))` |
-| `DEFAULT_NODE_COLOR` | `#E4E4E7` | Read from CSS `--color-text` (already has `getDefaultNodeColor()` function) |
+| Function                        | Current                                    | New                                                                         |
+| ------------------------------- | ------------------------------------------ | --------------------------------------------------------------------------- |
+| `getNodeColor()` (cluster mode) | `CLUSTER_COLORS[node.cluster_id % 12]`     | `paletteColor($clusterPalette, node.cluster_id)`                            |
+| `getNodeColor()` (folder mode)  | `folderColorMap.get(folder)`               | `folderColorMap` built from `$clusterPalette`                               |
+| `fileHashColor()`               | `CLUSTER_COLORS[hash % 12]`                | `paletteColor($clusterPalette, hash)`                                       |
+| `getClusters()` legend          | `CLUSTER_COLORS[c.id % 12]`                | `paletteColor($clusterPalette, c.id)`                                       |
+| `getFolderLegendItems()`        | `CLUSTER_COLORS[i % 12]`                   | `paletteColor($clusterPalette, i)`                                          |
+| Cluster spheres                 | `new THREE.Color(CLUSTER_COLORS[id % 12])` | `new THREE.Color(paletteColor($clusterPalette, id))`                        |
+| `DEFAULT_NODE_COLOR`            | `#E4E4E7`                                  | Read from CSS `--color-text` (already has `getDefaultNodeColor()` function) |
 
 #### graph-3d-bridge.ts
 
@@ -175,19 +172,19 @@ All call sites that reference `CLUSTER_COLORS[id % CLUSTER_COLORS.length]` becom
 ```typescript
 interface Graph3DOptions {
   // ... existing options
-  clusterPalette: string[]     // 12 colors from store
-  arrowPalette: string[]       // 3 colors from store
+  clusterPalette: string[] // 12 colors from store
+  arrowPalette: string[] // 3 colors from store
 }
 ```
 
 **Replace directional arrow colors:**
 
-| Current | New |
-|---|---|
+| Current                                         | New                                         |
+| ----------------------------------------------- | ------------------------------------------- |
 | `ARROW_CYAN` (outgoing, from `--color-primary`) | `arrowPalette[0]` (same — it's the primary) |
-| `ARROW_RED = '#FF6B6B'` (incoming) | `arrowPalette[1]` |
-| `ARROW_GREEN = '#51CF66'` (bidirectional) | `arrowPalette[2]` |
-| `ARROW_GRAY = '#555555'` (no selection) | Keep as-is, or read from `--color-text-dim` |
+| `ARROW_RED = '#FF6B6B'` (incoming)              | `arrowPalette[1]`                           |
+| `ARROW_GREEN = '#51CF66'` (bidirectional)       | `arrowPalette[2]`                           |
+| `ARROW_GRAY = '#555555'` (no selection)         | Keep as-is, or read from `--color-text-dim` |
 
 #### edge-utils.ts
 
@@ -220,15 +217,15 @@ The lightweight approach: expose a `recolorGraph()` function in graph-3d-bridge.
 
 ## Implementation Order
 
-| Step | Description | Files | Depends On |
-|---|---|---|---|
-| 1 | `generateHarmonicPalette()` + `paletteColor()` | `lib/harmonic-palette.ts` (new) | Existing `color-utils.ts` |
-| 2 | Palette stores | `stores/palette.ts` (new) | Step 1, existing `accent-color.ts` |
-| 3 | Remove `CLUSTER_COLORS` from GraphView, use palette store | `components/GraphView.svelte` | Step 2 |
-| 4 | Remove `CLUSTER_COLORS` + arrow constants from bridge, accept palette via options | `lib/graph-3d-bridge.ts` | Step 2 |
-| 5 | Remove `EDGE_CLUSTER_COLORS`, refactor `edgeClusterColor()` | `lib/edge-utils.ts` | Step 2 |
-| 6 | Wire palette subscriptions for reactive recoloring | `GraphView.svelte`, `graph-3d-bridge.ts` | Steps 3-5 |
-| 7 | Update legend rendering to use palette | `GraphView.svelte` (getClusters, getFolderLegendItems, getEdgeClusters) | Step 3 |
+| Step | Description                                                                       | Files                                                                   | Depends On                         |
+| ---- | --------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | ---------------------------------- |
+| 1    | `generateHarmonicPalette()` + `paletteColor()`                                    | `lib/harmonic-palette.ts` (new)                                         | Existing `color-utils.ts`          |
+| 2    | Palette stores                                                                    | `stores/palette.ts` (new)                                               | Step 1, existing `accent-color.ts` |
+| 3    | Remove `CLUSTER_COLORS` from GraphView, use palette store                         | `components/GraphView.svelte`                                           | Step 2                             |
+| 4    | Remove `CLUSTER_COLORS` + arrow constants from bridge, accept palette via options | `lib/graph-3d-bridge.ts`                                                | Step 2                             |
+| 5    | Remove `EDGE_CLUSTER_COLORS`, refactor `edgeClusterColor()`                       | `lib/edge-utils.ts`                                                     | Step 2                             |
+| 6    | Wire palette subscriptions for reactive recoloring                                | `GraphView.svelte`, `graph-3d-bridge.ts`                                | Steps 3-5                          |
+| 7    | Update legend rendering to use palette                                            | `GraphView.svelte` (getClusters, getFolderLegendItems, getEdgeClusters) | Step 3                             |
 
 ## Verification
 
@@ -261,10 +258,10 @@ The lightweight approach: expose a `recolorGraph()` function in graph-3d-bridge.
 
 ## Risks & Mitigations
 
-| Risk | Mitigation |
-|---|---|
-| Some hue rotations produce similar-looking colors for small N | N=3 gives 120° spacing (maximally distinct). N=8 and N=12 also produce large angular gaps. |
-| Near-gray primaries make hue rotation useless | Saturation floor of 40 ensures distinguishable colors |
-| Very bright/dark primaries reduce visibility | Lightness clamped to 25-75 range for generated colors |
+| Risk                                                                | Mitigation                                                                                    |
+| ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Some hue rotations produce similar-looking colors for small N       | N=3 gives 120° spacing (maximally distinct). N=8 and N=12 also produce large angular gaps.    |
+| Near-gray primaries make hue rotation useless                       | Saturation floor of 40 ensures distinguishable colors                                         |
+| Very bright/dark primaries reduce visibility                        | Lightness clamped to 25-75 range for generated colors                                         |
 | Palette recomputation on every accent change triggers graph flicker | Debounce or batch the recolor call; or recolor is fast enough (just updating material colors) |
-| Breaking change for graph-3d-bridge API | Options-based palette passing is additive; default to generated palette if not provided |
+| Breaking change for graph-3d-bridge API                             | Options-based palette passing is additive; default to generated palette if not provided       |

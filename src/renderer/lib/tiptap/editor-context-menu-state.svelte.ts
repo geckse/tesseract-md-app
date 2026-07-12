@@ -12,5 +12,5 @@ interface EditorContextMenuState {
 export const editorContextMenuState: EditorContextMenuState = $state({
   x: 0,
   y: 0,
-  open: false,
+  open: false
 })

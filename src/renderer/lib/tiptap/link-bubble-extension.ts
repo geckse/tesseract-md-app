@@ -53,7 +53,7 @@ export const LinkBubbleExtension = Extension.create({
         }
 
         return false
-      },
+      }
     }
   },
 
@@ -127,13 +127,15 @@ export const LinkBubbleExtension = Extension.create({
             closeBubble()
             // Select the link text so the modal can wrap it
             editor.chain().focus().setTextSelection({ from, to }).run()
-            view.dom.dispatchEvent(new CustomEvent('open-link-modal', {
-              bubbles: true,
-              detail: { initialQuery: url },
-            }))
+            view.dom.dispatchEvent(
+              new CustomEvent('open-link-modal', {
+                bubbles: true,
+                detail: { initialQuery: url }
+              })
+            )
           },
-          onClose: closeBubble,
-        },
+          onClose: closeBubble
+        }
       })
 
       // Close on outside click
@@ -153,7 +155,7 @@ export const LinkBubbleExtension = Extension.create({
         key: linkBubblePluginKey,
         view() {
           return {
-            update(view, prevState) {
+            update(view, _prevState) {
               const { state } = view
               const { selection } = state
               const { from, empty } = selection
@@ -209,12 +211,12 @@ export const LinkBubbleExtension = Extension.create({
             },
             destroy() {
               closeBubble()
-            },
+            }
           }
-        },
-      }),
+        }
+      })
     ]
-  },
+  }
 })
 
 /** Open the link modal by dispatching a custom event on the editor DOM. */

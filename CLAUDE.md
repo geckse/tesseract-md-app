@@ -88,19 +88,19 @@ Desktop GUI for markdown-vdb. Electron + Svelte 5 + CodeMirror 6. Bridges to the
 
 ## Tech Stack
 
-| Layer | Technology | Purpose |
-|---|---|---|
-| Desktop | Electron 39 | Window management, native APIs |
-| Build | electron-vite 3 + Vite 6 | Three-target bundling (main/preload/renderer) |
-| UI Framework | Svelte 5 | Reactive components with runes (`$state`, `$derived`, `$effect`) |
-| Editor | CodeMirror 6 | Markdown editing (view, state, lang-markdown, commands) |
-| Styling | CSS custom properties + Tailwind 4 | Dark theme tokens, utility classes |
-| Persistence | electron-store 10 | Collections, window bounds (JSON on disk) |
-| Packaging | electron-builder 26 | DMG/NSIS/AppImage distribution |
-| Unit Tests | Vitest 3 + @testing-library/svelte 5 | Component + logic tests (jsdom) |
-| E2E Tests | Playwright 1.49 | Full app tests against Electron |
-| Linting | ESLint 9 + Prettier 3 | Code quality + formatting |
-| Types | TypeScript 5.7 | Strict mode everywhere |
+| Layer        | Technology                           | Purpose                                                          |
+| ------------ | ------------------------------------ | ---------------------------------------------------------------- |
+| Desktop      | Electron 39                          | Window management, native APIs                                   |
+| Build        | electron-vite 3 + Vite 6             | Three-target bundling (main/preload/renderer)                    |
+| UI Framework | Svelte 5                             | Reactive components with runes (`$state`, `$derived`, `$effect`) |
+| Editor       | CodeMirror 6                         | Markdown editing (view, state, lang-markdown, commands)          |
+| Styling      | CSS custom properties + Tailwind 4   | Dark theme tokens, utility classes                               |
+| Persistence  | electron-store 10                    | Collections, window bounds (JSON on disk)                        |
+| Packaging    | electron-builder 26                  | DMG/NSIS/AppImage distribution                                   |
+| Unit Tests   | Vitest 3 + @testing-library/svelte 5 | Component + logic tests (jsdom)                                  |
+| E2E Tests    | Playwright 1.49                      | Full app tests against Electron                                  |
+| Linting      | ESLint 9 + Prettier 3                | Code quality + formatting                                        |
+| Types        | TypeScript 5.7                       | Strict mode everywhere                                           |
 
 ## CLI Bridge Pattern
 
@@ -117,6 +117,7 @@ Renderer store action
 ```
 
 Key details:
+
 - `execFile()` (not `exec()`) to prevent shell injection
 - All CLI commands pass `--json` for machine-parseable output
 - `--root <path>` sets the collection directory
@@ -125,12 +126,12 @@ Key details:
 
 ### IPC Channels
 
-| Prefix | Channels | Purpose |
-|--------|----------|---------|
-| `cli:` | find, version, search, status, ingest, ingest-preview, tree, get, links, backlinks, orphans, clusters, schema, collection, config, doctor, init | mdvdb CLI commands |
-| `collections:` | list, add, remove, set-active, get-active | Collection management (electron-store) |
-| `fs:` | read-file, write-file, update-frontmatter, … | File I/O (validated against collection paths) |
-| `schema:` | preview-property-op, apply-property-op, update-overlay-field (+ `property-op-progress` event) | Phase 41: recursive property type conversion / rename + schema-overlay annotation edits |
+| Prefix         | Channels                                                                                                                                        | Purpose                                                                                 |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `cli:`         | find, version, search, status, ingest, ingest-preview, tree, get, links, backlinks, orphans, clusters, schema, collection, config, doctor, init | mdvdb CLI commands                                                                      |
+| `collections:` | list, add, remove, set-active, get-active                                                                                                       | Collection management (electron-store)                                                  |
+| `fs:`          | read-file, write-file, update-frontmatter, …                                                                                                    | File I/O (validated against collection paths)                                           |
+| `schema:`      | preview-property-op, apply-property-op, update-overlay-field (+ `property-op-progress` event)                                                   | Phase 41: recursive property type conversion / rename + schema-overlay annotation edits |
 
 ## Core Design Decisions
 
@@ -169,6 +170,7 @@ npm run typecheck        # tsc --noEmit (full type check)
 - Path alias: `@renderer` → `src/renderer`
 
 **Patterns:**
+
 ```typescript
 // Mock window.api before importing components
 const mockApi = { findCli: vi.fn(), search: vi.fn(), ... }
@@ -198,6 +200,7 @@ expect(screen.getByText('...')).toBeInTheDocument()
 - Runs against the full Electron app
 
 ### What to test:
+
 - Component rendering and user interactions
 - Store state transitions and derived computations
 - IPC handler registration and error serialization
@@ -210,26 +213,28 @@ expect(screen.getByText('...')).toBeInTheDocument()
 ### Design Tokens (`tokens.css`)
 
 ```css
---color-primary: #00E5FF;        /* Cyan accent */
---color-surface: #161617;        /* Component backgrounds */
---color-surface-dark: #0a0a0a;   /* Deepest background */
---color-bg: #0f0f10;             /* App background */
---color-border: #27272a;         /* Subtle dividers */
---color-text-main: #e4e4e7;      /* Primary text */
---color-text-dim: #71717a;       /* Secondary text */
+--color-primary: #00e5ff; /* Cyan accent */
+--color-surface: #161617; /* Component backgrounds */
+--color-surface-dark: #0a0a0a; /* Deepest background */
+--color-bg: #0f0f10; /* App background */
+--color-border: #27272a; /* Subtle dividers */
+--color-text-main: #e4e4e7; /* Primary text */
+--color-text-dim: #71717a; /* Secondary text */
 
---font-sans: 'Space Grotesk';    /* Display text */
---font-mono: 'JetBrains Mono';   /* Code, status bar */
+--font-sans: 'Space Grotesk'; /* Display text */
+--font-mono: 'JetBrains Mono'; /* Code, status bar */
 --icon-font: 'Material Symbols Outlined';
 ```
 
 ### Layout Constants
+
 - Sidebar: 256px fixed width
 - Header: 56px fixed height
 - Status bar: fixed at bottom
 - Content: flex-grow to fill remaining space
 
 ### Component Styles
+
 - Scoped `<style>` blocks in each `.svelte` file
 - Use CSS custom properties from `tokens.css`
 - Transitions: `var(--transition-fast)` (150ms ease)

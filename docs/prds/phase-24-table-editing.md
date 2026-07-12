@@ -32,14 +32,14 @@ The editor can insert 3x3 tables via the `/Table` slash command, but once a tabl
 
 ### Current State
 
-| Component | Status |
-|-----------|--------|
+| Component                               | Status                                               |
+| --------------------------------------- | ---------------------------------------------------- |
 | `@tiptap/extension-table` (TableKit) v3 | Installed, configured in `editor-factory.ts` line 83 |
-| `@tiptap/markdown` | Installed, handles table serialization |
-| Table CSS | Basic styles in `wysiwyg-theme.css` lines 323-367 |
-| Slash command `/Table` | Inserts 3x3 with header row |
-| Right-click context menu | Does not exist anywhere in the app |
-| Table toolbar | Does not exist |
+| `@tiptap/markdown`                      | Installed, handles table serialization               |
+| Table CSS                               | Basic styles in `wysiwyg-theme.css` lines 323-367    |
+| Slash command `/Table`                  | Inserts 3x3 with header row                          |
+| Right-click context menu                | Does not exist anywhere in the app                   |
+| Table toolbar                           | Does not exist                                       |
 
 ### Available Tiptap Table Commands
 
@@ -86,7 +86,7 @@ Registered in `editor-factory.ts` extensions array after `TableKit`.
 ```typescript
 interface Props {
   editor: Editor
-  anchorPos: { x: number; y: number }  // right-click coordinates
+  anchorPos: { x: number; y: number } // right-click coordinates
   cellInfo: {
     isHeaderRow: boolean
     rowIndex: number
@@ -103,7 +103,7 @@ interface Props {
 ```typescript
 interface Props {
   editor: Editor
-  tableEl: Element              // <table> DOM element for positioning
+  tableEl: Element // <table> DOM element for positioning
   cellInfo: {
     isHeaderRow: boolean
     totalRows: number
@@ -150,12 +150,12 @@ Appears above the `<table>` element when any cell is focused. Icon-only buttons 
 [ + Add row ] [ + Add column ] | [ Toggle header ] | [ Delete table ]
 ```
 
-| Button | Icon | Tooltip | Command |
-|--------|------|---------|---------|
-| Add row | `add` | "Add row below" | `addRowAfter()` |
-| Add column | `playlist_add` | "Add column right" | `addColumnAfter()` |
-| Toggle header | `table_rows` | "Toggle header row" | `toggleHeaderRow()` |
-| Delete table | `delete_forever` | "Delete table" | `deleteTable()` |
+| Button        | Icon             | Tooltip             | Command             |
+| ------------- | ---------------- | ------------------- | ------------------- |
+| Add row       | `add`            | "Add row below"     | `addRowAfter()`     |
+| Add column    | `playlist_add`   | "Add column right"  | `addColumnAfter()`  |
+| Toggle header | `table_rows`     | "Toggle header row" | `toggleHeaderRow()` |
+| Delete table  | `delete_forever` | "Delete table"      | `deleteTable()`     |
 
 ### Custom Transactions for Row/Column Reorder
 

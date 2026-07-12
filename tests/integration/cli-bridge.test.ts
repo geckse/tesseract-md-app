@@ -57,10 +57,7 @@ async function runMdvdbJson<T>(
   root: string,
   options?: { timeout?: number }
 ): Promise<T> {
-  const { stdout } = await runMdvdb(
-    [command, '--json', '--root', root, ...args],
-    options
-  )
+  const { stdout } = await runMdvdb([command, '--json', '--root', root, ...args], options)
   return JSON.parse(stdout) as T
 }
 
@@ -92,11 +89,7 @@ describe.skipIf(!cliAvailable)('CLI Bridge Integration (real binary)', () => {
     it('returns status JSON for an uninitialized directory', async () => {
       // status on empty dir should either return empty status or error
       try {
-        const result = await runMdvdbJson<Record<string, unknown>>(
-          'status',
-          [],
-          tempDir
-        )
+        const result = await runMdvdbJson<Record<string, unknown>>('status', [], tempDir)
         // If it succeeds, should have expected fields
         expect(result).toHaveProperty('document_count')
         expect(result).toHaveProperty('chunk_count')
@@ -119,10 +112,7 @@ describe.skipIf(!cliAvailable)('CLI Bridge Integration (real binary)', () => {
         join(tempDir, 'test.md'),
         '---\ntitle: Test\ntags: [a, b]\n---\n\n# Hello\n\nSome content here.\n\n## Section Two\n\nMore content.\n'
       )
-      await writeFile(
-        join(tempDir, 'another.md'),
-        '# Another File\n\nWith [a link](test.md).\n'
-      )
+      await writeFile(join(tempDir, 'another.md'), '# Another File\n\nWith [a link](test.md).\n')
     })
 
     afterAll(async () => {
@@ -131,7 +121,7 @@ describe.skipIf(!cliAvailable)('CLI Bridge Integration (real binary)', () => {
 
     it('initializes a new collection', async () => {
       // init may not produce JSON output, just check exit code
-      const { stderr } = await runMdvdb(['init', '--root', tempDir])
+      await runMdvdb(['init', '--root', tempDir])
       // Should not throw (exit code 0)
       // stderr may contain log output — that's fine
       expect(true).toBe(true)
@@ -153,22 +143,14 @@ describe.skipIf(!cliAvailable)('CLI Bridge Integration (real binary)', () => {
     })
 
     it('runs tree command on the directory', async () => {
-      const result = await runMdvdbJson<Record<string, unknown>>(
-        'tree',
-        [],
-        tempDir
-      )
+      const result = await runMdvdbJson<Record<string, unknown>>('tree', [], tempDir)
       expect(result).toHaveProperty('total_files')
       expect(typeof (result as { total_files: number }).total_files).toBe('number')
     })
 
     it('runs doctor diagnostic check', async () => {
       try {
-        const result = await runMdvdbJson<Record<string, unknown>>(
-          'doctor',
-          [],
-          tempDir
-        )
+        const result = await runMdvdbJson<Record<string, unknown>>('doctor', [], tempDir)
         expect(result).toBeDefined()
       } catch (error: unknown) {
         // Doctor may report issues as non-zero exit — acceptable

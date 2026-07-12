@@ -314,7 +314,10 @@ export const graphLevel = writable<GraphLevel>('document')
 /** Load graph data at the current level. */
 export async function loadGraphData(): Promise<void> {
   const collection = get(activeCollection)
-  if (!collection) { graphLoading.set(false); return }
+  if (!collection) {
+    graphLoading.set(false)
+    return
+  }
 
   const generation = ++loadGeneration
   const level = get(graphLevel)
@@ -377,10 +380,16 @@ Updated `app/src/renderer/components/GraphView.svelte`:
 
 ```svelte
 <div class="graph-level-switcher" role="tablist">
-  <button class="level-tab" class:active={currentLevel === 'document'}
-    onclick={() => setGraphLevel('document')}>Documents</button>
-  <button class="level-tab" class:active={currentLevel === 'chunk'}
-    onclick={() => setGraphLevel('chunk')}>Chunks</button>
+  <button
+    class="level-tab"
+    class:active={currentLevel === 'document'}
+    onclick={() => setGraphLevel('document')}>Documents</button
+  >
+  <button
+    class="level-tab"
+    class:active={currentLevel === 'chunk'}
+    onclick={() => setGraphLevel('chunk')}>Chunks</button
+  >
 </div>
 ```
 
@@ -388,8 +397,8 @@ Updated `app/src/renderer/components/GraphView.svelte`:
 
 ```typescript
 interface SimNode extends SimulationNodeDatum {
-  id: string              // unique key (was path-only in Phase 14)
-  path: string            // source file path
+  id: string // unique key (was path-only in Phase 14)
+  path: string // source file path
   cluster_id: number | null
   label: string | null
   chunk_index: number | null
@@ -399,6 +408,7 @@ interface SimNode extends SimulationNodeDatum {
 ```
 
 **buildSimulation changes:**
+
 - Use `node.id` as the force-link ID (not `path`)
 - Detect chunk mode from `data.level === 'chunk'`
 - Chunk mode: smaller `distance(60)`, weaker `charge(-80)`, smaller `collide(10)`
@@ -425,7 +435,7 @@ Labels — chunk mode shows last segment of `node.label` (deepest heading): `nod
 Edge opacity — when `weight` exists (chunk mode), set stroke alpha proportional to score:
 
 ```typescript
-const alpha = 0.15 + (weight ?? 0) * 0.6  // range: 0.15 (low similarity) to 0.75 (high)
+const alpha = 0.15 + (weight ?? 0) * 0.6 // range: 0.15 (low similarity) to 0.75 (high)
 ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`
 ```
 
@@ -482,7 +492,7 @@ Selection matching — `getSelectedNeighbors()` compares against `node.id` inste
 }
 
 .level-tab.active {
-  color: var(--color-primary, #00E5FF);
+  color: var(--color-primary, #00e5ff);
   background: rgba(0, 229, 255, 0.08);
 }
 ```

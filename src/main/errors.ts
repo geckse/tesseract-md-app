@@ -3,7 +3,11 @@
  */
 
 /** Known CLI error types for discriminated unions. */
-export type CliErrorType = 'CliNotFoundError' | 'CliExecutionError' | 'CliParseError' | 'CliTimeoutError'
+export type CliErrorType =
+  | 'CliNotFoundError'
+  | 'CliExecutionError'
+  | 'CliParseError'
+  | 'CliTimeoutError'
 
 /** Known terminal error types for discriminated unions. */
 export type TerminalErrorType = 'TerminalSpawnError' | 'TerminalNotFoundError'
@@ -46,7 +50,13 @@ export class CliExecutionError extends Error {
   }
 
   serialize(): SerializedError {
-    return { error: true, type: 'CliExecutionError', message: this.message, exitCode: this.exitCode, stderr: this.stderr }
+    return {
+      error: true,
+      type: 'CliExecutionError',
+      message: this.message,
+      exitCode: this.exitCode,
+      stderr: this.stderr
+    }
   }
 }
 

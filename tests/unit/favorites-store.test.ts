@@ -25,21 +25,38 @@ const { mockActiveCollectionId, mockSelectedFilePath } = vi.hoisted(() => {
     let value = initial
     const subscribers = new Set<(v: T) => void>()
     return {
-      set(v: T) { value = v; subscribers.forEach(fn => fn(v)) },
-      update(fn: (v: T) => T) { value = fn(value); subscribers.forEach(s => s(value)) },
-      subscribe(fn: (v: T) => void) { fn(value); subscribers.add(fn); return () => { subscribers.delete(fn) } },
+      set(v: T) {
+        value = v
+        subscribers.forEach((fn) => fn(v))
+      },
+      update(fn: (v: T) => T) {
+        value = fn(value)
+        subscribers.forEach((s) => s(value))
+      },
+      subscribe(fn: (v: T) => void) {
+        fn(value)
+        subscribers.add(fn)
+        return () => {
+          subscribers.delete(fn)
+        }
+      }
     }
   }
   return {
     mockActiveCollectionId: makeWritable<string | null>(null),
-    mockSelectedFilePath: makeWritable<string | null>(null),
+    mockSelectedFilePath: makeWritable<string | null>(null)
   }
 })
 
 vi.mock('../../src/renderer/stores/collections', () => ({
   activeCollection: { subscribe: vi.fn() },
   activeCollectionId: mockActiveCollectionId,
-  collections: { subscribe: (fn: any) => { fn([]); return () => {} } }
+  collections: {
+    subscribe: (fn: any) => {
+      fn([])
+      return () => {}
+    }
+  }
 }))
 
 vi.mock('../../src/renderer/stores/files', () => ({

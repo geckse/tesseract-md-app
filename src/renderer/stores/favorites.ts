@@ -1,6 +1,6 @@
 import { writable, derived, get } from 'svelte/store'
 import type { FavoriteEntry, RecentEntry } from '../../preload/api'
-import { activeCollection, activeCollectionId } from './collections'
+import { activeCollectionId } from './collections'
 import { selectedFilePath } from './files'
 
 /** All favorited files across all collections. */
@@ -51,9 +51,7 @@ export async function loadRecents(): Promise<void> {
 /** Toggle favorite state for the current file. */
 export async function toggleFavorite(collectionId: string, filePath: string): Promise<void> {
   const current = get(favorites)
-  const exists = current.some(
-    (f) => f.collectionId === collectionId && f.filePath === filePath
-  )
+  const exists = current.some((f) => f.collectionId === collectionId && f.filePath === filePath)
 
   if (exists) {
     await window.api.removeFavorite(collectionId, filePath)

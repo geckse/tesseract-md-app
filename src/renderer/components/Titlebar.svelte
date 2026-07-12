@@ -1,68 +1,68 @@
 <script lang="ts">
-  import { searchOpen, clearSearch } from '../stores/search';
-  import { graphViewActive, toggleGraphView } from '../stores/graph';
-  import { canGoBack, canGoForward, goBack, goForward, setNavigating } from '../stores/navigation';
-  import { syncFileStoresFromTab } from '../stores/files';
-  import { workspace } from '../stores/workspace.svelte';
-  import type { SearchResult } from '../types/cli';
-  import Search from './Search.svelte';
-  import SearchResults from './SearchResults.svelte';
+  import { searchOpen, clearSearch } from '../stores/search'
+  import { graphViewActive, toggleGraphView } from '../stores/graph'
+  import { canGoBack, canGoForward, goBack, goForward, setNavigating } from '../stores/navigation'
+  import { syncFileStoresFromTab } from '../stores/files'
+  import { workspace } from '../stores/workspace.svelte'
+  import type { SearchResult } from '../types/cli'
+  import Search from './Search.svelte'
+  import SearchResults from './SearchResults.svelte'
 
   interface TitlebarProps {
-    propertiesOpen?: boolean;
-    onsearchresultclick?: (result: SearchResult) => void;
-    ontoggleproperties?: (detail: { open: boolean }) => void;
+    propertiesOpen?: boolean
+    onsearchresultclick?: (result: SearchResult) => void
+    ontoggleproperties?: (detail: { open: boolean }) => void
   }
 
   let {
     propertiesOpen = $bindable(false),
     onsearchresultclick,
-    ontoggleproperties,
-  }: TitlebarProps = $props();
+    ontoggleproperties
+  }: TitlebarProps = $props()
 
-  let currentGraphActive = $state(false);
-  graphViewActive.subscribe((v) => (currentGraphActive = v));
+  let currentGraphActive = $state(false)
+  graphViewActive.subscribe((v) => (currentGraphActive = v))
 
-  let currentSearchOpen = $state(false);
-  searchOpen.subscribe((v) => (currentSearchOpen = v));
+  let currentSearchOpen = $state(false)
+  searchOpen.subscribe((v) => (currentSearchOpen = v))
 
-  let currentCanGoBack = $state(false);
-  canGoBack.subscribe((v) => (currentCanGoBack = v));
+  let currentCanGoBack = $state(false)
+  canGoBack.subscribe((v) => (currentCanGoBack = v))
 
-  let currentCanGoForward = $state(false);
-  canGoForward.subscribe((v) => (currentCanGoForward = v));
+  let currentCanGoForward = $state(false)
+  canGoForward.subscribe((v) => (currentCanGoForward = v))
 
   function handleBack() {
-    const path = goBack();
+    const path = goBack()
     if (path) {
-      setNavigating(true);
-      workspace.replaceTab(path);
-      syncFileStoresFromTab();
-      setNavigating(false);
+      setNavigating(true)
+      workspace.replaceTab(path)
+      syncFileStoresFromTab()
+      setNavigating(false)
     }
   }
 
   function handleForward() {
-    const path = goForward();
+    const path = goForward()
     if (path) {
-      setNavigating(true);
-      workspace.replaceTab(path);
-      syncFileStoresFromTab();
-      setNavigating(false);
+      setNavigating(true)
+      workspace.replaceTab(path)
+      syncFileStoresFromTab()
+      setNavigating(false)
     }
   }
 
   function handleResultClick(result: SearchResult) {
-    onsearchresultclick?.(result);
+    onsearchresultclick?.(result)
   }
 
   function handleCloseRequest() {
-    clearSearch();
+    clearSearch()
   }
 
   function toggleProperties() {
-    propertiesOpen = !propertiesOpen;
-    ontoggleproperties?.({ open: propertiesOpen });
+    propertiesOpen = !propertiesOpen
+    ontoggleproperties?.({ open: propertiesOpen })
   }
 </script>
 
@@ -143,7 +143,6 @@
     align-items: center;
   }
 
-
   .titlebar-center {
     -webkit-app-region: no-drag;
     flex-shrink: 0;
@@ -184,7 +183,7 @@
 
   .icon-button:hover,
   .icon-button.active {
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
     background: var(--color-surface-darker, #0a0a0a);
   }
 
@@ -235,5 +234,4 @@
       transition: none;
     }
   }
-
 </style>

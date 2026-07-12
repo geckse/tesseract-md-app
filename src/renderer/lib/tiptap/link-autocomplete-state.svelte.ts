@@ -22,5 +22,5 @@ export const linkAutocompleteState: LinkAutocompleteState = $state({
   clientRect: null,
   collectionPath: '',
   collectionId: '',
-  active: false,
+  active: false
 })

@@ -40,11 +40,11 @@ interface AppStore {
 }
 
 interface Collection {
-  id: string              // UUID v4
-  name: string            // Folder name (e.g., "my-notes")
-  path: string            // Absolute path on disk
-  addedAt: number         // Unix timestamp
-  lastOpenedAt: number    // Unix timestamp (updated on switch)
+  id: string // UUID v4
+  name: string // Folder name (e.g., "my-notes")
+  path: string // Absolute path on disk
+  addedAt: number // Unix timestamp
+  lastOpenedAt: number // Unix timestamp (updated on switch)
 }
 ```
 
@@ -80,6 +80,7 @@ initCollection(path: string): Promise<void>
 ```
 
 **New IPC channels:**
+
 - `'collections:list'` → `getCollections()`
 - `'collections:add'` → `pickCollectionFolder()` + `addCollection()`
 - `'collections:remove'` → `removeCollection(id)`
@@ -87,11 +88,12 @@ initCollection(path: string): Promise<void>
 - `'collections:get-active'` → `getActiveCollection()`
 
 **Updated preload `window.api`:**
+
 ```typescript
 interface MdvdbApi {
   // ... existing CLI methods ...
   listCollections(): Promise<Collection[]>
-  addCollection(): Promise<Collection | null>   // Opens folder picker
+  addCollection(): Promise<Collection | null> // Opens folder picker
   removeCollection(id: string): Promise<void>
   setActiveCollection(id: string): Promise<void>
   getActiveCollection(): Promise<Collection | null>
@@ -101,6 +103,7 @@ interface MdvdbApi {
 ### New Commands / API / UI
 
 **Sidebar updates:**
+
 - "Knowledge Base" section renders `collections` list
 - Each collection: folder icon + name + small stats text (e.g., "25 docs")
 - Active collection: `bg-surface-dark border border-border-dark/50 text-white` with open folder icon
@@ -110,6 +113,7 @@ interface MdvdbApi {
 - Empty state: centered message "No collections yet" + prominent "Add Folder" button
 
 **Header updates:**
+
 - Breadcrumb shows active collection name (or "mdvdb" if none selected)
 
 ### Migration Strategy

@@ -216,10 +216,7 @@ describe('fuzzyFilter', () => {
   })
 
   it('ranks file in root higher than nested paths for same match', () => {
-    const testItems = [
-      { path: 'very/deep/nested/path/readme.md' },
-      { path: 'readme.md' }
-    ]
+    const testItems = [{ path: 'very/deep/nested/path/readme.md' }, { path: 'readme.md' }]
 
     const results = fuzzyFilter('readme', testItems, (item) => item.path)
 

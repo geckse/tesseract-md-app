@@ -6,7 +6,7 @@
   import { syncFileStoresFromTab } from '../stores/files'
   import { workspace } from '../stores/workspace.svelte'
   import { activeCollection } from '../stores/collections'
-  import { renderMarkdown, formatFrontmatterValue } from '../lib/markdown-render'
+  import { renderMarkdown } from '../lib/markdown-render'
   import type { GraphData, GraphNode, JsonValue } from '../types/cli'
 
   // Panel width management with persistence
@@ -41,7 +41,7 @@
   const unsubs = [
     graphOpenedNode.subscribe((v) => (currentNode = v)),
     activeCollection.subscribe((v) => (currentCollectionPath = v?.path ?? null)),
-    graphData.subscribe((v) => (currentGraphData = v)),
+    graphData.subscribe((v) => (currentGraphData = v))
   ]
 
   onDestroy(() => unsubs.forEach((u) => u()))
@@ -128,9 +128,8 @@
     const scores = node.custom_cluster_scores ?? []
     return ids.map((id, i) => ({
       id,
-      name:
-        currentGraphData?.custom_clusters?.find((c) => c.id === id)?.label ?? `Topic ${id}`,
-      score: scores[i] ?? null,
+      name: currentGraphData?.custom_clusters?.find((c) => c.id === id)?.label ?? `Topic ${id}`,
+      score: scores[i] ?? null
     }))
   })
 
@@ -156,11 +155,7 @@
   {#if fileName}
     <div class="preview-header">
       <span class="file-name">{fileName}</span>
-      <button
-        class="open-button"
-        title="Open in Editor"
-        onclick={handleOpenInEditor}
-      >
+      <button class="open-button" title="Open in Editor" onclick={handleOpenInEditor}>
         <span class="material-symbols-outlined">open_in_new</span>
         <span class="open-label">Open</span>
       </button>
@@ -203,6 +198,7 @@
 
     <!-- Rendered Markdown -->
     <div class="markdown-body">
+      <!-- eslint-disable-next-line svelte/no-at-html-tags -->
       {@html renderedHtml}
     </div>
   {:else}
@@ -280,8 +276,8 @@
   }
 
   .open-button:hover {
-    color: var(--color-primary, #00E5FF);
-    border-color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
+    border-color: var(--color-primary, #00e5ff);
     background: var(--color-primary-dim, rgba(0, 229, 255, 0.05));
   }
 
@@ -361,16 +357,22 @@
     font-weight: 600;
   }
 
-  .markdown-body :global(h1) { font-size: 1.5em; }
-  .markdown-body :global(h2) { font-size: 1.3em; }
-  .markdown-body :global(h3) { font-size: 1.1em; }
+  .markdown-body :global(h1) {
+    font-size: 1.5em;
+  }
+  .markdown-body :global(h2) {
+    font-size: 1.3em;
+  }
+  .markdown-body :global(h3) {
+    font-size: 1.1em;
+  }
 
   .markdown-body :global(p) {
     margin: 0.5em 0;
   }
 
   .markdown-body :global(a) {
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
     text-decoration: none;
   }
 

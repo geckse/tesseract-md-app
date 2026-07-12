@@ -100,6 +100,7 @@ app/
 **Icons:** Material Symbols Outlined (weight 100-700, fill 0-1)
 
 **Effects:**
+
 - Grain texture overlay: SVG noise filter at 4% opacity, `pointer-events: none`
 - Custom scrollbars: 8px width, `#27272a` thumb, `#0f0f10` track, 4px border-radius
 - Selection color: `bg-primary text-surface-darker`
@@ -109,28 +110,28 @@ app/
 ```typescript
 // tailwind.config.ts
 export default {
-  darkMode: "class",
-  content: ["./src/renderer/**/*.{svelte,ts,html}"],
+  darkMode: 'class',
+  content: ['./src/renderer/**/*.{svelte,ts,html}'],
   theme: {
     extend: {
       colors: {
-        primary: "#00E5FF",
-        "primary-dark": "#00B8CC",
-        "primary-dim": "rgba(0, 229, 255, 0.1)",
-        "background-dark": "#0f0f10",
-        "surface-dark": "#161617",
-        "surface-darker": "#0a0a0a",
-        "border-dark": "#27272a",
-        "text-main": "#e4e4e7",
-        "text-dim": "#71717a",
-        "text-syntax": "#526366",
+        primary: '#00E5FF',
+        'primary-dark': '#00B8CC',
+        'primary-dim': 'rgba(0, 229, 255, 0.1)',
+        'background-dark': '#0f0f10',
+        'surface-dark': '#161617',
+        'surface-darker': '#0a0a0a',
+        'border-dark': '#27272a',
+        'text-main': '#e4e4e7',
+        'text-dim': '#71717a',
+        'text-syntax': '#526366'
       },
       fontFamily: {
-        display: ["Space Grotesk", "sans-serif"],
-        mono: ["JetBrains Mono", "monospace"],
-      },
-    },
-  },
+        display: ['Space Grotesk', 'sans-serif'],
+        mono: ['JetBrains Mono', 'monospace']
+      }
+    }
+  }
 }
 ```
 
@@ -162,6 +163,7 @@ None — this is the initial scaffold. No public API yet.
 ### New Commands / API / UI
 
 **package.json scripts:**
+
 - `npm run dev` — Start Electron in development mode with hot reload
 - `npm run build` — Build for current platform
 - `npm run test` — Run Vitest unit tests

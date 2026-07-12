@@ -13,7 +13,10 @@ function resolveWikilinkTarget(target: string): string | null {
 
   // Exact filename match (without extension)
   for (const file of files) {
-    const name = file.path.replace(/^.*\//, '').replace(/\.[^.]+$/, '').toLowerCase()
+    const name = file.path
+      .replace(/^.*\//, '')
+      .replace(/\.[^.]+$/, '')
+      .toLowerCase()
     if (name === normalized) return file.path
   }
 

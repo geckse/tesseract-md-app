@@ -7,7 +7,11 @@
   import { editorTheme } from '../lib/editor-theme'
   import { focusTrap } from '../lib/focus-trap'
   import { diffView, closeDiffView, type DiffViewRequest } from '../stores/conflict'
-  import { resolveConflictTakeDisk, resolveConflictKeepMine, resolveConflictMerge } from '../stores/file-sync'
+  import {
+    resolveConflictTakeDisk,
+    resolveConflictKeepMine,
+    resolveConflictMerge
+  } from '../stores/file-sync'
 
   let request: DiffViewRequest | null = $state(null)
   const unsubDiffView = diffView.subscribe((v) => (request = v))
@@ -139,11 +143,7 @@
           >
             Unified
           </button>
-          <button
-            class="mode-btn"
-            class:active={mode === 'split'}
-            onclick={() => (mode = 'split')}
-          >
+          <button class="mode-btn" class:active={mode === 'split'} onclick={() => (mode = 'split')}>
             Side by side
           </button>
           {#if canMerge}
@@ -164,7 +164,9 @@
         <button class="btn btn-secondary" onclick={closeDiffView}>Close</button>
         {#if request.showActions}
           <button class="btn btn-secondary" onclick={handleKeepMine}>Keep Mine</button>
-          <button class="btn {canMerge ? 'btn-secondary' : 'btn-primary'}" onclick={handleTakeDisk}>Take Disk</button>
+          <button class="btn {canMerge ? 'btn-secondary' : 'btn-primary'}" onclick={handleTakeDisk}
+            >Take Disk</button
+          >
           {#if canMerge}
             <button class="btn btn-primary" onclick={handleMerge}>Merge Both</button>
           {/if}
@@ -247,7 +249,9 @@
     font-size: 12px;
     color: var(--color-text-dim, #71717a);
     cursor: pointer;
-    transition: background-color 150ms ease, color 150ms ease;
+    transition:
+      background-color 150ms ease,
+      color 150ms ease;
   }
 
   @media (prefers-reduced-motion: reduce) {

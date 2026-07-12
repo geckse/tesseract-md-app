@@ -57,7 +57,9 @@ describe('diffGraphData', () => {
     expect(diffGraphData(prev, nextSize).updatedNodes.has('a')).toBe(true)
 
     // path change alone is not a visual change
-    const nextPath = graph([{ ...node('a', { cluster_id: 1, label: 'x', size: 10 }), path: 'moved' }])
+    const nextPath = graph([
+      { ...node('a', { cluster_id: 1, label: 'x', size: 10 }), path: 'moved' }
+    ])
     expect(diffGraphData(prev, nextPath).updatedNodes.has('a')).toBe(false)
   })
 

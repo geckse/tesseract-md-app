@@ -3,7 +3,7 @@ import {
   splitFrontmatter,
   joinFrontmatter,
   parseFrontmatterData,
-  serializeFrontmatter,
+  serializeFrontmatter
 } from '@renderer/lib/tiptap/markdown-bridge'
 
 describe('splitFrontmatter', () => {

@@ -8,7 +8,7 @@ Improve the chunk-level graph view with three changes: (1) color chunk nodes by 
 
 Phase 16 delivered a functional chunk-level graph, but it has usability issues:
 
-1. **Node coloring is arbitrary.** Chunks are colored by source file using a hash-based palette. This creates visually distinct groups, but the groups aren't semantically meaningful — knowing that 5 nodes came from the same file doesn't reveal *what* they're about. The index already has document-level cluster assignments with TF-IDF keyword labels (from Phase 9), but chunk nodes don't inherit them (`cluster_id: null`).
+1. **Node coloring is arbitrary.** Chunks are colored by source file using a hash-based palette. This creates visually distinct groups, but the groups aren't semantically meaningful — knowing that 5 nodes came from the same file doesn't reveal _what_ they're about. The index already has document-level cluster assignments with TF-IDF keyword labels (from Phase 9), but chunk nodes don't inherit them (`cluster_id: null`).
 
 2. **No connection between file tree and graph.** Users can browse files in the sidebar and see chunks in the graph, but there's no way to ask "where are this file's chunks in the graph?" The file tree selection (`selectedFilePath`) and graph rendering are completely independent.
 
@@ -225,83 +225,83 @@ Update the tooltip (around line 654) to also show cluster label in chunk mode wh
 In `GraphView.svelte`, subscribe to `selectedFilePath` from `stores/files.ts`:
 
 ```typescript
-import { selectedFilePath } from '../stores/files';
+import { selectedFilePath } from '../stores/files'
 
-let currentSelectedFilePath: string | null = $state(null);
+let currentSelectedFilePath: string | null = $state(null)
 
 // In onMount:
 const unsubFilePath = selectedFilePath.subscribe((p) => {
-    currentSelectedFilePath = p;
-    dirty = true;
-});
+  currentSelectedFilePath = p
+  dirty = true
+})
 
 // In onDestroy:
-unsubFilePath();
+unsubFilePath()
 ```
 
 Add a helper to compute highlighted nodes and edges:
 
 ```typescript
 function getFileHighlight(filePath: string | null): {
-    fileNodeIds: Set<string>;
-    fileEdges: Set<SimEdge>;
+  fileNodeIds: Set<string>
+  fileEdges: Set<SimEdge>
 } {
-    const fileNodeIds = new Set<string>();
-    const fileEdges = new Set<SimEdge>();
-    if (!filePath || !isChunkMode()) return { fileNodeIds, fileEdges };
+  const fileNodeIds = new Set<string>()
+  const fileEdges = new Set<SimEdge>()
+  if (!filePath || !isChunkMode()) return { fileNodeIds, fileEdges }
 
-    for (const node of simNodes) {
-        if (node.path === filePath) fileNodeIds.add(node.id);
-    }
-    if (fileNodeIds.size === 0) return { fileNodeIds, fileEdges };
+  for (const node of simNodes) {
+    if (node.path === filePath) fileNodeIds.add(node.id)
+  }
+  if (fileNodeIds.size === 0) return { fileNodeIds, fileEdges }
 
-    for (const edge of simEdges) {
-        const s = (edge.source as SimNode).id;
-        const t = (edge.target as SimNode).id;
-        if (fileNodeIds.has(s) || fileNodeIds.has(t)) fileEdges.add(edge);
-    }
+  for (const edge of simEdges) {
+    const s = (edge.source as SimNode).id
+    const t = (edge.target as SimNode).id
+    if (fileNodeIds.has(s) || fileNodeIds.has(t)) fileEdges.add(edge)
+  }
 
-    return { fileNodeIds, fileEdges };
+  return { fileNodeIds, fileEdges }
 }
 ```
 
 Integrate into `draw()`:
 
 ```typescript
-const { fileNodeIds, fileEdges } = getFileHighlight(currentSelectedFilePath);
-const hasFileHighlight = fileNodeIds.size > 0;
+const { fileNodeIds, fileEdges } = getFileHighlight(currentSelectedFilePath)
+const hasFileHighlight = fileNodeIds.size > 0
 ```
 
 **Node dimming** — single-node selection takes priority:
 
 ```typescript
 const dimmed = hasSelection
-    ? (!isSelected && !isNeighbor)
-    : hasFileHighlight
-        ? !fileNodeIds.has(node.id)
-        : false;
+  ? !isSelected && !isNeighbor
+  : hasFileHighlight
+    ? !fileNodeIds.has(node.id)
+    : false
 ```
 
 **Glow effect** for file-highlighted nodes (after fill, before selected ring):
 
 ```typescript
 if (!hasSelection && hasFileHighlight && fileNodeIds.has(node.id)) {
-    ctx.save();
-    ctx.shadowColor = '#00E5FF';
-    ctx.shadowBlur = 12 / zoom;
-    ctx.beginPath();
-    ctx.arc(node.x, node.y, radius + 1, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(0, 229, 255, 0.8)';
-    ctx.lineWidth = 1.5 / zoom;
-    ctx.stroke();
-    ctx.restore();
+  ctx.save()
+  ctx.shadowColor = '#00E5FF'
+  ctx.shadowBlur = 12 / zoom
+  ctx.beginPath()
+  ctx.arc(node.x, node.y, radius + 1, 0, Math.PI * 2)
+  ctx.strokeStyle = 'rgba(0, 229, 255, 0.8)'
+  ctx.lineWidth = 1.5 / zoom
+  ctx.stroke()
+  ctx.restore()
 }
 ```
 
 **Edge highlighting** — when file is highlighted, edges connected to file nodes draw with higher opacity; others dim:
 
 ```typescript
-const isFileEdge = !hasSelection && hasFileHighlight && fileEdges.has(edge);
+const isFileEdge = !hasSelection && hasFileHighlight && fileEdges.has(edge)
 // If isFileEdge: draw with full opacity
 // If hasFileHighlight && !isFileEdge: draw with very low opacity (0.03)
 ```
@@ -314,7 +314,7 @@ Update the non-highlighted edge drawing in `draw()`:
 
 ```typescript
 // Default edges (no selection, no file highlight active):
-const alpha = 0.05 + (weight ?? 0) * 0.2  // range: 0.05 to 0.25 (was 0.15 to 0.75)
+const alpha = 0.05 + (weight ?? 0) * 0.2 // range: 0.05 to 0.25 (was 0.15 to 0.75)
 ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`
 ```
 
@@ -327,6 +327,7 @@ Currently, when a node is selected in the graph, `getSelectedNeighbors()` classi
 In `GraphView.svelte`, modify the edge highlighting logic in `draw()` to detect chunk mode:
 
 **When `isChunkMode()` and a node is selected:**
+
 - Draw ALL connected edges in a single color (cyan `#00E5FF`) with uniform width
 - Do NOT draw arrows — just lines
 - Do NOT split into outgoing/incoming sets
@@ -336,20 +337,20 @@ The existing `getSelectedNeighbors()` already returns a combined `neighbors` set
 ```typescript
 // In the highlighted edge drawing section:
 if (chunk) {
-    // Chunk mode: symmetric similarity, single color, no arrows
-    for (const edge of [...outEdges, ...inEdges]) {
-        const s = edge.source as SimNode;
-        const t = edge.target as SimNode;
-        ctx.beginPath();
-        ctx.moveTo(s.x, s.y);
-        ctx.lineTo(t.x, t.y);
-        ctx.strokeStyle = 'rgba(0, 229, 255, 0.7)';
-        ctx.lineWidth = 1.5 / zoom;
-        ctx.stroke();
-    }
+  // Chunk mode: symmetric similarity, single color, no arrows
+  for (const edge of [...outEdges, ...inEdges]) {
+    const s = edge.source as SimNode
+    const t = edge.target as SimNode
+    ctx.beginPath()
+    ctx.moveTo(s.x, s.y)
+    ctx.lineTo(t.x, t.y)
+    ctx.strokeStyle = 'rgba(0, 229, 255, 0.7)'
+    ctx.lineWidth = 1.5 / zoom
+    ctx.stroke()
+  }
 } else {
-    // Document mode: keep existing directional cyan/red + arrows
-    // ... existing code ...
+  // Document mode: keep existing directional cyan/red + arrows
+  // ... existing code ...
 }
 ```
 
@@ -370,16 +371,16 @@ In `FileTree.svelte`, add a context menu item for directories (after the "Reveal
 The handler:
 
 ```typescript
-import { setGraphPathFilter, graphViewActive } from '../stores/graph';
+import { setGraphPathFilter, graphViewActive } from '../stores/graph'
 
 function handleShowInGraph(): void {
-    if (!contextMenuPath) return;
-    setGraphPathFilter(contextMenuPath);
-    if (!get(graphViewActive)) {
-        graphViewActive.set(true);
-        // loadGraphData() already called by setGraphPathFilter
-    }
-    closeContextMenu();
+  if (!contextMenuPath) return
+  setGraphPathFilter(contextMenuPath)
+  if (!get(graphViewActive)) {
+    graphViewActive.set(true)
+    // loadGraphData() already called by setGraphPathFilter
+  }
+  closeContextMenu()
 }
 ```
 
@@ -420,7 +421,7 @@ CSS:
 }
 
 .graph-path-filter-text {
-  color: var(--color-primary, #00E5FF);
+  color: var(--color-primary, #00e5ff);
   max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -445,6 +446,7 @@ CSS:
 ## Migration Strategy
 
 No migration needed. All changes are additive:
+
 - Chunk nodes gaining `cluster_id` is backward-compatible (was `null`, now `Some(id)`)
 - `--path` flag is optional with no default
 - New context menu item doesn't affect existing menu items
@@ -470,8 +472,8 @@ No migration needed. All changes are additive:
 16. Integrate file highlighting into `draw()` — dimming, glow effect, edge highlighting
 17. Remove fake edge directionality in chunk mode — single color, no arrows for selected node edges
 18. Add "Show in Graph" context menu item for directories in `FileTree.svelte`
-18. Add folder path indicator badge (top-left) with clear button in `GraphView.svelte`
-19. Verify end-to-end in app
+19. Add folder path indicator badge (top-left) with clear button in `GraphView.svelte`
+20. Verify end-to-end in app
 
 ## Validation Criteria
 

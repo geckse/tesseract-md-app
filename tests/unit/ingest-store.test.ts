@@ -18,12 +18,12 @@ const mockApi = {
   fileTree: vi.fn(),
   ingest: vi.fn(),
   ingestPreview: vi.fn(),
-  cancelIngest: vi.fn(),
+  cancelIngest: vi.fn()
 }
 
 Object.defineProperty(globalThis, 'window', {
   value: { api: mockApi },
-  writable: true,
+  writable: true
 })
 
 import {
@@ -39,7 +39,7 @@ import {
   runPreview,
   runIngest,
   cancelIngest,
-  closeIngestModal,
+  closeIngestModal
 } from '../../src/renderer/stores/ingest'
 
 import { collections, activeCollectionId } from '../../src/renderer/stores/collections'
@@ -191,7 +191,11 @@ describe('ingest store', () => {
       activeCollectionId.set('a')
 
       let resolveIngest: (v: unknown) => void
-      mockApi.ingest.mockReturnValue(new Promise((r) => { resolveIngest = r }))
+      mockApi.ingest.mockReturnValue(
+        new Promise((r) => {
+          resolveIngest = r
+        })
+      )
       mockApi.status.mockResolvedValue({})
       mockApi.fileTree.mockResolvedValue(null)
 

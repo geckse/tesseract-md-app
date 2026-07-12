@@ -1,189 +1,220 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
-  import type { Editor } from '@tiptap/core';
-  import { navigateLink, navigateLinkNewTab, navigateLinkOtherPane, resolveHref, isExternalHref } from '../../lib/link-navigation';
-  import { workspace } from '../../stores/workspace.svelte';
+  import { onMount, onDestroy } from 'svelte'
+  import type { Editor } from '@tiptap/core'
+  import {
+    navigateLink,
+    navigateLinkNewTab,
+    navigateLinkOtherPane
+  } from '../../lib/link-navigation'
+  import { workspace } from '../../stores/workspace.svelte'
 
   interface Props {
-    editor: Editor;
-    x: number;
-    y: number;
-    onclose: () => void;
+    editor: Editor
+    x: number
+    y: number
+    onclose: () => void
   }
 
-  let { editor, x, y, onclose }: Props = $props();
+  let { editor, x, y, onclose }: Props = $props()
 
-  let menuEl: HTMLDivElement | undefined = $state(undefined);
+  let menuEl: HTMLDivElement | undefined = $state(undefined)
 
   // ── Editor state checks ───────────────────────────────────────────────
 
   const hasSelection = $derived(() => {
-    const { from, to } = editor.state.selection;
-    return from !== to;
-  });
+    const { from, to } = editor.state.selection
+    return from !== to
+  })
 
-  const isOnLink = $derived(() => editor.isActive('link'));
-  const isOnWikilink = $derived(() => editor.isActive('wikilink'));
-  const isBold = $derived(() => editor.isActive('bold'));
-  const isItalic = $derived(() => editor.isActive('italic'));
-  const isCode = $derived(() => editor.isActive('code'));
-  const isStrike = $derived(() => editor.isActive('strike'));
+  const isOnLink = $derived(() => editor.isActive('link'))
+  const isOnWikilink = $derived(() => editor.isActive('wikilink'))
+  const isBold = $derived(() => editor.isActive('bold'))
+  const isItalic = $derived(() => editor.isActive('italic'))
+  const isCode = $derived(() => editor.isActive('code'))
+  const isStrike = $derived(() => editor.isActive('strike'))
 
   // ── Actions ───────────────────────────────────────────────────────────
 
   function exec(fn: () => void) {
-    fn();
-    onclose();
+    fn()
+    onclose()
   }
 
-  function handleUndo() { exec(() => editor.chain().focus().undo().run()); }
-  function handleRedo() { exec(() => editor.chain().focus().redo().run()); }
+  function handleUndo() {
+    exec(() => editor.chain().focus().undo().run())
+  }
+  function handleRedo() {
+    exec(() => editor.chain().focus().redo().run())
+  }
 
   function handleCut() {
-    document.execCommand('cut');
-    onclose();
+    document.execCommand('cut')
+    onclose()
   }
   function handleCopy() {
-    document.execCommand('copy');
-    onclose();
+    document.execCommand('copy')
+    onclose()
   }
   function handlePaste() {
     navigator.clipboard.readText().then((text) => {
-      editor.chain().focus().insertContent(text).run();
-    });
-    onclose();
+      editor.chain().focus().insertContent(text).run()
+    })
+    onclose()
   }
 
-  function handleBold() { exec(() => editor.chain().focus().toggleBold().run()); }
-  function handleItalic() { exec(() => editor.chain().focus().toggleItalic().run()); }
-  function handleStrike() { exec(() => editor.chain().focus().toggleStrike().run()); }
-  function handleCode() { exec(() => editor.chain().focus().toggleCode().run()); }
-  function handleClearFormatting() { exec(() => editor.chain().focus().clearNodes().unsetAllMarks().run()); }
+  function handleBold() {
+    exec(() => editor.chain().focus().toggleBold().run())
+  }
+  function handleItalic() {
+    exec(() => editor.chain().focus().toggleItalic().run())
+  }
+  function handleStrike() {
+    exec(() => editor.chain().focus().toggleStrike().run())
+  }
+  function handleCode() {
+    exec(() => editor.chain().focus().toggleCode().run())
+  }
+  function handleClearFormatting() {
+    exec(() => editor.chain().focus().clearNodes().unsetAllMarks().run())
+  }
 
   function handleLink() {
     if (editor.isActive('link')) {
-      exec(() => editor.chain().focus().unsetLink().run());
+      exec(() => editor.chain().focus().unsetLink().run())
     } else {
-      onclose();
-      editor.view.dom.dispatchEvent(new CustomEvent('open-link-modal', { bubbles: true }));
+      onclose()
+      editor.view.dom.dispatchEvent(new CustomEvent('open-link-modal', { bubbles: true }))
     }
   }
 
   function handleRemoveLink() {
-    exec(() => editor.chain().focus().extendMarkRange('link').unsetLink().run());
+    exec(() => editor.chain().focus().extendMarkRange('link').unsetLink().run())
   }
 
   function handleCopyLinkUrl() {
-    const href = getLinkHref();
-    if (href) navigator.clipboard.writeText(href);
-    onclose();
+    const href = getLinkHref()
+    if (href) navigator.clipboard.writeText(href)
+    onclose()
   }
 
   function handleNavigateLink() {
-    const href = getLinkHref();
-    if (href) navigateLink(href);
-    onclose();
+    const href = getLinkHref()
+    if (href) navigateLink(href)
+    onclose()
   }
 
   function handleOpenInNewTab() {
-    const href = getLinkHref();
-    if (href) navigateLinkNewTab(href);
-    onclose();
+    const href = getLinkHref()
+    if (href) navigateLinkNewTab(href)
+    onclose()
   }
 
   function handleOpenInOtherPane() {
-    const href = getLinkHref();
-    if (href) navigateLinkOtherPane(href);
-    onclose();
+    const href = getLinkHref()
+    if (href) navigateLinkOtherPane(href)
+    onclose()
   }
 
   function handleEditLink() {
-    const href = getLinkHref();
-    onclose();
-    editor.chain().focus().extendMarkRange('link').run();
-    editor.view.dom.dispatchEvent(new CustomEvent('open-link-modal', {
-      bubbles: true,
-      detail: { initialQuery: href ?? '' },
-    }));
+    const href = getLinkHref()
+    onclose()
+    editor.chain().focus().extendMarkRange('link').run()
+    editor.view.dom.dispatchEvent(
+      new CustomEvent('open-link-modal', {
+        bubbles: true,
+        detail: { initialQuery: href ?? '' }
+      })
+    )
   }
 
   /** Get the href of the link at cursor, whether it's a regular link or wikilink. */
   function getLinkHref(): string | null {
     if (editor.isActive('link')) {
-      return editor.getAttributes('link').href ?? null;
+      return editor.getAttributes('link').href ?? null
     }
     if (editor.isActive('wikilink')) {
-      return editor.getAttributes('wikilink').target ?? null;
+      return editor.getAttributes('wikilink').target ?? null
     }
-    return null;
+    return null
   }
 
   /** Determine label for the other pane direction. */
   const otherPaneLabel = $derived(() => {
-    const paneOrder = workspace.paneOrder;
-    if (paneOrder.length < 2) return 'Open in Split';
-    const activeIdx = paneOrder.indexOf(workspace.activePaneId);
-    return activeIdx === 0 ? 'Open in Right Pane' : 'Open in Left Pane';
-  });
+    const paneOrder = workspace.paneOrder
+    if (paneOrder.length < 2) return 'Open in Split'
+    const activeIdx = paneOrder.indexOf(workspace.activePaneId)
+    return activeIdx === 0 ? 'Open in Right Pane' : 'Open in Left Pane'
+  })
 
   // Block type conversions
-  function handleParagraph() { exec(() => editor.chain().focus().setParagraph().run()); }
-  function handleHeading(level: 1 | 2 | 3) { exec(() => editor.chain().focus().toggleHeading({ level }).run()); }
-  function handleBulletList() { exec(() => editor.chain().focus().toggleBulletList().run()); }
-  function handleOrderedList() { exec(() => editor.chain().focus().toggleOrderedList().run()); }
-  function handleBlockquote() { exec(() => editor.chain().focus().toggleBlockquote().run()); }
-  function handleCodeBlock() { exec(() => editor.chain().focus().toggleCodeBlock().run()); }
+  function handleParagraph() {
+    exec(() => editor.chain().focus().setParagraph().run())
+  }
+  function handleHeading(level: 1 | 2 | 3) {
+    exec(() => editor.chain().focus().toggleHeading({ level }).run())
+  }
+  function handleBulletList() {
+    exec(() => editor.chain().focus().toggleBulletList().run())
+  }
+  function handleOrderedList() {
+    exec(() => editor.chain().focus().toggleOrderedList().run())
+  }
+  function handleBlockquote() {
+    exec(() => editor.chain().focus().toggleBlockquote().run())
+  }
+  function handleCodeBlock() {
+    exec(() => editor.chain().focus().toggleCodeBlock().run())
+  }
 
   // ── Positioning ───────────────────────────────────────────────────────
 
   onMount(() => {
-    if (!menuEl) return;
+    if (!menuEl) return
     // Clamp position to viewport
-    const rect = menuEl.getBoundingClientRect();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    if (x + rect.width > vw) x = vw - rect.width - 8;
-    if (y + rect.height > vh) y = vh - rect.height - 8;
-    if (x < 8) x = 8;
-    if (y < 8) y = 8;
-  });
+    const rect = menuEl.getBoundingClientRect()
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+    if (x + rect.width > vw) x = vw - rect.width - 8
+    if (y + rect.height > vh) y = vh - rect.height - 8
+    if (x < 8) x = 8
+    if (y < 8) y = 8
+  })
 
   // ── Close on outside click / Escape ───────────────────────────────────
 
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape') {
-      e.preventDefault();
-      onclose();
+      e.preventDefault()
+      onclose()
     }
   }
 
   function handleOutsideClick(e: MouseEvent) {
     if (menuEl && !menuEl.contains(e.target as Node)) {
-      onclose();
+      onclose()
     }
   }
 
   onMount(() => {
-    window.addEventListener('keydown', handleKeydown);
+    window.addEventListener('keydown', handleKeydown)
     // Delay to avoid catching the right-click itself
     requestAnimationFrame(() => {
-      window.addEventListener('mousedown', handleOutsideClick);
-    });
-  });
+      window.addEventListener('mousedown', handleOutsideClick)
+    })
+  })
 
   onDestroy(() => {
-    window.removeEventListener('keydown', handleKeydown);
-    window.removeEventListener('mousedown', handleOutsideClick);
-  });
+    window.removeEventListener('keydown', handleKeydown)
+    window.removeEventListener('mousedown', handleOutsideClick)
+  })
 
-  const isMac = navigator.platform.includes('Mac');
-  const mod = isMac ? '⌘' : 'Ctrl+';
+  const isMac = navigator.platform.includes('Mac')
+  const mod = isMac ? '⌘' : 'Ctrl+'
 
   // Flip submenus to the left when the menu is in the right half of the screen
-  const flipSubmenu = $derived(x > window.innerWidth / 2);
+  const flipSubmenu = $derived(x > window.innerWidth / 2)
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="context-menu"
   class:flip-submenu={flipSubmenu}
@@ -303,36 +334,76 @@
     <span class="menu-label">Turn into</span>
     <span class="material-symbols-outlined submenu-arrow">chevron_right</span>
     <div class="submenu">
-      <button class="menu-item" onclick={handleParagraph} class:active={editor.isActive('paragraph') && !editor.isActive('heading')} role="menuitem">
+      <button
+        class="menu-item"
+        onclick={handleParagraph}
+        class:active={editor.isActive('paragraph') && !editor.isActive('heading')}
+        role="menuitem"
+      >
         <span class="material-symbols-outlined">notes</span>
         <span class="menu-label">Paragraph</span>
       </button>
-      <button class="menu-item" onclick={() => handleHeading(1)} class:active={editor.isActive('heading', { level: 1 })} role="menuitem">
+      <button
+        class="menu-item"
+        onclick={() => handleHeading(1)}
+        class:active={editor.isActive('heading', { level: 1 })}
+        role="menuitem"
+      >
         <span class="material-symbols-outlined">title</span>
         <span class="menu-label">Heading 1</span>
       </button>
-      <button class="menu-item" onclick={() => handleHeading(2)} class:active={editor.isActive('heading', { level: 2 })} role="menuitem">
+      <button
+        class="menu-item"
+        onclick={() => handleHeading(2)}
+        class:active={editor.isActive('heading', { level: 2 })}
+        role="menuitem"
+      >
         <span class="material-symbols-outlined">title</span>
         <span class="menu-label">Heading 2</span>
       </button>
-      <button class="menu-item" onclick={() => handleHeading(3)} class:active={editor.isActive('heading', { level: 3 })} role="menuitem">
+      <button
+        class="menu-item"
+        onclick={() => handleHeading(3)}
+        class:active={editor.isActive('heading', { level: 3 })}
+        role="menuitem"
+      >
         <span class="material-symbols-outlined">title</span>
         <span class="menu-label">Heading 3</span>
       </button>
       <div class="separator"></div>
-      <button class="menu-item" onclick={handleBulletList} class:active={editor.isActive('bulletList')} role="menuitem">
+      <button
+        class="menu-item"
+        onclick={handleBulletList}
+        class:active={editor.isActive('bulletList')}
+        role="menuitem"
+      >
         <span class="material-symbols-outlined">format_list_bulleted</span>
         <span class="menu-label">Bullet List</span>
       </button>
-      <button class="menu-item" onclick={handleOrderedList} class:active={editor.isActive('orderedList')} role="menuitem">
+      <button
+        class="menu-item"
+        onclick={handleOrderedList}
+        class:active={editor.isActive('orderedList')}
+        role="menuitem"
+      >
         <span class="material-symbols-outlined">format_list_numbered</span>
         <span class="menu-label">Numbered List</span>
       </button>
-      <button class="menu-item" onclick={handleBlockquote} class:active={editor.isActive('blockquote')} role="menuitem">
+      <button
+        class="menu-item"
+        onclick={handleBlockquote}
+        class:active={editor.isActive('blockquote')}
+        role="menuitem"
+      >
         <span class="material-symbols-outlined">format_quote</span>
         <span class="menu-label">Blockquote</span>
       </button>
-      <button class="menu-item" onclick={handleCodeBlock} class:active={editor.isActive('codeBlock')} role="menuitem">
+      <button
+        class="menu-item"
+        onclick={handleCodeBlock}
+        class:active={editor.isActive('codeBlock')}
+        role="menuitem"
+      >
         <span class="material-symbols-outlined">terminal</span>
         <span class="menu-label">Code Block</span>
       </button>
@@ -389,7 +460,7 @@
   }
 
   .menu-item.active {
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
   }
 
   .menu-item .material-symbols-outlined {
@@ -401,7 +472,7 @@
   }
 
   .menu-item.active .material-symbols-outlined {
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
   }
 
   .menu-label {

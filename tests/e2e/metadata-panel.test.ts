@@ -104,7 +104,7 @@ test.describe('Metadata Panel', () => {
         // Outline section should have items or show "No headings"
         const outlineItems = window.locator('.outline-item')
         const noHeadings = window.locator('text=No headings')
-        const hasItems = await outlineItems.count() > 0
+        const hasItems = (await outlineItems.count()) > 0
         const hasEmpty = await noHeadings.isVisible().catch(() => false)
 
         expect(hasItems || hasEmpty).toBe(true)

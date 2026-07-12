@@ -1,63 +1,60 @@
 <script lang="ts">
-  import { activeCollection, activeCollectionId } from '../stores/collections';
-  import { selectedFilePath } from '../stores/files';
-  import { isDirty, requestSave, requestDiscard } from '../stores/editor';
-  import { isFavorited, toggleFavorite } from '../stores/favorites';
+  import { activeCollection, activeCollectionId } from '../stores/collections'
+  import { selectedFilePath } from '../stores/files'
+  import { isDirty, requestSave, requestDiscard } from '../stores/editor'
+  import { isFavorited, toggleFavorite } from '../stores/favorites'
 
   interface HeaderProps {
-    propertiesOpen?: boolean;
-    ontoggleproperties?: (detail: { open: boolean }) => void;
+    propertiesOpen?: boolean
+    ontoggleproperties?: (detail: { open: boolean }) => void
   }
 
-  let {
-    propertiesOpen = $bindable(false),
-    ontoggleproperties,
-  }: HeaderProps = $props();
+  let { propertiesOpen = $bindable(false), ontoggleproperties }: HeaderProps = $props()
 
-  let currentActiveCollection: import('../../preload/api').Collection | null = $state(null);
-  activeCollection.subscribe((v) => (currentActiveCollection = v));
+  let currentActiveCollection: import('../../preload/api').Collection | null = $state(null)
+  activeCollection.subscribe((v) => (currentActiveCollection = v))
 
-  let currentActiveCollectionId: string | null = $state(null);
-  activeCollectionId.subscribe((v) => (currentActiveCollectionId = v));
+  let currentActiveCollectionId: string | null = $state(null)
+  activeCollectionId.subscribe((v) => (currentActiveCollectionId = v))
 
-  let currentSelectedFilePath: string | null = $state(null);
-  selectedFilePath.subscribe((v) => (currentSelectedFilePath = v));
+  let currentSelectedFilePath: string | null = $state(null)
+  selectedFilePath.subscribe((v) => (currentSelectedFilePath = v))
 
-  let currentIsDirty = $state(false);
-  isDirty.subscribe((v) => (currentIsDirty = v));
+  let currentIsDirty = $state(false)
+  isDirty.subscribe((v) => (currentIsDirty = v))
 
-  let currentIsFavorited = $state(false);
-  isFavorited.subscribe((v) => (currentIsFavorited = v));
+  let currentIsFavorited = $state(false)
+  isFavorited.subscribe((v) => (currentIsFavorited = v))
 
-  let collectionName = $derived(currentActiveCollection?.name ?? null);
+  let collectionName = $derived(currentActiveCollection?.name ?? null)
 
   /** Parse selected file path into breadcrumb segments: [dir1, dir2, ..., filename] */
   let pathSegments = $derived.by(() => {
     if (currentSelectedFilePath) {
-      return currentSelectedFilePath.split('/').filter((s) => s.length > 0);
+      return currentSelectedFilePath.split('/').filter((s) => s.length > 0)
     }
-    return [];
-  });
+    return []
+  })
 
   /** Directory segments (everything except the last segment / filename) */
-  let dirSegments = $derived(pathSegments.length > 1 ? pathSegments.slice(0, -1) : []);
+  let dirSegments = $derived(pathSegments.length > 1 ? pathSegments.slice(0, -1) : [])
 
   /** The filename (last segment) */
-  let fileName = $derived(pathSegments.length > 0 ? pathSegments[pathSegments.length - 1] : null);
+  let fileName = $derived(pathSegments.length > 0 ? pathSegments[pathSegments.length - 1] : null)
 
   function toggleProperties() {
-    propertiesOpen = !propertiesOpen;
-    ontoggleproperties?.({ open: propertiesOpen });
+    propertiesOpen = !propertiesOpen
+    ontoggleproperties?.({ open: propertiesOpen })
   }
 
   async function handleToggleFavorite() {
-    if (!currentActiveCollectionId || !currentSelectedFilePath) return;
-    await toggleFavorite(currentActiveCollectionId, currentSelectedFilePath);
+    if (!currentActiveCollectionId || !currentSelectedFilePath) return
+    await toggleFavorite(currentActiveCollectionId, currentSelectedFilePath)
   }
 
   function handleDiscardClick() {
     if (window.confirm('Discard unsaved changes? This cannot be undone.')) {
-      requestDiscard();
+      requestDiscard()
     }
   }
 </script>
@@ -75,7 +72,9 @@
         <span class="material-symbols-outlined breadcrumb-separator">chevron_right</span>
       {/each}
       {#if fileName}
-        <span class="breadcrumb-file">{fileName}{#if currentIsDirty}<span class="dirty-indicator"> ●</span>{/if}</span>
+        <span class="breadcrumb-file"
+          >{fileName}{#if currentIsDirty}<span class="dirty-indicator"> ●</span>{/if}</span
+        >
         <button
           class="star-button"
           title={currentIsFavorited ? 'Remove from favorites' : 'Add to favorites'}
@@ -112,7 +111,6 @@
     {/if}
   </div>
 </header>
-
 
 <style>
   .header {
@@ -152,7 +150,7 @@
   }
 
   .breadcrumb-file {
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
     font-weight: 500;
   }
 
@@ -175,7 +173,7 @@
   }
 
   .star-button:hover {
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
     background: var(--color-surface-darker, #0a0a0a);
   }
 
@@ -184,8 +182,12 @@
   }
 
   .star-button .material-symbols-outlined.filled {
-    font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20;
-    color: var(--color-primary, #00E5FF);
+    font-variation-settings:
+      'FILL' 1,
+      'wght' 400,
+      'GRAD' 0,
+      'opsz' 20;
+    color: var(--color-primary, #00e5ff);
   }
 
   .actions {
@@ -209,7 +211,7 @@
 
   .icon-button:hover,
   .icon-button.active {
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
     background: var(--color-surface-darker, #0a0a0a);
   }
 
@@ -222,7 +224,7 @@
     align-items: center;
     gap: 8px;
     padding: 6px 12px;
-    background: var(--color-primary, #00E5FF);
+    background: var(--color-primary, #00e5ff);
     color: var(--color-surface-darker, #0a0a0a);
     border: none;
     border-radius: 4px;
@@ -236,7 +238,7 @@
   }
 
   .save-button:hover {
-    background: var(--color-primary-dark, #00B8CC);
+    background: var(--color-primary-dark, #00b8cc);
   }
 
   .save-kbd {
@@ -281,5 +283,4 @@
   .discard-icon {
     font-size: 16px;
   }
-
 </style>

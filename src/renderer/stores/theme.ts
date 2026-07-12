@@ -11,7 +11,7 @@ import {
   LIGHT_TOKENS,
   type ThemeMode,
   type ResolvedTheme,
-  type ThemeTokens,
+  type ThemeTokens
 } from '../lib/theme-tokens'
 
 /** The global theme mode */
@@ -33,9 +33,8 @@ export const resolvedTheme = derived(
 )
 
 /** The active token set based on resolved theme */
-export const themeTokens = derived<typeof resolvedTheme, ThemeTokens>(
-  resolvedTheme,
-  ($theme) => ($theme === 'light' ? LIGHT_TOKENS : DARK_TOKENS)
+export const themeTokens = derived<typeof resolvedTheme, ThemeTokens>(resolvedTheme, ($theme) =>
+  $theme === 'light' ? LIGHT_TOKENS : DARK_TOKENS
 )
 
 /** Load the global theme from electron-store on startup */

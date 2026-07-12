@@ -1,74 +1,75 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
-  import type { Editor } from '@tiptap/core';
-  import { activeCollection } from '../../stores/collections';
-  import { flatFileList } from '../../stores/files';
-  import { fuzzyFilter } from '../../lib/fuzzy-match';
-  import type { FileTreeNode } from '../../types/cli';
+  import { onMount, onDestroy } from 'svelte'
+  import type { Editor } from '@tiptap/core'
+  import { activeCollection } from '../../stores/collections'
+  import { flatFileList } from '../../stores/files'
+  import { fuzzyFilter } from '../../lib/fuzzy-match'
+  import type { FileTreeNode } from '../../types/cli'
 
   interface Props {
-    editor: Editor;
-    initialQuery?: string;
-    onclose: () => void;
+    editor: Editor
+    initialQuery?: string
+    onclose: () => void
   }
 
-  let { editor, initialQuery = '', onclose }: Props = $props();
+  let { editor, initialQuery = '', onclose }: Props = $props()
 
-  let inputEl: HTMLInputElement | undefined = $state(undefined);
-  let query = $state(initialQuery);
-  let selectedIndex = $state(0);
-  let currentCollection: import('../../../preload/api').Collection | null = $state(null);
-  let currentFiles: FileTreeNode[] = $state([]);
+  let inputEl: HTMLInputElement | undefined = $state(undefined)
+  // svelte-ignore state_referenced_locally
+  let query = $state(initialQuery)
+  let selectedIndex = $state(0)
+  let currentCollection: import('../../../preload/api').Collection | null = $state(null)
+  let currentFiles: FileTreeNode[] = $state([])
 
-  const unsubCollection = activeCollection.subscribe((v) => (currentCollection = v));
-  const unsubFiles = flatFileList.subscribe((v) => (currentFiles = v));
+  const unsubCollection = activeCollection.subscribe((v) => (currentCollection = v))
+  const unsubFiles = flatFileList.subscribe((v) => (currentFiles = v))
 
   // CLI search state
-  let searchResults: ResultItem[] = $state([]);
-  let searchLoading = $state(false);
-  let searchGeneration = 0;
-  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let searchResults: ResultItem[] = $state([])
+  let searchLoading = $state(false)
+  let searchGeneration = 0
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
   interface ResultItem {
-    path: string;
-    label: string;
-    type: 'file' | 'url';
-    matchIndices: number[];
+    path: string
+    label: string
+    type: 'file' | 'url'
+    matchIndices: number[]
   }
 
   // Check if query looks like a URL
   function isUrl(q: string): boolean {
-    return /^(https?:\/\/|mailto:|\/|\.\/|\.\.\/)/.test(q.trim());
+    return /^(https?:\/\/|mailto:|\/|\.\/|\.\.\/)/.test(q.trim())
   }
 
   // Fuzzy local results
   let fuzzyResults = $derived.by<ResultItem[]>(() => {
-    const q = query.trim();
-    if (!q || isUrl(q)) return [];
+    const q = query.trim()
+    if (!q || isUrl(q)) return []
     return fuzzyFilter(q, currentFiles, (f) => f.path)
       .slice(0, 8)
       .map(({ item, match }) => ({
         path: item.path,
         label: item.path,
         type: 'file' as const,
-        matchIndices: match.indices,
-      }));
-  });
+        matchIndices: match.indices
+      }))
+  })
 
   // Combined display results
   let displayResults = $derived.by<ResultItem[]>(() => {
-    const q = query.trim();
+    const q = query.trim()
     if (!q) {
       // Show recent files
       return currentFiles.slice(0, 8).map((f) => ({
         path: f.path,
         label: f.path,
         type: 'file' as const,
-        matchIndices: [],
-      }));
+        matchIndices: []
+      }))
     }
 
-    const results: ResultItem[] = [];
+    const results: ResultItem[] = []
 
     // If it looks like a URL, show it as the first option
     if (isUrl(q)) {
@@ -76,94 +77,90 @@
         path: q,
         label: q,
         type: 'url',
-        matchIndices: [],
-      });
+        matchIndices: []
+      })
     }
 
     // Add search results (CLI or fuzzy fallback)
     if (searchResults.length > 0) {
-      results.push(...searchResults);
+      results.push(...searchResults)
     } else {
-      results.push(...fuzzyResults);
+      results.push(...fuzzyResults)
     }
 
-    return results;
-  });
+    return results
+  })
 
   async function runCliSearch(searchQuery: string): Promise<void> {
     if (!currentCollection || !searchQuery.trim() || isUrl(searchQuery)) {
-      searchResults = [];
-      searchLoading = false;
-      return;
+      searchResults = []
+      searchLoading = false
+      return
     }
 
-    const generation = ++searchGeneration;
-    searchLoading = true;
+    const generation = ++searchGeneration
+    searchLoading = true
 
     try {
-      let result;
+      let result
       try {
         result = await window.api.search(currentCollection.path, searchQuery, {
           mode: 'hybrid',
-          limit: 10,
-        });
+          limit: 10
+        })
       } catch {
         result = await window.api.search(currentCollection.path, searchQuery, {
           mode: 'lexical',
-          limit: 10,
-        });
+          limit: 10
+        })
       }
 
-      if (generation !== searchGeneration) return;
+      if (generation !== searchGeneration) return
 
-      const seen = new Set<string>();
-      const deduped: ResultItem[] = [];
+      const seen = new Set<string>()
+      const deduped: ResultItem[] = []
       for (const r of result.results) {
         if (!seen.has(r.file.path)) {
-          seen.add(r.file.path);
+          seen.add(r.file.path)
           deduped.push({
             path: r.file.path,
             label: r.file.path,
             type: 'file',
-            matchIndices: findMatchIndices(r.file.path, searchQuery),
-          });
+            matchIndices: findMatchIndices(r.file.path, searchQuery)
+          })
         }
       }
-      searchResults = deduped;
+      searchResults = deduped
     } catch {
-      if (generation !== searchGeneration) return;
-      searchResults = [];
+      if (generation !== searchGeneration) return
+      searchResults = []
     } finally {
-      if (generation === searchGeneration) searchLoading = false;
+      if (generation === searchGeneration) searchLoading = false
     }
   }
 
   function findMatchIndices(path: string, q: string): number[] {
-    const lower = path.toLowerCase();
-    const qLower = q.toLowerCase();
-    const idx = lower.indexOf(qLower);
-    if (idx === -1) return [];
-    return Array.from({ length: qLower.length }, (_, i) => idx + i);
+    const lower = path.toLowerCase()
+    const qLower = q.toLowerCase()
+    const idx = lower.indexOf(qLower)
+    if (idx === -1) return []
+    return Array.from({ length: qLower.length }, (_, i) => idx + i)
   }
 
   function handleSelect(item: ResultItem) {
-    const { from, to } = editor.state.selection;
-    const hasSelection = from !== to;
+    const { from, to } = editor.state.selection
+    const hasSelection = from !== to
 
     if (hasSelection) {
       // Text is selected — extend to full link mark range, remove old link, set new one
-      const chain = editor.chain().focus();
+      const chain = editor.chain().focus()
       if (editor.isActive('link')) {
-        chain.extendMarkRange('link');
+        chain.extendMarkRange('link')
       }
-      chain.unsetLink().setLink({ href: item.path }).run();
+      chain.unsetLink().setLink({ href: item.path }).run()
     } else if (item.type === 'url') {
       // No selection, external URL — insert as linked text
-      editor
-        .chain()
-        .focus()
-        .insertContent(`<a href="${item.path}">${item.path}</a>`)
-        .run();
+      editor.chain().focus().insertContent(`<a href="${item.path}">${item.path}</a>`).run()
     } else {
       // No selection, internal document — insert as wikilink
       editor
@@ -174,102 +171,102 @@
           attrs: {
             target: item.path,
             anchor: null,
-            display: null,
-          },
+            display: null
+          }
         })
-        .run();
+        .run()
     }
-    onclose();
+    onclose()
   }
 
   function handleSubmit() {
-    const q = query.trim();
-    if (!q) return;
+    const q = query.trim()
+    if (!q) return
 
     if (displayResults[selectedIndex]) {
-      handleSelect(displayResults[selectedIndex]);
-      return;
+      handleSelect(displayResults[selectedIndex])
+      return
     }
 
     // Treat raw input as URL
     if (isUrl(q)) {
-      editor.chain().focus().setLink({ href: q }).run();
-      onclose();
+      editor.chain().focus().setLink({ href: q }).run()
+      onclose()
     }
   }
 
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape') {
-      e.preventDefault();
-      editor.commands.focus();
-      onclose();
+      e.preventDefault()
+      editor.commands.focus()
+      onclose()
     } else if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      selectedIndex = Math.min(selectedIndex + 1, displayResults.length - 1);
+      e.preventDefault()
+      selectedIndex = Math.min(selectedIndex + 1, displayResults.length - 1)
     } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      selectedIndex = Math.max(selectedIndex - 1, 0);
+      e.preventDefault()
+      selectedIndex = Math.max(selectedIndex - 1, 0)
     } else if (e.key === 'Enter') {
-      e.preventDefault();
-      handleSubmit();
+      e.preventDefault()
+      handleSubmit()
     }
   }
 
   function handleBackdropClick(e: MouseEvent) {
     if (e.target === e.currentTarget) {
-      editor.commands.focus();
-      onclose();
+      editor.commands.focus()
+      onclose()
     }
   }
 
   // Debounced CLI search
   $effect(() => {
-    const q = query;
-    if (debounceTimer) clearTimeout(debounceTimer);
-    selectedIndex = 0;
+    const q = query
+    if (debounceTimer) clearTimeout(debounceTimer)
+    selectedIndex = 0
 
     if (!q.trim() || isUrl(q)) {
-      searchResults = [];
-      searchLoading = false;
-      return;
+      searchResults = []
+      searchLoading = false
+      return
     }
 
-    searchLoading = true;
+    searchLoading = true
     debounceTimer = setTimeout(() => {
-      debounceTimer = null;
-      runCliSearch(q);
-    }, 200);
-  });
+      debounceTimer = null
+      runCliSearch(q)
+    }, 200)
+  })
 
   onMount(() => {
-    requestAnimationFrame(() => inputEl?.focus());
-  });
+    requestAnimationFrame(() => inputEl?.focus())
+  })
 
   onDestroy(() => {
-    if (debounceTimer) clearTimeout(debounceTimer);
-    searchGeneration++;
-    unsubCollection();
-    unsubFiles();
-  });
+    if (debounceTimer) clearTimeout(debounceTimer)
+    searchGeneration++
+    unsubCollection()
+    unsubFiles()
+  })
 
   function escapeHtml(text: string): string {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+    const div = document.createElement('div')
+    div.textContent = text
+    return div.innerHTML
   }
 
   function highlightMatches(text: string, indices: number[]): string {
-    if (indices.length === 0) return escapeHtml(text);
-    let result = '';
+    if (indices.length === 0) return escapeHtml(text)
+    let result = ''
     for (let i = 0; i < text.length; i++) {
-      const char = escapeHtml(text[i]);
+      const char = escapeHtml(text[i])
       if (indices.includes(i)) {
-        result += `<mark>${char}</mark>`;
+        result += `<mark>${char}</mark>`
       } else {
-        result += char;
+        result += char
       }
     }
-    return result;
+    return result
   }
 </script>
 
@@ -290,7 +287,13 @@
         onkeydown={handleKeydown}
       />
       {#if query}
-        <button class="clear-btn" onclick={() => { query = ''; }} aria-label="Clear">
+        <button
+          class="clear-btn"
+          onclick={() => {
+            query = ''
+          }}
+          aria-label="Clear"
+        >
           <span class="material-symbols-outlined">close</span>
         </button>
       {/if}
@@ -309,12 +312,15 @@
               class="result-item"
               class:selected={index === selectedIndex}
               onclick={() => handleSelect(item)}
-              onmouseenter={() => { selectedIndex = index; }}
+              onmouseenter={() => {
+                selectedIndex = index
+              }}
             >
               <span class="material-symbols-outlined file-icon">
                 {item.type === 'url' ? 'language' : 'description'}
               </span>
               <span class="file-path">
+                <!-- eslint-disable-next-line svelte/no-at-html-tags -->
                 {@html highlightMatches(item.label, item.matchIndices)}
               </span>
               <span class="result-type">{item.type === 'url' ? 'URL' : 'File'}</span>
@@ -370,7 +376,7 @@
 
   .search-icon {
     font-size: 18px;
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
   }
 
   .search-input {
@@ -464,7 +470,7 @@
 
   .file-path :global(mark) {
     background: transparent;
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
     font-weight: 600;
   }
 

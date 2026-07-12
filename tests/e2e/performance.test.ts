@@ -115,8 +115,7 @@ test.describe('Performance', () => {
           scrollMetrics.push(scrollTime)
         }
 
-        const avgScrollTime =
-          scrollMetrics.reduce((a, b) => a + b, 0) / scrollMetrics.length
+        const avgScrollTime = scrollMetrics.reduce((a, b) => a + b, 0) / scrollMetrics.length
 
         console.log(`\n=== Scroll Performance ===`)
         console.log(`Average scroll time: ${avgScrollTime.toFixed(2)}ms`)

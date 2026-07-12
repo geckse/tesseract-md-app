@@ -114,9 +114,7 @@ describe('VaultWatcher real filesystem integration', () => {
     // Write through the real path
     await fs.writeFile(join(realRoot, 'note.md'), content)
 
-    const batch = await waitForBatch(batches, (b) =>
-      b.events.some((e) => e.path === 'note.md')
-    )
+    const batch = await waitForBatch(batches, (b) => b.events.some((e) => e.path === 'note.md'))
     const ev = batch.events.find((e) => e.path === 'note.md')!
     expect(ev.path).toBe('note.md') // relative, canonical-independent
     expect(batch.root).toBe(linkRoot) // reported against the original root

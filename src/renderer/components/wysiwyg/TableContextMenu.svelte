@@ -126,30 +126,91 @@
     {
       label: 'Row',
       items: [
-        { label: 'Insert row above', icon: 'arrow_upward', action: () => insertRow(true), disabled: false },
-        { label: 'Insert row below', icon: 'arrow_downward', action: () => insertRow(false), disabled: false },
-        { label: 'Move row up', icon: 'move_up', action: () => moveRow(-1), disabled: cellInfo.row <= 0 },
-        { label: 'Move row down', icon: 'move_down', action: () => moveRow(1), disabled: cellInfo.row >= cellInfo.totalRows - 1 },
-        { label: 'Delete row', icon: 'delete', action: () => deleteRow(), disabled: cellInfo.totalRows <= 1 },
-      ],
+        {
+          label: 'Insert row above',
+          icon: 'arrow_upward',
+          action: () => insertRow(true),
+          disabled: false
+        },
+        {
+          label: 'Insert row below',
+          icon: 'arrow_downward',
+          action: () => insertRow(false),
+          disabled: false
+        },
+        {
+          label: 'Move row up',
+          icon: 'move_up',
+          action: () => moveRow(-1),
+          disabled: cellInfo.row <= 0
+        },
+        {
+          label: 'Move row down',
+          icon: 'move_down',
+          action: () => moveRow(1),
+          disabled: cellInfo.row >= cellInfo.totalRows - 1
+        },
+        {
+          label: 'Delete row',
+          icon: 'delete',
+          action: () => deleteRow(),
+          disabled: cellInfo.totalRows <= 1
+        }
+      ]
     },
     {
       label: 'Column',
       items: [
-        { label: 'Insert column left', icon: 'arrow_back', action: () => insertColumn(true), disabled: false },
-        { label: 'Insert column right', icon: 'arrow_forward', action: () => insertColumn(false), disabled: false },
-        { label: 'Move column left', icon: 'chevron_left', action: () => moveColumn(-1), disabled: cellInfo.col <= 0 },
-        { label: 'Move column right', icon: 'chevron_right', action: () => moveColumn(1), disabled: cellInfo.col >= cellInfo.totalCols - 1 },
-        { label: 'Delete column', icon: 'delete', action: () => deleteColumn(), disabled: cellInfo.totalCols <= 1 },
-      ],
+        {
+          label: 'Insert column left',
+          icon: 'arrow_back',
+          action: () => insertColumn(true),
+          disabled: false
+        },
+        {
+          label: 'Insert column right',
+          icon: 'arrow_forward',
+          action: () => insertColumn(false),
+          disabled: false
+        },
+        {
+          label: 'Move column left',
+          icon: 'chevron_left',
+          action: () => moveColumn(-1),
+          disabled: cellInfo.col <= 0
+        },
+        {
+          label: 'Move column right',
+          icon: 'chevron_right',
+          action: () => moveColumn(1),
+          disabled: cellInfo.col >= cellInfo.totalCols - 1
+        },
+        {
+          label: 'Delete column',
+          icon: 'delete',
+          action: () => deleteColumn(),
+          disabled: cellInfo.totalCols <= 1
+        }
+      ]
     },
     {
       label: 'Table',
       items: [
-        { label: 'Header row', icon: 'table_rows', action: () => toggleHeaderRow(), disabled: false, checked: cellInfo.isHeader && cellInfo.row === 0 },
-        { label: 'Delete table', icon: 'delete_forever', action: () => deleteTable(), disabled: false },
-      ],
-    },
+        {
+          label: 'Header row',
+          icon: 'table_rows',
+          action: () => toggleHeaderRow(),
+          disabled: false,
+          checked: cellInfo.isHeader && cellInfo.row === 0
+        },
+        {
+          label: 'Delete table',
+          icon: 'delete_forever',
+          action: () => deleteTable(),
+          disabled: false
+        }
+      ]
+    }
   ])
 
   // Flat list for keyboard navigation

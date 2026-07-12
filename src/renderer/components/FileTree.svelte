@@ -28,7 +28,6 @@
   import type {
     FileTree as FileTreeType,
     FileState,
-    FileTreeNode as FileTreeNodeType,
     UnifiedTreeNode,
     MimeCategory
   } from '../types/cli'
@@ -564,6 +563,7 @@
   }
 </script>
 
+<!-- svelte-ignore a11y_no_noninteractive_tabindex a11y_no_static_element_interactions -->
 <div
   class="file-tree-container"
   onclick={handleClickOutside}
@@ -685,6 +685,7 @@
           <span class="material-symbols-outlined new-file-icon">
             {newFileInput.type === 'file' ? 'note_add' : 'create_new_folder'}
           </span>
+          <!-- svelte-ignore a11y_autofocus -->
           <input
             class="new-file-input"
             class:has-error={!!newFileError}
@@ -1055,10 +1056,6 @@
   }
   .file-tree-content::-webkit-scrollbar-thumb:hover {
     background: var(--overlay-active, rgba(255, 255, 255, 0.2));
-  }
-
-  .tree-nodes {
-    padding: 4px 0;
   }
 
   .tree-nodes-virtual {

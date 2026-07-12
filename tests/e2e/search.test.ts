@@ -32,9 +32,7 @@ test.describe('Search', () => {
     await window.keyboard.press('Meta+k')
     await window.waitForTimeout(300)
 
-    const isFocused = await searchInput.evaluate(
-      (el) => document.activeElement === el
-    )
+    const isFocused = await searchInput.evaluate((el) => document.activeElement === el)
     expect(isFocused).toBe(true)
 
     await electronApp.close()

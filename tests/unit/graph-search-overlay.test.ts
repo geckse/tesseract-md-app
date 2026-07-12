@@ -11,29 +11,32 @@ const mockApi = {
   removeCollection: vi.fn(),
   setActiveCollection: vi.fn(),
   status: vi.fn(),
-  graphData: vi.fn(),
+  graphData: vi.fn()
 }
 
 Object.defineProperty(globalThis, 'window', {
   value: { api: mockApi },
-  writable: true,
+  writable: true
 })
 
 // ─── Import pure utility functions ──────────────────────────────────
 
 import {
   buildSearchScoreMap,
-  buildGraphContextMap,
-  computeSearchNodeOpacity,
-  computeEdgeSearchAlpha,
-  getNodePath,
+  buildGraphContextMap
 } from '../../src/renderer/lib/graph-search-utils'
 
 import { collections, activeCollectionId } from '../../src/renderer/stores/collections'
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
-function activateCollection(col: { id: string; name: string; path: string; addedAt: number; lastOpenedAt: number }) {
+function activateCollection(col: {
+  id: string
+  name: string
+  path: string
+  addedAt: number
+  lastOpenedAt: number
+}) {
   collections.set([col])
   activeCollectionId.set(col.id)
 }
@@ -62,7 +65,7 @@ function createGraphSearchController() {
     linkColor: vi.fn(),
     linkDirectionalArrowLength: vi.fn(),
     nodeThreeObject: vi.fn(),
-    refresh: vi.fn(),
+    refresh: vi.fn()
   }
 
   function applySelectionDimming() {
@@ -99,7 +102,7 @@ function createGraphSearchController() {
   }
 
   async function executeGraphSearch(query: string) {
-    const col = get(collections).find(c => c.id === get(activeCollectionId))
+    const col = get(collections).find((c) => c.id === get(activeCollectionId))
     if (!col) {
       graphSearchLoading = false
       return
@@ -110,14 +113,14 @@ function createGraphSearchController() {
         mode: 'hybrid',
         boostLinks: true,
         expand: 1,
-        limit: 50,
+        limit: 50
       })
       if (generation !== graphSearchGeneration) return
       const directScores = buildSearchScoreMap(result.results ?? [])
       const contextScores = buildGraphContextMap(result.graph_context ?? [], directScores)
       graphSearchScores = directScores
       graphSearchContextScores = contextScores
-      graphSearchResultCount = result.total_results ?? (result.results?.length ?? 0)
+      graphSearchResultCount = result.total_results ?? result.results?.length ?? 0
       graphSearchError = null
       applySearchDimming()
     } catch (err) {
@@ -151,19 +154,35 @@ function createGraphSearchController() {
   }
 
   return {
-    get scores() { return graphSearchScores },
-    get contextScores() { return graphSearchContextScores },
-    get resultCount() { return graphSearchResultCount },
-    get loading() { return graphSearchLoading },
-    get error() { return graphSearchError },
-    get generation() { return graphSearchGeneration },
-    get query() { return graphSearchQuery },
-    get visible() { return graphSearchVisible },
+    get scores() {
+      return graphSearchScores
+    },
+    get contextScores() {
+      return graphSearchContextScores
+    },
+    get resultCount() {
+      return graphSearchResultCount
+    },
+    get loading() {
+      return graphSearchLoading
+    },
+    get error() {
+      return graphSearchError
+    },
+    get generation() {
+      return graphSearchGeneration
+    },
+    get query() {
+      return graphSearchQuery
+    },
+    get visible() {
+      return graphSearchVisible
+    },
     graphMock,
     onGraphSearchInput,
     executeGraphSearch,
     clearGraphSearch,
-    applySelectionDimming,
+    applySelectionDimming
   }
 }
 
@@ -177,7 +196,6 @@ beforeEach(() => {
 // ─── Tests ──────────────────────────────────────────────────────────
 
 describe('graph search overlay', () => {
-
   describe('executeGraphSearch calls window.api.search with correct params', () => {
     it('passes mode:hybrid, boostLinks:true, expand:1, limit:50', async () => {
       activateCollection(collection)
@@ -191,7 +209,7 @@ describe('graph search overlay', () => {
         mode: 'hybrid',
         boostLinks: true,
         expand: 1,
-        limit: 50,
+        limit: 50
       })
     })
   })
@@ -201,7 +219,7 @@ describe('graph search overlay', () => {
       const results = [
         { file: { path: 'a.md' }, score: 0.5, section: 'intro', content: '' },
         { file: { path: 'a.md' }, score: 0.9, section: 'body', content: '' },
-        { file: { path: 'b.md' }, score: 0.3, section: 'intro', content: '' },
+        { file: { path: 'b.md' }, score: 0.3, section: 'intro', content: '' }
       ] as any
 
       const map = buildSearchScoreMap(results)
@@ -212,9 +230,7 @@ describe('graph search overlay', () => {
     })
 
     it('handles single chunk per file', () => {
-      const results = [
-        { file: { path: 'x.md' }, score: 0.7, section: '', content: '' },
-      ] as any
+      const results = [{ file: { path: 'x.md' }, score: 0.7, section: '', content: '' }] as any
 
       const map = buildSearchScoreMap(results)
       expect(map.get('x.md')).toBe(0.7)
@@ -227,7 +243,7 @@ describe('graph search overlay', () => {
       const contextItems = [
         { file: { path: 'a.md' }, hop_distance: 1 }, // direct match — should be skipped
         { file: { path: 'b.md' }, hop_distance: 1 }, // 0.4 / 1 = 0.4
-        { file: { path: 'c.md' }, hop_distance: 2 }, // 0.4 / 2 = 0.2
+        { file: { path: 'c.md' }, hop_distance: 2 } // 0.4 / 2 = 0.2
       ] as any
 
       const map = buildGraphContextMap(contextItems, directScores)
@@ -240,7 +256,7 @@ describe('graph search overlay', () => {
     it('takes max score for same file at different hops', () => {
       const contextItems = [
         { file: { path: 'b.md' }, hop_distance: 2 }, // 0.2
-        { file: { path: 'b.md' }, hop_distance: 1 }, // 0.4 — higher
+        { file: { path: 'b.md' }, hop_distance: 1 } // 0.4 — higher
       ] as any
 
       const map = buildGraphContextMap(contextItems, new Map())
@@ -258,7 +274,7 @@ describe('graph search overlay', () => {
       activateCollection(collection)
       mockApi.search.mockResolvedValue({
         results: [{ file: { path: 'a.md' }, score: 0.8 }],
-        total_results: 1,
+        total_results: 1
       })
 
       // We need scores populated — do it via executeGraphSearch
@@ -276,7 +292,7 @@ describe('graph search overlay', () => {
       activateCollection(collection)
       mockApi.search.mockResolvedValue({
         results: [{ file: { path: 'a.md' }, score: 0.8 }],
-        total_results: 1,
+        total_results: 1
       })
 
       const ctrl = createGraphSearchController()
@@ -344,16 +360,16 @@ describe('graph search overlay', () => {
       activateCollection(collection)
 
       let resolveFirst: (v: unknown) => void
-      const firstPromise = new Promise((r) => { resolveFirst = r! })
+      const firstPromise = new Promise((r) => {
+        resolveFirst = r!
+      })
 
       const secondResult = {
         results: [{ file: { path: 'b.md' }, score: 0.7 }],
-        total_results: 1,
+        total_results: 1
       }
 
-      mockApi.search
-        .mockReturnValueOnce(firstPromise)
-        .mockResolvedValueOnce(secondResult)
+      mockApi.search.mockReturnValueOnce(firstPromise).mockResolvedValueOnce(secondResult)
 
       const ctrl = createGraphSearchController()
 
@@ -372,7 +388,7 @@ describe('graph search overlay', () => {
       // Resolve first (stale)
       resolveFirst!({
         results: [{ file: { path: 'stale.md' }, score: 0.9 }],
-        total_results: 1,
+        total_results: 1
       })
       await vi.advanceTimersByTimeAsync(0)
       await first
@@ -400,7 +416,7 @@ describe('graph search overlay', () => {
       activateCollection(collection)
       mockApi.search.mockResolvedValue({
         results: [{ file: { path: 'a.md' }, score: 0.5 }],
-        total_results: 1,
+        total_results: 1
       })
 
       const ctrl = createGraphSearchController()
@@ -418,7 +434,7 @@ describe('graph search overlay', () => {
       activateCollection(collection)
       mockApi.search.mockResolvedValue({
         results: [{ file: { path: 'x.md' }, score: 0.6 }],
-        total_results: 1,
+        total_results: 1
       })
 
       const ctrl = createGraphSearchController()

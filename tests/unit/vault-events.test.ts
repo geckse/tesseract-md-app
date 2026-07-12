@@ -20,12 +20,8 @@ vi.mock('../../src/renderer/stores/graph', () => ({
   refreshGraphData: (...a: unknown[]) => refreshGraphData(...a)
 }))
 
-import { get } from 'svelte/store'
 import { collections, activeCollectionId } from '../../src/renderer/stores/collections'
-import {
-  handleVaultEventBatch,
-  onExternalFileEvent
-} from '../../src/renderer/stores/vault-events'
+import { handleVaultEventBatch, onExternalFileEvent } from '../../src/renderer/stores/vault-events'
 import type { VaultEventBatch, VaultFileEvent } from '../../src/preload/api'
 
 function ev(over: Partial<VaultFileEvent> = {}): VaultFileEvent {

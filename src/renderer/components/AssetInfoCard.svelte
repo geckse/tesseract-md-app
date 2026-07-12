@@ -13,11 +13,16 @@
 
   function mimeIcon(cat: MimeCategory): string {
     switch (cat) {
-      case 'image': return 'image'
-      case 'pdf': return 'picture_as_pdf'
-      case 'video': return 'videocam'
-      case 'audio': return 'audiotrack'
-      default: return 'attach_file'
+      case 'image':
+        return 'image'
+      case 'pdf':
+        return 'picture_as_pdf'
+      case 'video':
+        return 'videocam'
+      case 'audio':
+        return 'audiotrack'
+      default:
+        return 'attach_file'
     }
   }
 
@@ -181,8 +186,8 @@
   }
 
   .action-btn:hover {
-    border-color: var(--color-primary, #00E5FF);
-    color: var(--color-primary, #00E5FF);
+    border-color: var(--color-primary, #00e5ff);
+    color: var(--color-primary, #00e5ff);
   }
 
   .action-btn .material-symbols-outlined {
@@ -190,6 +195,8 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .action-btn { transition: none; }
+    .action-btn {
+      transition: none;
+    }
   }
 </style>

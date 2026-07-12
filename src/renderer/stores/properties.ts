@@ -1,5 +1,11 @@
 import { writable, derived, get } from 'svelte/store'
-import type { DocumentInfo, BacklinksOutput, LinksOutput, NeighborhoodResult, JsonValue } from '../types/cli'
+import type {
+  DocumentInfo,
+  BacklinksOutput,
+  LinksOutput,
+  NeighborhoodResult,
+  JsonValue
+} from '../types/cli'
 import { activeCollection } from './collections'
 
 /** Document info for the selected file (from CLI `get` command). */
@@ -104,11 +110,15 @@ export const frontmatter = derived(
       if (parsed) return parsed
     }
     // Fall back to index data
-    if ($doc?.frontmatter && typeof $doc.frontmatter === 'object' && !Array.isArray($doc.frontmatter)) {
+    if (
+      $doc?.frontmatter &&
+      typeof $doc.frontmatter === 'object' &&
+      !Array.isArray($doc.frontmatter)
+    ) {
       return $doc.frontmatter as Record<string, JsonValue>
     }
     return null
-  },
+  }
 )
 
 export interface OutlineHeading {
@@ -127,7 +137,10 @@ export const outline = derived(propertiesFileContent, ($content): OutlineHeading
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
     // Skip frontmatter block (only at start of file)
-    if (line.trimEnd() === '---' && (!inFrontmatter ? i === 0 || (i > 0 && headings.length === 0 && !inCodeBlock) : true)) {
+    if (
+      line.trimEnd() === '---' &&
+      (!inFrontmatter ? i === 0 || (i > 0 && headings.length === 0 && !inCodeBlock) : true)
+    ) {
       inFrontmatter = !inFrontmatter
       continue
     }
@@ -145,7 +158,7 @@ export const outline = derived(propertiesFileContent, ($content): OutlineHeading
       headings.push({
         level: match[1].length,
         heading: match[2].trim(),
-        line: i + 1, // 1-indexed line number
+        line: i + 1 // 1-indexed line number
       })
     }
   }
@@ -172,7 +185,7 @@ export async function loadProperties(filePath: string): Promise<void> {
     window.api.getFile(collection.path, filePath),
     window.api.backlinks(collection.path, filePath),
     window.api.links(collection.path, filePath),
-    window.api.neighborhood(collection.path, filePath, 1),
+    window.api.neighborhood(collection.path, filePath, 1)
   ])
 
   documentInfo.set(docResult.status === 'fulfilled' ? docResult.value : null)

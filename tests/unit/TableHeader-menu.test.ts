@@ -14,7 +14,13 @@ vi.mock('../../src/renderer/stores/workspace.svelte', () => ({
 
 vi.mock('../../src/renderer/stores/table.svelte', () => ({
   tableStore: {
-    mergedConfig: () => ({ sort: [], filters: [], columns: [], groupBy: null, collapsedGroups: [] }),
+    mergedConfig: () => ({
+      sort: [],
+      filters: [],
+      columns: [],
+      groupBy: null,
+      collapsedGroups: []
+    }),
     columnWidth: () => 140
   }
 }))

@@ -10,7 +10,7 @@ vi.mock('node:child_process', () => {
   return { ...mod, default: mod }
 })
 vi.mock('node:util', () => {
-  const promisify = (fn: unknown) => {
+  const promisify = (_fn: unknown) => {
     return (...args: unknown[]) => {
       return new Promise((resolve, reject) => {
         mockExecFile(...args, (err: Error | null, stdout: string, stderr: string) => {
@@ -38,34 +38,62 @@ beforeEach(() => {
 
 describe('findCli', () => {
   it('returns the path to mdvdb binary', async () => {
-    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
-      cb(null, '/usr/local/bin/mdvdb\n', '')
-    })
+    mockExecFile.mockImplementation(
+      (
+        _cmd: string,
+        _args: string[],
+        _opts: unknown,
+        cb: (err: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        cb(null, '/usr/local/bin/mdvdb\n', '')
+      }
+    )
 
     const path = await findCli()
     expect(path).toBe('/usr/local/bin/mdvdb')
   })
 
   it('throws CliNotFoundError when binary not found', async () => {
-    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
-      cb(new Error('not found'), '', 'mdvdb not found')
-    })
+    mockExecFile.mockImplementation(
+      (
+        _cmd: string,
+        _args: string[],
+        _opts: unknown,
+        cb: (err: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        cb(new Error('not found'), '', 'mdvdb not found')
+      }
+    )
 
     await expect(findCli()).rejects.toThrow(CliNotFoundError)
   })
 
   it('throws CliNotFoundError when which returns empty output', async () => {
-    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
-      cb(null, '  \n', '')
-    })
+    mockExecFile.mockImplementation(
+      (
+        _cmd: string,
+        _args: string[],
+        _opts: unknown,
+        cb: (err: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        cb(null, '  \n', '')
+      }
+    )
 
     await expect(findCli()).rejects.toThrow(CliNotFoundError)
   })
 
   it('takes first line when multiple paths returned', async () => {
-    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
-      cb(null, '/usr/local/bin/mdvdb\n/usr/bin/mdvdb\n', '')
-    })
+    mockExecFile.mockImplementation(
+      (
+        _cmd: string,
+        _args: string[],
+        _opts: unknown,
+        cb: (err: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        cb(null, '/usr/local/bin/mdvdb\n/usr/bin/mdvdb\n', '')
+      }
+    )
 
     const path = await findCli()
     expect(path).toBe('/usr/local/bin/mdvdb')
@@ -76,37 +104,58 @@ describe('getCliVersion', () => {
   it('returns version string from JSON output', async () => {
     // First call: which, second call: --version --json
     let callCount = 0
-    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
-      callCount++
-      if (callCount === 1) {
-        cb(null, '/usr/local/bin/mdvdb\n', '')
-      } else {
-        cb(null, '{"version":"0.1.0"}\n', '')
+    mockExecFile.mockImplementation(
+      (
+        _cmd: string,
+        _args: string[],
+        _opts: unknown,
+        cb: (err: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        callCount++
+        if (callCount === 1) {
+          cb(null, '/usr/local/bin/mdvdb\n', '')
+        } else {
+          cb(null, '{"version":"0.1.0"}\n', '')
+        }
       }
-    })
+    )
 
     const version = await getCliVersion()
     expect(version).toBe('0.1.0')
   })
 
   it('throws CliNotFoundError when binary not found', async () => {
-    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
-      cb(new Error('not found'), '', '')
-    })
+    mockExecFile.mockImplementation(
+      (
+        _cmd: string,
+        _args: string[],
+        _opts: unknown,
+        cb: (err: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        cb(new Error('not found'), '', '')
+      }
+    )
 
     await expect(getCliVersion()).rejects.toThrow(CliNotFoundError)
   })
 
   it('throws CliExecutionError when --version fails', async () => {
     let callCount = 0
-    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
-      callCount++
-      if (callCount === 1) {
-        cb(null, '/usr/local/bin/mdvdb\n', '')
-      } else {
-        cb(new Error('failed'), '', 'error')
+    mockExecFile.mockImplementation(
+      (
+        _cmd: string,
+        _args: string[],
+        _opts: unknown,
+        cb: (err: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        callCount++
+        if (callCount === 1) {
+          cb(null, '/usr/local/bin/mdvdb\n', '')
+        } else {
+          cb(new Error('failed'), '', 'error')
+        }
       }
-    })
+    )
 
     await expect(getCliVersion()).rejects.toThrow(CliExecutionError)
   })
@@ -115,14 +164,21 @@ describe('getCliVersion', () => {
 describe('execCommand', () => {
   function setupWhichAndExec(stdout: string, stderr = '') {
     let callCount = 0
-    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
-      callCount++
-      if (callCount === 1) {
-        cb(null, '/usr/local/bin/mdvdb\n', '')
-      } else {
-        cb(null, stdout, stderr)
+    mockExecFile.mockImplementation(
+      (
+        _cmd: string,
+        _args: string[],
+        _opts: unknown,
+        cb: (err: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        callCount++
+        if (callCount === 1) {
+          cb(null, '/usr/local/bin/mdvdb\n', '')
+        } else {
+          cb(null, stdout, stderr)
+        }
       }
-    })
+    )
   }
 
   it('parses JSON output from CLI', async () => {
@@ -174,45 +230,66 @@ describe('execCommand', () => {
 
   it('throws CliTimeoutError when process is killed', async () => {
     let callCount = 0
-    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
-      callCount++
-      if (callCount === 1) {
-        cb(null, '/usr/local/bin/mdvdb\n', '')
-      } else {
-        const err = Object.assign(new Error('timed out'), { killed: true })
-        cb(err, '', '')
+    mockExecFile.mockImplementation(
+      (
+        _cmd: string,
+        _args: string[],
+        _opts: unknown,
+        cb: (err: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        callCount++
+        if (callCount === 1) {
+          cb(null, '/usr/local/bin/mdvdb\n', '')
+        } else {
+          const err = Object.assign(new Error('timed out'), { killed: true })
+          cb(err, '', '')
+        }
       }
-    })
+    )
 
     await expect(execCommand('ingest', [], '/tmp/project')).rejects.toThrow(CliTimeoutError)
   })
 
   it('throws CliTimeoutError on ETIMEDOUT', async () => {
     let callCount = 0
-    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
-      callCount++
-      if (callCount === 1) {
-        cb(null, '/usr/local/bin/mdvdb\n', '')
-      } else {
-        const err = Object.assign(new Error('timed out'), { code: 'ETIMEDOUT' })
-        cb(err, '', '')
+    mockExecFile.mockImplementation(
+      (
+        _cmd: string,
+        _args: string[],
+        _opts: unknown,
+        cb: (err: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        callCount++
+        if (callCount === 1) {
+          cb(null, '/usr/local/bin/mdvdb\n', '')
+        } else {
+          const err = Object.assign(new Error('timed out'), { code: 'ETIMEDOUT' })
+          cb(err, '', '')
+        }
       }
-    })
+    )
 
     await expect(execCommand('ingest', [], '/tmp/project')).rejects.toThrow(CliTimeoutError)
   })
 
   it('throws CliExecutionError on non-zero exit', async () => {
     let callCount = 0
-    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
-      callCount++
-      if (callCount === 1) {
-        cb(null, '/usr/local/bin/mdvdb\n', '')
-      } else {
-        const err = Object.assign(new Error('failed'), { exitCode: 2, stderr: 'index not found' })
-        cb(err, '', '')
+    mockExecFile.mockImplementation(
+      (
+        _cmd: string,
+        _args: string[],
+        _opts: unknown,
+        cb: (err: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        callCount++
+        if (callCount === 1) {
+          cb(null, '/usr/local/bin/mdvdb\n', '')
+        } else {
+          const err = Object.assign(new Error('failed'), { exitCode: 2, stderr: 'index not found' })
+          cb(err, '', '')
+        }
       }
-    })
+    )
 
     await expect(execCommand('status', [], '/tmp/project')).rejects.toThrow(CliExecutionError)
   })
@@ -229,109 +306,148 @@ describe('execCommand', () => {
 
   it('retries on timeout when retries option is set', async () => {
     let callCount = 0
-    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
-      callCount++
-      if (callCount === 1) {
-        // which command
-        cb(null, '/usr/local/bin/mdvdb\n', '')
-      } else if (callCount === 2) {
-        // First attempt - timeout
-        const err = Object.assign(new Error('timed out'), { killed: true })
-        cb(err, '', '')
-      } else {
-        // Second attempt - success
-        cb(null, '{"status":"ok"}', '')
+    mockExecFile.mockImplementation(
+      (
+        _cmd: string,
+        _args: string[],
+        _opts: unknown,
+        cb: (err: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        callCount++
+        if (callCount === 1) {
+          // which command
+          cb(null, '/usr/local/bin/mdvdb\n', '')
+        } else if (callCount === 2) {
+          // First attempt - timeout
+          const err = Object.assign(new Error('timed out'), { killed: true })
+          cb(err, '', '')
+        } else {
+          // Second attempt - success
+          cb(null, '{"status":"ok"}', '')
+        }
       }
-    })
+    )
 
-    const result = await execCommand<{ status: string }>('status', [], '/tmp/project', { retries: 1 })
+    const result = await execCommand<{ status: string }>('status', [], '/tmp/project', {
+      retries: 1
+    })
     expect(result).toEqual({ status: 'ok' })
     expect(callCount).toBe(3) // which + 2 command attempts
   })
 
   it('retries on execution error when retries option is set', async () => {
     let callCount = 0
-    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
-      callCount++
-      if (callCount === 1) {
-        // which command
-        cb(null, '/usr/local/bin/mdvdb\n', '')
-      } else if (callCount === 2) {
-        // First attempt - failure
-        const err = Object.assign(new Error('failed'), { exitCode: 1, stderr: 'temporary error' })
-        cb(err, '', '')
-      } else {
-        // Second attempt - success
-        cb(null, '{"status":"ok"}', '')
+    mockExecFile.mockImplementation(
+      (
+        _cmd: string,
+        _args: string[],
+        _opts: unknown,
+        cb: (err: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        callCount++
+        if (callCount === 1) {
+          // which command
+          cb(null, '/usr/local/bin/mdvdb\n', '')
+        } else if (callCount === 2) {
+          // First attempt - failure
+          const err = Object.assign(new Error('failed'), { exitCode: 1, stderr: 'temporary error' })
+          cb(err, '', '')
+        } else {
+          // Second attempt - success
+          cb(null, '{"status":"ok"}', '')
+        }
       }
-    })
+    )
 
-    const result = await execCommand<{ status: string }>('status', [], '/tmp/project', { retries: 1 })
+    const result = await execCommand<{ status: string }>('status', [], '/tmp/project', {
+      retries: 1
+    })
     expect(result).toEqual({ status: 'ok' })
     expect(callCount).toBe(3)
   })
 
   it('throws error after exhausting all retries', async () => {
     let callCount = 0
-    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
-      callCount++
-      if (callCount === 1) {
-        // which command
-        cb(null, '/usr/local/bin/mdvdb\n', '')
-      } else {
-        // All attempts - timeout
-        const err = Object.assign(new Error('timed out'), { killed: true })
-        cb(err, '', '')
+    mockExecFile.mockImplementation(
+      (
+        _cmd: string,
+        _args: string[],
+        _opts: unknown,
+        cb: (err: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        callCount++
+        if (callCount === 1) {
+          // which command
+          cb(null, '/usr/local/bin/mdvdb\n', '')
+        } else {
+          // All attempts - timeout
+          const err = Object.assign(new Error('timed out'), { killed: true })
+          cb(err, '', '')
+        }
       }
-    })
+    )
 
-    await expect(
-      execCommand('ingest', [], '/tmp/project', { retries: 2 })
-    ).rejects.toThrow(CliTimeoutError)
+    await expect(execCommand('ingest', [], '/tmp/project', { retries: 2 })).rejects.toThrow(
+      CliTimeoutError
+    )
 
     expect(callCount).toBe(4) // which + 3 command attempts (initial + 2 retries)
   })
 
   it('does not retry CliParseError', async () => {
     let callCount = 0
-    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
-      callCount++
-      if (callCount === 1) {
-        cb(null, '/usr/local/bin/mdvdb\n', '')
-      } else {
-        cb(null, 'not json', '')
+    mockExecFile.mockImplementation(
+      (
+        _cmd: string,
+        _args: string[],
+        _opts: unknown,
+        cb: (err: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        callCount++
+        if (callCount === 1) {
+          cb(null, '/usr/local/bin/mdvdb\n', '')
+        } else {
+          cb(null, 'not json', '')
+        }
       }
-    })
+    )
 
-    await expect(
-      execCommand('status', [], '/tmp/project', { retries: 2 })
-    ).rejects.toThrow(CliParseError)
+    await expect(execCommand('status', [], '/tmp/project', { retries: 2 })).rejects.toThrow(
+      CliParseError
+    )
 
     expect(callCount).toBe(2) // which + 1 command attempt (no retries)
   })
 
   it('includes retry info in error messages during retries', async () => {
     let callCount = 0
-    let errorMessage = ''
-    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
-      callCount++
-      if (callCount === 1) {
-        cb(null, '/usr/local/bin/mdvdb\n', '')
-      } else {
-        const err = Object.assign(new Error('failed'), { exitCode: 1, stderr: 'error' })
-        // Capture the error message during retry
-        if (callCount === 2) {
-          try {
-            cb(err, '', '')
-          } catch (e) {
-            errorMessage = (e as Error).message
-            throw e
-          }
+    let _errorMessage = ''
+    mockExecFile.mockImplementation(
+      (
+        _cmd: string,
+        _args: string[],
+        _opts: unknown,
+        cb: (err: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        callCount++
+        if (callCount === 1) {
+          cb(null, '/usr/local/bin/mdvdb\n', '')
         } else {
-          cb(err, '', '')
+          const err = Object.assign(new Error('failed'), { exitCode: 1, stderr: 'error' })
+          // Capture the error message during retry
+          if (callCount === 2) {
+            try {
+              cb(err, '', '')
+            } catch (e) {
+              _errorMessage = (e as Error).message
+              throw e
+            }
+          } else {
+            cb(err, '', '')
+          }
         }
       }
-    })
+    )
 
     try {
       await execCommand('status', [], '/tmp/project', { retries: 2 })
@@ -346,14 +462,21 @@ describe('execCommand', () => {
 describe('execRaw', () => {
   it('returns raw stdout/stderr without JSON parsing', async () => {
     let callCount = 0
-    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
-      callCount++
-      if (callCount === 1) {
-        cb(null, '/usr/local/bin/mdvdb\n', '')
-      } else {
-        cb(null, 'raw output here', 'some warnings')
+    mockExecFile.mockImplementation(
+      (
+        _cmd: string,
+        _args: string[],
+        _opts: unknown,
+        cb: (err: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        callCount++
+        if (callCount === 1) {
+          cb(null, '/usr/local/bin/mdvdb\n', '')
+        } else {
+          cb(null, 'raw output here', 'some warnings')
+        }
       }
-    })
+    )
 
     const result = await execRaw('tree', [], '/tmp/project')
     expect(result.stdout).toBe('raw output here')
@@ -363,14 +486,21 @@ describe('execRaw', () => {
 
   it('does not pass --json flag', async () => {
     let callCount = 0
-    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
-      callCount++
-      if (callCount === 1) {
-        cb(null, '/usr/local/bin/mdvdb\n', '')
-      } else {
-        cb(null, '', '')
+    mockExecFile.mockImplementation(
+      (
+        _cmd: string,
+        _args: string[],
+        _opts: unknown,
+        cb: (err: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        callCount++
+        if (callCount === 1) {
+          cb(null, '/usr/local/bin/mdvdb\n', '')
+        } else {
+          cb(null, '', '')
+        }
       }
-    })
+    )
 
     await execRaw('tree', [], '/tmp/project')
 
@@ -382,47 +512,68 @@ describe('execRaw', () => {
 
   it('throws CliTimeoutError on timeout', async () => {
     let callCount = 0
-    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
-      callCount++
-      if (callCount === 1) {
-        cb(null, '/usr/local/bin/mdvdb\n', '')
-      } else {
-        const err = Object.assign(new Error('timed out'), { killed: true })
-        cb(err, '', '')
+    mockExecFile.mockImplementation(
+      (
+        _cmd: string,
+        _args: string[],
+        _opts: unknown,
+        cb: (err: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        callCount++
+        if (callCount === 1) {
+          cb(null, '/usr/local/bin/mdvdb\n', '')
+        } else {
+          const err = Object.assign(new Error('timed out'), { killed: true })
+          cb(err, '', '')
+        }
       }
-    })
+    )
 
     await expect(execRaw('tree', [], '/tmp/project')).rejects.toThrow(CliTimeoutError)
   })
 
   it('throws CliExecutionError on failure', async () => {
     let callCount = 0
-    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
-      callCount++
-      if (callCount === 1) {
-        cb(null, '/usr/local/bin/mdvdb\n', '')
-      } else {
-        const err = Object.assign(new Error('failed'), { exitCode: 1, stderr: 'error' })
-        cb(err, '', '')
+    mockExecFile.mockImplementation(
+      (
+        _cmd: string,
+        _args: string[],
+        _opts: unknown,
+        cb: (err: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        callCount++
+        if (callCount === 1) {
+          cb(null, '/usr/local/bin/mdvdb\n', '')
+        } else {
+          const err = Object.assign(new Error('failed'), { exitCode: 1, stderr: 'error' })
+          cb(err, '', '')
+        }
       }
-    })
+    )
 
     await expect(execRaw('tree', [], '/tmp/project')).rejects.toThrow(CliExecutionError)
   })
 
   it('retries on timeout when retries option is set', async () => {
     let callCount = 0
-    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
-      callCount++
-      if (callCount === 1) {
-        cb(null, '/usr/local/bin/mdvdb\n', '')
-      } else if (callCount === 2) {
-        const err = Object.assign(new Error('timed out'), { killed: true })
-        cb(err, '', '')
-      } else {
-        cb(null, 'success output', '')
+    mockExecFile.mockImplementation(
+      (
+        _cmd: string,
+        _args: string[],
+        _opts: unknown,
+        cb: (err: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        callCount++
+        if (callCount === 1) {
+          cb(null, '/usr/local/bin/mdvdb\n', '')
+        } else if (callCount === 2) {
+          const err = Object.assign(new Error('timed out'), { killed: true })
+          cb(err, '', '')
+        } else {
+          cb(null, 'success output', '')
+        }
       }
-    })
+    )
 
     const result = await execRaw('tree', [], '/tmp/project', { retries: 1 })
     expect(result.stdout).toBe('success output')
@@ -431,19 +582,26 @@ describe('execRaw', () => {
 
   it('throws error after exhausting all retries for execRaw', async () => {
     let callCount = 0
-    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
-      callCount++
-      if (callCount === 1) {
-        cb(null, '/usr/local/bin/mdvdb\n', '')
-      } else {
-        const err = Object.assign(new Error('failed'), { exitCode: 1, stderr: 'error' })
-        cb(err, '', '')
+    mockExecFile.mockImplementation(
+      (
+        _cmd: string,
+        _args: string[],
+        _opts: unknown,
+        cb: (err: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        callCount++
+        if (callCount === 1) {
+          cb(null, '/usr/local/bin/mdvdb\n', '')
+        } else {
+          const err = Object.assign(new Error('failed'), { exitCode: 1, stderr: 'error' })
+          cb(err, '', '')
+        }
       }
-    })
+    )
 
-    await expect(
-      execRaw('tree', [], '/tmp/project', { retries: 2 })
-    ).rejects.toThrow(CliExecutionError)
+    await expect(execRaw('tree', [], '/tmp/project', { retries: 2 })).rejects.toThrow(
+      CliExecutionError
+    )
 
     expect(callCount).toBe(4) // which + 3 command attempts
   })

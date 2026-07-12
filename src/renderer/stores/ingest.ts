@@ -54,7 +54,8 @@ function stopTimer(): void {
 export async function runPreview(): Promise<void> {
   const collection = get(activeCollection)
   if (!collection) return
-  if (get(ingestState) !== 'idle' && get(ingestState) !== 'done' && get(ingestState) !== 'error') return
+  if (get(ingestState) !== 'idle' && get(ingestState) !== 'done' && get(ingestState) !== 'error')
+    return
 
   ingestState.set('previewing')
   ingestPreviewLoading.set(true)

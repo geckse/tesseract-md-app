@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { get } from 'svelte/store'
   import Editor from './Editor.svelte'
   import WysiwygEditor from './WysiwygEditor.svelte'
   import GraphView from './GraphView.svelte'
@@ -15,7 +14,11 @@
   import { syncFileStoresFromTab, loadFileTree } from '../stores/files'
   import { loadGraphData, syncGraphStoresFromTab } from '../stores/graph'
   import { setupVaultListener, teardownVaultListener } from '../stores/vault-events'
-  import { setupFileSyncListener, teardownFileSyncListener, applyDiskContentToTab } from '../stores/file-sync'
+  import {
+    setupFileSyncListener,
+    teardownFileSyncListener,
+    applyDiskContentToTab
+  } from '../stores/file-sync'
   import DiffView from './DiffView.svelte'
   import ConvertTypeModal from './ConvertTypeModal.svelte'
   import { saveAsTabId, requestSaveAs, dismissSaveAs } from '../stores/save-as'
@@ -40,31 +43,33 @@
   let { urlParams }: PopupShellProps = $props()
 
   // ── Parse URL parameters ──────────────────────────────────────────
-  const kind = (urlParams.get('kind') ?? 'document') as
+  // URL params are fixed for the lifetime of a popup window — read once on init.
+  // svelte-ignore state_referenced_locally
+  const params = urlParams
+  const kind = (params.get('kind') ?? 'document') as
     | 'document'
     | 'asset'
     | 'graph'
     | 'table'
     | 'terminal'
-  const filePath = urlParams.get('filePath') ?? ''
-  const collectionId = urlParams.get('collectionId') ?? ''
-  const collectionPath = urlParams.get('collectionPath') ?? ''
-  const initialEditorMode = (urlParams.get('editorMode') ?? 'wysiwyg') as EditorMode
-  const popupIsUntitled = urlParams.get('isUntitled') === 'true'
-  const mimeCategory = (urlParams.get('mimeCategory') ?? 'other') as MimeCategory
-  const initialGraphLevel = (urlParams.get('graphLevel') ?? 'document') as GraphLevel
-  const graphColoringMode = (urlParams.get('graphColoringMode') ?? 'cluster') as GraphColoringMode
-  const tableRecursive = urlParams.get('recursive') === 'true'
-  const tableViewId = urlParams.get('tableViewId') ?? undefined
-  const terminalId = urlParams.get('terminalId') ?? ''
-  const terminalTitle = urlParams.get('title') ?? 'Terminal'
-  const terminalShell = urlParams.get('shell') ?? ''
-  const terminalCwd = urlParams.get('cwd') ?? ''
+  const filePath = params.get('filePath') ?? ''
+  const collectionId = params.get('collectionId') ?? ''
+  const collectionPath = params.get('collectionPath') ?? ''
+  const initialEditorMode = (params.get('editorMode') ?? 'wysiwyg') as EditorMode
+  const popupIsUntitled = params.get('isUntitled') === 'true'
+  const mimeCategory = (params.get('mimeCategory') ?? 'other') as MimeCategory
+  const initialGraphLevel = (params.get('graphLevel') ?? 'document') as GraphLevel
+  const graphColoringMode = (params.get('graphColoringMode') ?? 'cluster') as GraphColoringMode
+  const tableRecursive = params.get('recursive') === 'true'
+  const tableViewId = params.get('tableViewId') ?? undefined
+  const terminalId = params.get('terminalId') ?? ''
+  const terminalTitle = params.get('title') ?? 'Terminal'
+  const terminalShell = params.get('shell') ?? ''
+  const terminalCwd = params.get('cwd') ?? ''
 
   // ── Local state ───────────────────────────────────────────────────
   let tabId = $state<string>('')
   let currentEditorMode = $state<EditorMode>(initialEditorMode)
-  let currentGraphLevel = $state<GraphLevel>(initialGraphLevel)
   let fileSize = $state<number | undefined>(undefined)
   let contentReady = $state(false)
 
@@ -266,7 +271,10 @@
   async function handleSave(): Promise<void> {
     if (!tabId) return
     const docTab = workspace.tabs[tabId]
-    if (!docTab || docTab.kind !== 'document' || !docTab.isDirty) return
+    if (!docTab || docTab.kind !== 'document') return
+    // Untitled notes are always saveable — the editor sync flips isDirty off
+    // while content matches lastSavedContent (e.g. a still-empty new note).
+    if (!docTab.isDirty && !docTab.isUntitled) return
 
     // Untitled files need a "Save As" dialog to pick a filename
     if (docTab.isUntitled) {
@@ -373,7 +381,7 @@
       <button class="strip-btn" onclick={handlePopBack} title="Pop back to main window">
         <span class="material-symbols-outlined">open_in_new_down</span>
       </button>
-      {#if isDirty}
+      {#if isDirty || isUntitled}
         <button class="popup-save-btn" onclick={handleSave}>
           <span>Save</span>
           <kbd class="popup-save-kbd"><span class="kbd-symbol">⌘</span>S</kbd>

@@ -9,7 +9,6 @@
 import { createWriteStream } from 'node:fs'
 import { mkdir, chmod, rename, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
-import { pipeline } from 'node:stream/promises'
 import { homedir } from 'node:os'
 import type { BrowserWindow } from 'electron'
 import { findCli, getCliVersion } from './cli'
@@ -100,7 +99,8 @@ export function getInstallPath(): string {
  * Returns a string like "mdvdb-x86_64-apple-darwin" or "mdvdb-x86_64-pc-windows-msvc.exe".
  */
 export function getAssetName(): string {
-  const arch = process.arch === 'x64' ? 'x86_64' : process.arch === 'arm64' ? 'aarch64' : process.arch
+  const arch =
+    process.arch === 'x64' ? 'x86_64' : process.arch === 'arm64' ? 'aarch64' : process.arch
 
   switch (process.platform) {
     case 'darwin':
@@ -123,7 +123,7 @@ export async function checkLatestVersion(): Promise<string | null> {
     const response = await fetch(GITHUB_RELEASES_URL, {
       headers: {
         'User-Agent': USER_AGENT,
-        'Accept': 'application/vnd.github.v3+json'
+        Accept: 'application/vnd.github.v3+json'
       }
     })
 
@@ -161,7 +161,7 @@ export async function installCli(mainWindow: BrowserWindow): Promise<CliInstallR
     const response = await fetch(GITHUB_RELEASES_URL, {
       headers: {
         'User-Agent': USER_AGENT,
-        'Accept': 'application/vnd.github.v3+json'
+        Accept: 'application/vnd.github.v3+json'
       }
     })
 
@@ -170,12 +170,12 @@ export async function installCli(mainWindow: BrowserWindow): Promise<CliInstallR
     }
 
     const release = (await response.json()) as GitHubRelease
-    const asset = release.assets.find(a => a.name === assetName)
+    const asset = release.assets.find((a) => a.name === assetName)
 
     if (!asset) {
       throw new Error(
         `No matching binary found for ${process.platform}/${process.arch}. ` +
-        `Expected asset: ${assetName}`
+          `Expected asset: ${assetName}`
       )
     }
 

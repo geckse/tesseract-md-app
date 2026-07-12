@@ -1,6 +1,7 @@
 <script lang="ts">
   import { slide } from 'svelte/transition'
-  import type { FileTreeNode, FileState, UnifiedTreeNode, MimeCategory } from '../types/cli'
+  import Self from './FileTreeNode.svelte'
+  import type { FileState, UnifiedTreeNode, MimeCategory } from '../types/cli'
   import { toggleExpanded } from '../stores/files'
 
   interface FileTreeNodeProps {
@@ -179,8 +180,6 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events -->
-<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="tree-node">
   <button
     bind:this={buttonElement}
@@ -244,7 +243,7 @@
   {#if !noRecursiveRender && node.is_dir && isExpanded}
     <div class="tree-children" transition:slide={{ duration: 150 }}>
       {#each node.children as child (child.path)}
-        <svelte:self
+        <Self
           node={child}
           depth={depth + 1}
           {onfileselect}

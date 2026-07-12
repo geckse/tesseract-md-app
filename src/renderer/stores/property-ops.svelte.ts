@@ -107,7 +107,9 @@ class PropertyOpsStore {
     const collectionId = get(activeCollection)?.id
     if (!collectionId) return
     const scope =
-      origin.kind === 'panel' ? scopeForPanelFile(origin.filePath) : scopeForTableTab(origin.folderPath)
+      origin.kind === 'panel'
+        ? scopeForPanelFile(origin.filePath)
+        : scopeForTableTab(origin.folderPath)
     this.modal = {
       phase: 'loading',
       origin,
@@ -134,7 +136,9 @@ class PropertyOpsStore {
     const collectionId = get(activeCollection)?.id
     if (!collectionId) return
     const scope =
-      origin.kind === 'panel' ? scopeForPanelFile(origin.filePath) : scopeForTableTab(origin.folderPath)
+      origin.kind === 'panel'
+        ? scopeForPanelFile(origin.filePath)
+        : scopeForTableTab(origin.folderPath)
     this.modal = {
       phase: 'preview',
       origin,

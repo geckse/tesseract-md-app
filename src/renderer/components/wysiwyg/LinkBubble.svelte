@@ -13,20 +13,16 @@
     anchorEl: Element
   }
 
-  let { url, text, onUpdateLink, onRemoveLink, onClose, onEdit, onNavigate, anchorEl }: Props = $props()
+  let { url, text, onUpdateLink, onRemoveLink, onClose, onEdit, onNavigate, anchorEl }: Props =
+    $props()
 
   let menuEl: HTMLDivElement | undefined = $state(undefined)
   let editing = $state(false)
+  // svelte-ignore state_referenced_locally
   let editUrl = $state(url)
+  // svelte-ignore state_referenced_locally
   let editText = $state(text)
   let urlInputEl: HTMLInputElement | undefined = $state(undefined)
-
-  function startEdit() {
-    editUrl = url
-    editText = text
-    editing = true
-    requestAnimationFrame(() => urlInputEl?.focus())
-  }
 
   function saveEdit() {
     if (editUrl.trim()) {
@@ -69,11 +65,7 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div
-  class="link-bubble"
-  bind:this={menuEl}
-  onkeydown={handleKeyDown}
->
+<div class="link-bubble" bind:this={menuEl} onkeydown={handleKeyDown}>
   {#if editing}
     <div class="link-bubble-form">
       <label class="link-bubble-label">
@@ -98,44 +90,70 @@
         />
       </label>
       <div class="link-bubble-actions">
-        <button class="link-bubble-btn save" onmousedown={(e) => { e.preventDefault(); saveEdit() }}>
+        <button
+          class="link-bubble-btn save"
+          onmousedown={(e) => {
+            e.preventDefault()
+            saveEdit()
+          }}
+        >
           <span class="material-symbols-outlined">check</span>
           Save
         </button>
-        <button class="link-bubble-btn" onmousedown={(e) => { e.preventDefault(); editing = false }}>
+        <button
+          class="link-bubble-btn"
+          onmousedown={(e) => {
+            e.preventDefault()
+            editing = false
+          }}
+        >
           Cancel
         </button>
       </div>
     </div>
   {:else}
     <div class="link-bubble-preview">
-      <span class="link-bubble-url" title={url}>{url.length > 50 ? url.slice(0, 50) + '...' : url}</span>
+      <span class="link-bubble-url" title={url}
+        >{url.length > 50 ? url.slice(0, 50) + '...' : url}</span
+      >
       <div class="link-bubble-btns">
         <button
           class="link-bubble-icon-btn"
           title="Open link"
-          onmousedown={(e) => { e.preventDefault(); onNavigate() }}
+          onmousedown={(e) => {
+            e.preventDefault()
+            onNavigate()
+          }}
         >
           <span class="material-symbols-outlined">open_in_new</span>
         </button>
         <button
           class="link-bubble-icon-btn"
           title="Edit link"
-          onmousedown={(e) => { e.preventDefault(); onEdit() }}
+          onmousedown={(e) => {
+            e.preventDefault()
+            onEdit()
+          }}
         >
           <span class="material-symbols-outlined">edit</span>
         </button>
         <button
           class="link-bubble-icon-btn"
           title="Copy link"
-          onmousedown={(e) => { e.preventDefault(); navigator.clipboard.writeText(url) }}
+          onmousedown={(e) => {
+            e.preventDefault()
+            navigator.clipboard.writeText(url)
+          }}
         >
           <span class="material-symbols-outlined">content_copy</span>
         </button>
         <button
           class="link-bubble-icon-btn remove"
           title="Remove link"
-          onmousedown={(e) => { e.preventDefault(); onRemoveLink() }}
+          onmousedown={(e) => {
+            e.preventDefault()
+            onRemoveLink()
+          }}
         >
           <span class="material-symbols-outlined">link_off</span>
         </button>
@@ -195,7 +213,9 @@
     background: transparent;
     color: var(--color-text-muted, #a1a1aa);
     cursor: pointer;
-    transition: color 150ms ease, background-color 150ms ease;
+    transition:
+      color 150ms ease,
+      background-color 150ms ease;
   }
 
   .link-bubble-icon-btn .material-symbols-outlined {
@@ -262,7 +282,9 @@
     display: flex;
     align-items: center;
     gap: 4px;
-    transition: color 150ms ease, background-color 150ms ease;
+    transition:
+      color 150ms ease,
+      background-color 150ms ease;
   }
 
   .link-bubble-btn .material-symbols-outlined {

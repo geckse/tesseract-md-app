@@ -49,26 +49,34 @@
   function getUnusedSchemaFields(): string[] {
     if (!schema?.fields) return []
     const usedKeys = new Set(rows.map((r) => r.key.trim()).filter(Boolean))
-    return schema.fields
-      .map((f) => f.name)
-      .filter((name) => !usedKeys.has(name))
+    return schema.fields.map((f) => f.name).filter((name) => !usedKeys.has(name))
   }
 
   /** Get a type-appropriate default value for a schema field type. */
   function getDefaultValueForType(fieldType: FieldType): JsonValue {
     switch (fieldType) {
-      case 'Boolean': return false
-      case 'Number': return 0
-      case 'List': return []
-      case 'Date': return new Date().toISOString().slice(0, 10)
-      default: return ''
+      case 'Boolean':
+        return false
+      case 'Number':
+        return 0
+      case 'List':
+        return []
+      case 'Date':
+        return new Date().toISOString().slice(0, 10)
+      default:
+        return ''
     }
   }
 
   /** Map of field name → field type label for secondary display in autocomplete. */
-  let fieldTypeLabels = $derived(new Map(
-    schema?.fields.map((f) => [f.name, f.field_type.charAt(0).toUpperCase() + f.field_type.slice(1).toLowerCase()]) ?? []
-  ))
+  let fieldTypeLabels = $derived(
+    new Map(
+      schema?.fields.map((f) => [
+        f.name,
+        f.field_type.charAt(0).toUpperCase() + f.field_type.slice(1).toLowerCase()
+      ]) ?? []
+    )
+  )
 
   function showFieldAutocomplete(rowId: number, anchorEl: HTMLElement) {
     const unused = getUnusedSchemaFields()
@@ -136,7 +144,13 @@
   /** Get sample values for a List field, excluding already-used tags and filtered by input. */
   function getFilteredTagSuggestions(row: FrontmatterRow): string[] {
     const field = getSchemaField(row.key)
-    if (!field || field.field_type !== 'List' || !field.sample_values || field.sample_values.length === 0) return []
+    if (
+      !field ||
+      field.field_type !== 'List' ||
+      !field.sample_values ||
+      field.sample_values.length === 0
+    )
+      return []
     const existing = new Set(
       Array.isArray(row.value) ? (row.value as JsonValue[]).map((v) => String(v)) : []
     )
@@ -150,7 +164,13 @@
     const row = rows.find((r) => r.id === rowId)
     if (!row) return
     const field = getSchemaField(row.key)
-    if (!field || field.field_type !== 'List' || !field.sample_values || field.sample_values.length === 0) return
+    if (
+      !field ||
+      field.field_type !== 'List' ||
+      !field.sample_values ||
+      field.sample_values.length === 0
+    )
+      return
     tagAutocompleteRowId = rowId
     tagAutocompleteAnchorEl = anchorEl
     tagAutocompleteFilter = currentInput
@@ -190,7 +210,7 @@
     rows = Object.entries(data).map(([key, value]) => ({
       key,
       value,
-      id: nextId++,
+      id: nextId++
     }))
   })
 
@@ -211,7 +231,9 @@
     onUpdate(yaml)
   }
 
-  function detectType(value: JsonValue): 'text' | 'number' | 'boolean' | 'date' | 'array' | 'complex' {
+  function detectType(
+    value: JsonValue
+  ): 'text' | 'number' | 'boolean' | 'date' | 'array' | 'complex' {
     if (typeof value === 'boolean') return 'boolean'
     if (typeof value === 'number') return 'number'
     if (Array.isArray(value)) return 'array'
@@ -294,10 +316,14 @@
           class="material-symbols-outlined fm-add-icon"
           role="button"
           tabindex="0"
-          onclick={(e: MouseEvent) => { e.stopPropagation(); addProperty(); }}
-          title="Add property"
-        >add</span>
-        <span class="material-symbols-outlined fm-chevron" class:open={!collapsed}>expand_more</span>
+          onclick={(e: MouseEvent) => {
+            e.stopPropagation()
+            addProperty()
+          }}
+          title="Add property">add</span
+        >
+        <span class="material-symbols-outlined fm-chevron" class:open={!collapsed}>expand_more</span
+        >
       </div>
     </button>
 
@@ -361,10 +387,14 @@
                 />
               {:else if type === 'array'}
                 <div class="fm-tags">
-                  {#each (row.value as JsonValue[]) as tag, i}
+                  {#each row.value as JsonValue[] as tag, i}
                     <span class="fm-tag">
                       {String(tag)}
-                      <button class="fm-tag-remove" onclick={() => removeTag(row, i)} aria-label="Remove tag">&times;</button>
+                      <button
+                        class="fm-tag-remove"
+                        onclick={() => removeTag(row, i)}
+                        aria-label="Remove tag">&times;</button
+                      >
                     </span>
                   {/each}
                   <input
@@ -382,8 +412,17 @@
                         showTagAutocomplete(row.id, e.target as HTMLElement, val)
                       }
                     }}
-                    onfocus={(e) => showTagAutocomplete(row.id, e.target as HTMLElement, newTagInputs[row.id] ?? '')}
-                    onblur={(e: FocusEvent) => { const related = e.relatedTarget as HTMLElement | null; if (!related?.closest?.('.autocomplete-dropdown')) dismissTagAutocomplete(); addTag(row) }}
+                    onfocus={(e) =>
+                      showTagAutocomplete(
+                        row.id,
+                        e.target as HTMLElement,
+                        newTagInputs[row.id] ?? ''
+                      )}
+                    onblur={(e: FocusEvent) => {
+                      const related = e.relatedTarget as HTMLElement | null
+                      if (!related?.closest?.('.autocomplete-dropdown')) dismissTagAutocomplete()
+                      addTag(row)
+                    }}
                   />
                 </div>
               {:else if type === 'complex'}
@@ -416,7 +455,8 @@
                     {/each}
                   </select>
                 {:else}
-                  {@const statusColor = typeof row.value === 'string' ? getStatusColor(row.value) : null}
+                  {@const statusColor =
+                    typeof row.value === 'string' ? getStatusColor(row.value) : null}
                   {#if statusColor}
                     <input
                       class="fm-val fm-status"
@@ -433,8 +473,17 @@
                           showValueAutocomplete(row.id, e.target as HTMLElement, val)
                         }
                       }}
-                      onfocus={(e) => showValueAutocomplete(row.id, e.target as HTMLElement, String(row.value ?? ''))}
-                      onblur={(e: FocusEvent) => { const related = e.relatedTarget as HTMLElement | null; if (!related?.closest?.('.autocomplete-dropdown')) dismissValueAutocomplete() }}
+                      onfocus={(e) =>
+                        showValueAutocomplete(
+                          row.id,
+                          e.target as HTMLElement,
+                          String(row.value ?? '')
+                        )}
+                      onblur={(e: FocusEvent) => {
+                        const related = e.relatedTarget as HTMLElement | null
+                        if (!related?.closest?.('.autocomplete-dropdown'))
+                          dismissValueAutocomplete()
+                      }}
                     />
                   {:else}
                     <input
@@ -451,14 +500,28 @@
                           showValueAutocomplete(row.id, e.target as HTMLElement, val)
                         }
                       }}
-                      onfocus={(e) => showValueAutocomplete(row.id, e.target as HTMLElement, String(row.value ?? ''))}
-                      onblur={(e: FocusEvent) => { const related = e.relatedTarget as HTMLElement | null; if (!related?.closest?.('.autocomplete-dropdown')) dismissValueAutocomplete() }}
+                      onfocus={(e) =>
+                        showValueAutocomplete(
+                          row.id,
+                          e.target as HTMLElement,
+                          String(row.value ?? '')
+                        )}
+                      onblur={(e: FocusEvent) => {
+                        const related = e.relatedTarget as HTMLElement | null
+                        if (!related?.closest?.('.autocomplete-dropdown'))
+                          dismissValueAutocomplete()
+                      }}
                     />
                   {/if}
                 {/if}
               {/if}
             </div>
-            <button class="fm-remove-btn" onclick={() => removeProperty(row.id)} title="Remove property" aria-label="Remove property">
+            <button
+              class="fm-remove-btn"
+              onclick={() => removeProperty(row.id)}
+              title="Remove property"
+              aria-label="Remove property"
+            >
               <span class="material-symbols-outlined">close</span>
             </button>
           </div>
@@ -551,7 +614,9 @@
     cursor: pointer;
     border-radius: 4px;
     padding: 2px;
-    transition: opacity 150ms ease, background 150ms ease;
+    transition:
+      opacity 150ms ease,
+      background 150ms ease;
   }
 
   .fm-header:hover .fm-add-icon {
@@ -601,7 +666,7 @@
   }
 
   .fm-required-indicator {
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
     font-size: 12px;
     font-weight: 700;
     line-height: 1;
@@ -621,7 +686,9 @@
     text-transform: uppercase;
     letter-spacing: 0.05em;
     padding: 3px 6px;
-    transition: border-color 150ms ease, color 150ms ease;
+    transition:
+      border-color 150ms ease,
+      color 150ms ease;
   }
 
   .fm-key:hover,
@@ -702,7 +769,7 @@
   }
 
   .fm-toggle-on {
-    background: var(--color-primary, #00E5FF);
+    background: var(--color-primary, #00e5ff);
   }
 
   .fm-toggle-knob {
@@ -739,7 +806,7 @@
     border-radius: 9999px;
     border: 1px solid var(--color-primary-glow, rgba(0, 229, 255, 0.25));
     background: transparent;
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
     font-size: 10px;
     font-family: 'JetBrains Mono', monospace;
     transition: border-color 150ms ease;
@@ -752,7 +819,7 @@
   .fm-tag-remove {
     background: none;
     border: none;
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
     cursor: pointer;
     padding: 0;
     font-size: 12px;

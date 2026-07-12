@@ -72,7 +72,9 @@ describe('validateCollectionPath', () => {
 
   it('returns error when stat throws', async () => {
     mockExistsSync.mockReturnValue(true)
-    mockStatSync.mockImplementation(() => { throw new Error('permission denied') })
+    mockStatSync.mockImplementation(() => {
+      throw new Error('permission denied')
+    })
 
     const result = await validateCollectionPath('/tmp/noaccess')
     expect(result.valid).toBe(false)

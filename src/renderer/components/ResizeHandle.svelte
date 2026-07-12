@@ -17,7 +17,7 @@
     minWidth = 180,
     maxWidth = 500,
     width,
-    onresize,
+    onresize
   }: ResizeHandleProps = $props()
 
   let isDragging = $state(false)
@@ -80,6 +80,7 @@
   })
 </script>
 
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
   class="resize-handle"
   class:left={position === 'left'}
@@ -131,7 +132,7 @@
 
   .resize-handle:hover::before,
   .resize-handle.dragging::before {
-    background: var(--color-primary, #00E5FF);
+    background: var(--color-primary, #00e5ff);
   }
 
   .resize-handle:hover {

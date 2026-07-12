@@ -3,7 +3,7 @@ import {
   splitFrontmatter,
   joinFrontmatter,
   parseFrontmatterData,
-  serializeFrontmatter,
+  serializeFrontmatter
 } from '../markdown-bridge'
 
 describe('splitFrontmatter', () => {

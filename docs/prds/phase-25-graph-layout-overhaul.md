@@ -35,8 +35,8 @@ The result: clusters overlap randomly, high-degree hubs collapse into the center
 
 ### File Changes
 
-| File | Scope |
-|------|-------|
+| File                                           | Scope                             |
+| ---------------------------------------------- | --------------------------------- |
 | `app/src/renderer/components/GraphView.svelte` | Layout forces, seeding, rendering |
 
 ### 1. Import Change
@@ -63,18 +63,21 @@ This gives the simulation spatially separated clusters before tick 1.
 Replace the existing document-mode force setup (lines 468-490) with:
 
 **`forceLink`**: Cluster-aware distances.
+
 - Same cluster: distance `50`, tighter grouping
 - Different clusters: distance `150`, push apart
 - Either unclustered: distance `100`
 - Strength: `0.3`
 
 **`forceManyBody`**: Degree-dependent repulsion.
+
 - `strength(d => Math.max(-300, -80 - (degreeMap.get(d.id) ?? 0) * 5))`
 - `distanceMax(500)` (increased from 200/400)
 - `theta(0.8)` (Barnes-Hut precision)
 - High-degree nodes push harder, preventing hub collapse
 
 **`forceX` / `forceY` (cluster attraction)**:
+
 - Target: live cluster centroid (recomputed from actual node positions each tick)
 - Strength: `0.15` for clustered nodes, `0.02` for unclustered (weak centering)
 - Maintain a `clusterCentroids: Map<number, {x, y}>` recomputed in the `tick` callback
@@ -133,6 +136,7 @@ Regular labels at high zoom remain raw text (no pill).
 **Viewport culling**: Compute visible bounds from pan/zoom. Skip nodes/edges entirely outside bounds (with 50px margin for labels/glow).
 
 **Edge thresholds**:
+
 - `>500` edges: skip per-edge gradient coloring (flat color)
 - `>2000` edges: render weak edges as thin solid instead of dashed
 

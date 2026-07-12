@@ -17,16 +17,22 @@
 
 /* Slide transitions */
 .transition-slide {
-  transition: transform var(--transition-normal), opacity var(--transition-fast);
+  transition:
+    transform var(--transition-normal),
+    opacity var(--transition-fast);
 }
 
 .transition-slide-fast {
-  transition: transform var(--transition-fast), opacity var(--transition-fast);
+  transition:
+    transform var(--transition-fast),
+    opacity var(--transition-fast);
 }
 
 /* Height transitions (for collapse/expand) */
 .transition-height {
-  transition: height var(--transition-normal), opacity var(--transition-fast);
+  transition:
+    height var(--transition-normal),
+    opacity var(--transition-fast);
 }
 
 /* All-property transitions */
@@ -40,9 +46,10 @@
 
 /* Color transitions (for hover states) */
 .transition-colors {
-  transition: background-color var(--transition-fast),
-              border-color var(--transition-fast),
-              color var(--transition-fast);
+  transition:
+    background-color var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast);
 }
 
 /* Transform transitions */
@@ -178,7 +185,8 @@
 }
 
 @keyframes pulse {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 1;
   }
   50% {

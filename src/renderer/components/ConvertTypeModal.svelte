@@ -25,9 +25,7 @@
   const m = $derived(propertyOps.modal)
   const op = $derived(m?.req.op ?? null)
   const isRename = $derived(op?.kind === 'rename')
-  const targetLabel = $derived(
-    op?.kind === 'convert' ? TYPE_LABELS[op.target] : (op?.newKey ?? '')
-  )
+  const targetLabel = $derived(op?.kind === 'convert' ? TYPE_LABELS[op.target] : (op?.newKey ?? ''))
 
   const scopeLabel = $derived.by(() => {
     if (!m) return ''
@@ -49,9 +47,7 @@
 
   // ── Rename input ──────────────────────────────────────────────────────
   let renameInput = $state('')
-  const renameValid = $derived(
-    renameInput.trim() !== '' && renameInput.trim() !== m?.req.key
-  )
+  const renameValid = $derived(renameInput.trim() !== '' && renameInput.trim() !== m?.req.key)
 
   function submitRename(): void {
     if (!renameValid) return
@@ -93,9 +89,7 @@
       buffer: 10
     })
   )
-  const visibleFiles = $derived(
-    virtualized ? files.slice(listState.start, listState.end) : files
-  )
+  const visibleFiles = $derived(virtualized ? files.slice(listState.start, listState.end) : files)
 
   function onListScroll(): void {
     if (listEl) {
@@ -331,12 +325,7 @@
         {:else if m.phase === 'error'}
           <Button variant="secondary" size="sm" onclick={close}>Close</Button>
         {:else}
-          <Button
-            variant="secondary"
-            size="sm"
-            disabled={m.phase === 'running'}
-            onclick={close}
-          >
+          <Button variant="secondary" size="sm" disabled={m.phase === 'running'} onclick={close}>
             Cancel
           </Button>
           <Button

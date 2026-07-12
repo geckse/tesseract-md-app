@@ -96,8 +96,6 @@ describe('PropertyRow type-change affordances (phase 41)', () => {
       }
     })
     expect(screen.queryByRole('button', { name: 'Change type of status' })).toBeNull()
-    expect(
-      screen.queryByRole('button', { name: 'Property options for status' })
-    ).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Property options for status' })).toBeNull()
   })
 })

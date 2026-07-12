@@ -13,7 +13,7 @@ async function injectAxe(page: any) {
 
 async function runAxe(page: any) {
   return await page.evaluate(() => {
-    // @ts-ignore - axe is injected at runtime
+    // @ts-expect-error - axe is injected at runtime
     return window.axe.run()
   })
 }
@@ -360,7 +360,7 @@ test.describe('Accessibility', () => {
 
     // Run axe with only color-contrast rule
     const results = (await window.evaluate(() => {
-      // @ts-ignore
+      // @ts-expect-error - axe is injected at runtime
       return window.axe.run({
         runOnly: ['color-contrast']
       })

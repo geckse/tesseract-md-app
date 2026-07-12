@@ -40,14 +40,14 @@ The Rust backend (Phase 22) auto-discovers relationship types by clustering edge
 
 ```typescript
 export interface GraphEdge {
-  source: string;
-  target: string;
-  weight: number | null;
+  source: string
+  target: string
+  weight: number | null
   // Semantic edge fields (nullable for backward compat)
-  relationship_type?: string | null;
-  strength?: number | null;
-  context_text?: string | null;
-  edge_cluster_id?: number | null;
+  relationship_type?: string | null
+  strength?: number | null
+  context_text?: string | null
+  edge_cluster_id?: number | null
 }
 ```
 
@@ -55,9 +55,9 @@ export interface GraphEdge {
 
 ```typescript
 export interface GraphEdgeCluster {
-  id: number;
-  label: string;
-  count: number;
+  id: number
+  label: string
+  count: number
 }
 ```
 
@@ -65,11 +65,11 @@ export interface GraphEdgeCluster {
 
 ```typescript
 export interface GraphData {
-  nodes: GraphNode[];
-  edges: GraphEdge[];
-  clusters: GraphCluster[];
-  level: GraphLevel;
-  edge_clusters?: GraphEdgeCluster[];
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+  clusters: GraphCluster[]
+  level: GraphLevel
+  edge_clusters?: GraphEdgeCluster[]
 }
 ```
 
@@ -82,22 +82,22 @@ All new fields are optional/nullable. No IPC handler changes needed — the exis
 8 dedicated pastel edge cluster colors, distinct from the node cluster palette to avoid visual confusion:
 
 ```css
---color-edge-cluster-0: #7C9FE5;
---color-edge-cluster-1: #E5A07C;
---color-edge-cluster-2: #7CE5B8;
---color-edge-cluster-3: #E57CB8;
---color-edge-cluster-4: #C5E57C;
---color-edge-cluster-5: #7CCFE5;
---color-edge-cluster-6: #E5D47C;
---color-edge-cluster-7: #B87CE5;
+--color-edge-cluster-0: #7c9fe5;
+--color-edge-cluster-1: #e5a07c;
+--color-edge-cluster-2: #7ce5b8;
+--color-edge-cluster-3: #e57cb8;
+--color-edge-cluster-4: #c5e57c;
+--color-edge-cluster-5: #7ccfe5;
+--color-edge-cluster-6: #e5d47c;
+--color-edge-cluster-7: #b87ce5;
 ```
 
 **New store state in `app/src/renderer/stores/graph.ts`:**
 
 ```typescript
-graphEdgeFilter: Set<number> | null   // visible edge cluster IDs (null = show all)
-graphSemanticEdgesEnabled: boolean    // user toggle (default true)
-graphEdgeWeakThreshold: number        // strength below which edges are dashed (default 0.4)
+graphEdgeFilter: Set<number> | null // visible edge cluster IDs (null = show all)
+graphSemanticEdgesEnabled: boolean // user toggle (default true)
+graphEdgeWeakThreshold: number // strength below which edges are dashed (default 0.4)
 ```
 
 Actions: `toggleEdgeClusterFilter(id)`, `clearEdgeFilter()`, `toggleSemanticEdges()`
@@ -109,7 +109,14 @@ export function edgeClusterColor(clusterId: number): string
 export function isEdgeVisible(edge: GraphEdge, filter: Set<number> | null): boolean
 export function edgeLineWidth(strength: number, zoom: number): number
 export function isWeakEdge(strength: number, threshold: number): boolean
-export function pointToSegmentDist(px: number, py: number, ax: number, ay: number, bx: number, by: number): number
+export function pointToSegmentDist(
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number
+): number
 ```
 
 ### Edge Rendering (`app/src/renderer/components/GraphView.svelte`)
@@ -127,13 +134,13 @@ Extend the internal `SimEdge` interface to carry semantic fields through the D3 
 
 ```typescript
 interface SimEdge extends SimulationLinkDatum<SimNode> {
-  source: SimNode | string;
-  target: SimNode | string;
-  weight: number | null;
-  relationship_type?: string | null;
-  strength?: number | null;
-  context_text?: string | null;
-  edge_cluster_id?: number | null;
+  source: SimNode | string
+  target: SimNode | string
+  weight: number | null
+  relationship_type?: string | null
+  strength?: number | null
+  context_text?: string | null
+  edge_cluster_id?: number | null
 }
 ```
 
@@ -167,6 +174,7 @@ HTML overlay below the existing node tooltip in the template:
 ```
 
 Shows:
+
 - Colored dot + relationship type (cluster label)
 - Strength percentage + visual bar
 - Context text excerpt (first 120 chars, italic)
@@ -191,6 +199,7 @@ Only shown when `graphSemanticEdgesEnabled` is true and `data.edge_clusters` has
 ### Edge Filtering
 
 `isEdgeVisible(edge)` checks the `graphEdgeFilter` store:
+
 - `null` → all edges visible
 - `Set<number>` → only edges with `edge_cluster_id` in the set are visible
 - Edges with no `edge_cluster_id` (legacy) → always visible
@@ -213,17 +222,61 @@ Extend `LocalEdge` in `app/src/renderer/utils/local-graph.ts` with optional sema
 New styles for edge tooltip and legend:
 
 ```css
-.tooltip-edge-type { display: flex; align-items: center; gap: 6px; }
-.tooltip-edge-dot { width: 8px; height: 8px; border-radius: 50%; }
-.tooltip-edge-strength { display: flex; align-items: center; gap: 6px; font-size: var(--text-xs); }
-.strength-bar { flex: 1; height: 3px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; }
-.strength-fill { display: block; height: 100%; background: var(--color-primary); border-radius: 2px; }
-.tooltip-edge-context { font-size: var(--text-xs); font-style: italic; line-height: 1.4; }
-.legend-separator { height: 1px; background: var(--color-border); margin: 6px 0; }
-.legend-section-title { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.05em; }
-.legend-line { width: 16px; height: 2px; border-radius: 1px; }
-.edge-legend-item { cursor: pointer; }
-.legend-item-muted { opacity: 0.35; }
+.tooltip-edge-type {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tooltip-edge-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.tooltip-edge-strength {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-xs);
+}
+.strength-bar {
+  flex: 1;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.strength-fill {
+  display: block;
+  height: 100%;
+  background: var(--color-primary);
+  border-radius: 2px;
+}
+.tooltip-edge-context {
+  font-size: var(--text-xs);
+  font-style: italic;
+  line-height: 1.4;
+}
+.legend-separator {
+  height: 1px;
+  background: var(--color-border);
+  margin: 6px 0;
+}
+.legend-section-title {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.legend-line {
+  width: 16px;
+  height: 2px;
+  border-radius: 1px;
+}
+.edge-legend-item {
+  cursor: pointer;
+}
+.legend-item-muted {
+  opacity: 0.35;
+}
 ```
 
 ### Migration Strategy
@@ -258,4 +311,5 @@ No migration needed. All new `GraphEdge` fields are optional. When the backend h
 - `app/src/renderer/lib/edge-utils.ts` — NEW: pure utility functions for edge rendering logic
 
 ### Tests
+
 - `app/tests/unit/edge-utils.test.ts` — NEW: `pointToSegmentDist` correctness, `edgeClusterColor` cycling, `isEdgeVisible` filter logic, `edgeLineWidth` mapping, `isWeakEdge` threshold

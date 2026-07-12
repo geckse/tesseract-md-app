@@ -47,23 +47,24 @@ Tabs are polymorphic — a discriminated union on `kind`:
 type TabKind = 'document' | 'graph'
 
 interface TabBase {
-  id: string                        // Unique tab ID (crypto.randomUUID())
-  kind: TabKind                     // Discriminator
-  pinned: boolean                   // Pinned tabs can't be closed or reordered past
+  id: string // Unique tab ID (crypto.randomUUID())
+  kind: TabKind // Discriminator
+  pinned: boolean // Pinned tabs can't be closed or reordered past
 }
 
 interface DocumentTab extends TabBase {
   kind: 'document'
-  filePath: string                  // Relative file path within collection
-  content: string | null            // File content (null while loading)
-  savedContent: string | null       // Last-saved content (for dirty detection)
-  isDirty: boolean                  // content !== savedContent
-  isLoading: boolean                // Content currently loading
-  error: string | null              // Load/save error
+  filePath: string // Relative file path within collection
+  content: string | null // File content (null while loading)
+  savedContent: string | null // Last-saved content (for dirty detection)
+  isDirty: boolean // content !== savedContent
+  isLoading: boolean // Content currently loading
+  error: string | null // Load/save error
   editorMode: 'wysiwyg' | 'editor' // Per-tab editor mode
-  editorState: unknown | null       // Serialized CodeMirror/Tiptap state (undo history, cursor, selection)
+  editorState: unknown | null // Serialized CodeMirror/Tiptap state (undo history, cursor, selection)
   scrollPosition: { x: number; y: number } // Scroll offset to restore
-  navigation: {                     // Per-tab back/forward history
+  navigation: {
+    // Per-tab back/forward history
     backStack: string[]
     forwardStack: string[]
   }
@@ -71,11 +72,11 @@ interface DocumentTab extends TabBase {
 
 interface GraphTab extends TabBase {
   kind: 'graph'
-  pinned: true                      // Always pinned
-  graphLevel: 'document' | 'chunk'  // Current graph level (Document/Chunk toggle)
-  cameraState: unknown | null       // Serialized 3d-force-graph camera position
-  pathFilter: string | null         // Active path filter on the graph
-  colorMode: 'cluster' | 'folder' | 'none'  // Graph coloring mode
+  pinned: true // Always pinned
+  graphLevel: 'document' | 'chunk' // Current graph level (Document/Chunk toggle)
+  cameraState: unknown | null // Serialized 3d-force-graph camera position
+  pathFilter: string | null // Active path filter on the graph
+  colorMode: 'cluster' | 'folder' | 'none' // Graph coloring mode
 }
 
 type TabState = DocumentTab | GraphTab
@@ -89,9 +90,9 @@ A pane is a container with a tab bar and an active tab:
 
 ```typescript
 interface PaneState {
-  id: string                        // Unique pane ID
-  tabIds: string[]                  // Ordered tab IDs (tab bar order)
-  activeTabId: string | null        // Currently visible tab in this pane
+  id: string // Unique pane ID
+  tabIds: string[] // Ordered tab IDs (tab bar order)
+  activeTabId: string | null // Currently visible tab in this pane
 }
 ```
 
@@ -101,11 +102,11 @@ Top-level state for one window:
 
 ```typescript
 interface WorkspaceState {
-  tabs: Map<string, TabState>       // All open tabs by ID
-  panes: PaneState[]                // 1 or 2 panes (single or split)
-  activePaneId: string              // Which pane has focus
-  splitEnabled: boolean             // Whether split view is active
-  splitRatio: number                // 0.0–1.0, default 0.5
+  tabs: Map<string, TabState> // All open tabs by ID
+  panes: PaneState[] // 1 or 2 panes (single or split)
+  activePaneId: string // Which pane has focus
+  splitEnabled: boolean // Whether split view is active
+  splitRatio: number // 0.0–1.0, default 0.5
 }
 ```
 
@@ -125,7 +126,7 @@ Components that currently import from `stores/files.ts` or `stores/editor.ts` co
 
 ### Tab Bar UI
 
-A horizontal tab bar sits between the titlebar and the editor mode toggle (Editor/Raw). The tab bar is the outermost layer — it determines *which* content is shown. The mode toggle below it determines *how* that content renders (only visible for document tabs, hidden for graph tabs). Each pane has its own tab bar.
+A horizontal tab bar sits between the titlebar and the editor mode toggle (Editor/Raw). The tab bar is the outermost layer — it determines _which_ content is shown. The mode toggle below it determines _how_ that content renders (only visible for document tabs, hidden for graph tabs). Each pane has its own tab bar.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -148,6 +149,7 @@ The graph tab sits at the rightmost position in the tab bar, visually separated 
 **Visual hierarchy:** TabBar (which document/view) → ModeBar (how to render it) → Content area. The existing Editor↔Raw toggle moves from the titlebar into a `ModeBar` component that sits just below the tab bar. When a graph tab is active, the ModeBar is hidden (graphs have no editor/raw distinction) — it shows the Document/Chunk level switcher instead.
 
 Tab anatomy:
+
 - **Document tab**: File icon (Material Symbols `description`) + filename (basename, dim directory prefix on hover if ambiguous) + dirty indicator (`●`) + close button (`×`)
 - **Graph tab**: Graph icon (`hub`) + "Graph" label. No close button (pinned). Always rightmost.
 - Active tab: bottom border `var(--color-primary)`, brighter text
@@ -188,7 +190,7 @@ Each Electron `BrowserWindow` is fully independent with its own `WorkspaceState`
 
 ```typescript
 class WindowManager {
-  private windows: Map<number, BrowserWindow>  // webContents.id → window
+  private windows: Map<number, BrowserWindow> // webContents.id → window
 
   createWindow(options?: { tabs?: SerializedTab[] }): BrowserWindow
   getWindow(id: number): BrowserWindow | undefined
@@ -237,23 +239,24 @@ This happens automatically through the derived shims — no sidebar code changes
 
 ### Keyboard Shortcuts
 
-| Shortcut | Action |
-|----------|--------|
-| `Cmd+T` | New tab (opens empty tab or file picker) |
-| `Cmd+W` | Close active tab (prompt if dirty) |
-| `Cmd+Shift+T` | Reopen last closed tab |
-| `Cmd+1` – `Cmd+9` | Switch to tab N (9 = last tab) |
-| `Cmd+Option+Left` | Switch to previous tab |
-| `Cmd+Option+Right` | Switch to next tab |
-| `Cmd+G` | Switch to graph tab in focused pane |
-| `Cmd+\` | Toggle split pane |
-| `Cmd+Option+1` / `Cmd+Option+2` | Focus pane 1 / pane 2 |
-| `Cmd+Shift+N` | New window |
-| `Cmd+Shift+W` | Close window (prompt for all dirty tabs) |
+| Shortcut                        | Action                                   |
+| ------------------------------- | ---------------------------------------- |
+| `Cmd+T`                         | New tab (opens empty tab or file picker) |
+| `Cmd+W`                         | Close active tab (prompt if dirty)       |
+| `Cmd+Shift+T`                   | Reopen last closed tab                   |
+| `Cmd+1` – `Cmd+9`               | Switch to tab N (9 = last tab)           |
+| `Cmd+Option+Left`               | Switch to previous tab                   |
+| `Cmd+Option+Right`              | Switch to next tab                       |
+| `Cmd+G`                         | Switch to graph tab in focused pane      |
+| `Cmd+\`                         | Toggle split pane                        |
+| `Cmd+Option+1` / `Cmd+Option+2` | Focus pane 1 / pane 2                    |
+| `Cmd+Shift+N`                   | New window                               |
+| `Cmd+Shift+W`                   | Close window (prompt for all dirty tabs) |
 
 ### Persistence
 
 Open tabs and split state are saved to `electron-store` per window on:
+
 - Tab open/close/reorder
 - Split toggle or resize
 - App quit (graceful)
@@ -361,6 +364,7 @@ On app launch, restore each persisted window session. If a file no longer exists
 ## Validation Criteria
 
 ### Tabs
+
 - [ ] Opening a file creates a new tab; opening the same file switches to the existing tab
 - [ ] Switching tabs preserves scroll position, cursor, undo history, and dirty state
 - [ ] Closing a dirty tab shows a save/discard/cancel prompt
@@ -373,6 +377,7 @@ On app launch, restore each persisted window session. If a file no longer exists
 - [ ] Watcher events update ALL tabs showing the affected file (conflict prompt if dirty)
 
 ### Graph Tab
+
 - [ ] Graph tab appears as a pinned tab at the rightmost position in every pane's tab bar
 - [ ] Graph tab cannot be closed, reordered, or dragged out of the window
 - [ ] Clicking a node in the graph opens (or switches to) a document tab for that file in the same pane
@@ -383,6 +388,7 @@ On app launch, restore each persisted window session. If a file no longer exists
 - [ ] Graph toggle button is removed from the titlebar (replaced by the graph tab)
 
 ### Split Panes
+
 - [ ] `Cmd+\` toggles split view; each pane has its own tab bar
 - [ ] Clicking a pane gives it focus; sidebar/properties/status bar update to reflect the focused tab
 - [ ] Resize handle between panes works with 300px minimum per pane
@@ -390,6 +396,7 @@ On app launch, restore each persisted window session. If a file no longer exists
 - [ ] Split ratio persists across sessions
 
 ### Multi-Window
+
 - [ ] `Cmd+Shift+N` opens a new window with the same collection active
 - [ ] Each window has independent tabs and split state
 - [ ] Dragging a tab out of a window creates a new window with that tab
@@ -399,11 +406,13 @@ On app launch, restore each persisted window session. If a file no longer exists
 - [ ] Closing a window with dirty tabs prompts for each
 
 ### Persistence
+
 - [ ] Open tabs and split state restore on app restart
 - [ ] Tabs for deleted files are silently skipped on restore
 - [ ] Multiple windows each restore their own tab/split state
 
 ### Backward Compatibility
+
 - [ ] All existing keyboard shortcuts (`Cmd+S`, `Cmd+E`, `Cmd+[`, `Cmd+]`, etc.) still work
 - [ ] Search results open in a tab in the focused pane
 - [ ] `[[wikilink]]` clicks open in a tab in the same pane

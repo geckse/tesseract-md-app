@@ -8,7 +8,7 @@ import type {
   FileTreeNode,
   AssetFileNode,
   AssetScanResult,
-  UnifiedTreeNode,
+  UnifiedTreeNode
 } from '../types/cli'
 
 /** Convert a CLI FileTreeNode to a UnifiedTreeNode. */
@@ -19,7 +19,7 @@ function fromCliNode(node: FileTreeNode): UnifiedTreeNode {
     is_dir: node.is_dir,
     children: node.children.map(fromCliNode),
     state: node.state,
-    isAsset: false,
+    isAsset: false
   }
 }
 
@@ -33,7 +33,7 @@ function fromAssetNode(node: AssetFileNode): UnifiedTreeNode {
     state: null,
     isAsset: !node.is_dir,
     mimeCategory: node.mimeCategory,
-    fileSize: node.fileSize,
+    fileSize: node.fileSize
   }
 }
 
@@ -112,6 +112,6 @@ export function mergeTreeNodes(
     is_dir: true,
     children: merged,
     state: null,
-    isAsset: false,
+    isAsset: false
   }
 }

@@ -43,11 +43,13 @@ export function fuzzyMatch(query: string, target: string): FuzzyMatch | null {
       consecutive++
 
       // Bonus for matching at word boundaries (after /, -, _, or space)
-      if (targetIndex === 0 ||
-          target[targetIndex - 1] === '/' ||
-          target[targetIndex - 1] === '-' ||
-          target[targetIndex - 1] === '_' ||
-          target[targetIndex - 1] === ' ') {
+      if (
+        targetIndex === 0 ||
+        target[targetIndex - 1] === '/' ||
+        target[targetIndex - 1] === '-' ||
+        target[targetIndex - 1] === '_' ||
+        target[targetIndex - 1] === ' '
+      ) {
         score += 10
       }
 

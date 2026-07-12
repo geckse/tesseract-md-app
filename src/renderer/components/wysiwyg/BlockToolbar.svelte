@@ -33,7 +33,7 @@
             dispatch(tr)
           }
           onClose()
-        },
+        }
       },
       {
         label: 'Heading 1',
@@ -42,16 +42,13 @@
           const { state, dispatch } = view
           const node = state.doc.nodeAt(pos)
           if (node) {
-            const tr = state.tr.setBlockType(
-              pos,
-              pos + node.nodeSize,
-              state.schema.nodes.heading,
-              { level: 1 }
-            )
+            const tr = state.tr.setBlockType(pos, pos + node.nodeSize, state.schema.nodes.heading, {
+              level: 1
+            })
             dispatch(tr)
           }
           onClose()
-        },
+        }
       },
       {
         label: 'Heading 2',
@@ -60,16 +57,13 @@
           const { state, dispatch } = view
           const node = state.doc.nodeAt(pos)
           if (node) {
-            const tr = state.tr.setBlockType(
-              pos,
-              pos + node.nodeSize,
-              state.schema.nodes.heading,
-              { level: 2 }
-            )
+            const tr = state.tr.setBlockType(pos, pos + node.nodeSize, state.schema.nodes.heading, {
+              level: 2
+            })
             dispatch(tr)
           }
           onClose()
-        },
+        }
       },
       {
         label: 'Heading 3',
@@ -78,16 +72,13 @@
           const { state, dispatch } = view
           const node = state.doc.nodeAt(pos)
           if (node) {
-            const tr = state.tr.setBlockType(
-              pos,
-              pos + node.nodeSize,
-              state.schema.nodes.heading,
-              { level: 3 }
-            )
+            const tr = state.tr.setBlockType(pos, pos + node.nodeSize, state.schema.nodes.heading, {
+              level: 3
+            })
             dispatch(tr)
           }
           onClose()
-        },
+        }
       },
       {
         label: 'Code Block',
@@ -96,15 +87,11 @@
           const { state, dispatch } = view
           const node = state.doc.nodeAt(pos)
           if (node) {
-            const tr = state.tr.setBlockType(
-              pos,
-              pos + node.nodeSize,
-              state.schema.nodes.codeBlock
-            )
+            const tr = state.tr.setBlockType(pos, pos + node.nodeSize, state.schema.nodes.codeBlock)
             dispatch(tr)
           }
           onClose()
-        },
+        }
       },
       {
         label: 'Blockquote',
@@ -122,8 +109,8 @@
             dispatch(tr)
           }
           onClose()
-        },
-      },
+        }
+      }
     ]
   }
 

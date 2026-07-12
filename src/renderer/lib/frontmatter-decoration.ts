@@ -8,7 +8,7 @@ import {
   Decoration,
   EditorView,
   ViewPlugin,
-  type ViewUpdate,
+  type ViewUpdate
 } from '@codemirror/view'
 import { type EditorState, Prec, type Range } from '@codemirror/state'
 
@@ -28,9 +28,18 @@ const containerLine = Decoration.line({ class: 'cm-fm-line' })
 /* ── Patterns ─────────────────────────────────────────────── */
 
 const STATUS_KEYWORDS = new Set([
-  'draft', 'published', 'archived', 'active', 'inactive',
-  'todo', 'done', 'in-progress', 'review', 'approved',
-  'true', 'false',
+  'draft',
+  'published',
+  'archived',
+  'active',
+  'inactive',
+  'todo',
+  'done',
+  'in-progress',
+  'review',
+  'approved',
+  'true',
+  'false'
 ])
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}(T[\d:.]+Z?)?$/
@@ -43,29 +52,29 @@ const frontmatterTheme = EditorView.theme({
     backgroundColor: 'var(--color-surface-dark, #0a0a0a)',
     borderLeft: '2px solid var(--color-border, #27272a)',
     paddingLeft: '8px',
-    fontFamily: 'JetBrains Mono, monospace',
+    fontFamily: 'JetBrains Mono, monospace'
   },
   '.cm-fm-line:hover': {
-    borderLeftColor: 'var(--color-primary, #00E5FF)',
+    borderLeftColor: 'var(--color-primary, #00E5FF)'
   },
   '.cm-fm-delimiter': {
-    color: 'var(--color-text-dim, #7b8a8d)',
+    color: 'var(--color-text-dim, #7b8a8d)'
   },
   '.cm-fm-key': {
-    color: 'var(--color-text-dim, #9ca3af)',
+    color: 'var(--color-text-dim, #9ca3af)'
   },
   '.cm-fm-string': {
-    color: 'var(--color-primary, #00E5FF)',
+    color: 'var(--color-primary, #00E5FF)'
   },
   '.cm-fm-status': {
-    color: 'var(--color-success, #34d399)',
+    color: 'var(--color-success, #34d399)'
   },
   '.cm-fm-array': {
-    color: 'var(--color-info, #60a5fa)',
+    color: 'var(--color-info, #60a5fa)'
   },
   '.cm-fm-date': {
-    color: 'var(--color-warning, #fdba74)',
-  },
+    color: 'var(--color-warning, #fdba74)'
+  }
 })
 
 /* ── Build decorations ────────────────────────────────────── */
@@ -170,7 +179,7 @@ const frontmatterPlugin = ViewPlugin.fromClass(
     }
   },
   {
-    decorations: (v) => v.decorations,
+    decorations: (v) => v.decorations
   }
 )
 

@@ -19,7 +19,7 @@ const mockApi = {
   removeWatcherEventListener: vi.fn(),
   ingest: vi.fn().mockResolvedValue({ files_processed: 0, chunks_created: 0 }),
   ingestPreview: vi.fn().mockResolvedValue({ files: [], total_files: 0 }),
-  cancelIngest: vi.fn(),
+  cancelIngest: vi.fn()
 }
 
 // Attach mockApi to existing window to preserve DOM methods (addEventListener etc.)

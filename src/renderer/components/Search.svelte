@@ -2,91 +2,87 @@
   import {
     searchQuery,
     searchResults,
-    searchLoading,
     searchOpen,
     highlightedIndex,
     executeSearch,
-    clearSearch,
-  } from '../stores/search';
-  import type { SearchOutput, SearchResult } from '../types/cli';
+    clearSearch
+  } from '../stores/search'
+  import type { SearchOutput, SearchResult } from '../types/cli'
 
   interface SearchProps {
-    onsearchresultclick?: (result: SearchResult) => void;
+    onsearchresultclick?: (result: SearchResult) => void
   }
 
-  let { onsearchresultclick }: SearchProps = $props();
+  let { onsearchresultclick }: SearchProps = $props()
 
-  let currentQuery = $state('');
-  searchQuery.subscribe((v) => (currentQuery = v));
+  let currentQuery = $state('')
+  searchQuery.subscribe((v) => (currentQuery = v))
 
-  let currentResults: SearchOutput | null = $state(null);
-  searchResults.subscribe((v) => (currentResults = v));
+  let currentResults: SearchOutput | null = $state(null)
+  searchResults.subscribe((v) => (currentResults = v))
 
-  let currentLoading = $state(false);
-  searchLoading.subscribe((v) => (currentLoading = v));
+  let currentOpen = $state(false)
+  searchOpen.subscribe((v) => (currentOpen = v))
 
-  let currentOpen = $state(false);
-  searchOpen.subscribe((v) => (currentOpen = v));
+  let currentHighlightedIndex = $state(-1)
+  highlightedIndex.subscribe((v) => (currentHighlightedIndex = v))
 
-  let currentHighlightedIndex = $state(-1);
-  highlightedIndex.subscribe((v) => (currentHighlightedIndex = v));
-
-  let inputEl: HTMLInputElement | undefined = $state();
-  let focused = $state(false);
+  let inputEl: HTMLInputElement | undefined = $state()
+  let focused = $state(false)
 
   // Auto-focus input when search opens (e.g. via Cmd+K)
   $effect(() => {
     if (currentOpen && inputEl) {
-      inputEl.focus();
+      inputEl.focus()
     }
-  });
+  })
 
   function handleInput(event: Event) {
-    const target = event.target as HTMLInputElement;
-    const query = target.value;
-    searchOpen.set(true);
-    executeSearch(query);
+    const target = event.target as HTMLInputElement
+    const query = target.value
+    searchOpen.set(true)
+    executeSearch(query)
   }
 
   function handleFocus() {
-    focused = true;
+    focused = true
   }
 
   function handleBlur() {
-    focused = false;
+    focused = false
   }
 
   function handleKeydown(event: KeyboardEvent) {
     if (event.key === 'Escape') {
-      clearSearch();
-      inputEl?.blur();
-      return;
+      clearSearch()
+      inputEl?.blur()
+      return
     }
 
-    const results = currentResults?.results ?? [];
+    const results = currentResults?.results ?? []
 
     if (event.key === 'ArrowDown') {
-      event.preventDefault();
-      const next = currentHighlightedIndex + 1;
-      highlightedIndex.set(next < results.length ? next : 0);
-      return;
+      event.preventDefault()
+      const next = currentHighlightedIndex + 1
+      highlightedIndex.set(next < results.length ? next : 0)
+      return
     }
 
     if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      const prev = currentHighlightedIndex - 1;
-      highlightedIndex.set(prev >= 0 ? prev : results.length - 1);
-      return;
+      event.preventDefault()
+      const prev = currentHighlightedIndex - 1
+      highlightedIndex.set(prev >= 0 ? prev : results.length - 1)
+      return
     }
 
     if (event.key === 'Enter') {
-      event.preventDefault();
-      if (results.length === 0) return;
-      const idx = currentHighlightedIndex >= 0 ? currentHighlightedIndex : 0;
-      const result = results[idx];
+      event.preventDefault()
+      if (results.length === 0) return
+      const idx = currentHighlightedIndex >= 0 ? currentHighlightedIndex : 0
+      const result = results[idx]
       if (result) {
-        onsearchresultclick?.(result);
-        clearSearch();
+        onsearchresultclick?.(result)
+        clearSearch()
       }
     }
   }
@@ -129,7 +125,7 @@
   }
 
   .search-wrapper:focus-within .search-icon {
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
   }
 
   .search-input {
@@ -150,8 +146,8 @@
   }
 
   .search-input:focus {
-    border-color: var(--color-primary, #00E5FF);
-    box-shadow: 0 0 0 1px var(--color-primary, #00E5FF);
+    border-color: var(--color-primary, #00e5ff);
+    box-shadow: 0 0 0 1px var(--color-primary, #00e5ff);
     width: 400px;
   }
 

@@ -33,10 +33,10 @@ export const EditorContextMenuExtension = Extension.create({
               editorContextMenuState.y = event.clientY
               editorContextMenuState.open = true
               return true
-            },
-          },
-        },
-      }),
+            }
+          }
+        }
+      })
     ]
-  },
+  }
 })

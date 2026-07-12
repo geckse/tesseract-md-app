@@ -5,13 +5,13 @@
     globalPrimaryColor,
     collectionPrimaryColor,
     setGlobalAccentColor,
-    setCollectionAccentColor,
+    setCollectionAccentColor
   } from '../stores/accent-color'
   import {
     globalTheme,
     collectionTheme,
     setGlobalTheme,
-    setCollectionThemeOverride,
+    setCollectionThemeOverride
   } from '../stores/theme'
   import type { ThemeMode } from '../lib/theme-tokens'
   import {
@@ -20,7 +20,6 @@
     userDraft,
     collectionDraft,
     collectionDeletions,
-    configLoading,
     isDirty,
     activeSection,
     settingsTarget,
@@ -31,7 +30,7 @@
     stageCollectionConfig,
     stageCollectionDelete,
     saveAllSettings,
-    discardDraft,
+    discardDraft
   } from '../stores/settings'
   import { settingsOpen } from '../stores/ui'
   import { collections, activeCollection } from '../stores/collections'
@@ -48,7 +47,7 @@
     removeTopic,
     migrateLegacyDotenvTopics,
     resetTopicsState,
-    LEGACY_TOPICS_KEY,
+    LEGACY_TOPICS_KEY
   } from '../stores/topics'
   import { runIngest, ingestRunning } from '../stores/ingest'
   import CustomClusterModal from './CustomClusterModal.svelte'
@@ -59,7 +58,15 @@
 
   let { onclose }: SettingsProps = $props()
 
-  type Section = 'cli' | 'embedding' | 'search' | 'chunking' | 'clusters' | 'terminal' | 'appearance' | 'about'
+  type Section =
+    | 'cli'
+    | 'embedding'
+    | 'search'
+    | 'chunking'
+    | 'clusters'
+    | 'terminal'
+    | 'appearance'
+    | 'about'
 
   const globalSections: { id: Section; label: string; icon: string }[] = [
     { id: 'cli', label: 'CLI', icon: 'terminal' },
@@ -68,7 +75,7 @@
     { id: 'chunking', label: 'Chunking', icon: 'content_cut' },
     { id: 'terminal', label: 'Terminal', icon: 'terminal' },
     { id: 'appearance', label: 'Appearance', icon: 'palette' },
-    { id: 'about', label: 'About', icon: 'info' },
+    { id: 'about', label: 'About', icon: 'info' }
   ]
 
   const collectionSections: { id: Section; label: string; icon: string }[] = [
@@ -76,7 +83,7 @@
     { id: 'search', label: 'Search Defaults', icon: 'search' },
     { id: 'chunking', label: 'Chunking', icon: 'content_cut' },
     { id: 'clusters', label: 'Topics', icon: 'category' },
-    { id: 'appearance', label: 'Appearance', icon: 'palette' },
+    { id: 'appearance', label: 'Appearance', icon: 'palette' }
   ]
 
   const sectionExplainers: Record<Section, string> = {
@@ -84,17 +91,18 @@
     embedding: 'Configure which AI model generates vector embeddings for your documents.',
     search: 'Default parameters for search queries.',
     chunking: 'Control how documents are split into chunks before embedding.',
-    clusters: 'Define topics with seed phrases and descriptions. Documents are assigned by semantic similarity. Changes apply immediately to the collection config.',
-    terminal: 'Configure the embedded terminal. Leave the shell path blank to use your system default.',
+    clusters:
+      'Define topics with seed phrases and descriptions. Documents are assigned by semantic similarity. Changes apply immediately to the collection config.',
+    terminal:
+      'Configure the embedded terminal. Leave the shell path blank to use your system default.',
     appearance: 'Visual preferences for the app.',
-    about: 'Version information and resources.',
+    about: 'Version information and resources.'
   }
 
   let currentSection: Section = $state('cli')
   let currentTarget: string = $state('global')
   let currentUserConfig: Record<string, string> = $state({})
   let currentCollectionConfig: Record<string, string> = $state({})
-  let currentLoading = $state(false)
   let allCollections: Collection[] = $state([])
 
   // Topics (custom clusters) state — CLI-backed, immediate writes
@@ -158,7 +166,6 @@
   settingsTarget.subscribe((v) => (currentTarget = v))
   userConfig.subscribe((v) => (currentUserConfig = v))
   collectionConfig.subscribe((v) => (currentCollectionConfig = v))
-  configLoading.subscribe((v) => (currentLoading = v))
   collections.subscribe((v) => (allCollections = v))
   saveStatus.subscribe((v) => (currentSaveStatus = v))
   isDirty.subscribe((v) => (currentIsDirty = v))
@@ -169,7 +176,7 @@
   let isGlobal = $derived(currentTarget === 'global')
   let availableSections = $derived(isGlobal ? globalSections : collectionSections)
   let targetCollection = $derived(
-    isGlobal ? null : allCollections.find((c) => c.id === currentTarget) ?? null
+    isGlobal ? null : (allCollections.find((c) => c.id === currentTarget) ?? null)
   )
 
   // Resolve effective config value: draft > collection override > user draft > user saved > empty
@@ -253,13 +260,34 @@
   // Load configs on mount
   $effect(() => {
     loadUserConfig()
-    window.api.findCli().then((p) => (cliPath = p)).catch(() => {})
-    window.api.getCliVersion().then((v) => (cliVersion = v)).catch(() => {})
-    window.api.getEditorFontSize().then((s) => (fontSize = s)).catch(() => {})
-    window.api.getAutoShowDiff().then((v) => (autoShowDiff = v)).catch(() => {})
-    window.api.getTerminalShellPath().then((v) => (terminalShellPath = v)).catch(() => {})
-    window.api.getTerminalShellArgs().then((v) => (terminalShellArgs = v)).catch(() => {})
-    window.api.getTerminalFontSize().then((v) => (terminalFontSize = v)).catch(() => {})
+    window.api
+      .findCli()
+      .then((p) => (cliPath = p))
+      .catch(() => {})
+    window.api
+      .getCliVersion()
+      .then((v) => (cliVersion = v))
+      .catch(() => {})
+    window.api
+      .getEditorFontSize()
+      .then((s) => (fontSize = s))
+      .catch(() => {})
+    window.api
+      .getAutoShowDiff()
+      .then((v) => (autoShowDiff = v))
+      .catch(() => {})
+    window.api
+      .getTerminalShellPath()
+      .then((v) => (terminalShellPath = v))
+      .catch(() => {})
+    window.api
+      .getTerminalShellArgs()
+      .then((v) => (terminalShellArgs = v))
+      .catch(() => {})
+    window.api
+      .getTerminalFontSize()
+      .then((v) => (terminalFontSize = v))
+      .catch(() => {})
   })
 
   function saveTerminalShellPath(value: string): void {
@@ -471,859 +499,1105 @@
 <svelte:window onkeydown={handleKeydown} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
-<div class="settings-overlay" role="dialog" aria-modal="true" aria-label="Settings" onclick={(e) => { if (e.target === e.currentTarget) handleClose() }}>
-<div class="settings-panel">
-  <div class="settings-header">
-    <h1 class="settings-title">Settings</h1>
-    <button class="close-btn" onclick={handleClose} title="Close settings">
-      <span class="material-symbols-outlined">close</span>
-    </button>
-  </div>
-
-  <div class="settings-body">
-    <nav class="settings-nav">
-      <button
-        class="nav-item"
-        class:active={isGlobal}
-        onclick={() => selectTarget('global')}
-      >
-        <span class="material-symbols-outlined nav-icon">settings</span>
-        Global Settings
+<div
+  class="settings-overlay"
+  role="dialog"
+  aria-modal="true"
+  aria-label="Settings"
+  tabindex="-1"
+  onclick={(e) => {
+    if (e.target === e.currentTarget) handleClose()
+  }}
+>
+  <div class="settings-panel">
+    <div class="settings-header">
+      <h1 class="settings-title">Settings</h1>
+      <button class="close-btn" onclick={handleClose} title="Close settings">
+        <span class="material-symbols-outlined">close</span>
       </button>
+    </div>
 
-      {#if allCollections.length > 0}
-        <div class="nav-section-header">Collections</div>
-        {#each allCollections as collection}
-          <button
-            class="nav-item"
-            class:active={currentTarget === collection.id}
-            onclick={() => selectTarget(collection.id)}
-          >
-            <span class="material-symbols-outlined nav-icon">folder</span>
-            <span class="nav-label">{collection.name}</span>
-          </button>
-        {/each}
-      {/if}
-    </nav>
+    <div class="settings-body">
+      <nav class="settings-nav">
+        <button class="nav-item" class:active={isGlobal} onclick={() => selectTarget('global')}>
+          <span class="material-symbols-outlined nav-icon">settings</span>
+          Global Settings
+        </button>
 
-    <div class="settings-content">
-      {#if isGlobal}
-        <h2 class="page-title">Global System-Wide Settings</h2>
-        <p class="page-explainer">These settings apply to all collections unless a collection has its own overrides.</p>
-      {:else}
-        <h2 class="page-title">Settings for {targetCollection?.name ?? 'Unknown'}</h2>
-        <p class="page-explainer">These settings override global defaults for this collection only. Reset a field to inherit from global settings.</p>
-      {/if}
-
-      <div class="section-tabs">
-        {#each availableSections as section}
-          <button
-            class="section-tab"
-            class:active={currentSection === section.id}
-            onclick={() => selectSection(section.id)}
-          >
-            <span class="material-symbols-outlined">{section.icon}</span>
-            {section.label}
-          </button>
-        {/each}
-      </div>
-
-      {#if currentSection === 'cli' && isGlobal}
-        <div class="section">
-          <h2 class="section-title">CLI Configuration</h2>
-          <p class="section-explainer">{sectionExplainers.cli}</p>
-          <div class="field-group">
-            <label class="field-label">Binary Path</label>
-            <div class="field-value mono">{cliPath || 'Not found'}</div>
-          </div>
-          <div class="field-group">
-            <label class="field-label">Version</label>
-            <div class="field-row">
-              <span class="field-value mono">{cliVersion || 'Unknown'}</span>
-              <button class="action-btn" onclick={checkForUpdate} disabled={checkingUpdate}>
-                {checkingUpdate ? 'Checking...' : 'Check for Update'}
-              </button>
-            </div>
-            {#if latestVersion}
-              <div class="field-hint">Latest: {latestVersion}</div>
-            {/if}
-          </div>
-          <div class="field-group">
-            <button class="action-btn" onclick={reinstallCli}>Reinstall CLI</button>
-          </div>
-        </div>
-
-      {:else if currentSection === 'embedding'}
-        <div class="section">
-          <h2 class="section-title">Embedding Provider</h2>
-          <p class="section-explainer">{sectionExplainers.embedding}</p>
-          <div class="field-group">
-            <label class="field-label">
-              Provider
-              <span class="annotation">{getAnnotation('MDVDB_EMBEDDING_PROVIDER')}</span>
-            </label>
-            <div class="field-row">
-              <select
-                class="field-select"
-                value={getConfigValue('MDVDB_EMBEDDING_PROVIDER')}
-                onchange={(e) => handleChange('MDVDB_EMBEDDING_PROVIDER', (e.target as HTMLSelectElement).value)}
-              >
-                <option value="">— Select —</option>
-                <option value="openai">OpenAI</option>
-                <option value="ollama">Ollama</option>
-                <option value="custom">Custom</option>
-              </select>
-              {#if !isGlobal && isCollectionOverride('MDVDB_EMBEDDING_PROVIDER')}
-                <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_EMBEDDING_PROVIDER')}>
-                  <span class="material-symbols-outlined">undo</span>
-                </button>
-              {/if}
-            </div>
-          </div>
-          <div class="field-group">
-            <label class="field-label">
-              Model
-              <span class="annotation">{getAnnotation('MDVDB_EMBEDDING_MODEL')}</span>
-            </label>
-            <div class="field-row">
-              <input
-                class="field-input"
-                type="text"
-                value={getConfigValue('MDVDB_EMBEDDING_MODEL')}
-                placeholder="text-embedding-3-small"
-                oninput={(e) => handleChange('MDVDB_EMBEDDING_MODEL', (e.target as HTMLInputElement).value)}
-              />
-              {#if !isGlobal && isCollectionOverride('MDVDB_EMBEDDING_MODEL')}
-                <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_EMBEDDING_MODEL')}>
-                  <span class="material-symbols-outlined">undo</span>
-                </button>
-              {/if}
-            </div>
-          </div>
-          <div class="field-group">
-            <label class="field-label">
-              API Key
-              <span class="annotation">{getAnnotation('OPENAI_API_KEY')}</span>
-            </label>
-            <div class="field-row">
-              <input
-                class="field-input"
-                type={showApiKey ? 'text' : 'password'}
-                value={getConfigValue('OPENAI_API_KEY')}
-                placeholder="sk-..."
-                oninput={(e) => handleChange('OPENAI_API_KEY', (e.target as HTMLInputElement).value)}
-              />
-              <button class="icon-btn" onclick={() => (showApiKey = !showApiKey)} title={showApiKey ? 'Hide' : 'Show'}>
-                <span class="material-symbols-outlined">{showApiKey ? 'visibility_off' : 'visibility'}</span>
-              </button>
-              {#if !isGlobal && isCollectionOverride('OPENAI_API_KEY')}
-                <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('OPENAI_API_KEY')}>
-                  <span class="material-symbols-outlined">undo</span>
-                </button>
-              {/if}
-            </div>
-          </div>
-          <div class="field-group">
-            <label class="field-label">
-              Dimensions
-              <span class="annotation">{getAnnotation('MDVDB_EMBEDDING_DIMENSIONS')}</span>
-            </label>
-            <div class="field-row">
-              <input
-                class="field-input field-input-sm"
-                type="number"
-                value={getConfigValue('MDVDB_EMBEDDING_DIMENSIONS')}
-                placeholder="1536"
-                oninput={(e) => handleChange('MDVDB_EMBEDDING_DIMENSIONS', (e.target as HTMLInputElement).value)}
-              />
-              {#if !isGlobal && isCollectionOverride('MDVDB_EMBEDDING_DIMENSIONS')}
-                <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_EMBEDDING_DIMENSIONS')}>
-                  <span class="material-symbols-outlined">undo</span>
-                </button>
-              {/if}
-            </div>
-          </div>
-          {#if showHostUrl}
-            <div class="field-group">
-              <label class="field-label">
-                Host URL
-                <span class="annotation">{getAnnotation('OLLAMA_HOST')}</span>
-              </label>
-              <div class="field-row">
-                <input
-                  class="field-input"
-                  type="text"
-                  value={getConfigValue('OLLAMA_HOST')}
-                  placeholder="http://localhost:11434"
-                  oninput={(e) => handleChange('OLLAMA_HOST', (e.target as HTMLInputElement).value)}
-                />
-                {#if !isGlobal && isCollectionOverride('OLLAMA_HOST')}
-                  <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('OLLAMA_HOST')}>
-                    <span class="material-symbols-outlined">undo</span>
-                  </button>
-                {/if}
-              </div>
-            </div>
-          {/if}
-        </div>
-
-      {:else if currentSection === 'search'}
-        <div class="section">
-          <h2 class="section-title">Search Defaults</h2>
-          <p class="section-explainer">{sectionExplainers.search}</p>
-          <div class="field-group">
-            <label class="field-label">
-              Mode
-              <span class="annotation">{getAnnotation('MDVDB_SEARCH_MODE')}</span>
-            </label>
-            <div class="field-row">
-              <select
-                class="field-select"
-                value={getConfigValue('MDVDB_SEARCH_MODE')}
-                onchange={(e) => handleChange('MDVDB_SEARCH_MODE', (e.target as HTMLSelectElement).value)}
-              >
-                <option value="">— Default —</option>
-                <option value="hybrid">Hybrid</option>
-                <option value="semantic">Semantic</option>
-                <option value="lexical">Lexical</option>
-              </select>
-              {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_MODE')}
-                <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_SEARCH_MODE')}>
-                  <span class="material-symbols-outlined">undo</span>
-                </button>
-              {/if}
-            </div>
-          </div>
-          <div class="field-group">
-            <label class="field-label">
-              Result Limit
-              <span class="annotation">{getAnnotation('MDVDB_SEARCH_DEFAULT_LIMIT')}</span>
-            </label>
-            <div class="field-row">
-              <input
-                class="field-input field-input-sm"
-                type="number"
-                value={getConfigValue('MDVDB_SEARCH_DEFAULT_LIMIT')}
-                placeholder="10"
-                oninput={(e) => handleChange('MDVDB_SEARCH_DEFAULT_LIMIT', (e.target as HTMLInputElement).value)}
-              />
-              {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_DEFAULT_LIMIT')}
-                <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_SEARCH_DEFAULT_LIMIT')}>
-                  <span class="material-symbols-outlined">undo</span>
-                </button>
-              {/if}
-            </div>
-          </div>
-          <div class="field-group">
-            <label class="field-label">
-              Min Score
-              <span class="annotation">{getAnnotation('MDVDB_SEARCH_MIN_SCORE')}</span>
-            </label>
-            <div class="field-row">
-              <input
-                class="field-input field-input-sm"
-                type="number"
-                step="0.01"
-                value={getConfigValue('MDVDB_SEARCH_MIN_SCORE')}
-                placeholder="0.0"
-                oninput={(e) => handleChange('MDVDB_SEARCH_MIN_SCORE', (e.target as HTMLInputElement).value)}
-              />
-              {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_MIN_SCORE')}
-                <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_SEARCH_MIN_SCORE')}>
-                  <span class="material-symbols-outlined">undo</span>
-                </button>
-              {/if}
-            </div>
-          </div>
-          <div class="field-group">
-            <label class="field-label">
-              Link Boosting
-              <span class="annotation">{getAnnotation('MDVDB_SEARCH_BOOST_LINKS')}</span>
-            </label>
-            <div class="field-row">
-              <label class="toggle-label">
-                <input
-                  type="checkbox"
-                  checked={getConfigValue('MDVDB_SEARCH_BOOST_LINKS') === 'true'}
-                  onchange={(e) => handleChange('MDVDB_SEARCH_BOOST_LINKS', (e.target as HTMLInputElement).checked ? 'true' : 'false')}
-                />
-                Boost results linked to top matches
-              </label>
-              {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_BOOST_LINKS')}
-                <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_SEARCH_BOOST_LINKS')}>
-                  <span class="material-symbols-outlined">undo</span>
-                </button>
-              {/if}
-            </div>
-          </div>
-          {#if getConfigValue('MDVDB_SEARCH_BOOST_LINKS') === 'true'}
-            <div class="field-group">
-              <label class="field-label">
-                Boost Hop Depth
-                <span class="annotation">{getAnnotation('MDVDB_SEARCH_BOOST_HOPS')}</span>
-              </label>
-              <div class="field-row">
-                <input
-                  class="field-input field-input-sm"
-                  type="number"
-                  min="1"
-                  max="3"
-                  value={getConfigValue('MDVDB_SEARCH_BOOST_HOPS')}
-                  placeholder="1"
-                  oninput={(e) => handleChange('MDVDB_SEARCH_BOOST_HOPS', (e.target as HTMLInputElement).value)}
-                />
-                {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_BOOST_HOPS')}
-                  <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_SEARCH_BOOST_HOPS')}>
-                    <span class="material-symbols-outlined">undo</span>
-                  </button>
-                {/if}
-              </div>
-              <div class="field-hint">How many link hops to traverse for score boosting (1–3)</div>
-            </div>
-          {/if}
-          <div class="field-group">
-            <label class="field-label">
-              Graph Expansion Depth
-              <span class="annotation">{getAnnotation('MDVDB_SEARCH_EXPAND_GRAPH')}</span>
-            </label>
-            <div class="field-row">
-              <input
-                class="field-input field-input-sm"
-                type="number"
-                min="0"
-                max="3"
-                value={getConfigValue('MDVDB_SEARCH_EXPAND_GRAPH')}
-                placeholder="0"
-                oninput={(e) => handleChange('MDVDB_SEARCH_EXPAND_GRAPH', (e.target as HTMLInputElement).value)}
-              />
-              {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_EXPAND_GRAPH')}
-                <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_SEARCH_EXPAND_GRAPH')}>
-                  <span class="material-symbols-outlined">undo</span>
-                </button>
-              {/if}
-            </div>
-            <div class="field-hint">Include context from linked files in results (0 = disabled, 1–3 = hop depth)</div>
-          </div>
-          {#if Number(getConfigValue('MDVDB_SEARCH_EXPAND_GRAPH')) > 0}
-            <div class="field-group">
-              <label class="field-label">
-                Expansion Limit Per Hop
-                <span class="annotation">{getAnnotation('MDVDB_SEARCH_EXPAND_LIMIT')}</span>
-              </label>
-              <div class="field-row">
-                <input
-                  class="field-input field-input-sm"
-                  type="number"
-                  min="1"
-                  max="10"
-                  value={getConfigValue('MDVDB_SEARCH_EXPAND_LIMIT')}
-                  placeholder="3"
-                  oninput={(e) => handleChange('MDVDB_SEARCH_EXPAND_LIMIT', (e.target as HTMLInputElement).value)}
-                />
-                {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_EXPAND_LIMIT')}
-                  <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_SEARCH_EXPAND_LIMIT')}>
-                    <span class="material-symbols-outlined">undo</span>
-                  </button>
-                {/if}
-              </div>
-              <div class="field-hint">Maximum graph context items per hop level (1–10)</div>
-            </div>
-          {/if}
-          <div class="field-group">
-            <label class="field-label">
-              Time Decay
-              <span class="annotation">{getAnnotation('MDVDB_SEARCH_DECAY')}</span>
-            </label>
-            <div class="field-row">
-              <label class="toggle-label">
-                <input
-                  type="checkbox"
-                  checked={getConfigValue('MDVDB_SEARCH_DECAY') === 'true'}
-                  onchange={(e) => handleChange('MDVDB_SEARCH_DECAY', (e.target as HTMLInputElement).checked ? 'true' : 'false')}
-                />
-                Enable time decay
-              </label>
-              {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_DECAY')}
-                <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_SEARCH_DECAY')}>
-                  <span class="material-symbols-outlined">undo</span>
-                </button>
-              {/if}
-            </div>
-          </div>
-          {#if getConfigValue('MDVDB_SEARCH_DECAY') === 'true'}
-            <div class="field-group">
-              <label class="field-label">
-                Half-Life (days)
-                <span class="annotation">{getAnnotation('MDVDB_SEARCH_DECAY_HALF_LIFE')}</span>
-              </label>
-              <div class="field-row">
-                <input
-                  class="field-input field-input-sm"
-                  type="number"
-                  value={getConfigValue('MDVDB_SEARCH_DECAY_HALF_LIFE')}
-                  placeholder="90"
-                  oninput={(e) => handleChange('MDVDB_SEARCH_DECAY_HALF_LIFE', (e.target as HTMLInputElement).value)}
-                />
-                {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_DECAY_HALF_LIFE')}
-                  <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_SEARCH_DECAY_HALF_LIFE')}>
-                    <span class="material-symbols-outlined">undo</span>
-                  </button>
-                {/if}
-              </div>
-            </div>
-            <div class="field-group">
-              <label class="field-label">
-                Exclude Paths
-                <span class="annotation">{getAnnotation('MDVDB_SEARCH_DECAY_EXCLUDE')}</span>
-              </label>
-              <div class="field-row">
-                <input
-                  class="field-input"
-                  type="text"
-                  value={getConfigValue('MDVDB_SEARCH_DECAY_EXCLUDE')}
-                  placeholder="docs/reference,wiki/glossary"
-                  oninput={(e) => handleChange('MDVDB_SEARCH_DECAY_EXCLUDE', (e.target as HTMLInputElement).value)}
-                />
-                {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_DECAY_EXCLUDE')}
-                  <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_SEARCH_DECAY_EXCLUDE')}>
-                    <span class="material-symbols-outlined">undo</span>
-                  </button>
-                {/if}
-              </div>
-              <div class="field-hint">Comma-separated path prefixes immune to decay (evergreen content)</div>
-            </div>
-            <div class="field-group">
-              <label class="field-label">
-                Include Paths
-                <span class="annotation">{getAnnotation('MDVDB_SEARCH_DECAY_INCLUDE')}</span>
-              </label>
-              <div class="field-row">
-                <input
-                  class="field-input"
-                  type="text"
-                  value={getConfigValue('MDVDB_SEARCH_DECAY_INCLUDE')}
-                  placeholder="journal,daily"
-                  oninput={(e) => handleChange('MDVDB_SEARCH_DECAY_INCLUDE', (e.target as HTMLInputElement).value)}
-                />
-                {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_DECAY_INCLUDE')}
-                  <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_SEARCH_DECAY_INCLUDE')}>
-                    <span class="material-symbols-outlined">undo</span>
-                  </button>
-                {/if}
-              </div>
-              <div class="field-hint">Comma-separated path prefixes where decay applies (whitelist). Empty = all files. Exclude takes precedence.</div>
-            </div>
-          {/if}
-        </div>
-
-      {:else if currentSection === 'chunking'}
-        <div class="section">
-          <h2 class="section-title">Chunking</h2>
-          <p class="section-explainer">{sectionExplainers.chunking}</p>
-          <div class="field-group">
-            <label class="field-label">
-              Max Tokens
-              <span class="annotation">{getAnnotation('MDVDB_CHUNK_MAX_TOKENS')}</span>
-            </label>
-            <div class="field-row">
-              <input
-                class="field-input field-input-sm"
-                type="number"
-                value={getConfigValue('MDVDB_CHUNK_MAX_TOKENS')}
-                placeholder="512"
-                oninput={(e) => handleChange('MDVDB_CHUNK_MAX_TOKENS', (e.target as HTMLInputElement).value)}
-              />
-              {#if !isGlobal && isCollectionOverride('MDVDB_CHUNK_MAX_TOKENS')}
-                <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_CHUNK_MAX_TOKENS')}>
-                  <span class="material-symbols-outlined">undo</span>
-                </button>
-              {/if}
-            </div>
-          </div>
-          <div class="field-group">
-            <label class="field-label">
-              Overlap
-              <span class="annotation">{getAnnotation('MDVDB_CHUNK_OVERLAP_TOKENS')}</span>
-            </label>
-            <div class="field-row">
-              <input
-                class="field-input field-input-sm"
-                type="number"
-                value={getConfigValue('MDVDB_CHUNK_OVERLAP_TOKENS')}
-                placeholder="50"
-                oninput={(e) => handleChange('MDVDB_CHUNK_OVERLAP_TOKENS', (e.target as HTMLInputElement).value)}
-              />
-              {#if !isGlobal && isCollectionOverride('MDVDB_CHUNK_OVERLAP_TOKENS')}
-                <button class="reset-btn" title="Reset to inherited" onclick={() => handleResetToInherited('MDVDB_CHUNK_OVERLAP_TOKENS')}>
-                  <span class="material-symbols-outlined">undo</span>
-                </button>
-              {/if}
-            </div>
-          </div>
-          <div class="field-group">
-            <label class="field-label">
-              Cluster Granularity
-              {#if isGlobal}
-                <span class="annotation">{getAnnotation('MDVDB_CLUSTER_GRANULARITY')}</span>
-              {/if}
-            </label>
-            <div class="field-row slider-row">
-              <span class="slider-label">Coarse</span>
-              <input
-                class="field-slider"
-                type="range"
-                min="0.25"
-                max="4"
-                step="0.25"
-                value={isGlobal ? (getConfigValue('MDVDB_CLUSTER_GRANULARITY') || '1') : String(clusterGranularity)}
-                oninput={(e) => {
-                  const v = (e.target as HTMLInputElement).value
-                  if (isGlobal) handleChange('MDVDB_CLUSTER_GRANULARITY', v)
-                  else clusterGranularity = Number(v)
-                }}
-                onchange={(e) => {
-                  if (!isGlobal) handleGranularityChange((e.target as HTMLInputElement).value)
-                }}
-              />
-              <span class="slider-label">Fine</span>
-              <span class="slider-value">{isGlobal ? (getConfigValue('MDVDB_CLUSTER_GRANULARITY') || '1.0') : clusterGranularity}x</span>
-            </div>
-            <div class="field-hint">Controls the number of topic clusters. Higher = more, finer-grained clusters.</div>
-            {#if !isGlobal}
-              <div class="field-notice">
-                <span class="material-symbols-outlined notice-icon">info</span>
-                Written directly to the collection config. Changing it requires a full reindex to take effect.
-              </div>
-            {/if}
-          </div>
-        </div>
-
-      {:else if currentSection === 'clusters' && !isGlobal}
-        <div class="section">
-          <div class="section-header-row">
-            <h2 class="section-title">Topics</h2>
-            <button class="btn-icon" onclick={handleAddCluster} title="Add topic">
-              <span class="material-symbols-outlined">add</span>
+        {#if allCollections.length > 0}
+          <div class="nav-section-header">Collections</div>
+          {#each allCollections as collection}
+            <button
+              class="nav-item"
+              class:active={currentTarget === collection.id}
+              onclick={() => selectTarget(collection.id)}
+            >
+              <span class="material-symbols-outlined nav-icon">folder</span>
+              <span class="nav-label">{collection.name}</span>
             </button>
-          </div>
-          <p class="section-explainer">{sectionExplainers.clusters}</p>
+          {/each}
+        {/if}
+      </nav>
 
-          {#if showLegacyImport}
-            <div class="field-notice topics-banner">
-              <span class="material-symbols-outlined notice-icon">history</span>
-              <span class="topics-banner-text">Legacy cluster definitions found in the old config format.</span>
-              <button class="action-btn" onclick={handleLegacyImport} disabled={migratingTopics}>
-                {migratingTopics ? 'Importing…' : 'Import'}
-              </button>
-            </div>
-          {/if}
-
-          {#if currentTopicsNeedIngest}
-            <div class="field-notice topics-banner">
-              <span class="material-symbols-outlined notice-icon">info</span>
-              <span class="topics-banner-text">Topic changes require a re-ingest to take effect.</span>
-              {#if targetCollection && targetCollection.id === currentActiveCollectionId}
-                <button class="action-btn" onclick={() => runIngest()} disabled={currentIngestRunning}>
-                  {currentIngestRunning ? 'Ingesting…' : 'Re-ingest now'}
-                </button>
-              {/if}
-            </div>
-          {/if}
-
-          {#if topicsError}
-            <p class="field-error">{topicsError}</p>
-          {/if}
-
-          {#if currentTopicDefs.length === 0}
-            <p class="empty-state">No topics defined. Click + to add one.</p>
-          {:else}
-            <div class="cluster-list">
-              {#each currentTopicDefs as def, i}
-                {@const summary = getTopicSummary(def.name)}
-                <div class="cluster-card">
-                  <div class="cluster-card-header">
-                    <span class="cluster-name">{def.name}</span>
-                    <span class="threshold-chip">
-                      {def.threshold != null ? `custom ${def.threshold.toFixed(2)}` : 'global floor'}
-                    </span>
-                    <div class="cluster-actions">
-                      <button class="btn-icon btn-icon-sm" onclick={() => handleEditCluster(i)} title="Edit">
-                        <span class="material-symbols-outlined">edit</span>
-                      </button>
-                      <button class="btn-icon btn-icon-sm" onclick={() => handleRemoveCluster(i)} title="Remove">
-                        <span class="material-symbols-outlined">close</span>
-                      </button>
-                    </div>
-                  </div>
-                  {#if def.description}
-                    <div class="cluster-description">{def.description}</div>
-                  {/if}
-                  {#if def.seeds.length > 0}
-                    <div class="cluster-seeds">Seeds: {def.seeds.join(', ')}</div>
-                  {/if}
-                  {#if summary}
-                    <div class="cluster-doc-count">
-                      {summary.document_count}
-                      {summary.document_count === 1 ? 'doc' : 'docs'}{summary.mean_score != null
-                        ? ` · avg ${Math.round(summary.mean_score * 100)}%`
-                        : ''}
-                    </div>
-                  {/if}
-                </div>
-              {/each}
-            </div>
-          {/if}
-
-          {#if currentTopicUnassigned}
-            <div class="unassigned-row">
-              <span class="material-symbols-outlined unassigned-icon">scatter_plot</span>
-              Unassigned: {currentTopicUnassigned.count}
-            </div>
-          {/if}
-
-          <div class="field-group" style="margin-top: 20px;">
-            <label class="field-label">Similarity Floor</label>
-            <div class="field-row slider-row">
-              <span class="slider-label">Loose</span>
-              <input
-                class="field-slider"
-                type="range"
-                min="0"
-                max="0.9"
-                step="0.05"
-                value={topicsFloor}
-                oninput={(e) => (topicsFloor = Number((e.target as HTMLInputElement).value))}
-                onchange={(e) => handleTopicsFloorChange(Number((e.target as HTMLInputElement).value))}
-              />
-              <span class="slider-label">Strict</span>
-              <span class="slider-value">{topicsFloor.toFixed(2)}</span>
-            </div>
-            <div class="field-hint">
-              Global minimum similarity for topic assignment. Topics with a custom threshold override this.
-            </div>
-          </div>
-
-          <div class="field-group">
-            <label class="field-label">Clustering Algorithm</label>
-            <div class="field-row">
-              <select
-                class="field-select"
-                value={clusteringAlgorithm}
-                onchange={(e) => handleAlgorithmChange((e.target as HTMLSelectElement).value)}
-              >
-                <option value="leiden">Leiden (default)</option>
-                <option value="kmeans">K-means</option>
-              </select>
-            </div>
-            <div class="field-hint">Algorithm used for automatic clustering. Changing it requires a re-ingest.</div>
-          </div>
-        </div>
-
-        {#if clusterModalOpen}
-          <CustomClusterModal
-            existingDef={clusterEditIndex !== null ? currentTopicDefs[clusterEditIndex] : null}
-            existingNames={currentTopicDefs.map((d) => d.name).filter((_, i) => i !== clusterEditIndex)}
-            onsave={handleClusterModalSave}
-            onclose={handleClusterModalClose}
-          />
+      <div class="settings-content">
+        {#if isGlobal}
+          <h2 class="page-title">Global System-Wide Settings</h2>
+          <p class="page-explainer">
+            These settings apply to all collections unless a collection has its own overrides.
+          </p>
+        {:else}
+          <h2 class="page-title">Settings for {targetCollection?.name ?? 'Unknown'}</h2>
+          <p class="page-explainer">
+            These settings override global defaults for this collection only. Reset a field to
+            inherit from global settings.
+          </p>
         {/if}
 
-      {:else if currentSection === 'terminal' && isGlobal}
-        <div class="section">
-          <h2 class="section-title">Terminal</h2>
-          <p class="section-explainer">{sectionExplainers.terminal}</p>
-
-          <div class="field-group">
-            <label class="field-label" for="terminal-shell-path">Shell Path</label>
-            <p class="field-hint">Absolute path to the shell binary. Leave blank to use your system default.</p>
-            <input
-              id="terminal-shell-path"
-              type="text"
-              class="field-input"
-              placeholder="/bin/zsh"
-              value={terminalShellPath}
-              oninput={(e) => saveTerminalShellPath((e.currentTarget as HTMLInputElement).value)}
-            />
-          </div>
-
-          <div class="field-group">
-            <label class="field-label" for="terminal-shell-args">Shell Arguments</label>
-            <p class="field-hint">Space-separated arguments passed to the shell on launch.</p>
-            <input
-              id="terminal-shell-args"
-              type="text"
-              class="field-input"
-              placeholder="-l"
-              value={terminalShellArgs}
-              oninput={(e) => saveTerminalShellArgs((e.currentTarget as HTMLInputElement).value)}
-            />
-          </div>
-
-          <div class="field-group">
-            <label class="field-label">Terminal Font Size</label>
-            <div class="field-row font-size-row">
-              <button class="font-btn" onclick={() => adjustTerminalFontSize(-1)} disabled={terminalFontSize <= 10}>
-                <span class="material-symbols-outlined">remove</span>
-              </button>
-              <span class="font-size-value">{terminalFontSize}px</span>
-              <button class="font-btn" onclick={() => adjustTerminalFontSize(1)} disabled={terminalFontSize >= 24}>
-                <span class="material-symbols-outlined">add</span>
-              </button>
-            </div>
-          </div>
+        <div class="section-tabs">
+          {#each availableSections as section}
+            <button
+              class="section-tab"
+              class:active={currentSection === section.id}
+              onclick={() => selectSection(section.id)}
+            >
+              <span class="material-symbols-outlined">{section.icon}</span>
+              {section.label}
+            </button>
+          {/each}
         </div>
 
-      {:else if currentSection === 'appearance' && isGlobal}
-        <div class="section">
-          <h2 class="section-title">Appearance</h2>
-          <p class="section-explainer">{sectionExplainers.appearance}</p>
-          <div class="field-group">
-            <label class="field-label">Theme</label>
-            <div class="theme-picker">
-              <button class="theme-btn" class:active={currentGlobalTheme === 'light'} onclick={() => setGlobalTheme('light')}>
-                <span class="material-symbols-outlined">light_mode</span> Light
-              </button>
-              <button class="theme-btn" class:active={currentGlobalTheme === 'dark'} onclick={() => setGlobalTheme('dark')}>
-                <span class="material-symbols-outlined">dark_mode</span> Dark
-              </button>
-              <button class="theme-btn" class:active={currentGlobalTheme === 'auto'} onclick={() => setGlobalTheme('auto')}>
-                <span class="material-symbols-outlined">contrast</span> Auto
-              </button>
+        {#if currentSection === 'cli' && isGlobal}
+          <div class="section">
+            <h2 class="section-title">CLI Configuration</h2>
+            <p class="section-explainer">{sectionExplainers.cli}</p>
+            <div class="field-group">
+              <span class="field-label">Binary Path</span>
+              <div class="field-value mono">{cliPath || 'Not found'}</div>
             </div>
-          </div>
-          <div class="field-group">
-            <label class="field-label">Editor Font Size</label>
-            <div class="field-row font-size-row">
-              <button class="font-btn" onclick={() => adjustFontSize(-1)} disabled={fontSize <= 10}>
-                <span class="material-symbols-outlined">remove</span>
-              </button>
-              <span class="font-size-value">{fontSize}px</span>
-              <button class="font-btn" onclick={() => adjustFontSize(1)} disabled={fontSize >= 24}>
-                <span class="material-symbols-outlined">add</span>
-              </button>
-            </div>
-          </div>
-          <div class="field-group">
-            <label class="field-label">Primary Accent Color</label>
-            <p class="field-hint">Changes the accent color used throughout the app.</p>
-            <ColorPicker
-              value={currentGlobalColor}
-              defaultColor="#00E5FF"
-              onchange={(hex) => setGlobalAccentColor(hex)}
-              showReset={true}
-            />
-          </div>
-          <div class="field-group">
-            <span class="field-label">External Changes</span>
-            <div class="field-row">
-              <label class="toggle-label">
-                <input
-                  type="checkbox"
-                  checked={autoShowDiff}
-                  onchange={(e) => handleAutoShowDiffChange((e.target as HTMLInputElement).checked)}
-                />
-                Automatically show diff when a file with unsaved changes is modified on disk
-              </label>
-            </div>
-          </div>
-        </div>
-
-      {:else if currentSection === 'appearance' && !isGlobal}
-        <div class="section">
-          <h2 class="section-title">Appearance</h2>
-          <p class="section-explainer">Visual preferences for this collection.</p>
-          <div class="field-group">
-            <label class="field-label">
-              Theme
-              <span class="annotation">{currentCollectionTheme ? '(overridden)' : '(inherited from global)'}</span>
-            </label>
-            <div class="theme-picker">
-              <button class="theme-btn" class:active={currentCollectionTheme === 'light'} onclick={() => targetCollection && setCollectionThemeOverride(targetCollection.id, 'light')}>
-                <span class="material-symbols-outlined">light_mode</span> Light
-              </button>
-              <button class="theme-btn" class:active={currentCollectionTheme === 'dark'} onclick={() => targetCollection && setCollectionThemeOverride(targetCollection.id, 'dark')}>
-                <span class="material-symbols-outlined">dark_mode</span> Dark
-              </button>
-              <button class="theme-btn" class:active={currentCollectionTheme === 'auto'} onclick={() => targetCollection && setCollectionThemeOverride(targetCollection.id, 'auto')}>
-                <span class="material-symbols-outlined">contrast</span> Auto
-              </button>
-              {#if currentCollectionTheme}
-                <button class="theme-btn reset" onclick={() => targetCollection && setCollectionThemeOverride(targetCollection.id, null)}>
-                  <span class="material-symbols-outlined">undo</span> Reset
+            <div class="field-group">
+              <span class="field-label">Version</span>
+              <div class="field-row">
+                <span class="field-value mono">{cliVersion || 'Unknown'}</span>
+                <button class="action-btn" onclick={checkForUpdate} disabled={checkingUpdate}>
+                  {checkingUpdate ? 'Checking...' : 'Check for Update'}
                 </button>
+              </div>
+              {#if latestVersion}
+                <div class="field-hint">Latest: {latestVersion}</div>
+              {/if}
+            </div>
+            <div class="field-group">
+              <button class="action-btn" onclick={reinstallCli}>Reinstall CLI</button>
+            </div>
+          </div>
+        {:else if currentSection === 'embedding'}
+          <div class="section">
+            <h2 class="section-title">Embedding Provider</h2>
+            <p class="section-explainer">{sectionExplainers.embedding}</p>
+            <div class="field-group">
+              <label class="field-label" for="setting-embedding-provider">
+                Provider
+                <span class="annotation">{getAnnotation('MDVDB_EMBEDDING_PROVIDER')}</span>
+              </label>
+              <div class="field-row">
+                <select
+                  id="setting-embedding-provider"
+                  class="field-select"
+                  value={getConfigValue('MDVDB_EMBEDDING_PROVIDER')}
+                  onchange={(e) =>
+                    handleChange('MDVDB_EMBEDDING_PROVIDER', (e.target as HTMLSelectElement).value)}
+                >
+                  <option value="">— Select —</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="ollama">Ollama</option>
+                  <option value="custom">Custom</option>
+                </select>
+                {#if !isGlobal && isCollectionOverride('MDVDB_EMBEDDING_PROVIDER')}
+                  <button
+                    class="reset-btn"
+                    title="Reset to inherited"
+                    onclick={() => handleResetToInherited('MDVDB_EMBEDDING_PROVIDER')}
+                  >
+                    <span class="material-symbols-outlined">undo</span>
+                  </button>
+                {/if}
+              </div>
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="setting-embedding-model">
+                Model
+                <span class="annotation">{getAnnotation('MDVDB_EMBEDDING_MODEL')}</span>
+              </label>
+              <div class="field-row">
+                <input
+                  id="setting-embedding-model"
+                  class="field-input"
+                  type="text"
+                  value={getConfigValue('MDVDB_EMBEDDING_MODEL')}
+                  placeholder="text-embedding-3-small"
+                  oninput={(e) =>
+                    handleChange('MDVDB_EMBEDDING_MODEL', (e.target as HTMLInputElement).value)}
+                />
+                {#if !isGlobal && isCollectionOverride('MDVDB_EMBEDDING_MODEL')}
+                  <button
+                    class="reset-btn"
+                    title="Reset to inherited"
+                    onclick={() => handleResetToInherited('MDVDB_EMBEDDING_MODEL')}
+                  >
+                    <span class="material-symbols-outlined">undo</span>
+                  </button>
+                {/if}
+              </div>
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="setting-api-key">
+                API Key
+                <span class="annotation">{getAnnotation('OPENAI_API_KEY')}</span>
+              </label>
+              <div class="field-row">
+                <input
+                  id="setting-api-key"
+                  class="field-input"
+                  type={showApiKey ? 'text' : 'password'}
+                  value={getConfigValue('OPENAI_API_KEY')}
+                  placeholder="sk-..."
+                  oninput={(e) =>
+                    handleChange('OPENAI_API_KEY', (e.target as HTMLInputElement).value)}
+                />
+                <button
+                  class="icon-btn"
+                  onclick={() => (showApiKey = !showApiKey)}
+                  title={showApiKey ? 'Hide' : 'Show'}
+                >
+                  <span class="material-symbols-outlined"
+                    >{showApiKey ? 'visibility_off' : 'visibility'}</span
+                  >
+                </button>
+                {#if !isGlobal && isCollectionOverride('OPENAI_API_KEY')}
+                  <button
+                    class="reset-btn"
+                    title="Reset to inherited"
+                    onclick={() => handleResetToInherited('OPENAI_API_KEY')}
+                  >
+                    <span class="material-symbols-outlined">undo</span>
+                  </button>
+                {/if}
+              </div>
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="setting-embedding-dimensions">
+                Dimensions
+                <span class="annotation">{getAnnotation('MDVDB_EMBEDDING_DIMENSIONS')}</span>
+              </label>
+              <div class="field-row">
+                <input
+                  id="setting-embedding-dimensions"
+                  class="field-input field-input-sm"
+                  type="number"
+                  value={getConfigValue('MDVDB_EMBEDDING_DIMENSIONS')}
+                  placeholder="1536"
+                  oninput={(e) =>
+                    handleChange(
+                      'MDVDB_EMBEDDING_DIMENSIONS',
+                      (e.target as HTMLInputElement).value
+                    )}
+                />
+                {#if !isGlobal && isCollectionOverride('MDVDB_EMBEDDING_DIMENSIONS')}
+                  <button
+                    class="reset-btn"
+                    title="Reset to inherited"
+                    onclick={() => handleResetToInherited('MDVDB_EMBEDDING_DIMENSIONS')}
+                  >
+                    <span class="material-symbols-outlined">undo</span>
+                  </button>
+                {/if}
+              </div>
+            </div>
+            {#if showHostUrl}
+              <div class="field-group">
+                <label class="field-label" for="setting-ollama-host">
+                  Host URL
+                  <span class="annotation">{getAnnotation('OLLAMA_HOST')}</span>
+                </label>
+                <div class="field-row">
+                  <input
+                    id="setting-ollama-host"
+                    class="field-input"
+                    type="text"
+                    value={getConfigValue('OLLAMA_HOST')}
+                    placeholder="http://localhost:11434"
+                    oninput={(e) =>
+                      handleChange('OLLAMA_HOST', (e.target as HTMLInputElement).value)}
+                  />
+                  {#if !isGlobal && isCollectionOverride('OLLAMA_HOST')}
+                    <button
+                      class="reset-btn"
+                      title="Reset to inherited"
+                      onclick={() => handleResetToInherited('OLLAMA_HOST')}
+                    >
+                      <span class="material-symbols-outlined">undo</span>
+                    </button>
+                  {/if}
+                </div>
+              </div>
+            {/if}
+          </div>
+        {:else if currentSection === 'search'}
+          <div class="section">
+            <h2 class="section-title">Search Defaults</h2>
+            <p class="section-explainer">{sectionExplainers.search}</p>
+            <div class="field-group">
+              <label class="field-label" for="setting-search-mode">
+                Mode
+                <span class="annotation">{getAnnotation('MDVDB_SEARCH_MODE')}</span>
+              </label>
+              <div class="field-row">
+                <select
+                  id="setting-search-mode"
+                  class="field-select"
+                  value={getConfigValue('MDVDB_SEARCH_MODE')}
+                  onchange={(e) =>
+                    handleChange('MDVDB_SEARCH_MODE', (e.target as HTMLSelectElement).value)}
+                >
+                  <option value="">— Default —</option>
+                  <option value="hybrid">Hybrid</option>
+                  <option value="semantic">Semantic</option>
+                  <option value="lexical">Lexical</option>
+                </select>
+                {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_MODE')}
+                  <button
+                    class="reset-btn"
+                    title="Reset to inherited"
+                    onclick={() => handleResetToInherited('MDVDB_SEARCH_MODE')}
+                  >
+                    <span class="material-symbols-outlined">undo</span>
+                  </button>
+                {/if}
+              </div>
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="setting-search-limit">
+                Result Limit
+                <span class="annotation">{getAnnotation('MDVDB_SEARCH_DEFAULT_LIMIT')}</span>
+              </label>
+              <div class="field-row">
+                <input
+                  id="setting-search-limit"
+                  class="field-input field-input-sm"
+                  type="number"
+                  value={getConfigValue('MDVDB_SEARCH_DEFAULT_LIMIT')}
+                  placeholder="10"
+                  oninput={(e) =>
+                    handleChange(
+                      'MDVDB_SEARCH_DEFAULT_LIMIT',
+                      (e.target as HTMLInputElement).value
+                    )}
+                />
+                {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_DEFAULT_LIMIT')}
+                  <button
+                    class="reset-btn"
+                    title="Reset to inherited"
+                    onclick={() => handleResetToInherited('MDVDB_SEARCH_DEFAULT_LIMIT')}
+                  >
+                    <span class="material-symbols-outlined">undo</span>
+                  </button>
+                {/if}
+              </div>
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="setting-search-min-score">
+                Min Score
+                <span class="annotation">{getAnnotation('MDVDB_SEARCH_MIN_SCORE')}</span>
+              </label>
+              <div class="field-row">
+                <input
+                  id="setting-search-min-score"
+                  class="field-input field-input-sm"
+                  type="number"
+                  step="0.01"
+                  value={getConfigValue('MDVDB_SEARCH_MIN_SCORE')}
+                  placeholder="0.0"
+                  oninput={(e) =>
+                    handleChange('MDVDB_SEARCH_MIN_SCORE', (e.target as HTMLInputElement).value)}
+                />
+                {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_MIN_SCORE')}
+                  <button
+                    class="reset-btn"
+                    title="Reset to inherited"
+                    onclick={() => handleResetToInherited('MDVDB_SEARCH_MIN_SCORE')}
+                  >
+                    <span class="material-symbols-outlined">undo</span>
+                  </button>
+                {/if}
+              </div>
+            </div>
+            <div class="field-group">
+              <span class="field-label">
+                Link Boosting
+                <span class="annotation">{getAnnotation('MDVDB_SEARCH_BOOST_LINKS')}</span>
+              </span>
+              <div class="field-row">
+                <label class="toggle-label">
+                  <input
+                    type="checkbox"
+                    checked={getConfigValue('MDVDB_SEARCH_BOOST_LINKS') === 'true'}
+                    onchange={(e) =>
+                      handleChange(
+                        'MDVDB_SEARCH_BOOST_LINKS',
+                        (e.target as HTMLInputElement).checked ? 'true' : 'false'
+                      )}
+                  />
+                  Boost results linked to top matches
+                </label>
+                {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_BOOST_LINKS')}
+                  <button
+                    class="reset-btn"
+                    title="Reset to inherited"
+                    onclick={() => handleResetToInherited('MDVDB_SEARCH_BOOST_LINKS')}
+                  >
+                    <span class="material-symbols-outlined">undo</span>
+                  </button>
+                {/if}
+              </div>
+            </div>
+            {#if getConfigValue('MDVDB_SEARCH_BOOST_LINKS') === 'true'}
+              <div class="field-group">
+                <label class="field-label" for="setting-search-boost-hops">
+                  Boost Hop Depth
+                  <span class="annotation">{getAnnotation('MDVDB_SEARCH_BOOST_HOPS')}</span>
+                </label>
+                <div class="field-row">
+                  <input
+                    id="setting-search-boost-hops"
+                    class="field-input field-input-sm"
+                    type="number"
+                    min="1"
+                    max="3"
+                    value={getConfigValue('MDVDB_SEARCH_BOOST_HOPS')}
+                    placeholder="1"
+                    oninput={(e) =>
+                      handleChange('MDVDB_SEARCH_BOOST_HOPS', (e.target as HTMLInputElement).value)}
+                  />
+                  {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_BOOST_HOPS')}
+                    <button
+                      class="reset-btn"
+                      title="Reset to inherited"
+                      onclick={() => handleResetToInherited('MDVDB_SEARCH_BOOST_HOPS')}
+                    >
+                      <span class="material-symbols-outlined">undo</span>
+                    </button>
+                  {/if}
+                </div>
+                <div class="field-hint">
+                  How many link hops to traverse for score boosting (1–3)
+                </div>
+              </div>
+            {/if}
+            <div class="field-group">
+              <label class="field-label" for="setting-search-expand-graph">
+                Graph Expansion Depth
+                <span class="annotation">{getAnnotation('MDVDB_SEARCH_EXPAND_GRAPH')}</span>
+              </label>
+              <div class="field-row">
+                <input
+                  id="setting-search-expand-graph"
+                  class="field-input field-input-sm"
+                  type="number"
+                  min="0"
+                  max="3"
+                  value={getConfigValue('MDVDB_SEARCH_EXPAND_GRAPH')}
+                  placeholder="0"
+                  oninput={(e) =>
+                    handleChange('MDVDB_SEARCH_EXPAND_GRAPH', (e.target as HTMLInputElement).value)}
+                />
+                {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_EXPAND_GRAPH')}
+                  <button
+                    class="reset-btn"
+                    title="Reset to inherited"
+                    onclick={() => handleResetToInherited('MDVDB_SEARCH_EXPAND_GRAPH')}
+                  >
+                    <span class="material-symbols-outlined">undo</span>
+                  </button>
+                {/if}
+              </div>
+              <div class="field-hint">
+                Include context from linked files in results (0 = disabled, 1–3 = hop depth)
+              </div>
+            </div>
+            {#if Number(getConfigValue('MDVDB_SEARCH_EXPAND_GRAPH')) > 0}
+              <div class="field-group">
+                <label class="field-label" for="setting-search-expand-limit">
+                  Expansion Limit Per Hop
+                  <span class="annotation">{getAnnotation('MDVDB_SEARCH_EXPAND_LIMIT')}</span>
+                </label>
+                <div class="field-row">
+                  <input
+                    id="setting-search-expand-limit"
+                    class="field-input field-input-sm"
+                    type="number"
+                    min="1"
+                    max="10"
+                    value={getConfigValue('MDVDB_SEARCH_EXPAND_LIMIT')}
+                    placeholder="3"
+                    oninput={(e) =>
+                      handleChange(
+                        'MDVDB_SEARCH_EXPAND_LIMIT',
+                        (e.target as HTMLInputElement).value
+                      )}
+                  />
+                  {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_EXPAND_LIMIT')}
+                    <button
+                      class="reset-btn"
+                      title="Reset to inherited"
+                      onclick={() => handleResetToInherited('MDVDB_SEARCH_EXPAND_LIMIT')}
+                    >
+                      <span class="material-symbols-outlined">undo</span>
+                    </button>
+                  {/if}
+                </div>
+                <div class="field-hint">Maximum graph context items per hop level (1–10)</div>
+              </div>
+            {/if}
+            <div class="field-group">
+              <span class="field-label">
+                Time Decay
+                <span class="annotation">{getAnnotation('MDVDB_SEARCH_DECAY')}</span>
+              </span>
+              <div class="field-row">
+                <label class="toggle-label">
+                  <input
+                    type="checkbox"
+                    checked={getConfigValue('MDVDB_SEARCH_DECAY') === 'true'}
+                    onchange={(e) =>
+                      handleChange(
+                        'MDVDB_SEARCH_DECAY',
+                        (e.target as HTMLInputElement).checked ? 'true' : 'false'
+                      )}
+                  />
+                  Enable time decay
+                </label>
+                {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_DECAY')}
+                  <button
+                    class="reset-btn"
+                    title="Reset to inherited"
+                    onclick={() => handleResetToInherited('MDVDB_SEARCH_DECAY')}
+                  >
+                    <span class="material-symbols-outlined">undo</span>
+                  </button>
+                {/if}
+              </div>
+            </div>
+            {#if getConfigValue('MDVDB_SEARCH_DECAY') === 'true'}
+              <div class="field-group">
+                <label class="field-label" for="setting-search-decay-half-life">
+                  Half-Life (days)
+                  <span class="annotation">{getAnnotation('MDVDB_SEARCH_DECAY_HALF_LIFE')}</span>
+                </label>
+                <div class="field-row">
+                  <input
+                    id="setting-search-decay-half-life"
+                    class="field-input field-input-sm"
+                    type="number"
+                    value={getConfigValue('MDVDB_SEARCH_DECAY_HALF_LIFE')}
+                    placeholder="90"
+                    oninput={(e) =>
+                      handleChange(
+                        'MDVDB_SEARCH_DECAY_HALF_LIFE',
+                        (e.target as HTMLInputElement).value
+                      )}
+                  />
+                  {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_DECAY_HALF_LIFE')}
+                    <button
+                      class="reset-btn"
+                      title="Reset to inherited"
+                      onclick={() => handleResetToInherited('MDVDB_SEARCH_DECAY_HALF_LIFE')}
+                    >
+                      <span class="material-symbols-outlined">undo</span>
+                    </button>
+                  {/if}
+                </div>
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="setting-search-decay-exclude">
+                  Exclude Paths
+                  <span class="annotation">{getAnnotation('MDVDB_SEARCH_DECAY_EXCLUDE')}</span>
+                </label>
+                <div class="field-row">
+                  <input
+                    id="setting-search-decay-exclude"
+                    class="field-input"
+                    type="text"
+                    value={getConfigValue('MDVDB_SEARCH_DECAY_EXCLUDE')}
+                    placeholder="docs/reference,wiki/glossary"
+                    oninput={(e) =>
+                      handleChange(
+                        'MDVDB_SEARCH_DECAY_EXCLUDE',
+                        (e.target as HTMLInputElement).value
+                      )}
+                  />
+                  {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_DECAY_EXCLUDE')}
+                    <button
+                      class="reset-btn"
+                      title="Reset to inherited"
+                      onclick={() => handleResetToInherited('MDVDB_SEARCH_DECAY_EXCLUDE')}
+                    >
+                      <span class="material-symbols-outlined">undo</span>
+                    </button>
+                  {/if}
+                </div>
+                <div class="field-hint">
+                  Comma-separated path prefixes immune to decay (evergreen content)
+                </div>
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="setting-search-decay-include">
+                  Include Paths
+                  <span class="annotation">{getAnnotation('MDVDB_SEARCH_DECAY_INCLUDE')}</span>
+                </label>
+                <div class="field-row">
+                  <input
+                    id="setting-search-decay-include"
+                    class="field-input"
+                    type="text"
+                    value={getConfigValue('MDVDB_SEARCH_DECAY_INCLUDE')}
+                    placeholder="journal,daily"
+                    oninput={(e) =>
+                      handleChange(
+                        'MDVDB_SEARCH_DECAY_INCLUDE',
+                        (e.target as HTMLInputElement).value
+                      )}
+                  />
+                  {#if !isGlobal && isCollectionOverride('MDVDB_SEARCH_DECAY_INCLUDE')}
+                    <button
+                      class="reset-btn"
+                      title="Reset to inherited"
+                      onclick={() => handleResetToInherited('MDVDB_SEARCH_DECAY_INCLUDE')}
+                    >
+                      <span class="material-symbols-outlined">undo</span>
+                    </button>
+                  {/if}
+                </div>
+                <div class="field-hint">
+                  Comma-separated path prefixes where decay applies (whitelist). Empty = all files.
+                  Exclude takes precedence.
+                </div>
+              </div>
+            {/if}
+          </div>
+        {:else if currentSection === 'chunking'}
+          <div class="section">
+            <h2 class="section-title">Chunking</h2>
+            <p class="section-explainer">{sectionExplainers.chunking}</p>
+            <div class="field-group">
+              <label class="field-label" for="setting-chunk-max-tokens">
+                Max Tokens
+                <span class="annotation">{getAnnotation('MDVDB_CHUNK_MAX_TOKENS')}</span>
+              </label>
+              <div class="field-row">
+                <input
+                  id="setting-chunk-max-tokens"
+                  class="field-input field-input-sm"
+                  type="number"
+                  value={getConfigValue('MDVDB_CHUNK_MAX_TOKENS')}
+                  placeholder="512"
+                  oninput={(e) =>
+                    handleChange('MDVDB_CHUNK_MAX_TOKENS', (e.target as HTMLInputElement).value)}
+                />
+                {#if !isGlobal && isCollectionOverride('MDVDB_CHUNK_MAX_TOKENS')}
+                  <button
+                    class="reset-btn"
+                    title="Reset to inherited"
+                    onclick={() => handleResetToInherited('MDVDB_CHUNK_MAX_TOKENS')}
+                  >
+                    <span class="material-symbols-outlined">undo</span>
+                  </button>
+                {/if}
+              </div>
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="setting-chunk-overlap-tokens">
+                Overlap
+                <span class="annotation">{getAnnotation('MDVDB_CHUNK_OVERLAP_TOKENS')}</span>
+              </label>
+              <div class="field-row">
+                <input
+                  id="setting-chunk-overlap-tokens"
+                  class="field-input field-input-sm"
+                  type="number"
+                  value={getConfigValue('MDVDB_CHUNK_OVERLAP_TOKENS')}
+                  placeholder="50"
+                  oninput={(e) =>
+                    handleChange(
+                      'MDVDB_CHUNK_OVERLAP_TOKENS',
+                      (e.target as HTMLInputElement).value
+                    )}
+                />
+                {#if !isGlobal && isCollectionOverride('MDVDB_CHUNK_OVERLAP_TOKENS')}
+                  <button
+                    class="reset-btn"
+                    title="Reset to inherited"
+                    onclick={() => handleResetToInherited('MDVDB_CHUNK_OVERLAP_TOKENS')}
+                  >
+                    <span class="material-symbols-outlined">undo</span>
+                  </button>
+                {/if}
+              </div>
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="setting-cluster-granularity">
+                Cluster Granularity
+                {#if isGlobal}
+                  <span class="annotation">{getAnnotation('MDVDB_CLUSTER_GRANULARITY')}</span>
+                {/if}
+              </label>
+              <div class="field-row slider-row">
+                <span class="slider-label">Coarse</span>
+                <input
+                  id="setting-cluster-granularity"
+                  class="field-slider"
+                  type="range"
+                  min="0.25"
+                  max="4"
+                  step="0.25"
+                  value={isGlobal
+                    ? getConfigValue('MDVDB_CLUSTER_GRANULARITY') || '1'
+                    : String(clusterGranularity)}
+                  oninput={(e) => {
+                    const v = (e.target as HTMLInputElement).value
+                    if (isGlobal) handleChange('MDVDB_CLUSTER_GRANULARITY', v)
+                    else clusterGranularity = Number(v)
+                  }}
+                  onchange={(e) => {
+                    if (!isGlobal) handleGranularityChange((e.target as HTMLInputElement).value)
+                  }}
+                />
+                <span class="slider-label">Fine</span>
+                <span class="slider-value"
+                  >{isGlobal
+                    ? getConfigValue('MDVDB_CLUSTER_GRANULARITY') || '1.0'
+                    : clusterGranularity}x</span
+                >
+              </div>
+              <div class="field-hint">
+                Controls the number of topic clusters. Higher = more, finer-grained clusters.
+              </div>
+              {#if !isGlobal}
+                <div class="field-notice">
+                  <span class="material-symbols-outlined notice-icon">info</span>
+                  Written directly to the collection config. Changing it requires a full reindex to take
+                  effect.
+                </div>
               {/if}
             </div>
           </div>
-          <div class="field-group">
-            <label class="field-label">
-              Primary Accent Color
-              <span class="annotation">{currentCollectionColor ? '(overridden)' : '(inherited from global)'}</span>
-            </label>
-            <ColorPicker
-              value={currentCollectionColor}
-              defaultColor={currentGlobalColor ?? '#00E5FF'}
-              onchange={(hex) => {
-                if (targetCollection) {
-                  setCollectionAccentColor(targetCollection.id, hex)
-                }
-              }}
-              showReset={true}
-              showInheritedHint={currentCollectionColor === null}
+        {:else if currentSection === 'clusters' && !isGlobal}
+          <div class="section">
+            <div class="section-header-row">
+              <h2 class="section-title">Topics</h2>
+              <button class="btn-icon" onclick={handleAddCluster} title="Add topic">
+                <span class="material-symbols-outlined">add</span>
+              </button>
+            </div>
+            <p class="section-explainer">{sectionExplainers.clusters}</p>
+
+            {#if showLegacyImport}
+              <div class="field-notice topics-banner">
+                <span class="material-symbols-outlined notice-icon">history</span>
+                <span class="topics-banner-text"
+                  >Legacy cluster definitions found in the old config format.</span
+                >
+                <button class="action-btn" onclick={handleLegacyImport} disabled={migratingTopics}>
+                  {migratingTopics ? 'Importing…' : 'Import'}
+                </button>
+              </div>
+            {/if}
+
+            {#if currentTopicsNeedIngest}
+              <div class="field-notice topics-banner">
+                <span class="material-symbols-outlined notice-icon">info</span>
+                <span class="topics-banner-text"
+                  >Topic changes require a re-ingest to take effect.</span
+                >
+                {#if targetCollection && targetCollection.id === currentActiveCollectionId}
+                  <button
+                    class="action-btn"
+                    onclick={() => runIngest()}
+                    disabled={currentIngestRunning}
+                  >
+                    {currentIngestRunning ? 'Ingesting…' : 'Re-ingest now'}
+                  </button>
+                {/if}
+              </div>
+            {/if}
+
+            {#if topicsError}
+              <p class="field-error">{topicsError}</p>
+            {/if}
+
+            {#if currentTopicDefs.length === 0}
+              <p class="empty-state">No topics defined. Click + to add one.</p>
+            {:else}
+              <div class="cluster-list">
+                {#each currentTopicDefs as def, i}
+                  {@const summary = getTopicSummary(def.name)}
+                  <div class="cluster-card">
+                    <div class="cluster-card-header">
+                      <span class="cluster-name">{def.name}</span>
+                      <span class="threshold-chip">
+                        {def.threshold != null
+                          ? `custom ${def.threshold.toFixed(2)}`
+                          : 'global floor'}
+                      </span>
+                      <div class="cluster-actions">
+                        <button
+                          class="btn-icon btn-icon-sm"
+                          onclick={() => handleEditCluster(i)}
+                          title="Edit"
+                        >
+                          <span class="material-symbols-outlined">edit</span>
+                        </button>
+                        <button
+                          class="btn-icon btn-icon-sm"
+                          onclick={() => handleRemoveCluster(i)}
+                          title="Remove"
+                        >
+                          <span class="material-symbols-outlined">close</span>
+                        </button>
+                      </div>
+                    </div>
+                    {#if def.description}
+                      <div class="cluster-description">{def.description}</div>
+                    {/if}
+                    {#if def.seeds.length > 0}
+                      <div class="cluster-seeds">Seeds: {def.seeds.join(', ')}</div>
+                    {/if}
+                    {#if summary}
+                      <div class="cluster-doc-count">
+                        {summary.document_count}
+                        {summary.document_count === 1 ? 'doc' : 'docs'}{summary.mean_score != null
+                          ? ` · avg ${Math.round(summary.mean_score * 100)}%`
+                          : ''}
+                      </div>
+                    {/if}
+                  </div>
+                {/each}
+              </div>
+            {/if}
+
+            {#if currentTopicUnassigned}
+              <div class="unassigned-row">
+                <span class="material-symbols-outlined unassigned-icon">scatter_plot</span>
+                Unassigned: {currentTopicUnassigned.count}
+              </div>
+            {/if}
+
+            <div class="field-group" style="margin-top: 20px;">
+              <label class="field-label" for="setting-topics-floor">Similarity Floor</label>
+              <div class="field-row slider-row">
+                <span class="slider-label">Loose</span>
+                <input
+                  id="setting-topics-floor"
+                  class="field-slider"
+                  type="range"
+                  min="0"
+                  max="0.9"
+                  step="0.05"
+                  value={topicsFloor}
+                  oninput={(e) => (topicsFloor = Number((e.target as HTMLInputElement).value))}
+                  onchange={(e) =>
+                    handleTopicsFloorChange(Number((e.target as HTMLInputElement).value))}
+                />
+                <span class="slider-label">Strict</span>
+                <span class="slider-value">{topicsFloor.toFixed(2)}</span>
+              </div>
+              <div class="field-hint">
+                Global minimum similarity for topic assignment. Topics with a custom threshold
+                override this.
+              </div>
+            </div>
+
+            <div class="field-group">
+              <label class="field-label" for="setting-clustering-algorithm"
+                >Clustering Algorithm</label
+              >
+              <div class="field-row">
+                <select
+                  id="setting-clustering-algorithm"
+                  class="field-select"
+                  value={clusteringAlgorithm}
+                  onchange={(e) => handleAlgorithmChange((e.target as HTMLSelectElement).value)}
+                >
+                  <option value="leiden">Leiden (default)</option>
+                  <option value="kmeans">K-means</option>
+                </select>
+              </div>
+              <div class="field-hint">
+                Algorithm used for automatic clustering. Changing it requires a re-ingest.
+              </div>
+            </div>
+          </div>
+
+          {#if clusterModalOpen}
+            <CustomClusterModal
+              existingDef={clusterEditIndex !== null ? currentTopicDefs[clusterEditIndex] : null}
+              existingNames={currentTopicDefs
+                .map((d) => d.name)
+                .filter((_, i) => i !== clusterEditIndex)}
+              onsave={handleClusterModalSave}
+              onclose={handleClusterModalClose}
             />
-          </div>
-        </div>
+          {/if}
+        {:else if currentSection === 'terminal' && isGlobal}
+          <div class="section">
+            <h2 class="section-title">Terminal</h2>
+            <p class="section-explainer">{sectionExplainers.terminal}</p>
 
-      {:else if currentSection === 'about' && isGlobal}
-        <div class="section">
-          <h2 class="section-title">About</h2>
-          <p class="section-explainer">{sectionExplainers.about}</p>
-          <div class="field-group">
-            <label class="field-label">App Version</label>
-            <div class="field-value mono">{cliVersion || 'Unknown'}</div>
-          </div>
-          <div class="field-group">
-            <label class="field-label">Links</label>
-            <button class="link-btn" onclick={() => window.api.openPath('https://github.com/nicholasgriffintn/markdown-vdb')}>
-              <span class="material-symbols-outlined">open_in_new</span>
-              GitHub Repository
-            </button>
-          </div>
-          <div class="field-group">
-            <label class="field-label">Keyboard Shortcuts</label>
-            <button class="action-btn" onclick={() => (shortcutsOpen = true)}>
-              <span class="material-symbols-outlined">keyboard</span>
-              View Shortcuts
-            </button>
-          </div>
-        </div>
-      {/if}
+            <div class="field-group">
+              <label class="field-label" for="terminal-shell-path">Shell Path</label>
+              <p class="field-hint">
+                Absolute path to the shell binary. Leave blank to use your system default.
+              </p>
+              <input
+                id="terminal-shell-path"
+                type="text"
+                class="field-input"
+                placeholder="/bin/zsh"
+                value={terminalShellPath}
+                oninput={(e) => saveTerminalShellPath((e.currentTarget as HTMLInputElement).value)}
+              />
+            </div>
 
-      {#if currentIsDirty || currentSaveStatus}
-        <div class="settings-action-bar" aria-live="polite">
-          {#if currentSaveStatus}
-            <div class="save-toast" class:error={currentSaveStatus === 'error'}>
-              <span class="material-symbols-outlined save-toast-icon">
-                {currentSaveStatus === 'saved' ? 'check_circle' : 'error'}
+            <div class="field-group">
+              <label class="field-label" for="terminal-shell-args">Shell Arguments</label>
+              <p class="field-hint">Space-separated arguments passed to the shell on launch.</p>
+              <input
+                id="terminal-shell-args"
+                type="text"
+                class="field-input"
+                placeholder="-l"
+                value={terminalShellArgs}
+                oninput={(e) => saveTerminalShellArgs((e.currentTarget as HTMLInputElement).value)}
+              />
+            </div>
+
+            <div class="field-group">
+              <span class="field-label">Terminal Font Size</span>
+              <div class="field-row font-size-row">
+                <button
+                  class="font-btn"
+                  onclick={() => adjustTerminalFontSize(-1)}
+                  disabled={terminalFontSize <= 10}
+                >
+                  <span class="material-symbols-outlined">remove</span>
+                </button>
+                <span class="font-size-value">{terminalFontSize}px</span>
+                <button
+                  class="font-btn"
+                  onclick={() => adjustTerminalFontSize(1)}
+                  disabled={terminalFontSize >= 24}
+                >
+                  <span class="material-symbols-outlined">add</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        {:else if currentSection === 'appearance' && isGlobal}
+          <div class="section">
+            <h2 class="section-title">Appearance</h2>
+            <p class="section-explainer">{sectionExplainers.appearance}</p>
+            <div class="field-group">
+              <span class="field-label">Theme</span>
+              <div class="theme-picker">
+                <button
+                  class="theme-btn"
+                  class:active={currentGlobalTheme === 'light'}
+                  onclick={() => setGlobalTheme('light')}
+                >
+                  <span class="material-symbols-outlined">light_mode</span> Light
+                </button>
+                <button
+                  class="theme-btn"
+                  class:active={currentGlobalTheme === 'dark'}
+                  onclick={() => setGlobalTheme('dark')}
+                >
+                  <span class="material-symbols-outlined">dark_mode</span> Dark
+                </button>
+                <button
+                  class="theme-btn"
+                  class:active={currentGlobalTheme === 'auto'}
+                  onclick={() => setGlobalTheme('auto')}
+                >
+                  <span class="material-symbols-outlined">contrast</span> Auto
+                </button>
+              </div>
+            </div>
+            <div class="field-group">
+              <span class="field-label">Editor Font Size</span>
+              <div class="field-row font-size-row">
+                <button
+                  class="font-btn"
+                  onclick={() => adjustFontSize(-1)}
+                  disabled={fontSize <= 10}
+                >
+                  <span class="material-symbols-outlined">remove</span>
+                </button>
+                <span class="font-size-value">{fontSize}px</span>
+                <button
+                  class="font-btn"
+                  onclick={() => adjustFontSize(1)}
+                  disabled={fontSize >= 24}
+                >
+                  <span class="material-symbols-outlined">add</span>
+                </button>
+              </div>
+            </div>
+            <div class="field-group">
+              <span class="field-label">Primary Accent Color</span>
+              <p class="field-hint">Changes the accent color used throughout the app.</p>
+              <ColorPicker
+                value={currentGlobalColor}
+                defaultColor="#00E5FF"
+                onchange={(hex) => setGlobalAccentColor(hex)}
+                showReset={true}
+              />
+            </div>
+            <div class="field-group">
+              <span class="field-label">External Changes</span>
+              <div class="field-row">
+                <label class="toggle-label">
+                  <input
+                    type="checkbox"
+                    checked={autoShowDiff}
+                    onchange={(e) =>
+                      handleAutoShowDiffChange((e.target as HTMLInputElement).checked)}
+                  />
+                  Automatically show diff when a file with unsaved changes is modified on disk
+                </label>
+              </div>
+            </div>
+          </div>
+        {:else if currentSection === 'appearance' && !isGlobal}
+          <div class="section">
+            <h2 class="section-title">Appearance</h2>
+            <p class="section-explainer">Visual preferences for this collection.</p>
+            <div class="field-group">
+              <span class="field-label">
+                Theme
+                <span class="annotation"
+                  >{currentCollectionTheme ? '(overridden)' : '(inherited from global)'}</span
+                >
               </span>
-              {currentSaveStatus === 'saved' ? 'Settings saved' : 'Failed to save'}
+              <div class="theme-picker">
+                <button
+                  class="theme-btn"
+                  class:active={currentCollectionTheme === 'light'}
+                  onclick={() =>
+                    targetCollection && setCollectionThemeOverride(targetCollection.id, 'light')}
+                >
+                  <span class="material-symbols-outlined">light_mode</span> Light
+                </button>
+                <button
+                  class="theme-btn"
+                  class:active={currentCollectionTheme === 'dark'}
+                  onclick={() =>
+                    targetCollection && setCollectionThemeOverride(targetCollection.id, 'dark')}
+                >
+                  <span class="material-symbols-outlined">dark_mode</span> Dark
+                </button>
+                <button
+                  class="theme-btn"
+                  class:active={currentCollectionTheme === 'auto'}
+                  onclick={() =>
+                    targetCollection && setCollectionThemeOverride(targetCollection.id, 'auto')}
+                >
+                  <span class="material-symbols-outlined">contrast</span> Auto
+                </button>
+                {#if currentCollectionTheme}
+                  <button
+                    class="theme-btn reset"
+                    onclick={() =>
+                      targetCollection && setCollectionThemeOverride(targetCollection.id, null)}
+                  >
+                    <span class="material-symbols-outlined">undo</span> Reset
+                  </button>
+                {/if}
+              </div>
             </div>
-          {/if}
-          {#if currentIsDirty}
-            <div class="action-bar-buttons">
-              <button class="discard-btn" onclick={handleDiscard} disabled={saving}>
-                Discard
-              </button>
-              <button class="save-btn" onclick={handleSaveAll} disabled={saving}>
-                <span class="material-symbols-outlined save-btn-icon">save</span>
-                {saving ? 'Saving...' : 'Save'}
+            <div class="field-group">
+              <span class="field-label">
+                Primary Accent Color
+                <span class="annotation"
+                  >{currentCollectionColor ? '(overridden)' : '(inherited from global)'}</span
+                >
+              </span>
+              <ColorPicker
+                value={currentCollectionColor}
+                defaultColor={currentGlobalColor ?? '#00E5FF'}
+                onchange={(hex) => {
+                  if (targetCollection) {
+                    setCollectionAccentColor(targetCollection.id, hex)
+                  }
+                }}
+                showReset={true}
+                showInheritedHint={currentCollectionColor === null}
+              />
+            </div>
+          </div>
+        {:else if currentSection === 'about' && isGlobal}
+          <div class="section">
+            <h2 class="section-title">About</h2>
+            <p class="section-explainer">{sectionExplainers.about}</p>
+            <div class="field-group">
+              <span class="field-label">App Version</span>
+              <div class="field-value mono">{cliVersion || 'Unknown'}</div>
+            </div>
+            <div class="field-group">
+              <span class="field-label">Links</span>
+              <button
+                class="link-btn"
+                onclick={() =>
+                  window.api.openPath('https://github.com/nicholasgriffintn/markdown-vdb')}
+              >
+                <span class="material-symbols-outlined">open_in_new</span>
+                GitHub Repository
               </button>
             </div>
-          {/if}
-        </div>
-      {/if}
+            <div class="field-group">
+              <span class="field-label">Keyboard Shortcuts</span>
+              <button class="action-btn" onclick={() => (shortcutsOpen = true)}>
+                <span class="material-symbols-outlined">keyboard</span>
+                View Shortcuts
+              </button>
+            </div>
+          </div>
+        {/if}
+
+        {#if currentIsDirty || currentSaveStatus}
+          <div class="settings-action-bar" aria-live="polite">
+            {#if currentSaveStatus}
+              <div class="save-toast" class:error={currentSaveStatus === 'error'}>
+                <span class="material-symbols-outlined save-toast-icon">
+                  {currentSaveStatus === 'saved' ? 'check_circle' : 'error'}
+                </span>
+                {currentSaveStatus === 'saved' ? 'Settings saved' : 'Failed to save'}
+              </div>
+            {/if}
+            {#if currentIsDirty}
+              <div class="action-bar-buttons">
+                <button class="discard-btn" onclick={handleDiscard} disabled={saving}>
+                  Discard
+                </button>
+                <button class="save-btn" onclick={handleSaveAll} disabled={saving}>
+                  <span class="material-symbols-outlined save-btn-icon">save</span>
+                  {saving ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+            {/if}
+          </div>
+        {/if}
+      </div>
     </div>
   </div>
-</div>
 </div>
 
 <KeyboardShortcuts open={shortcutsOpen} onclose={() => (shortcutsOpen = false)} />
@@ -1342,8 +1616,12 @@
   }
 
   @keyframes overlay-in {
-    from { opacity: 0; }
-    to { opacity: 1; }
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -1423,13 +1701,23 @@
   }
 
   @keyframes bar-in {
-    from { opacity: 0; transform: translateY(8px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 
   @keyframes toast-in {
-    from { opacity: 0; }
-    to { opacity: 1; }
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -1444,7 +1732,7 @@
     align-items: center;
     gap: 6px;
     padding: 6px 16px;
-    background: var(--color-primary, #00E5FF);
+    background: var(--color-primary, #00e5ff);
     border: none;
     border-radius: var(--radius-sm, 2px);
     color: #000;
@@ -1482,7 +1770,9 @@
     text-transform: uppercase;
     letter-spacing: 0.05em;
     cursor: pointer;
-    transition: color var(--transition-fast, 150ms ease), border-color var(--transition-fast, 150ms ease);
+    transition:
+      color var(--transition-fast, 150ms ease),
+      border-color var(--transition-fast, 150ms ease);
   }
 
   .discard-btn:hover:not(:disabled) {
@@ -1506,7 +1796,9 @@
     border-radius: var(--radius-sm, 2px);
     color: var(--color-text-dim, #71717a);
     cursor: pointer;
-    transition: color var(--transition-fast, 150ms ease), border-color var(--transition-fast, 150ms ease);
+    transition:
+      color var(--transition-fast, 150ms ease),
+      border-color var(--transition-fast, 150ms ease);
   }
 
   .close-btn:hover {
@@ -1542,7 +1834,9 @@
     font-size: var(--text-sm, 12px);
     text-align: left;
     cursor: pointer;
-    transition: color var(--transition-fast, 150ms ease), background var(--transition-fast, 150ms ease);
+    transition:
+      color var(--transition-fast, 150ms ease),
+      background var(--transition-fast, 150ms ease);
   }
 
   .nav-item:hover {
@@ -1551,7 +1845,7 @@
   }
 
   .nav-item.active {
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
     background: var(--color-surface, #161617);
   }
 
@@ -1618,7 +1912,9 @@
     text-transform: uppercase;
     letter-spacing: 0.05em;
     cursor: pointer;
-    transition: color var(--transition-fast, 150ms ease), border-color var(--transition-fast, 150ms ease);
+    transition:
+      color var(--transition-fast, 150ms ease),
+      border-color var(--transition-fast, 150ms ease);
   }
 
   .section-tab:hover {
@@ -1626,8 +1922,8 @@
   }
 
   .section-tab.active {
-    color: var(--color-primary, #00E5FF);
-    border-bottom-color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
+    border-bottom-color: var(--color-primary, #00e5ff);
   }
 
   .section-tab .material-symbols-outlined {
@@ -1671,7 +1967,7 @@
     font-weight: 400;
     text-transform: none;
     letter-spacing: normal;
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
     font-size: var(--text-xs, 10px);
   }
 
@@ -1704,7 +2000,7 @@
   }
 
   .field-input:focus {
-    border-color: var(--color-primary, #00E5FF);
+    border-color: var(--color-primary, #00e5ff);
   }
 
   .field-input-sm {
@@ -1725,7 +2021,7 @@
   }
 
   .field-select:focus {
-    border-color: var(--color-primary, #00E5FF);
+    border-color: var(--color-primary, #00e5ff);
   }
 
   .field-hint {
@@ -1749,7 +2045,9 @@
     text-transform: uppercase;
     letter-spacing: 0.05em;
     cursor: pointer;
-    transition: background var(--transition-fast, 150ms ease), border-color var(--transition-fast, 150ms ease);
+    transition:
+      background var(--transition-fast, 150ms ease),
+      border-color var(--transition-fast, 150ms ease);
   }
 
   .action-btn:hover:not(:disabled) {
@@ -1795,7 +2093,7 @@
   }
 
   .reset-btn:hover {
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
   }
 
   .reset-btn .material-symbols-outlined {
@@ -1811,8 +2109,8 @@
     cursor: pointer;
   }
 
-  .toggle-label input[type="checkbox"] {
-    accent-color: var(--color-primary, #00E5FF);
+  .toggle-label input[type='checkbox'] {
+    accent-color: var(--color-primary, #00e5ff);
   }
 
   .theme-picker {
@@ -1842,8 +2140,8 @@
 
   .theme-btn.active {
     background: var(--color-primary-dim, rgba(0, 229, 255, 0.1));
-    border-color: var(--color-primary, #00E5FF);
-    color: var(--color-primary, #00E5FF);
+    border-color: var(--color-primary, #00e5ff);
+    color: var(--color-primary, #00e5ff);
   }
 
   .theme-btn.reset {
@@ -1901,7 +2199,7 @@
     background: none;
     border: 1px solid var(--color-border, #27272a);
     border-radius: var(--radius-sm, 2px);
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
     font-family: inherit;
     font-size: var(--text-sm, 12px);
     cursor: pointer;
@@ -1937,7 +2235,7 @@
     width: 14px;
     height: 14px;
     border-radius: 50%;
-    background: var(--color-primary, #00E5FF);
+    background: var(--color-primary, #00e5ff);
     cursor: pointer;
     border: none;
   }

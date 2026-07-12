@@ -127,7 +127,11 @@ describe('convertValue — to List (tags)', () => {
   })
 
   it('keeps string lists unchanged, stringifies scalar items', () => {
-    expect(convertValue(['a', 'b'], 'tags')).toEqual({ ok: true, value: ['a', 'b'], changed: false })
+    expect(convertValue(['a', 'b'], 'tags')).toEqual({
+      ok: true,
+      value: ['a', 'b'],
+      changed: false
+    })
     expect(convertValue(['a', 2], 'tags')).toEqual({ ok: true, value: ['a', '2'], changed: true })
   })
 
@@ -247,9 +251,9 @@ describe('planEntryFor', () => {
   })
 
   it('rename: missing key untouched, collision skipped, value preserved', () => {
-    expect(
-      planEntryFor(file({}), 'status', { kind: 'rename', newKey: 'state' }).action
-    ).toBe('no-value')
+    expect(planEntryFor(file({}), 'status', { kind: 'rename', newKey: 'state' }).action).toBe(
+      'no-value'
+    )
 
     const collision = planEntryFor(file({ status: 'a', state: 'b' }), 'status', {
       kind: 'rename',
@@ -313,7 +317,9 @@ describe('planPropertyOp', () => {
 
   it('never pins for single-file (scope null) or rename ops', () => {
     expect(planPropertyOp([], req({ scope: null, filePath: 'a.md' })).schemaPin).toBeNull()
-    expect(planPropertyOp([], req({ op: { kind: 'rename', newKey: 'state' } })).schemaPin).toBeNull()
+    expect(
+      planPropertyOp([], req({ op: { kind: 'rename', newKey: 'state' } })).schemaPin
+    ).toBeNull()
   })
 })
 

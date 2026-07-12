@@ -72,7 +72,7 @@ export function resolveCellInfo($pos: ResolvedPos): CellInfo | null {
     totalRows,
     totalCols,
     tablePos,
-    isHeader: cellNode.type.name === 'tableHeader',
+    isHeader: cellNode.type.name === 'tableHeader'
   }
 }
 
@@ -151,8 +151,8 @@ export const TableUIExtension = Extension.create({
               tableEl,
               cellInfo,
               editor,
-              onClose: closeToolbar,
-            },
+              onClose: closeToolbar
+            }
           })
         })
         .catch(() => {
@@ -200,8 +200,8 @@ export const TableUIExtension = Extension.create({
               editor,
               clientX,
               clientY,
-              onClose: closeMenu,
-            },
+              onClose: closeMenu
+            }
           })
         })
         .catch(() => {
@@ -262,7 +262,7 @@ export const TableUIExtension = Extension.create({
             destroy() {
               closeMenu()
               closeToolbar()
-            },
+            }
           }
         },
         props: {
@@ -271,15 +271,17 @@ export const TableUIExtension = Extension.create({
               // Resolve the position under the click
               const pos = view.posAtCoords({
                 left: event.clientX,
-                top: event.clientY,
+                top: event.clientY
               })
               if (!pos) {
                 // No position — dispatch general context menu event
                 event.preventDefault()
-                view.dom.dispatchEvent(new CustomEvent('editor-contextmenu', {
-                  bubbles: true,
-                  detail: { x: event.clientX, y: event.clientY },
-                }))
+                view.dom.dispatchEvent(
+                  new CustomEvent('editor-contextmenu', {
+                    bubbles: true,
+                    detail: { x: event.clientX, y: event.clientY }
+                  })
+                )
                 return true
               }
 
@@ -288,10 +290,12 @@ export const TableUIExtension = Extension.create({
               if (!cellInfo) {
                 // Not in a table cell — dispatch general context menu event
                 event.preventDefault()
-                view.dom.dispatchEvent(new CustomEvent('editor-contextmenu', {
-                  bubbles: true,
-                  detail: { x: event.clientX, y: event.clientY },
-                }))
+                view.dom.dispatchEvent(
+                  new CustomEvent('editor-contextmenu', {
+                    bubbles: true,
+                    detail: { x: event.clientX, y: event.clientY }
+                  })
+                )
                 return true
               }
 
@@ -306,18 +310,13 @@ export const TableUIExtension = Extension.create({
               if (!popup) return false
 
               const { key } = event
-              if (
-                key === 'ArrowUp' ||
-                key === 'ArrowDown' ||
-                key === 'Enter' ||
-                key === 'Escape'
-              ) {
+              if (key === 'ArrowUp' || key === 'ArrowDown' || key === 'Enter' || key === 'Escape') {
                 // Dispatch a synthetic keyboard event to the popup container
                 const syntheticEvent = new KeyboardEvent('keydown', {
                   key: event.key,
                   code: event.code,
                   bubbles: true,
-                  cancelable: true,
+                  cancelable: true
                 })
                 popup.dispatchEvent(syntheticEvent)
                 event.preventDefault()
@@ -325,10 +324,10 @@ export const TableUIExtension = Extension.create({
               }
 
               return false
-            },
-          },
-        },
-      }),
+            }
+          }
+        }
+      })
     ]
-  },
+  }
 })

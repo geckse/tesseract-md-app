@@ -25,9 +25,7 @@
   }
 
   /** Type labels for autocomplete secondary display. */
-  let fieldTypeLabels = $derived(new Map(
-    schema?.fields?.map((f) => [f.name, f.field_type]) ?? []
-  ))
+  let fieldTypeLabels = $derived(new Map(schema?.fields?.map((f) => [f.name, f.field_type]) ?? []))
 
   function startNaming() {
     mode = 'naming'
@@ -46,12 +44,17 @@
     }
     // Otherwise show type picker
     mode = 'typing'
-    queueMicrotask(() => { typeAnchorEl = inputEl })
+    queueMicrotask(() => {
+      typeAnchorEl = inputEl
+    })
   }
 
   function handleNameConfirm() {
     const trimmed = nameInput.trim()
-    if (!trimmed) { mode = 'idle'; return }
+    if (!trimmed) {
+      mode = 'idle'
+      return
+    }
     // Check if it matches a schema field
     const sf = schema?.fields?.find((f) => f.name === trimmed)
     if (sf) {
@@ -59,7 +62,9 @@
       return
     }
     mode = 'typing'
-    queueMicrotask(() => { typeAnchorEl = inputEl })
+    queueMicrotask(() => {
+      typeAnchorEl = inputEl
+    })
   }
 
   function handleTypeSelect(type: string) {
@@ -74,8 +79,14 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape') { e.preventDefault(); cancel() }
-    if (e.key === 'Enter' && mode === 'naming') { e.preventDefault(); handleNameConfirm() }
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      cancel()
+    }
+    if (e.key === 'Enter' && mode === 'naming') {
+      e.preventDefault()
+      handleNameConfirm()
+    }
   }
 </script>
 
@@ -114,17 +125,15 @@
     {/if}
 
     {#if mode === 'typing' && typeAnchorEl}
-      <TypePickerDropdown
-        anchorEl={typeAnchorEl}
-        onSelect={handleTypeSelect}
-        onDismiss={cancel}
-      />
+      <TypePickerDropdown anchorEl={typeAnchorEl} onSelect={handleTypeSelect} onDismiss={cancel} />
     {/if}
   {/if}
 </div>
 
 <style>
-  .apr { padding: 2px 0; }
+  .apr {
+    padding: 2px 0;
+  }
   .apr-btn {
     display: flex;
     align-items: center;
@@ -139,9 +148,15 @@
     border-radius: 4px;
     transition: color 150ms ease;
   }
-  .apr-btn:hover { color: var(--color-text, #e4e4e7); }
-  .apr-icon { font-size: 16px; }
-  .apr-label { user-select: none; }
+  .apr-btn:hover {
+    color: var(--color-text, #e4e4e7);
+  }
+  .apr-icon {
+    font-size: 16px;
+  }
+  .apr-label {
+    user-select: none;
+  }
 
   .apr-input-row {
     display: flex;
@@ -151,7 +166,7 @@
   }
   .apr-icon-active {
     font-size: 16px;
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
     width: 24px;
     text-align: center;
   }
@@ -167,10 +182,17 @@
     outline: none;
     transition: border-color 150ms ease;
   }
-  .apr-input:focus { border-color: var(--color-primary, #00E5FF); }
-  .apr-input::placeholder { color: var(--color-text-faint, #52525b); }
+  .apr-input:focus {
+    border-color: var(--color-primary, #00e5ff);
+  }
+  .apr-input::placeholder {
+    color: var(--color-text-faint, #52525b);
+  }
 
   @media (prefers-reduced-motion: reduce) {
-    .apr-btn, .apr-input { transition: none; }
+    .apr-btn,
+    .apr-input {
+      transition: none;
+    }
   }
 </style>

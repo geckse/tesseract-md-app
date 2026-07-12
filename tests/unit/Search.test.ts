@@ -12,12 +12,12 @@ const mockApi = {
   status: vi.fn(),
   readFile: vi.fn(),
   writeFile: vi.fn(),
-  search: vi.fn().mockResolvedValue({ results: [], query: '', total_results: 0 }),
+  search: vi.fn().mockResolvedValue({ results: [], query: '', total_results: 0 })
 }
 
 Object.defineProperty(globalThis, 'window', {
   value: { api: mockApi },
-  writable: true,
+  writable: true
 })
 
 // Mock CodeMirror modules to avoid DOM issues in tests
@@ -35,9 +35,9 @@ vi.mock('@codemirror/view', () => {
   })
   return {
     EditorView: Object.assign(EditorView, {
-      updateListener: { of: vi.fn(() => []) },
+      updateListener: { of: vi.fn(() => []) }
     }),
-    keymap: { of: vi.fn(() => []) },
+    keymap: { of: vi.fn(() => []) }
   }
 })
 
@@ -46,33 +46,33 @@ vi.mock('@codemirror/state', () => ({
     create: vi.fn((config: any) => ({
       doc: {
         toString: () => config.doc || '',
-        length: (config.doc || '').length,
-      },
-    })),
-  },
+        length: (config.doc || '').length
+      }
+    }))
+  }
 }))
 
 vi.mock('@codemirror/lang-markdown', () => ({
   markdown: vi.fn(() => []),
-  markdownLanguage: {},
+  markdownLanguage: {}
 }))
 
 vi.mock('@codemirror/commands', () => ({
   history: vi.fn(() => []),
   historyKeymap: [],
-  defaultKeymap: [],
+  defaultKeymap: []
 }))
 
 vi.mock('../../src/renderer/lib/editor-theme', () => ({
-  editorTheme: vi.fn(() => []),
+  editorTheme: vi.fn(() => [])
 }))
 
 vi.mock('../../src/renderer/lib/soft-render', () => ({
-  softRender: vi.fn(() => []),
+  softRender: vi.fn(() => [])
 }))
 
 vi.mock('../../src/renderer/lib/frontmatter-decoration', () => ({
-  frontmatterDecoration: vi.fn(() => []),
+  frontmatterDecoration: vi.fn(() => [])
 }))
 
 import {
@@ -81,7 +81,7 @@ import {
   searchResults,
   searchLoading,
   highlightedIndex,
-  searchError,
+  searchError
 } from '../../src/renderer/stores/search'
 import { get } from 'svelte/store'
 import Search from '@renderer/components/Search.svelte'
@@ -154,10 +154,10 @@ describe('Search component', () => {
     searchResults.set({
       results: [
         { file: { path: 'a.md' }, score: 1.0, chunks: [] },
-        { file: { path: 'b.md' }, score: 0.5, chunks: [] },
+        { file: { path: 'b.md' }, score: 0.5, chunks: [] }
       ] as any,
       query: 'test',
-      total_results: 2,
+      total_results: 2
     })
     highlightedIndex.set(-1)
 

@@ -17,8 +17,5 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": true
   },
-  "include": [
-    "src/renderer/**/*.ts",
-    "src/renderer/**/*.svelte"
-  ]
+  "include": ["src/renderer/**/*.ts", "src/renderer/**/*.svelte"]
 }

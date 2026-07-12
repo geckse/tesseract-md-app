@@ -1,13 +1,11 @@
 <script lang="ts">
-  import type { Snippet } from 'svelte';
+  import type { Snippet } from 'svelte'
 
   interface KbdProps {
-    children: Snippet;
+    children: Snippet
   }
 
-  let {
-    children,
-  }: KbdProps = $props();
+  let { children }: KbdProps = $props()
 </script>
 
 <kbd class="kbd">

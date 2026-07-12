@@ -109,8 +109,7 @@ export function convertValue(value: JsonValue, target: PropertyTargetType): Conv
       if (typeof value === 'number' || typeof value === 'boolean')
         return { ok: true, value: String(value), changed: true }
       if (Array.isArray(value)) {
-        if (!value.every(isScalar))
-          return { ok: false, reason: 'list contains nested values' }
+        if (!value.every(isScalar)) return { ok: false, reason: 'list contains nested values' }
         return { ok: true, value: value.map(String).join(', '), changed: true }
       }
       return { ok: false, reason: 'cannot convert to text' }
@@ -119,8 +118,7 @@ export function convertValue(value: JsonValue, target: PropertyTargetType): Conv
       if (typeof value === 'number') return { ok: true, value, changed: false }
       if (typeof value === 'string') {
         const trimmed = value.trim()
-        if (STRICT_NUMBER.test(trimmed))
-          return { ok: true, value: Number(trimmed), changed: true }
+        if (STRICT_NUMBER.test(trimmed)) return { ok: true, value: Number(trimmed), changed: true }
         return { ok: false, reason: 'not a number' }
       }
       if (typeof value === 'boolean') return { ok: true, value: value ? 1 : 0, changed: true }
@@ -143,8 +141,7 @@ export function convertValue(value: JsonValue, target: PropertyTargetType): Conv
     }
     case 'list': {
       if (Array.isArray(value)) {
-        if (!value.every(isScalar))
-          return { ok: false, reason: 'list contains nested values' }
+        if (!value.every(isScalar)) return { ok: false, reason: 'list contains nested values' }
         const stringified = value.map(String)
         const changed = value.some((v) => typeof v !== 'string')
         return { ok: true, value: stringified, changed }
@@ -163,8 +160,7 @@ export function convertValue(value: JsonValue, target: PropertyTargetType): Conv
     case 'date': {
       if (typeof value !== 'string') return { ok: false, reason: 'cannot convert to date' }
       const trimmed = value.trim()
-      if (DATE_ONLY.test(trimmed))
-        return { ok: true, value: trimmed, changed: trimmed !== value }
+      if (DATE_ONLY.test(trimmed)) return { ok: true, value: trimmed, changed: trimmed !== value }
       if (ISO_DATETIME.test(trimmed))
         return { ok: true, value: trimmed.slice(0, 10), changed: true }
       return { ok: false, reason: 'not a date' }
@@ -206,7 +202,11 @@ export interface PlanFileInput {
 }
 
 /** Compute one file's plan entry for an op. Pure. */
-export function planEntryFor(file: PlanFileInput, key: string, op: PropertyOp): PropertyOpPlanEntry {
+export function planEntryFor(
+  file: PlanFileInput,
+  key: string,
+  op: PropertyOp
+): PropertyOpPlanEntry {
   if (file.frontmatter === null) {
     return {
       path: file.path,
@@ -267,10 +267,7 @@ export function overlayScopeKey(scope: string): string | null {
 }
 
 /** Build the full plan over parsed file inputs. Pure. */
-export function planPropertyOp(
-  files: PlanFileInput[],
-  req: PropertyOpRequest
-): PropertyOpPlan {
+export function planPropertyOp(files: PlanFileInput[], req: PropertyOpRequest): PropertyOpPlan {
   const entries = files.map((f) => planEntryFor(f, req.key, req.op))
   const totals = { convert: 0, unchanged: 0, noValue: 0, skip: 0 }
   for (const e of entries) {
@@ -313,11 +310,7 @@ async function enumerateFiles(root: string, req: PropertyOpRequest): Promise<str
     return [req.filePath]
   }
   const scopeArg = overlayScopeKey(req.scope) ?? '.'
-  const output = await execCommand<CollectionOutput>(
-    'collection',
-    [scopeArg, '--recursive'],
-    root
-  )
+  const output = await execCommand<CollectionOutput>('collection', [scopeArg, '--recursive'], root)
   return output.rows.filter((r) => r.state !== 'deleted').map((r) => r.path)
 }
 
@@ -483,7 +476,11 @@ async function applyToFile(
     }
     const entry = planEntryFor({ path, frontmatter }, req.key, req.op)
     if (entry.action === 'no-value' || entry.action === 'unchanged') {
-      return { path, status: 'skipped', reason: entry.action === 'no-value' ? 'no value' : 'already the target type' }
+      return {
+        path,
+        status: 'skipped',
+        reason: entry.action === 'no-value' ? 'no value' : 'already the target type'
+      }
     }
     if (entry.action === 'skip') {
       return { path, status: 'skipped', reason: entry.reason }

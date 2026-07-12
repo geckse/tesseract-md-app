@@ -41,7 +41,7 @@ vi.mock('../../src/main/cli', () => ({
 }))
 
 vi.mock('../../src/main/ipc-handlers', () => ({
-  withWatcherPaused: async <T,>(_root: string, fn: () => Promise<T>): Promise<T> => {
+  withWatcherPaused: async <T>(_root: string, fn: () => Promise<T>): Promise<T> => {
     watcherPauses++
     return fn()
   }
@@ -78,7 +78,10 @@ function makeEventAndWindows(): {
   const windowManager = {
     getAllWindows: () => [
       {
-        webContents: { id: 2, send: (channel: string, payload: unknown) => broadcasts.push({ channel, payload }) },
+        webContents: {
+          id: 2,
+          send: (channel: string, payload: unknown) => broadcasts.push({ channel, payload })
+        },
         isDestroyed: () => false
       },
       // The sender's own window must NOT receive the broadcast.
@@ -177,7 +180,9 @@ describe('applyPropertyOp — convert', () => {
     expect(a.endsWith('\n\n# Body A\nunchanged text\n')).toBe(true)
 
     // Untouched files stay byte-identical.
-    expect(await readFile(join(root, 'docs/b.md'), 'utf-8')).toBe('---\nstatus: drafted\n---\nBody B\n')
+    expect(await readFile(join(root, 'docs/b.md'), 'utf-8')).toBe(
+      '---\nstatus: drafted\n---\nBody B\n'
+    )
     expect(await readFile(join(root, 'docs/broken.md'), 'utf-8')).toBe(
       '---\nstatus: [unclosed\nBody\n'
     )
@@ -235,7 +240,9 @@ describe('applyPropertyOp — convert', () => {
       event,
       windowManager,
       'op-4',
-      convertReq({ op: { kind: 'convert', target: 'select', allowedValues: ['drafted', 'published'] } })
+      convertReq({
+        op: { kind: 'convert', target: 'select', allowedValues: ['drafted', 'published'] }
+      })
     )
     const overlay = parseYaml(await readFile(join(root, OVERLAY_FILENAME), 'utf-8'))
     expect(overlay.scopes.docs.fields.status).toEqual({
@@ -266,9 +273,9 @@ describe('applyPropertyOp — convert', () => {
     enumeratedRows = [{ path: 'docs/a.md', state: 'indexed' }]
     const { event, windowManager } = makeEventAndWindows()
     const first = applyPropertyOp(event, windowManager, 'op-6', convertReq())
-    await expect(
-      applyPropertyOp(event, windowManager, 'op-7', convertReq())
-    ).rejects.toThrow(/already running/)
+    await expect(applyPropertyOp(event, windowManager, 'op-7', convertReq())).rejects.toThrow(
+      /already running/
+    )
     await first
   })
 
@@ -351,7 +358,9 @@ describe('applyPropertyOp — rename', () => {
     expect(overlay.scopes.docs.fields.state.field_type).toBe('string')
     expect(overlay.scopes.docs.fields.status).toBeUndefined()
 
-    const views = JSON.parse(await readFile(join(root, '.markdownvdb', 'table-views.json'), 'utf-8'))
+    const views = JSON.parse(
+      await readFile(join(root, '.markdownvdb', 'table-views.json'), 'utf-8')
+    )
     const view = views.folders.docs[0]
     expect(view.config.sort[0].columnName).toBe('state')
     expect(view.config.columns[0].name).toBe('state')
@@ -422,7 +431,9 @@ describe('renamePropertyInViews scope filtering', () => {
       'utf-8'
     )
     await renamePropertyInViews('c1', 'docs', 'status', 'state')
-    const views = JSON.parse(await readFile(join(root, '.markdownvdb', 'table-views.json'), 'utf-8'))
+    const views = JSON.parse(
+      await readFile(join(root, '.markdownvdb', 'table-views.json'), 'utf-8')
+    )
     expect(views.folders['docs'][0].config.columns[0].name).toBe('state')
     expect(views.folders['docs/guides'][0].config.columns[0].name).toBe('state')
     expect(views.folders['other'][0].config.columns[0].name).toBe('status')

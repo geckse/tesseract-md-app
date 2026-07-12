@@ -5,7 +5,7 @@ import type {
   MarkdownParseHelpers,
   MarkdownParseResult,
   MarkdownTokenizer,
-  MarkdownLexerConfiguration,
+  MarkdownLexerConfiguration
 } from '@tiptap/core'
 
 /**
@@ -78,7 +78,7 @@ export const Wikilink = Node.create({
     return {
       target: { default: '' },
       anchor: { default: null },
-      display: { default: null },
+      display: { default: null }
     }
   },
 
@@ -102,19 +102,16 @@ export const Wikilink = Node.create({
         text: raw,
         target: parsed.target,
         anchor: parsed.anchor,
-        display: parsed.display,
+        display: parsed.display
       }
-    },
+    }
   } satisfies MarkdownTokenizer,
 
-  parseMarkdown(
-    token: MarkdownToken,
-    helpers: MarkdownParseHelpers
-  ): MarkdownParseResult {
+  parseMarkdown(token: MarkdownToken, helpers: MarkdownParseHelpers): MarkdownParseResult {
     return helpers.createNode('wikilink', {
       target: token.target ?? '',
       anchor: token.anchor ?? null,
-      display: token.display ?? null,
+      display: token.display ?? null
     })
   },
 
@@ -123,7 +120,7 @@ export const Wikilink = Node.create({
     return serializeWikilink({
       target: attrs.target ?? '',
       anchor: attrs.anchor ?? null,
-      display: attrs.display ?? null,
+      display: attrs.display ?? null
     })
   },
 
@@ -140,9 +137,9 @@ export const Wikilink = Node.create({
         class: 'wikilink',
         'data-wikilink-target': target,
         ...(anchor ? { 'data-wikilink-anchor': anchor } : {}),
-        ...(display ? { 'data-wikilink-display': display } : {}),
+        ...(display ? { 'data-wikilink-display': display } : {})
       },
-      label,
+      label
     ]
   },
 
@@ -155,10 +152,10 @@ export const Wikilink = Node.create({
           return {
             target: dom.getAttribute('data-wikilink-target') ?? '',
             anchor: dom.getAttribute('data-wikilink-anchor') ?? null,
-            display: dom.getAttribute('data-wikilink-display') ?? null,
+            display: dom.getAttribute('data-wikilink-display') ?? null
           }
-        },
-      },
+        }
+      }
     ]
-  },
+  }
 })

@@ -34,29 +34,30 @@ Users need contextual information about the document they're editing: what metad
 No persistent data. New stores and derived state:
 
 ```typescript
-frontmatterData: Writable<Record<string, unknown> | null>  // Parsed from editor content
-headingOutline: Writable<HeadingEntry[]>                    // Parsed from editor content
-backlinks: Writable<BacklinkEntry[]>                        // From CLI
-metadataPanelOpen: Writable<boolean>                        // Panel visibility (persisted)
-activeHeadingIndex: Writable<number>                        // Based on scroll position
+frontmatterData: Writable<Record<string, unknown> | null> // Parsed from editor content
+headingOutline: Writable<HeadingEntry[]> // Parsed from editor content
+backlinks: Writable<BacklinkEntry[]> // From CLI
+metadataPanelOpen: Writable<boolean> // Panel visibility (persisted)
+activeHeadingIndex: Writable<number> // Based on scroll position
 
 interface HeadingEntry {
-  level: number          // 1-6
-  text: string           // Heading text without # prefix
-  line: number           // Line number in the document
+  level: number // 1-6
+  text: string // Heading text without # prefix
+  line: number // Line number in the document
 }
 
 interface BacklinkEntry {
-  sourcePath: string     // File that links to the current file
-  sourceTitle: string    // First heading or filename
-  context: string        // Text snippet around the link
-  lineNumber: number     // Line in the source file
+  sourcePath: string // File that links to the current file
+  sourceTitle: string // First heading or filename
+  context: string // Text snippet around the link
+  lineNumber: number // Line in the source file
 }
 ```
 
 ### Interface Changes
 
 No new IPC channels. Uses existing:
+
 - `window.api.backlinks(root, filePath)` from Phase 2
 - Frontmatter parsing and heading extraction are client-side only
 
@@ -101,6 +102,7 @@ No new IPC channels. Uses existing:
 ```
 
 **Properties section styling** (from mockup):
+
 - Section header: `text-[11px] font-bold text-text-dim uppercase tracking-wider` with tune icon
 - Grid layout: `grid-cols-[80px_1fr]` for label/value pairs
 - Status badge: colored pill — yellow for "In Progress", green for "Done", red for "Blocked", blue for "Draft"
@@ -109,12 +111,14 @@ No new IPC channels. Uses existing:
 - String values: `text-gray-400 text-xs`
 
 **Backlinks section styling** (from mockup):
+
 - Section header with count badge: `bg-surface-dark px-1.5 py-0.5 rounded text-[10px] font-mono border border-border-dark`
 - Each backlink as a card: `p-3 rounded bg-surface-dark border border-border-dark hover:border-primary/50`
 - Title: `text-[13px] text-gray-300 font-medium` with article icon
 - Context: `text-[11px] text-text-dim line-clamp-2 font-mono`
 
 **Outline section styling** (from mockup):
+
 - Left border: `border-l border-border-dark ml-1.5 pl-3`
 - Active heading: `text-primary font-medium`
 - Inactive: `text-text-dim hover:text-white`
@@ -122,6 +126,7 @@ No new IPC channels. Uses existing:
 - Indent: h2 = 0px extra indent, h3 = 12px, h4 = 24px (relative to base)
 
 **Toggle button:**
+
 - In header: `side_navigation` Material Symbol icon
 - `text-text-dim hover:text-primary hover:bg-surface-darker rounded`
 - When panel is open: icon highlighted in primary color

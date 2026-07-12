@@ -1,111 +1,110 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
-  import { BubbleMenuPlugin } from '@tiptap/extension-bubble-menu';
-  import type { Editor } from '@tiptap/core';
-  import type { Plugin } from '@tiptap/pm/state';
+  import { onDestroy } from 'svelte'
+  import { BubbleMenuPlugin } from '@tiptap/extension-bubble-menu'
+  import type { Editor } from '@tiptap/core'
+  import type { Plugin } from '@tiptap/pm/state'
 
   interface Props {
-    editor: Editor;
+    editor: Editor
   }
 
-  let { editor }: Props = $props();
+  let { editor }: Props = $props()
 
-  let menuEl: HTMLDivElement | undefined = $state(undefined);
-  let pluginInstance: Plugin | null = null;
-  let registeredEditor: Editor | null = null;
+  let menuEl: HTMLDivElement | undefined = $state(undefined)
+  let pluginInstance: Plugin | null = null
+  let registeredEditor: Editor | null = null
 
   // Force re-render on selection/transaction changes
-  let _tick = $state(0);
+  let _tick = $state(0)
 
   function handleTransaction() {
-    _tick++;
+    _tick++
   }
 
   function registerPlugin(ed: Editor) {
-    if (!menuEl) return;
-    unregisterPlugin();
+    if (!menuEl) return
+    unregisterPlugin()
 
     pluginInstance = BubbleMenuPlugin({
       pluginKey: 'bubbleMenu',
       editor: ed,
       element: menuEl,
       shouldShow: ({ editor: e, from, to }) => {
-        if (from === to) return false;
-        if (e.isActive('image')) return false;
-        if (e.isActive('codeBlock')) return false;
-        return true;
-      },
-    });
+        if (from === to) return false
+        if (e.isActive('image')) return false
+        if (e.isActive('codeBlock')) return false
+        return true
+      }
+    })
 
-    ed.registerPlugin(pluginInstance);
-    ed.on('transaction', handleTransaction);
-    registeredEditor = ed;
+    ed.registerPlugin(pluginInstance)
+    ed.on('transaction', handleTransaction)
+    registeredEditor = ed
   }
 
   function unregisterPlugin() {
     if (registeredEditor) {
-      registeredEditor.off('transaction', handleTransaction);
-      try { registeredEditor.unregisterPlugin('bubbleMenu'); } catch { /* already gone */ }
-      registeredEditor = null;
+      registeredEditor.off('transaction', handleTransaction)
+      try {
+        registeredEditor.unregisterPlugin('bubbleMenu')
+      } catch {
+        /* already gone */
+      }
+      registeredEditor = null
     }
-    pluginInstance = null;
+    pluginInstance = null
   }
 
   // Re-register plugin when editor or menuEl changes
   $effect(() => {
-    const ed = editor;
-    const el = menuEl;
+    const ed = editor
+    const el = menuEl
     if (ed && el) {
-      registerPlugin(ed);
+      registerPlugin(ed)
     }
     return () => {
-      unregisterPlugin();
-    };
-  });
+      unregisterPlugin()
+    }
+  })
 
   onDestroy(() => {
-    unregisterPlugin();
-  });
+    unregisterPlugin()
+  })
 
   function toggle(command: string) {
     return () => {
       switch (command) {
         case 'bold':
-          editor.chain().focus().toggleBold().run();
-          break;
+          editor.chain().focus().toggleBold().run()
+          break
         case 'italic':
-          editor.chain().focus().toggleItalic().run();
-          break;
+          editor.chain().focus().toggleItalic().run()
+          break
         case 'code':
-          editor.chain().focus().toggleCode().run();
-          break;
+          editor.chain().focus().toggleCode().run()
+          break
         case 'strike':
-          editor.chain().focus().toggleStrike().run();
-          break;
+          editor.chain().focus().toggleStrike().run()
+          break
         case 'link': {
           if (editor.isActive('link')) {
-            editor.chain().focus().unsetLink().run();
+            editor.chain().focus().unsetLink().run()
           } else {
-            editor.view.dom.dispatchEvent(new CustomEvent('open-link-modal', { bubbles: true }));
+            editor.view.dom.dispatchEvent(new CustomEvent('open-link-modal', { bubbles: true }))
           }
-          break;
+          break
         }
       }
-    };
+    }
   }
 
   function isActive(mark: string): boolean {
-    void _tick;
-    return editor.isActive(mark);
+    void _tick
+    return editor.isActive(mark)
   }
 </script>
 
-<div
-  class="bubble-menu"
-  bind:this={menuEl}
-  role="toolbar"
-  aria-label="Formatting options"
->
+<div class="bubble-menu" bind:this={menuEl} role="toolbar" aria-label="Formatting options">
   <button
     class="bubble-btn"
     class:active={isActive('bold')}
@@ -188,8 +187,9 @@
     font-size: var(--text-sm, 12px);
     font-family: var(--font-mono, monospace);
     cursor: pointer;
-    transition: background-color var(--transition-fast, 150ms ease),
-                color var(--transition-fast, 150ms ease);
+    transition:
+      background-color var(--transition-fast, 150ms ease),
+      color var(--transition-fast, 150ms ease);
   }
 
   .bubble-btn:hover {
@@ -198,11 +198,11 @@
 
   .bubble-btn.active {
     background: var(--color-primary-dim, rgba(0, 229, 255, 0.1));
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
   }
 
   .bubble-btn:focus-visible {
-    outline: 2px solid var(--color-primary, #00E5FF);
+    outline: 2px solid var(--color-primary, #00e5ff);
     outline-offset: 1px;
   }
 

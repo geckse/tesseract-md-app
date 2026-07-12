@@ -2,7 +2,7 @@
 
 ## Overview
 
-Make property **types editable**. Today the type icon in the document property panel (`DocumentHeader`/`PropertyRow`) is a passive glyph and the `TypePickerDropdown` only fires when *adding* a property — there is no way to change an existing property's type, and no value-conversion logic exists anywhere. This phase makes the type icon a button (and adds a column-header menu in the database table view) that opens the type picker for an **existing** property. Choosing a different type opens a **confirmation modal** that previews, per file, how the value will convert across the property's **folder database (recursive)**; on confirm, a new main-process batch operation converts every file's value through the safe phase-39b frontmatter writer, **pins the chosen type in the vault's schema overlay** (`.markdownvdb.schema.yml`), runs one incremental ingest so the inferred schema and table columns follow the data, and reports exactly what changed and what was skipped. Unconvertible values are **never touched** — skip + report, no data loss.
+Make property **types editable**. Today the type icon in the document property panel (`DocumentHeader`/`PropertyRow`) is a passive glyph and the `TypePickerDropdown` only fires when _adding_ a property — there is no way to change an existing property's type, and no value-conversion logic exists anywhere. This phase makes the type icon a button (and adds a column-header menu in the database table view) that opens the type picker for an **existing** property. Choosing a different type opens a **confirmation modal** that previews, per file, how the value will convert across the property's **folder database (recursive)**; on confirm, a new main-process batch operation converts every file's value through the safe phase-39b frontmatter writer, **pins the chosen type in the vault's schema overlay** (`.markdownvdb.schema.yml`), runs one incremental ingest so the inferred schema and table columns follow the data, and reports exactly what changed and what was skipped. Unconvertible values are **never touched** — skip + report, no data loss.
 
 The same recursive machinery powers two companion capabilities: **property key rename propagation** ("status" → "state" across the database) and **schema annotation editing** (description / required / allowed-values for `select`). All writes happen in the Electron **main** process; the Rust CLI and index remain strictly read-only over Markdown (the overlay file is app-written YAML config, not Markdown).
 
@@ -19,21 +19,21 @@ The database table view (phase 39) made folders feel like structured databases. 
 
 ## Interview Decisions (recorded)
 
-| # | Question | Decision |
-|---|---|---|
-| 1 | Propagation scope inside a database folder | **Folder database, recursive** (path-prefix subtree, matching mdvdb scoped-schema semantics) |
-| 2 | File not inside any database folder (vault-root file) | **Convert this file only**, no propagation, no overlay pin |
-| 3 | UI surfaces | **Both**: property panel row type icon + table view column header menu |
-| 4 | Unconvertible values | **Skip + report** — leave untouched, list them afterwards |
-| 5 | Schema update mechanism | **Pin in overlay** (`.markdownvdb.schema.yml` scoped entry) *and* convert values + re-ingest |
-| 6 | Confirmation dialog | **Full preview** — count + scrollable per-file before→after, skipped files flagged |
-| 7 | Type vocabulary | **All 10 UI types, smart split** — the preview decides which files need storage changes; string-kind switches usually rewrite nothing |
-| 8 | Execution | **New bulk IPC in main**, watcher paused, per-file results, progress streamed |
-| 9 | text → tags rule | **Split on commas**; no comma → single-item list |
-| 10 | Index update | **One incremental `mdvdb ingest`** after the batch (hash-skip leaves untouched files alone) |
-| 11 | Undo | **None** — clear preview before, full report after; vault is expected to be under git/backups |
-| 12 | Dirty open tabs | **Convert anyway**; existing file-sync conflict flow handles open editors |
-| 13 | V1 extras | ALL in scope: `select` pins `allowed_values`; live n/N progress in the modal; **key rename propagation**; description/required editing |
+| #   | Question                                              | Decision                                                                                                                               |
+| --- | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Propagation scope inside a database folder            | **Folder database, recursive** (path-prefix subtree, matching mdvdb scoped-schema semantics)                                           |
+| 2   | File not inside any database folder (vault-root file) | **Convert this file only**, no propagation, no overlay pin                                                                             |
+| 3   | UI surfaces                                           | **Both**: property panel row type icon + table view column header menu                                                                 |
+| 4   | Unconvertible values                                  | **Skip + report** — leave untouched, list them afterwards                                                                              |
+| 5   | Schema update mechanism                               | **Pin in overlay** (`.markdownvdb.schema.yml` scoped entry) _and_ convert values + re-ingest                                           |
+| 6   | Confirmation dialog                                   | **Full preview** — count + scrollable per-file before→after, skipped files flagged                                                     |
+| 7   | Type vocabulary                                       | **All 10 UI types, smart split** — the preview decides which files need storage changes; string-kind switches usually rewrite nothing  |
+| 8   | Execution                                             | **New bulk IPC in main**, watcher paused, per-file results, progress streamed                                                          |
+| 9   | text → tags rule                                      | **Split on commas**; no comma → single-item list                                                                                       |
+| 10  | Index update                                          | **One incremental `mdvdb ingest`** after the batch (hash-skip leaves untouched files alone)                                            |
+| 11  | Undo                                                  | **None** — clear preview before, full report after; vault is expected to be under git/backups                                          |
+| 12  | Dirty open tabs                                       | **Convert anyway**; existing file-sync conflict flow handles open editors                                                              |
+| 13  | V1 extras                                             | ALL in scope: `select` pins `allowed_values`; live n/N progress in the modal; **key rename propagation**; description/required editing |
 
 ## Goals
 
@@ -68,32 +68,32 @@ Two vocabularies exist and stay:
 
 Mapping chosen in the picker → what happens:
 
-| Picked (UI) | Stored shape | Overlay pin (`field_type`) | Notes |
-|---|---|---|---|
-| `text` | YAML string | `string` | |
-| `url` / `email` | YAML string | `string` | Presentation refinement; per-file url/email detection stays value-shape-based (`DocumentHeader.detectType`, `DocumentHeader.svelte:70-90`). Documented honestly in the modal copy. |
-| `select` | YAML string | `string` + `allowed_values` | `allowed_values` in the schema is what makes every file in the scope render a select widget (schema-driven override in `detectType`). |
-| `number` | YAML number | `number` | |
-| `boolean` | YAML boolean | `boolean` | |
-| `date` | quoted `"YYYY-MM-DD"` string | `date` | Writer force-quotes date-like strings (`frontmatter.ts:127-130`) so YAML never re-resolves them as timestamps. |
-| `datetime` | quoted ISO 8601 string | `date` | Same `Date` FieldType; UI granularity only. |
-| `tags` | YAML sequence of strings | `list` | |
-| `complex` | — | — | **Not offered as a conversion target** (it is a detection result, not an intent). Shown in the picker only as the current type when applicable. |
+| Picked (UI)     | Stored shape                 | Overlay pin (`field_type`)  | Notes                                                                                                                                                                              |
+| --------------- | ---------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `text`          | YAML string                  | `string`                    |                                                                                                                                                                                    |
+| `url` / `email` | YAML string                  | `string`                    | Presentation refinement; per-file url/email detection stays value-shape-based (`DocumentHeader.detectType`, `DocumentHeader.svelte:70-90`). Documented honestly in the modal copy. |
+| `select`        | YAML string                  | `string` + `allowed_values` | `allowed_values` in the schema is what makes every file in the scope render a select widget (schema-driven override in `detectType`).                                              |
+| `number`        | YAML number                  | `number`                    |                                                                                                                                                                                    |
+| `boolean`       | YAML boolean                 | `boolean`                   |                                                                                                                                                                                    |
+| `date`          | quoted `"YYYY-MM-DD"` string | `date`                      | Writer force-quotes date-like strings (`frontmatter.ts:127-130`) so YAML never re-resolves them as timestamps.                                                                     |
+| `datetime`      | quoted ISO 8601 string       | `date`                      | Same `Date` FieldType; UI granularity only.                                                                                                                                        |
+| `tags`          | YAML sequence of strings     | `list`                      |                                                                                                                                                                                    |
+| `complex`       | —                            | —                           | **Not offered as a conversion target** (it is a detection result, not an intent). Shown in the picker only as the current type when applicable.                                    |
 
-**Smart split is computed, not special-cased:** the preview evaluates every file. Files whose stored value already has the target shape appear as "unchanged". If *no* file needs a storage change (e.g. `text` → `url`), the modal collapses to a light confirm ("No file contents change; the schema for `knowledge-graph` will record this type") — same flow, empty change list.
+**Smart split is computed, not special-cased:** the preview evaluates every file. Files whose stored value already has the target shape appear as "unchanged". If _no_ file needs a storage change (e.g. `text` → `url`), the modal collapses to a light confirm ("No file contents change; the schema for `knowledge-graph` will record this type") — same flow, empty change list.
 
 ## Conversion Matrix (deterministic, pure)
 
 Per file, on the **current on-disk value** (not the index). `skip` = leave untouched + report with reason.
 
-| From \ To | String (text/url/email/select) | Number | Boolean | List (tags) | Date | Datetime |
-|---|---|---|---|---|---|---|
-| string | unchanged | trim; strict `^-?\d+(\.\d+)?$` → number; else **skip** | ci `true/yes/on/1`→true, `false/no/off/0`→false; else **skip** | split on `,`, trim, drop empties; no comma → 1-item list | `YYYY-MM-DD` unchanged; ISO datetime → truncated to date; else **skip** | ISO datetime unchanged; `YYYY-MM-DD` unchanged (no fabricated midnight); else **skip** |
-| number | `String(v)` | unchanged | `1`→true, `0`→false; else **skip** | `[String(v)]` | **skip** (timestamps ambiguous) | **skip** |
-| boolean | `"true"`/`"false"` | true→1, false→0 | unchanged | `[String(v)]` | **skip** | **skip** |
-| list | join `", "` (items stringified; any map item → **skip**) | **skip** | **skip** | unchanged (items stringified if scalar) | **skip** | **skip** |
-| map (nested) | **skip** | **skip** | **skip** | **skip** | **skip** | **skip** |
-| `null` / missing key / `""` | **untouched** — reported as "no value", not an error (all targets) | | | | | |
+| From \ To                   | String (text/url/email/select)                                     | Number                                                 | Boolean                                                        | List (tags)                                              | Date                                                                    | Datetime                                                                               |
+| --------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------ | -------------------------------------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| string                      | unchanged                                                          | trim; strict `^-?\d+(\.\d+)?$` → number; else **skip** | ci `true/yes/on/1`→true, `false/no/off/0`→false; else **skip** | split on `,`, trim, drop empties; no comma → 1-item list | `YYYY-MM-DD` unchanged; ISO datetime → truncated to date; else **skip** | ISO datetime unchanged; `YYYY-MM-DD` unchanged (no fabricated midnight); else **skip** |
+| number                      | `String(v)`                                                        | unchanged                                              | `1`→true, `0`→false; else **skip**                             | `[String(v)]`                                            | **skip** (timestamps ambiguous)                                         | **skip**                                                                               |
+| boolean                     | `"true"`/`"false"`                                                 | true→1, false→0                                        | unchanged                                                      | `[String(v)]`                                            | **skip**                                                                | **skip**                                                                               |
+| list                        | join `", "` (items stringified; any map item → **skip**)           | **skip**                                               | **skip**                                                       | unchanged (items stringified if scalar)                  | **skip**                                                                | **skip**                                                                               |
+| map (nested)                | **skip**                                                           | **skip**                                               | **skip**                                                       | **skip**                                                 | **skip**                                                                | **skip**                                                                               |
+| `null` / missing key / `""` | **untouched** — reported as "no value", not an error (all targets) |                                                        |                                                                |                                                          |                                                                         |                                                                                        |
 
 Rename op: missing key → untouched; **target key already present in the file → skip** ("target key exists" — never overwrite); otherwise `{ set: { newKey: value }, unset: [oldKey] }` with the value passed through verbatim.
 
@@ -173,8 +173,8 @@ scopes:
   knowledge-graph:
     fields:
       status:
-        field_type: number          # accepted: string|number|boolean|bool|list|array|date|mixed
-        description: Review status  # optional annotations (serde names verified, schema.rs:35-46)
+        field_type: number # accepted: string|number|boolean|bool|list|array|date|mixed
+        description: Review status # optional annotations (serde names verified, schema.rs:35-46)
         required: true
         allowed_values: [drafted, reviewed, published]
 ```
@@ -251,7 +251,7 @@ onPropertyOpProgress(cb: (p: { opId; done; total; path }) => void): () => void
 5. Overlay upsert via `schema-overlay.ts` (skip when `scope === null`). For rename: move the overlay field key; call `table-views` rename helper.
 6. Return `PropertyOpResult`.
 
-Renderer follow-up (in the modal's apply handler): `await window.api.ingest(root)` — one incremental ingest (`cli:ingest` is already `withWatcherPaused`-wrapped, `ipc-handlers.ts:252-261`; hash-skip means only converted files re-embed) → `fetchSchema(root, currentPrefix)` (`stores/schema.ts:8`) → `tableStore.reload` for any open table tab under the scope → route each changed path through the file-sync store (`stores/file-sync.ts` — `handleVaultFileEvent`/`applyDiskContentToTab` at `:64`/`:239`) so **same-window** editors reload (clean tabs silently, dirty tabs get the existing conflict banner). This explicit routing is required: `registerOwnWrite` deliberately suppresses the watcher events for our own writes, and the per-file broadcast only reaches *other* windows.
+Renderer follow-up (in the modal's apply handler): `await window.api.ingest(root)` — one incremental ingest (`cli:ingest` is already `withWatcherPaused`-wrapped, `ipc-handlers.ts:252-261`; hash-skip means only converted files re-embed) → `fetchSchema(root, currentPrefix)` (`stores/schema.ts:8`) → `tableStore.reload` for any open table tab under the scope → route each changed path through the file-sync store (`stores/file-sync.ts` — `handleVaultFileEvent`/`applyDiskContentToTab` at `:64`/`:239`) so **same-window** editors reload (clean tabs silently, dirty tabs get the existing conflict banner). This explicit routing is required: `registerOwnWrite` deliberately suppresses the watcher events for our own writes, and the per-file broadcast only reaches _other_ windows.
 
 ### New Commands / API / UI (summary)
 
@@ -268,7 +268,7 @@ Nothing to migrate. The overlay file is optional and created on demand; vaults w
 
 - **Empty / missing / null values** — untouched, reported as "no value"; the overlay pin still records the intended type so the column doesn't degrade to Mixed (interview #5).
 - **Whole batch unconvertible** — Convert button becomes "Update schema only"; files list shows all-skip; overlay still pinned.
-- **String-kind switch (text↔url↔email)** — usually zero file changes; light confirm; overlay pins `string`. Files whose stored value is *not* a string (e.g. a number in one file) still convert — the preview surfaces them.
+- **String-kind switch (text↔url↔email)** — usually zero file changes; light confirm; overlay pins `string`. Files whose stored value is _not_ a string (e.g. a number in one file) still convert — the preview surfaces them.
 - **`select` with out-of-set values** — `allowed_values` chips prefill from distinct scope values so nothing is invalid by default; the user can edit the set (values outside it are not rewritten — select is presentation + validation, not coercion).
 - **Malformed YAML frontmatter in one file** — that file fails (`MalformedFrontmatterError`), is reported, batch continues. Never clobbered (`frontmatter.ts:78-83`).
 - **`new` (unindexed) files** — enumerated by `collection` with `state:'new'`; content read live from disk, converted like any other file.
@@ -336,7 +336,7 @@ Nothing to migrate. The overlay file is optional and created on demand; vaults w
 - **Do not skip the explicit file-sync routing after apply** assuming "the watcher will pick it up" — `registerOwnWrite` suppresses our own events by design; without routing, same-window tabs go stale and the next editor save clobbers converted frontmatter.
 - **Do not serialize skipped values "best effort"** (maps → strings, NaN → 0). Skip + report was an explicit decision; forced coercion destroys data silently.
 - **Do not write overlay scope keys with a trailing slash** or the pin lands in a scope `mdvdb collection`/`schema --path` never look up (schema_key is slash-less).
-- **Do not hand-roll YAML edits with string splicing** — frontmatter *and* the overlay both go through the eemeli `yaml` Document API (`frontmatter.ts` precedent) or formatting/comments are destroyed.
+- **Do not hand-roll YAML edits with string splicing** — frontmatter _and_ the overlay both go through the eemeli `yaml` Document API (`frontmatter.ts` precedent) or formatting/comments are destroyed.
 - **Do not run per-file `ingestFile` in a loop after the batch** — one incremental ingest recomputes schemas once (interview #10); N single-file ingests skip schema recomputation entirely (`src/lib.rs:1520` gate) and spawn N processes.
 - **Do not block on the ingest inside the main batch handler** — return the write results, let the renderer own the follow-up sequence with visible state.
 - **Do not add a data-grid or dialog dependency** — `PopoverMenu`, `focusTrap`, `virtual-list`, and the SaveViewModal pattern already cover the UI.

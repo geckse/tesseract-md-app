@@ -20,11 +20,12 @@ const tokens = parseCustomProperties(tokensCSS)
 describe('Design Tokens — tokens.css', () => {
   describe('Primary colors', () => {
     it('defines --color-primary as cyan', () => {
-      expect(tokens.get('--color-primary')).toBe('#00E5FF')
+      // Hex colors are case-insensitive; prettier normalizes them to lowercase.
+      expect(tokens.get('--color-primary')?.toLowerCase()).toBe('#00e5ff')
     })
 
     it('defines --color-primary-dark', () => {
-      expect(tokens.get('--color-primary-dark')).toBe('#00B8CC')
+      expect(tokens.get('--color-primary-dark')?.toLowerCase()).toBe('#00b8cc')
     })
 
     it('defines --color-primary-dim', () => {

@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { EditorState, EditorSelection, Transaction } from '@codemirror/state'
-import { computeMinimalChanges, WHOLE_REPLACE_THRESHOLD } from '../../src/renderer/lib/external-apply'
+import {
+  computeMinimalChanges,
+  WHOLE_REPLACE_THRESHOLD
+} from '../../src/renderer/lib/external-apply'
 
 /** Apply a computed change set to a doc and return the resulting text. */
 function applyChanges(oldText: string, newText: string): string {

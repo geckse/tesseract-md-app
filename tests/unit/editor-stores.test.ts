@@ -1,7 +1,19 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { get } from 'svelte/store'
 import { workspace } from '@renderer/stores/workspace.svelte'
-import { isDirty, wordCount, tokenCount, countWords, countTokens, editorMode, toggleEditorMode, setEditorMode, saveRequested, requestSave, syncEditorStoresFromTab } from '../../src/renderer/stores/editor'
+import {
+  isDirty,
+  wordCount,
+  tokenCount,
+  countWords,
+  countTokens,
+  editorMode,
+  toggleEditorMode,
+  setEditorMode,
+  saveRequested,
+  requestSave,
+  syncEditorStoresFromTab
+} from '../../src/renderer/stores/editor'
 
 describe('editor stores', () => {
   beforeEach(() => {

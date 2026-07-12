@@ -127,9 +127,7 @@ describe('migrateLegacyDotenvTopics', () => {
   })
 
   it('skips defs the CLI rejects but migrates the rest', async () => {
-    mockApi.addTopic
-      .mockRejectedValueOnce(new Error('duplicate'))
-      .mockResolvedValueOnce(undefined)
+    mockApi.addTopic.mockRejectedValueOnce(new Error('duplicate')).mockResolvedValueOnce(undefined)
     const imported = await migrateLegacyDotenvTopics(ROOT, 'Dup:x|Fresh:y')
     expect(imported).toBe(1)
     expect(mockApi.deleteCollectionConfig).toHaveBeenCalled()

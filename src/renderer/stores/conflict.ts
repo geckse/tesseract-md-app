@@ -59,7 +59,10 @@ export interface DiffViewRequest {
 export const diffView = writable<DiffViewRequest | null>(null)
 
 /** Raise (or update) a conflict for a file. */
-export function showConflict(filePath: string, info?: Partial<Omit<ConflictInfo, 'filePath'>>): void {
+export function showConflict(
+  filePath: string,
+  info?: Partial<Omit<ConflictInfo, 'filePath'>>
+): void {
   conflicts.update(($conflicts) => {
     const existing = $conflicts[filePath] as ConflictInfo | undefined
     const base: ConflictInfo = existing ?? {

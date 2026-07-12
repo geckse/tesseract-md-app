@@ -50,7 +50,7 @@ class ClosedTabStack {
     const entry: ClosedTabEntry = {
       tab,
       paneId,
-      closedAt: Date.now(),
+      closedAt: Date.now()
     }
 
     // If stack is at capacity, remove the oldest entry (front of array)

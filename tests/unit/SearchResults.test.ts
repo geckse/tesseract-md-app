@@ -12,12 +12,12 @@ const mockApi = {
   status: vi.fn(),
   readFile: vi.fn(),
   writeFile: vi.fn(),
-  search: vi.fn(),
+  search: vi.fn()
 }
 
 Object.defineProperty(globalThis, 'window', {
   value: { api: mockApi },
-  writable: true,
+  writable: true
 })
 
 // Mock localStorage for setSearchMode persistence
@@ -25,10 +25,14 @@ const localStorageMock: Record<string, string> = {}
 Object.defineProperty(globalThis, 'localStorage', {
   value: {
     getItem: vi.fn((key: string) => localStorageMock[key] ?? null),
-    setItem: vi.fn((key: string, value: string) => { localStorageMock[key] = value }),
-    removeItem: vi.fn((key: string) => { delete localStorageMock[key] }),
+    setItem: vi.fn((key: string, value: string) => {
+      localStorageMock[key] = value
+    }),
+    removeItem: vi.fn((key: string) => {
+      delete localStorageMock[key]
+    })
   },
-  writable: true,
+  writable: true
 })
 
 import {
@@ -37,7 +41,7 @@ import {
   searchLoading,
   searchMode,
   searchError,
-  highlightedIndex,
+  highlightedIndex
 } from '../../src/renderer/stores/search'
 import { collections, activeCollectionId } from '../../src/renderer/stores/collections'
 import type { SearchOutput, SearchResult } from '../../src/renderer/types/cli'
@@ -51,16 +55,16 @@ function makeResult(overrides: Partial<SearchResult> = {}): SearchResult {
       heading_hierarchy: ['Introduction', 'Overview'],
       content: 'This is a test snippet of content.',
       start_line: 1,
-      end_line: 10,
+      end_line: 10
     },
     file: {
       path: 'docs/test.md',
       frontmatter: null,
       file_size: 1024,
       path_components: ['docs', 'test.md'],
-      modified_at: null,
+      modified_at: null
     },
-    ...overrides,
+    ...overrides
   }
 }
 
@@ -69,7 +73,7 @@ function makeSearchOutput(results: SearchResult[]): SearchOutput {
     results,
     query: 'test query',
     total_results: results.length,
-    mode: 'hybrid',
+    mode: 'hybrid'
   }
 }
 
@@ -91,8 +95,24 @@ beforeEach(() => {
 
 describe('SearchResults component', () => {
   it('renders result cards with file path text', async () => {
-    const r1 = makeResult({ file: { path: 'notes/alpha.md', frontmatter: null, file_size: 100, path_components: ['notes', 'alpha.md'], modified_at: null } })
-    const r2 = makeResult({ file: { path: 'docs/beta.md', frontmatter: null, file_size: 200, path_components: ['docs', 'beta.md'], modified_at: null } })
+    const r1 = makeResult({
+      file: {
+        path: 'notes/alpha.md',
+        frontmatter: null,
+        file_size: 100,
+        path_components: ['notes', 'alpha.md'],
+        modified_at: null
+      }
+    })
+    const r2 = makeResult({
+      file: {
+        path: 'docs/beta.md',
+        frontmatter: null,
+        file_size: 200,
+        path_components: ['docs', 'beta.md'],
+        modified_at: null
+      }
+    })
     searchQuery.set('test query')
     searchResults.set(makeSearchOutput([r1, r2]))
 
@@ -109,8 +129,8 @@ describe('SearchResults component', () => {
         heading_hierarchy: ['Getting Started', 'Installation', 'Prerequisites'],
         content: 'Some content',
         start_line: 1,
-        end_line: 5,
-      },
+        end_line: 5
+      }
     })
     searchQuery.set('test query')
     searchResults.set(makeSearchOutput([r]))
@@ -139,8 +159,8 @@ describe('SearchResults component', () => {
         heading_hierarchy: [],
         content: 'Unique snippet text here',
         start_line: 1,
-        end_line: 3,
-      },
+        end_line: 3
+      }
     })
     searchQuery.set('test query')
     searchResults.set(makeSearchOutput([r]))
@@ -206,7 +226,7 @@ describe('SearchResults component', () => {
       results,
       query: 'test query',
       total_results: 3,
-      mode: 'hybrid',
+      mode: 'hybrid'
     })
 
     render(SearchResults)
@@ -220,7 +240,7 @@ describe('SearchResults component', () => {
       results: [makeResult()],
       query: 'test query',
       total_results: 1,
-      mode: 'hybrid',
+      mode: 'hybrid'
     })
 
     render(SearchResults)

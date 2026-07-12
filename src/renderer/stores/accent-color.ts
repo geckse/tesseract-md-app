@@ -12,7 +12,7 @@ import {
   resolveThemeAwareAccent,
   DEFAULT_PRIMARY,
   type PrimaryVariants,
-  type ThemeAwareAccent,
+  type ThemeAwareAccent
 } from '../lib/color-utils'
 import { resolvedTheme } from './theme'
 
@@ -42,13 +42,10 @@ export const themeAwareAccent = derived<typeof effectivePrimaryColor, ThemeAware
 export const primaryVariants = derived<
   [typeof themeAwareAccent, typeof resolvedTheme],
   PrimaryVariants
->(
-  [themeAwareAccent, resolvedTheme],
-  ([$accent, $theme]) => {
-    const color = $theme === 'light' ? $accent.lightColor : $accent.darkColor
-    return derivePrimaryVariants(color)
-  }
-)
+>([themeAwareAccent, resolvedTheme], ([$accent, $theme]) => {
+  const color = $theme === 'light' ? $accent.lightColor : $accent.darkColor
+  return derivePrimaryVariants(color)
+})
 
 /** Load the global accent color from electron-store on startup */
 export async function loadAccentColors(): Promise<void> {

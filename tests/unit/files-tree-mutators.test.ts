@@ -50,7 +50,11 @@ function makeAssetTree(): AssetScanResult {
   }
 }
 
-function ev(kind: VaultFileEvent['kind'], path: string, over: Partial<VaultFileEvent> = {}): VaultFileEvent {
+function ev(
+  kind: VaultFileEvent['kind'],
+  path: string,
+  over: Partial<VaultFileEvent> = {}
+): VaultFileEvent {
   return {
     kind,
     path,
@@ -153,7 +157,9 @@ describe('routeVaultEventToTree', () => {
   })
 
   it('routes assets to the asset tree', () => {
-    routeVaultEventToTree(ev('created', 'pic.png', { fileKind: 'asset', mimeCategory: 'image', size: 9 }))
+    routeVaultEventToTree(
+      ev('created', 'pic.png', { fileKind: 'asset', mimeCategory: 'image', size: 9 })
+    )
     vi.advanceTimersByTime(120)
     expect(get(assetTree)!.totalAssets).toBe(1)
   })

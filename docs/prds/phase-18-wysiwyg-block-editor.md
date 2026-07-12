@@ -98,22 +98,23 @@ const editor = createWysiwygEditor({
 
 #### Built-in TipTap Extensions
 
-| Extension | Package | Purpose |
-|---|---|---|
-| StarterKit | `@tiptap/starter-kit` | Headings (1-3), bold, italic, strike, code, blockquote, bullet list, ordered list, HR, history |
-| Link | `@tiptap/extension-link` | Standard `[text](url)` markdown links |
-| Table + TableRow + TableCell + TableHeader | `@tiptap/extension-table` | Interactive table editing (add/remove rows/columns) |
-| CodeBlockLowlight | `@tiptap/extension-code-block-lowlight` | Syntax-highlighted fenced code blocks with language selector |
-| TaskList + TaskItem | `@tiptap/extension-task-list` | `- [ ]` / `- [x]` todo items |
-| Placeholder | `@tiptap/extension-placeholder` | "Type '/' for commands..." hint text |
-| Typography | `@tiptap/extension-typography` | Smart quotes, em dashes |
-| Image | `@tiptap/extension-image` | Image nodes |
-| Dropcursor | `@tiptap/extension-dropcursor` | Visual cursor during drag-and-drop |
-| Markdown | `@tiptap/markdown` | Bidirectional markdown parsing/serialization |
+| Extension                                  | Package                                 | Purpose                                                                                        |
+| ------------------------------------------ | --------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| StarterKit                                 | `@tiptap/starter-kit`                   | Headings (1-3), bold, italic, strike, code, blockquote, bullet list, ordered list, HR, history |
+| Link                                       | `@tiptap/extension-link`                | Standard `[text](url)` markdown links                                                          |
+| Table + TableRow + TableCell + TableHeader | `@tiptap/extension-table`               | Interactive table editing (add/remove rows/columns)                                            |
+| CodeBlockLowlight                          | `@tiptap/extension-code-block-lowlight` | Syntax-highlighted fenced code blocks with language selector                                   |
+| TaskList + TaskItem                        | `@tiptap/extension-task-list`           | `- [ ]` / `- [x]` todo items                                                                   |
+| Placeholder                                | `@tiptap/extension-placeholder`         | "Type '/' for commands..." hint text                                                           |
+| Typography                                 | `@tiptap/extension-typography`          | Smart quotes, em dashes                                                                        |
+| Image                                      | `@tiptap/extension-image`               | Image nodes                                                                                    |
+| Dropcursor                                 | `@tiptap/extension-dropcursor`          | Visual cursor during drag-and-drop                                                             |
+| Markdown                                   | `@tiptap/markdown`                      | Bidirectional markdown parsing/serialization                                                   |
 
 #### Custom Extensions (Built In-House)
 
 **1. WikilinkNode** (`lib/tiptap/wikilink-extension.ts`)
+
 - Custom inline node type `wikilink` with attributes `{ target: string, anchor: string | null, display: string | null }`
 - Renders as styled `<span class="wikilink">` with cyan color and pointer cursor
 - Click handler opens the linked file via `selectFile()`
@@ -122,6 +123,7 @@ const editor = createWysiwygEditor({
 - Register via `@tiptap/markdown`'s `addMarkdownSerializer` / `addMarkdownParser` hooks
 
 **2. SlashCommandSuggestion** (`lib/tiptap/slash-command-extension.ts`)
+
 - Uses `@tiptap/suggestion` plugin with `/` trigger character
 - Items: Heading 1, Heading 2, Heading 3, Bullet List, Numbered List, Todo List, Code Block, Table, Blockquote, Horizontal Rule, Image
 - Each item has icon, label, and maps to a TipTap chain command
@@ -129,6 +131,7 @@ const editor = createWysiwygEditor({
 - Keyboard: arrow keys to navigate, Enter to select, Escape to dismiss, type to filter
 
 **3. LinkAutocompleteSuggestion** (`lib/tiptap/link-autocomplete-extension.ts`)
+
 - Uses `@tiptap/suggestion` with `[[` trigger (two characters)
 - `onQuery` fires debounced (150ms) IPC search: `window.api.search(root, query, { mode: 'lexical', limit: 10 })`
 - Results deduplicated by file path (multiple chunks from same file → show file once)
@@ -138,6 +141,7 @@ const editor = createWysiwygEditor({
 - Renders `LinkAutocomplete.svelte` as the popup
 
 **4. BlockDragPlugin** (`lib/tiptap/block-drag-extension.ts`)
+
 - ProseMirror plugin that decorates top-level block nodes with a drag handle widget
 - Handle appears on hover (left side of each block, grip icon)
 - Uses ProseMirror's built-in drag/drop support for node reordering
@@ -151,8 +155,8 @@ const editor = createWysiwygEditor({
 
 ```typescript
 interface MarkdownBridgeResult {
-  frontmatter: string | null     // Raw YAML block including --- delimiters
-  body: string                    // Markdown body without frontmatter
+  frontmatter: string | null // Raw YAML block including --- delimiters
+  body: string // Markdown body without frontmatter
   data: Record<string, any> | null // Parsed key-value pairs
 }
 
@@ -191,23 +195,23 @@ User saves (Cmd+S)
 
 #### Elements That Must Round-Trip Correctly
 
-| Element | TipTap Extension | Markdown Syntax |
-|---|---|---|
-| Headings | StarterKit | `# / ## / ###` |
-| Bold | StarterKit | `**text**` |
-| Italic | StarterKit | `*text*` |
-| Strikethrough | StarterKit | `~~text~~` |
-| Inline code | StarterKit | `` `code` `` |
-| Code blocks | CodeBlockLowlight | ` ```lang ... ``` ` |
-| Bullet lists | StarterKit | `- item` |
-| Ordered lists | StarterKit | `1. item` |
-| Task lists | TaskList/TaskItem | `- [ ] / - [x]` |
-| Blockquotes | StarterKit | `> quote` |
-| Horizontal rule | StarterKit | `---` |
-| Links | Link | `[text](url)` |
-| Images | Image | `![alt](src)` |
-| Tables | Table | `\| ... \|` pipe syntax |
-| Wikilinks | Custom WikilinkNode | `[[target]]` |
+| Element         | TipTap Extension    | Markdown Syntax         |
+| --------------- | ------------------- | ----------------------- |
+| Headings        | StarterKit          | `# / ## / ###`          |
+| Bold            | StarterKit          | `**text**`              |
+| Italic          | StarterKit          | `*text*`                |
+| Strikethrough   | StarterKit          | `~~text~~`              |
+| Inline code     | StarterKit          | `` `code` ``            |
+| Code blocks     | CodeBlockLowlight   | ` ```lang ... ``` `     |
+| Bullet lists    | StarterKit          | `- item`                |
+| Ordered lists   | StarterKit          | `1. item`               |
+| Task lists      | TaskList/TaskItem   | `- [ ] / - [x]`         |
+| Blockquotes     | StarterKit          | `> quote`               |
+| Horizontal rule | StarterKit          | `---`                   |
+| Links           | Link                | `[text](url)`           |
+| Images          | Image               | `![alt](src)`           |
+| Tables          | Table               | `\| ... \|` pipe syntax |
+| Wikilinks       | Custom WikilinkNode | `[[target]]`            |
 
 ### Store Modifications
 
@@ -258,12 +262,21 @@ Add 3rd tab button in the `.mode-toggle` bar (currently lines 301-331):
 
 ```svelte
 <div class="mode-toggle" role="tablist" aria-label="Editor mode">
-  <button class="mode-tab" class:active={$editorMode === 'preview'}
-    onclick={() => editorMode.set('preview')}>Preview</button>
-  <button class="mode-tab" class:active={$editorMode === 'wysiwyg'}
-    onclick={() => editorMode.set('wysiwyg')}>WYSIWYG</button>
-  <button class="mode-tab" class:active={$editorMode === 'editor'}
-    onclick={() => editorMode.set('editor')}>Source</button>
+  <button
+    class="mode-tab"
+    class:active={$editorMode === 'preview'}
+    onclick={() => editorMode.set('preview')}>Preview</button
+  >
+  <button
+    class="mode-tab"
+    class:active={$editorMode === 'wysiwyg'}
+    onclick={() => editorMode.set('wysiwyg')}>WYSIWYG</button
+  >
+  <button
+    class="mode-tab"
+    class:active={$editorMode === 'editor'}
+    onclick={() => editorMode.set('editor')}>Source</button
+  >
 </div>
 ```
 
@@ -345,55 +358,56 @@ A ProseMirror plugin listens for `drop` events, checks for `application/x-mdvdb-
 
 All styles match the existing design tokens from `tokens.css`:
 
-| Element | Style |
-|---|---|
-| Editor background | `var(--color-background)` (#0f0f10) |
-| Content surface | `var(--color-surface)` (#161617) |
-| Headings | Space Grotesk, H1 2.25em / H2 1.5em / H3 1.25em, `var(--color-text-main)` |
-| Body text | Space Grotesk, 1em, `var(--color-text-main)` (#e4e4e7) |
-| Code | JetBrains Mono, `rgba(0, 229, 255, 0.1)` background |
-| Wikilinks | `var(--color-primary)` (#00E5FF), pointer cursor, underline on hover |
-| Slash menu | Dark surface card, `var(--color-border)` border, cyan highlight on selected item |
-| Bubble menu | Dark floating bar, icon buttons, cyan active states |
-| Block handles | Subtle grip icon, `var(--color-text-dim)` (#71717a), visible on hover |
-| `+` button | Same dim color, hover → `var(--color-primary)` |
-| Link popup | Compact list, file icon + path text, cyan highlight on focused result |
-| Frontmatter | `var(--color-surface)` panel, `var(--color-border)` divider below |
+| Element           | Style                                                                            |
+| ----------------- | -------------------------------------------------------------------------------- |
+| Editor background | `var(--color-background)` (#0f0f10)                                              |
+| Content surface   | `var(--color-surface)` (#161617)                                                 |
+| Headings          | Space Grotesk, H1 2.25em / H2 1.5em / H3 1.25em, `var(--color-text-main)`        |
+| Body text         | Space Grotesk, 1em, `var(--color-text-main)` (#e4e4e7)                           |
+| Code              | JetBrains Mono, `rgba(0, 229, 255, 0.1)` background                              |
+| Wikilinks         | `var(--color-primary)` (#00E5FF), pointer cursor, underline on hover             |
+| Slash menu        | Dark surface card, `var(--color-border)` border, cyan highlight on selected item |
+| Bubble menu       | Dark floating bar, icon buttons, cyan active states                              |
+| Block handles     | Subtle grip icon, `var(--color-text-dim)` (#71717a), visible on hover            |
+| `+` button        | Same dim color, hover → `var(--color-primary)`                                   |
+| Link popup        | Compact list, file icon + path text, cyan highlight on focused result            |
+| Frontmatter       | `var(--color-surface)` panel, `var(--color-border)` divider below                |
 
 ---
 
 ## New Files
 
-| File | Purpose |
-|---|---|
-| `components/WysiwygEditor.svelte` | Main component: TipTap lifecycle, file switching, save, cache, conflict detection |
-| `components/wysiwyg/SlashCommandMenu.svelte` | Slash command popup (filterable block type list) |
-| `components/wysiwyg/BubbleMenu.svelte` | Floating inline formatting toolbar on text selection |
-| `components/wysiwyg/BlockToolbar.svelte` | Left-side `+` button and drag handle per block |
-| `components/wysiwyg/LinkAutocomplete.svelte` | `[[` triggered link suggestion popup with typeahead |
-| `components/wysiwyg/FrontmatterEditor.svelte` | Visual property editor above content |
-| `lib/tiptap/wikilink-extension.ts` | Custom TipTap node for `[[wikilinks]]` with markdown round-trip |
-| `lib/tiptap/slash-command-extension.ts` | `/` suggestion plugin binding slash commands |
-| `lib/tiptap/link-autocomplete-extension.ts` | `[[` suggestion plugin with FTS search integration |
-| `lib/tiptap/block-drag-extension.ts` | Block drag handles + `+` toolbar ProseMirror plugin |
-| `lib/tiptap/markdown-bridge.ts` | Frontmatter split/join, YAML serialization |
-| `lib/tiptap/editor-factory.ts` | Factory to create a fully configured TipTap instance |
-| `lib/tiptap/wysiwyg-theme.css` | Dark theme CSS for TipTap matching design system |
+| File                                          | Purpose                                                                           |
+| --------------------------------------------- | --------------------------------------------------------------------------------- |
+| `components/WysiwygEditor.svelte`             | Main component: TipTap lifecycle, file switching, save, cache, conflict detection |
+| `components/wysiwyg/SlashCommandMenu.svelte`  | Slash command popup (filterable block type list)                                  |
+| `components/wysiwyg/BubbleMenu.svelte`        | Floating inline formatting toolbar on text selection                              |
+| `components/wysiwyg/BlockToolbar.svelte`      | Left-side `+` button and drag handle per block                                    |
+| `components/wysiwyg/LinkAutocomplete.svelte`  | `[[` triggered link suggestion popup with typeahead                               |
+| `components/wysiwyg/FrontmatterEditor.svelte` | Visual property editor above content                                              |
+| `lib/tiptap/wikilink-extension.ts`            | Custom TipTap node for `[[wikilinks]]` with markdown round-trip                   |
+| `lib/tiptap/slash-command-extension.ts`       | `/` suggestion plugin binding slash commands                                      |
+| `lib/tiptap/link-autocomplete-extension.ts`   | `[[` suggestion plugin with FTS search integration                                |
+| `lib/tiptap/block-drag-extension.ts`          | Block drag handles + `+` toolbar ProseMirror plugin                               |
+| `lib/tiptap/markdown-bridge.ts`               | Frontmatter split/join, YAML serialization                                        |
+| `lib/tiptap/editor-factory.ts`                | Factory to create a fully configured TipTap instance                              |
+| `lib/tiptap/wysiwyg-theme.css`                | Dark theme CSS for TipTap matching design system                                  |
 
 ## Modified Files
 
-| File | Changes |
-|---|---|
-| `stores/editor.ts` | Add `'wysiwyg'` to `EditorMode` type, update `toggleEditorMode()` to cycle 3 modes |
-| `App.svelte` | Add 3rd "WYSIWYG" tab button, conditional render `<WysiwygEditor />`, update Cmd+E shortcut |
-| `components/FileTreeNode.svelte` | Add `draggable` attribute + `ondragstart` handler for drag-and-drop links |
-| `package.json` | Add TipTap + lowlight dependencies |
+| File                             | Changes                                                                                     |
+| -------------------------------- | ------------------------------------------------------------------------------------------- |
+| `stores/editor.ts`               | Add `'wysiwyg'` to `EditorMode` type, update `toggleEditorMode()` to cycle 3 modes          |
+| `App.svelte`                     | Add 3rd "WYSIWYG" tab button, conditional render `<WysiwygEditor />`, update Cmd+E shortcut |
+| `components/FileTreeNode.svelte` | Add `draggable` attribute + `ondragstart` handler for drag-and-drop links                   |
+| `package.json`                   | Add TipTap + lowlight dependencies                                                          |
 
 ---
 
 ## Implementation Steps
 
 ### Subtask 1: Store + Routing Foundation
+
 - Add `'wysiwyg'` to `EditorMode` type in `stores/editor.ts`
 - Update `toggleEditorMode()` to cycle: preview → wysiwyg → editor → preview
 - Add `setEditorMode()` already supports the new type via the union
@@ -404,6 +418,7 @@ All styles match the existing design tokens from `tokens.css`:
 - Verify mode cycling with Cmd+E and all three tabs render correctly
 
 ### Subtask 2: TipTap Core + Markdown Bridge
+
 - Install all TipTap npm dependencies listed above
 - Implement `splitFrontmatter()` and `joinFrontmatter()` in `lib/tiptap/markdown-bridge.ts`
 - Create `createWysiwygEditor()` factory in `lib/tiptap/editor-factory.ts` with: StarterKit, Link, Placeholder, Typography, Markdown, Dropcursor, Image
@@ -417,6 +432,7 @@ All styles match the existing design tokens from `tokens.css`:
 - Verify: open a file in WYSIWYG mode, see rendered content, edit and save
 
 ### Subtask 3: Wikilink Custom Extension
+
 - Define ProseMirror inline node spec for `wikilink` node in `lib/tiptap/wikilink-extension.ts`
 - Attributes: `target` (string), `anchor` (string | null), `display` (string | null)
 - Implement markdown parse rule: detect `[[target]]`, `[[target#anchor]]`, `[[target|display]]`
@@ -427,6 +443,7 @@ All styles match the existing design tokens from `tokens.css`:
 - Verify: open file with wikilinks → rendered as cyan spans → click navigates → save preserves syntax
 
 ### Subtask 4: Bubble Menu (Inline Formatting Toolbar)
+
 - Create `components/wysiwyg/BubbleMenu.svelte`
 - Floating toolbar appears on text selection
 - Buttons: Bold (B), Italic (I), Code (< >), Strikethrough (S), Link (chain icon)
@@ -436,6 +453,7 @@ All styles match the existing design tokens from `tokens.css`:
 - Dark theme: `var(--color-surface)` background, `var(--color-border)` border, icon buttons
 
 ### Subtask 5: Slash Command Menu
+
 - Implement TipTap suggestion plugin with `/` trigger in `lib/tiptap/slash-command-extension.ts`
 - Define command items with Material Symbols icons:
   - Heading 1 (`format_h1`), Heading 2 (`format_h2`), Heading 3 (`format_h3`)
@@ -450,6 +468,7 @@ All styles match the existing design tokens from `tokens.css`:
   - Item: icon + label + optional description
 
 ### Subtask 6: Table, CodeBlock, TaskList Extensions
+
 - Add Table suite extensions (Table, TableRow, TableCell, TableHeader) to editor factory
 - Add CodeBlockLowlight with `lowlight` for syntax highlighting
 - Language selector dropdown on code blocks (top-right corner)
@@ -458,6 +477,7 @@ All styles match the existing design tokens from `tokens.css`:
 - Verify: create tables in WYSIWYG → add/remove rows/columns → save → source shows pipe syntax
 
 ### Subtask 7: Link Autocomplete (Critical Feature)
+
 - Implement suggestion plugin with `[[` trigger in `lib/tiptap/link-autocomplete-extension.ts`
 - On query change (after debounce 150ms):
   - Call `window.api.search(root, query, { mode: 'lexical', limit: 10 })`
@@ -475,6 +495,7 @@ All styles match the existing design tokens from `tokens.css`:
 - Handle edge cases: empty query (show recent files?), no results message, network errors
 
 ### Subtask 8: Block Drag Handles + `+` Toolbar
+
 - Create ProseMirror decoration plugin in `lib/tiptap/block-drag-extension.ts`
 - For each top-level block node, add a widget decoration on the left side:
   - Drag handle (grip icon, `drag_indicator` Material Symbol)
@@ -486,6 +507,7 @@ All styles match the existing design tokens from `tokens.css`:
 - Verify: hover shows handles → drag to reorder → `+` shows menu → select converts block type
 
 ### Subtask 9: Visual Frontmatter Editor
+
 - Create `components/wysiwyg/FrontmatterEditor.svelte`
 - Receives parsed frontmatter data from `markdown-bridge.ts:splitFrontmatter()`
 - Render each key-value pair as an editable row:
@@ -507,6 +529,7 @@ All styles match the existing design tokens from `tokens.css`:
 - Visual: `var(--color-surface)` background, `var(--color-border)` bottom divider, collapsible
 
 ### Subtask 10: FileTree Drag & Drop into Editor
+
 - Modify `components/FileTreeNode.svelte`:
   - Add `draggable={!node.is_dir}` to the button element
   - Add `ondragstart` handler setting `text/plain` (wikilink) + `application/x-mdvdb-path` (path)
@@ -519,6 +542,7 @@ All styles match the existing design tokens from `tokens.css`:
 - Verify: drag file from tree → see cursor in editor → drop → wikilink inserted at correct position
 
 ### Subtask 11: Document Cache + External Change Detection
+
 - Integrate `WysiwygEditor.svelte` with existing `DocumentCache` from `lib/doc-cache.ts`
   - On file switch: serialize TipTap to markdown, save to cache with scroll position
   - On file load: check cache first, restore content + scroll position
@@ -531,6 +555,7 @@ All styles match the existing design tokens from `tokens.css`:
 - Verify: switch files → come back → state restored → edit file externally → conflict shown
 
 ### Subtask 12: Polish + Accessibility
+
 - Add `@media (prefers-reduced-motion: reduce)` on all transitions and animations
 - Add ARIA attributes: `role="menu"` on slash/link popups, `role="toolbar"` on bubble menu, `aria-label` on all interactive elements
 - Focus management: Escape closes any open popup, Tab moves to next interactive region

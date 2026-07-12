@@ -195,10 +195,7 @@ export class DocumentCache {
    * @param cursor - New cursor position
    * @returns True if the document was found and updated, false otherwise
    */
-  updateCursor(
-    filePath: string,
-    cursor: { line: number; column: number }
-  ): boolean {
+  updateCursor(filePath: string, cursor: { line: number; column: number }): boolean {
     const doc = this.cache.get(filePath)
     if (!doc) return false
 

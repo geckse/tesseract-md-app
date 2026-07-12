@@ -27,19 +27,16 @@ export const linkAutocompletePluginKey = new PluginKey('linkAutocomplete')
  * Multi-char `char` triggers are unreliable in @tiptap/suggestion (GitHub #2882/#4931),
  * so we implement a custom match function instead.
  */
-function findSuggestionMatch(config: { editor: Editor }): { range: Range; query: string; text: string } | null {
+function findSuggestionMatch(config: {
+  editor: Editor
+}): { range: Range; query: string; text: string } | null {
   const { editor } = config
   if (!editor?.state) return null
   const { selection } = editor.state
   const { $anchor } = selection
 
   // Get text from start of current text block to cursor
-  const textBefore = $anchor.parent.textBetween(
-    0,
-    $anchor.parentOffset,
-    undefined,
-    '\ufffc'
-  )
+  const textBefore = $anchor.parent.textBetween(0, $anchor.parentOffset, undefined, '\ufffc')
 
   // --- Try [[ trigger first (longer match takes priority) ---
   const bracketIndex = textBefore.lastIndexOf('[[')
@@ -49,7 +46,7 @@ function findSuggestionMatch(config: { editor: Editor }): { range: Range; query:
       return {
         range: { from: $anchor.start() + bracketIndex, to: $anchor.pos },
         query: afterBracket,
-        text: textBefore.slice(bracketIndex),
+        text: textBefore.slice(bracketIndex)
       }
     }
   }
@@ -66,7 +63,7 @@ function findSuggestionMatch(config: { editor: Editor }): { range: Range; query:
         return {
           range: { from: $anchor.start() + atIndex, to: $anchor.pos },
           query: afterAt,
-          text: textBefore.slice(atIndex),
+          text: textBefore.slice(atIndex)
         }
       }
     }
@@ -89,7 +86,7 @@ export const LinkAutocompleteExtension = Extension.create({
         allowSpaces: true,
         // Use custom match instead of char trigger
         findSuggestionMatch,
-        items: ({ query }: { query: string }) => {
+        items: ({ query: _query }: { query: string }) => {
           // Items are fetched asynchronously inside the component
           // Return empty array; the component handles search via IPC
           return [] as LinkSuggestionItem[]
@@ -99,8 +96,9 @@ export const LinkAutocompleteExtension = Extension.create({
           let popup: HTMLDivElement | null = null
 
           const getExtensionOptions = (editor: Editor) => {
-            const ext = editor.extensionManager.extensions
-              .find(e => e.name === 'linkAutocomplete')
+            const ext = editor.extensionManager.extensions.find(
+              (e) => e.name === 'linkAutocomplete'
+            )
             return ext?.options as { collectionPath?: string; collectionId?: string } | undefined
           }
 
@@ -149,7 +147,7 @@ export const LinkAutocompleteExtension = Extension.create({
                   popup.dispatchEvent(
                     new KeyboardEvent('keydown', {
                       key: props.event.key,
-                      bubbles: true,
+                      bubbles: true
                     })
                   )
                 }
@@ -169,10 +167,18 @@ export const LinkAutocompleteExtension = Extension.create({
                 popup.remove()
                 popup = null
               }
-            },
+            }
           }
         },
-        command: ({ editor, range, props }: { editor: Editor; range: Range; props: LinkSuggestionItem }) => {
+        command: ({
+          editor,
+          range,
+          props
+        }: {
+          editor: Editor
+          range: Range
+          props: LinkSuggestionItem
+        }) => {
           editor
             .chain()
             .focus()
@@ -182,12 +188,12 @@ export const LinkAutocompleteExtension = Extension.create({
               attrs: {
                 target: props.path,
                 anchor: props.anchor ?? null,
-                display: null,
-              },
+                display: null
+              }
             })
             .run()
-        },
-      } satisfies Partial<SuggestionOptions<LinkSuggestionItem>>,
+        }
+      } satisfies Partial<SuggestionOptions<LinkSuggestionItem>>
     }
   },
 
@@ -195,8 +201,8 @@ export const LinkAutocompleteExtension = Extension.create({
     return [
       Suggestion({
         editor: this.editor,
-        ...this.options.suggestion,
-      }),
+        ...this.options.suggestion
+      })
     ]
-  },
+  }
 })

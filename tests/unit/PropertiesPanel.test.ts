@@ -16,12 +16,12 @@ const mockApi = {
   tree: vi.fn(),
   neighborhood: vi.fn(),
   saveWindowSession: vi.fn().mockResolvedValue(undefined),
-  detachTab: vi.fn().mockResolvedValue(undefined),
+  detachTab: vi.fn().mockResolvedValue(undefined)
 }
 
 Object.defineProperty(globalThis, 'window', {
   value: { api: mockApi },
-  writable: true,
+  writable: true
 })
 
 import {
@@ -30,7 +30,7 @@ import {
   linksInfo,
   propertiesLoading,
   propertiesError,
-  propertiesFileContent,
+  propertiesFileContent
 } from '../../src/renderer/stores/properties'
 import { syncFileStoresFromTab } from '../../src/renderer/stores/files'
 import { workspace } from '../../src/renderer/stores/workspace.svelte'
@@ -43,12 +43,12 @@ const sampleDoc: DocumentInfo = {
   frontmatter: {
     status: 'in-progress',
     tags: ['design', 'v1'],
-    title: 'Test Document',
+    title: 'Test Document'
   },
   chunk_count: 3,
   file_size: 1024,
   indexed_at: 1704067200,
-  modified_at: 1704153600,
+  modified_at: 1704153600
 }
 
 const sampleBacklinks: BacklinksOutput = {
@@ -60,9 +60,9 @@ const sampleBacklinks: BacklinksOutput = {
         target: 'docs/test.md',
         text: 'See test document',
         line_number: 5,
-        is_wikilink: false,
+        is_wikilink: false
       },
-      state: 'Valid',
+      state: 'Valid'
     },
     {
       entry: {
@@ -70,12 +70,12 @@ const sampleBacklinks: BacklinksOutput = {
         target: 'docs/test.md',
         text: 'Discussed test doc',
         line_number: 12,
-        is_wikilink: true,
+        is_wikilink: true
       },
-      state: 'Valid',
-    },
+      state: 'Valid'
+    }
   ],
-  total_backlinks: 2,
+  total_backlinks: 2
 }
 
 const sampleLinks: LinksOutput = {
@@ -89,9 +89,9 @@ const sampleLinks: LinksOutput = {
           target: 'docs/guide.md',
           text: 'see guide',
           line_number: 10,
-          is_wikilink: false,
+          is_wikilink: false
         },
-        state: 'Valid',
+        state: 'Valid'
       },
       {
         entry: {
@@ -99,13 +99,13 @@ const sampleLinks: LinksOutput = {
           target: 'docs/api.md',
           text: 'API reference',
           line_number: 15,
-          is_wikilink: true,
+          is_wikilink: true
         },
-        state: 'Valid',
-      },
+        state: 'Valid'
+      }
     ],
-    incoming: [],
-  },
+    incoming: []
+  }
 }
 
 /** Open a file tab in the workspace and sync derived stores so selectedFilePath updates.

@@ -1,15 +1,15 @@
 <script lang="ts">
-  import type { Snippet } from 'svelte';
+  import type { Snippet } from 'svelte'
 
   interface InputProps {
-    value?: string;
-    placeholder?: string;
-    type?: 'text' | 'search';
-    disabled?: boolean;
-    icon?: Snippet;
-    oninput?: (e: Event) => void;
-    onfocus?: (e: FocusEvent) => void;
-    onblur?: (e: FocusEvent) => void;
+    value?: string
+    placeholder?: string
+    type?: 'text' | 'search'
+    disabled?: boolean
+    icon?: Snippet
+    oninput?: (e: Event) => void
+    onfocus?: (e: FocusEvent) => void
+    onblur?: (e: FocusEvent) => void
   }
 
   let {
@@ -20,8 +20,8 @@
     icon,
     oninput,
     onfocus,
-    onblur,
-  }: InputProps = $props();
+    onblur
+  }: InputProps = $props()
 </script>
 
 <div class="input-wrapper">
@@ -61,7 +61,7 @@
   }
 
   .input-wrapper:focus-within .input-icon {
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
   }
 
   .input {
@@ -74,8 +74,9 @@
     font-size: var(--text-sm, 12px);
     color: var(--color-text-white, #fff);
     outline: none;
-    transition: border-color var(--transition-fast, 150ms ease),
-                box-shadow var(--transition-fast, 150ms ease);
+    transition:
+      border-color var(--transition-fast, 150ms ease),
+      box-shadow var(--transition-fast, 150ms ease);
   }
 
   .input::placeholder {
@@ -84,8 +85,8 @@
   }
 
   .input:focus {
-    border-color: var(--color-primary, #00E5FF);
-    box-shadow: 0 0 0 1px var(--color-primary, #00E5FF);
+    border-color: var(--color-primary, #00e5ff);
+    box-shadow: 0 0 0 1px var(--color-primary, #00e5ff);
   }
 
   .input:disabled {

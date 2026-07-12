@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 /**
  * Ensure node-pty's `spawn-helper` prebuilds are executable.
  *

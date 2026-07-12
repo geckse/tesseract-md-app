@@ -10,7 +10,7 @@ The graph view (Phases 14, 16, 17) renders nodes with cluster-based coloring and
 
 1. **No folder awareness.** Clusters are semantic (K-means on embeddings), but users also think in terms of directory structure. There's no way to see "are files in `docs/api/` clustered together or spread across the graph?" Obsidian provides folder-based coloring as a baseline — we should too. Additionally, folder coloring works without ingestion (no embeddings needed), making the graph useful immediately.
 
-2. **No folder-to-graph connection.** Clicking a folder in the FileTree only toggles expand/collapse. Right-click offers "Show in Graph" which applies a path filter (reloads data scoped to that folder), but there's no lightweight way to just *highlight* a folder's files on the existing graph without reloading. The file highlight pattern (cyan glow when `selectedFilePath` changes) already exists for individual files but not for folders.
+2. **No folder-to-graph connection.** Clicking a folder in the FileTree only toggles expand/collapse. Right-click offers "Show in Graph" which applies a path filter (reloads data scoped to that folder), but there's no lightweight way to just _highlight_ a folder's files on the existing graph without reloading. The file highlight pattern (cyan glow when `selectedFilePath` changes) already exists for individual files but not for folders.
 
 3. **Cluster boundaries are invisible.** The legend maps colors to cluster labels, but the user must visually scan the entire graph to see which dots share a color. There's no spatial region boundary. Convex hull overlays — semi-transparent colored regions drawn behind node groups — would make cluster structure instantly visible, showing cluster area, density, and overlap at a glance.
 
@@ -70,18 +70,18 @@ interface FileTreeNodeProps {
 ```typescript
 export function cycleColoringMode(): void
 export function setGraphHighlightedFolder(path: string | null): void
-export function resetGraphState(): void  // updated to reset new stores
+export function resetGraphState(): void // updated to reset new stores
 ```
 
 ### New Commands / API / UI
 
 **Coloring mode cycle button** — Replaces the existing eye-icon visibility toggle in the legend header. Single button that cycles through modes on click:
 
-| Mode | Icon | Legend Title | Legend Content |
-|------|------|-------------|----------------|
-| `cluster` | `category` | "Clusters" | Cluster labels + member counts |
-| `folder` | `folder` | "Folders" | Folder names + file counts |
-| `none` | `visibility_off` | (legend hidden) | — |
+| Mode      | Icon             | Legend Title    | Legend Content                 |
+| --------- | ---------------- | --------------- | ------------------------------ |
+| `cluster` | `category`       | "Clusters"      | Cluster labels + member counts |
+| `folder`  | `folder`         | "Folders"       | Folder names + file counts     |
+| `none`    | `visibility_off` | (legend hidden) | —                              |
 
 **Folder highlight** — Visual effect on the graph canvas (no new UI elements). Triggered by left-clicking a folder in the FileTree.
 

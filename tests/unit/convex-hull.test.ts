@@ -13,14 +13,21 @@ describe('convexHull', () => {
   })
 
   it('returns both points for two-point input', () => {
-    const result = convexHull([[0, 0], [3, 4]])
+    const result = convexHull([
+      [0, 0],
+      [3, 4]
+    ])
     expect(result).toHaveLength(2)
     expect(result).toContainEqual([0, 0])
     expect(result).toContainEqual([3, 4])
   })
 
   it('computes correct hull for a triangle', () => {
-    const result = convexHull([[0, 0], [4, 0], [2, 3]])
+    const result = convexHull([
+      [0, 0],
+      [4, 0],
+      [2, 3]
+    ])
     expect(result).toHaveLength(3)
     expect(result).toContainEqual([0, 0])
     expect(result).toContainEqual([4, 0])
@@ -28,7 +35,12 @@ describe('convexHull', () => {
   })
 
   it('computes correct hull for a square', () => {
-    const result = convexHull([[0, 0], [4, 0], [4, 4], [0, 4]])
+    const result = convexHull([
+      [0, 0],
+      [4, 0],
+      [4, 4],
+      [0, 4]
+    ])
     expect(result).toHaveLength(4)
     expect(result).toContainEqual([0, 0])
     expect(result).toContainEqual([4, 0])
@@ -38,13 +50,24 @@ describe('convexHull', () => {
 
   it('excludes interior points from the hull', () => {
     // Square with an interior point
-    const result = convexHull([[0, 0], [4, 0], [4, 4], [0, 4], [2, 2]])
+    const result = convexHull([
+      [0, 0],
+      [4, 0],
+      [4, 4],
+      [0, 4],
+      [2, 2]
+    ])
     expect(result).toHaveLength(4)
     expect(result).not.toContainEqual([2, 2])
   })
 
   it('handles collinear points by returning endpoints', () => {
-    const result = convexHull([[0, 0], [1, 1], [2, 2], [3, 3]])
+    const result = convexHull([
+      [0, 0],
+      [1, 1],
+      [2, 2],
+      [3, 3]
+    ])
     // Collinear points produce a degenerate hull with just the endpoints
     expect(result.length).toBeLessThanOrEqual(2)
     expect(result).toContainEqual([0, 0])
@@ -52,14 +75,24 @@ describe('convexHull', () => {
   })
 
   it('handles duplicate points', () => {
-    const result = convexHull([[1, 1], [1, 1], [1, 1]])
+    const result = convexHull([
+      [1, 1],
+      [1, 1],
+      [1, 1]
+    ])
     // All same point — degenerate
     expect(result.length).toBeLessThanOrEqual(2)
     expect(result).toContainEqual([1, 1])
   })
 
   it('handles duplicate points mixed with distinct points', () => {
-    const result = convexHull([[0, 0], [0, 0], [4, 0], [4, 0], [2, 3]])
+    const result = convexHull([
+      [0, 0],
+      [0, 0],
+      [4, 0],
+      [4, 0],
+      [2, 3]
+    ])
     expect(result).toHaveLength(3)
     expect(result).toContainEqual([0, 0])
     expect(result).toContainEqual([4, 0])
@@ -67,7 +100,12 @@ describe('convexHull', () => {
   })
 
   it('returns vertices in counter-clockwise order', () => {
-    const result = convexHull([[0, 0], [4, 0], [4, 4], [0, 4]])
+    const result = convexHull([
+      [0, 0],
+      [4, 0],
+      [4, 4],
+      [0, 4]
+    ])
     // Verify CCW by checking positive signed area
     let signedArea = 0
     for (let i = 0; i < result.length; i++) {
@@ -80,14 +118,23 @@ describe('convexHull', () => {
   })
 
   it('does not mutate the input array', () => {
-    const input: [number, number][] = [[3, 1], [1, 2], [2, 3]]
+    const input: [number, number][] = [
+      [3, 1],
+      [1, 2],
+      [2, 3]
+    ]
     const inputCopy = input.map((p) => [...p])
     convexHull(input)
     expect(input).toEqual(inputCopy)
   })
 
   it('handles negative coordinates', () => {
-    const result = convexHull([[-1, -1], [1, -1], [1, 1], [-1, 1]])
+    const result = convexHull([
+      [-1, -1],
+      [1, -1],
+      [1, 1],
+      [-1, 1]
+    ])
     expect(result).toHaveLength(4)
     expect(result).toContainEqual([-1, -1])
     expect(result).toContainEqual([1, 1])
@@ -96,8 +143,16 @@ describe('convexHull', () => {
   it('handles large point sets correctly', () => {
     // Pentagon with many interior points
     const points: [number, number][] = [
-      [0, 2], [2, 4], [4, 2], [3, 0], [1, 0],  // pentagon vertices
-      [2, 1], [2, 2], [2, 3], [1, 2], [3, 2],   // interior points
+      [0, 2],
+      [2, 4],
+      [4, 2],
+      [3, 0],
+      [1, 0], // pentagon vertices
+      [2, 1],
+      [2, 2],
+      [2, 3],
+      [1, 2],
+      [3, 2] // interior points
     ]
     const result = convexHull(points)
     expect(result).toHaveLength(5)
@@ -116,25 +171,30 @@ describe('padHull', () => {
   })
 
   it('expands hull outward from centroid', () => {
-    const hull: [number, number][] = [[0, 0], [4, 0], [4, 4], [0, 4]]
+    const hull: [number, number][] = [
+      [0, 0],
+      [4, 0],
+      [4, 4],
+      [0, 4]
+    ]
     const padded = padHull(hull, 2)
 
     // Centroid is at (2, 2). Each vertex should be further from centroid.
     const c = centroid(hull)
     for (let i = 0; i < hull.length; i++) {
-      const origDist = Math.sqrt(
-        (hull[i][0] - c.x) ** 2 + (hull[i][1] - c.y) ** 2
-      )
-      const paddedDist = Math.sqrt(
-        (padded[i][0] - c.x) ** 2 + (padded[i][1] - c.y) ** 2
-      )
+      const origDist = Math.sqrt((hull[i][0] - c.x) ** 2 + (hull[i][1] - c.y) ** 2)
+      const paddedDist = Math.sqrt((padded[i][0] - c.x) ** 2 + (padded[i][1] - c.y) ** 2)
       expect(paddedDist).toBeGreaterThan(origDist)
       expect(paddedDist).toBeCloseTo(origDist + 2, 5)
     }
   })
 
   it('preserves the direction from centroid to each vertex', () => {
-    const hull: [number, number][] = [[0, 0], [6, 0], [3, 6]]
+    const hull: [number, number][] = [
+      [0, 0],
+      [6, 0],
+      [3, 6]
+    ]
     const padded = padHull(hull, 5)
     const c = centroid(hull)
 
@@ -146,14 +206,23 @@ describe('padHull', () => {
   })
 
   it('increases the polygon area', () => {
-    const hull: [number, number][] = [[0, 0], [4, 0], [4, 4], [0, 4]]
+    const hull: [number, number][] = [
+      [0, 0],
+      [4, 0],
+      [4, 4],
+      [0, 4]
+    ]
     const padded = padHull(hull, 5)
 
     expect(polygonArea(padded)).toBeGreaterThan(polygonArea(hull))
   })
 
   it('does not mutate the input array', () => {
-    const hull: [number, number][] = [[0, 0], [4, 0], [2, 3]]
+    const hull: [number, number][] = [
+      [0, 0],
+      [4, 0],
+      [2, 3]
+    ]
     const hullCopy = hull.map((p) => [...p])
     padHull(hull, 10)
     expect(hull).toEqual(hullCopy)
@@ -172,27 +241,45 @@ describe('centroid', () => {
   })
 
   it('returns midpoint for two points', () => {
-    const result = centroid([[0, 0], [10, 6]])
+    const result = centroid([
+      [0, 0],
+      [10, 6]
+    ])
     expect(result).toEqual({ x: 5, y: 3 })
   })
 
   it('computes average of triangle vertices', () => {
-    const result = centroid([[0, 0], [6, 0], [3, 9]])
+    const result = centroid([
+      [0, 0],
+      [6, 0],
+      [3, 9]
+    ])
     expect(result).toEqual({ x: 3, y: 3 })
   })
 
   it('computes average of square vertices', () => {
-    const result = centroid([[0, 0], [4, 0], [4, 4], [0, 4]])
+    const result = centroid([
+      [0, 0],
+      [4, 0],
+      [4, 4],
+      [0, 4]
+    ])
     expect(result).toEqual({ x: 2, y: 2 })
   })
 
   it('handles negative coordinates', () => {
-    const result = centroid([[-2, -2], [2, 2]])
+    const result = centroid([
+      [-2, -2],
+      [2, 2]
+    ])
     expect(result).toEqual({ x: 0, y: 0 })
   })
 
   it('handles floating point coordinates', () => {
-    const result = centroid([[0.5, 1.5], [2.5, 3.5]])
+    const result = centroid([
+      [0.5, 1.5],
+      [2.5, 3.5]
+    ])
     expect(result.x).toBeCloseTo(1.5)
     expect(result.y).toBeCloseTo(2.5)
   })
@@ -208,30 +295,59 @@ describe('polygonArea', () => {
   })
 
   it('returns 0 for two points (line segment)', () => {
-    expect(polygonArea([[0, 0], [5, 5]])).toBe(0)
+    expect(
+      polygonArea([
+        [0, 0],
+        [5, 5]
+      ])
+    ).toBe(0)
   })
 
   it('computes correct area for a unit square', () => {
-    const result = polygonArea([[0, 0], [1, 0], [1, 1], [0, 1]])
+    const result = polygonArea([
+      [0, 0],
+      [1, 0],
+      [1, 1],
+      [0, 1]
+    ])
     expect(result).toBeCloseTo(1)
   })
 
   it('computes correct area for a 4x4 square', () => {
-    const result = polygonArea([[0, 0], [4, 0], [4, 4], [0, 4]])
+    const result = polygonArea([
+      [0, 0],
+      [4, 0],
+      [4, 4],
+      [0, 4]
+    ])
     expect(result).toBeCloseTo(16)
   })
 
   it('computes correct area for a right triangle', () => {
     // Triangle with base 4, height 3 → area = 6
-    const result = polygonArea([[0, 0], [4, 0], [0, 3]])
+    const result = polygonArea([
+      [0, 0],
+      [4, 0],
+      [0, 3]
+    ])
     expect(result).toBeCloseTo(6)
   })
 
   it('returns positive area regardless of vertex order', () => {
     // Clockwise order
-    const cw = polygonArea([[0, 0], [0, 4], [4, 4], [4, 0]])
+    const cw = polygonArea([
+      [0, 0],
+      [0, 4],
+      [4, 4],
+      [4, 0]
+    ])
     // Counter-clockwise order
-    const ccw = polygonArea([[0, 0], [4, 0], [4, 4], [0, 4]])
+    const ccw = polygonArea([
+      [0, 0],
+      [4, 0],
+      [4, 4],
+      [0, 4]
+    ])
 
     expect(cw).toBeCloseTo(16)
     expect(ccw).toBeCloseTo(16)
@@ -241,7 +357,13 @@ describe('polygonArea', () => {
     // Pentagon with vertices at (0,2), (2,4), (4,2), (3,0), (1,0)
     // Shoelace: |0*4-2*2 + 2*2-4*4 + 4*0-2*3 + 3*0-0*1 + 1*2-0*0| / 2
     //         = |-4 + -12 + -6 + 0 + 2| / 2 = |-20| / 2 = 10
-    const result = polygonArea([[0, 2], [2, 4], [4, 2], [3, 0], [1, 0]])
+    const result = polygonArea([
+      [0, 2],
+      [2, 4],
+      [4, 2],
+      [3, 0],
+      [1, 0]
+    ])
     expect(result).toBeCloseTo(10)
   })
 })

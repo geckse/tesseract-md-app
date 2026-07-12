@@ -168,9 +168,7 @@ test.describe('Property type conversion (phase 41)', () => {
     // row hover but still actionable; the key label is an <input>, so
     // hasText can't target the row).
     await window.getByRole('button', { name: 'Property options for priority' }).click()
-    await window
-      .getByRole('menuitem', { name: 'Rename property…' })
-      .dispatchEvent('mousedown')
+    await window.getByRole('menuitem', { name: 'Rename property…' }).dispatchEvent('mousedown')
 
     const dialog = window.getByRole('dialog', { name: 'Rename property priority' })
     await expect(dialog).toBeVisible()

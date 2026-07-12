@@ -24,7 +24,13 @@ import { registerOwnWrite } from './own-writes'
 import type { WindowManager } from './window-manager'
 
 /** JSON value patch from the renderer (typed scalars/sequences). */
-export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue }
 
 export interface FrontmatterPatch {
   set?: Record<string, JsonValue>

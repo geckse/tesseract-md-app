@@ -39,9 +39,9 @@ The app needs to be distributed as installable packages for all three platforms.
 ```typescript
 interface AppStore {
   // ... existing fields ...
-  updateChannel: 'stable'                    // Only stable for now
-  lastUpdateCheck: number                    // Unix timestamp
-  skipVersion: string | null                 // User can skip a specific version
+  updateChannel: 'stable' // Only stable for now
+  lastUpdateCheck: number // Unix timestamp
+  skipVersion: string | null // User can skip a specific version
 }
 ```
 
@@ -61,6 +61,7 @@ class AppUpdater {
 ```
 
 **New IPC channels:**
+
 - `'updater:check'` → manually check for updates
 - `'updater:download'` → start downloading the update
 - `'updater:install'` → quit and install (restart)
@@ -70,6 +71,7 @@ class AppUpdater {
 ### New Commands / API / UI
 
 **Update notification:**
+
 - When update is available: subtle banner at top of app or in status bar
 - "A new version (v1.2.0) is available"
 - Buttons: "Download", "Skip This Version", "Remind Me Later"
@@ -78,6 +80,7 @@ class AppUpdater {
 - Download progress: small progress bar in the notification
 
 **About section** (in Settings):
+
 - Current version number
 - "Check for Updates" button
 - Last check time
@@ -92,13 +95,14 @@ N/A — new build and distribution infrastructure.
 1. **Install electron-builder and electron-updater** — `npm install -D electron-builder` and `npm install electron-updater`. These handle packaging and auto-updates respectively.
 
 2. **Configure electron-builder** — In `package.json` or `electron-builder.yml`:
+
    ```yaml
-   appId: "com.mdvdb.app"
-   productName: "mdvdb"
+   appId: 'com.mdvdb.app'
+   productName: 'mdvdb'
    directories:
      output: dist
    mac:
-     category: "public.app-category.developer-tools"
+     category: 'public.app-category.developer-tools'
      target:
        - target: dmg
          arch: [universal]
@@ -155,6 +159,7 @@ N/A — new build and distribution infrastructure.
 8. **Update About section in Settings** — Show app version, "Check for Updates" button, update status.
 
 9. **Create GitHub Actions workflow** — `.github/workflows/build-app.yml`:
+
    ```yaml
    name: Build Desktop App
    on:
@@ -181,6 +186,7 @@ N/A — new build and distribution infrastructure.
    ```
 
 10. **Add build scripts to package.json**:
+
     ```json
     {
       "scripts": {

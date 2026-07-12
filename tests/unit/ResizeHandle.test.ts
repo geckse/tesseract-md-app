@@ -230,7 +230,11 @@ describe('ResizeHandle component', () => {
     })
 
     const handle = container.querySelector('.resize-handle')
-    const mouseDownEvent = new MouseEvent('mousedown', { clientX: 100, bubbles: true, cancelable: true })
+    const mouseDownEvent = new MouseEvent('mousedown', {
+      clientX: 100,
+      bubbles: true,
+      cancelable: true
+    })
     const preventDefaultSpy = vi.spyOn(mouseDownEvent, 'preventDefault')
 
     handle?.dispatchEvent(mouseDownEvent)

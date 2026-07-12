@@ -9,6 +9,7 @@ Add a unified graph visualization to the desktop app that shows all files in a c
 The app currently provides a file tree for navigating collections and a properties panel that shows links for the selected file. But there's no way to see the full relationship structure of a collection at a glance — how files link to each other, which files form natural clusters, and which are orphaned. Users working with interconnected note collections (e.g., knowledge bases, research vaults) need a visual map to understand and navigate relationships.
 
 The Rust CLI already computes and stores both the full `LinkGraph` (all inter-file links) and `ClusterState` (k-means document clusters) in the index. However:
+
 - The `links(path)` API only returns links for a single file
 - The `clusters()` API returns `ClusterSummary` which strips member lists
 - There is no endpoint that returns the complete graph topology in one call
@@ -80,6 +81,7 @@ impl MarkdownVdb {
 ```
 
 This method reads data already stored in the index — no recomputation needed. It combines:
+
 - `index.get_file_hashes()` → all node paths
 - `index.get_clusters()` → cluster membership mapping
 - `index.get_link_graph()` → all edges
@@ -97,10 +99,25 @@ Add `Graph` variant to the `Commands` enum in `src/main.rs`. JSON output returns
 New TypeScript types mirroring the Rust structs:
 
 ```typescript
-export interface GraphNode { path: string; cluster_id: number | null }
-export interface GraphEdge { source: string; target: string }
-export interface GraphCluster { id: number; label: string; keywords: string[]; member_count: number }
-export interface GraphData { nodes: GraphNode[]; edges: GraphEdge[]; clusters: GraphCluster[] }
+export interface GraphNode {
+  path: string
+  cluster_id: number | null
+}
+export interface GraphEdge {
+  source: string
+  target: string
+}
+export interface GraphCluster {
+  id: number
+  label: string
+  keywords: string[]
+  member_count: number
+}
+export interface GraphData {
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+  clusters: GraphCluster[]
+}
 ```
 
 New IPC channel:
@@ -120,26 +137,27 @@ graphData(root: string): Promise<GraphData>
 
 ### New Dependencies
 
-| Package | Version | Size | Purpose |
-|---------|---------|------|---------|
-| `d3-force` | `^3.0` | ~30KB | Force-directed layout simulation (no DOM dependency) |
-| `@types/d3-force` | `^3.0` | — | TypeScript types |
-| `marked` | `^12.0` | ~40KB | Markdown → HTML rendering for preview panel |
+| Package           | Version | Size  | Purpose                                              |
+| ----------------- | ------- | ----- | ---------------------------------------------------- |
+| `d3-force`        | `^3.0`  | ~30KB | Force-directed layout simulation (no DOM dependency) |
+| `@types/d3-force` | `^3.0`  | —     | TypeScript types                                     |
+| `marked`          | `^12.0` | ~40KB | Markdown → HTML rendering for preview panel          |
 
 ### Graph Store
 
 New file: `app/src/renderer/stores/graph.ts`
 
 ```typescript
-graphViewActive: Writable<boolean>         // Toggle between editor and graph
-graphData: Writable<GraphData | null>      // Data from CLI
+graphViewActive: Writable<boolean> // Toggle between editor and graph
+graphData: Writable<GraphData | null> // Data from CLI
 graphLoading: Writable<boolean>
 graphError: Writable<string | null>
 graphSelectedNode: Writable<string | null> // Currently clicked node
-graphClusterColoring: Writable<boolean>    // Toggle cluster colors (default: true)
+graphClusterColoring: Writable<boolean> // Toggle cluster colors (default: true)
 ```
 
 Functions:
+
 - `loadGraphData()` — fetches via `window.api.graphData()`, manages loading/error state
 - `toggleGraphView()` — toggles view, loads data when activating
 - `selectGraphNode(path | null)` — sets selected node
@@ -154,7 +172,13 @@ Architecture: `d3-force` computes positions → `requestAnimationFrame` → Canv
 
 ```typescript
 forceSimulation(nodes)
-  .force('link', forceLink(edges).id(d => d.path).distance(80).strength(0.4))
+  .force(
+    'link',
+    forceLink(edges)
+      .id((d) => d.path)
+      .distance(80)
+      .strength(0.4)
+  )
   .force('charge', forceManyBody().strength(-120).distanceMax(400))
   .force('center', forceCenter(width / 2, height / 2))
   .force('collide', forceCollide(16))
@@ -190,6 +214,7 @@ For large collections (300+ nodes), adjust: `charge.strength(-60)`, `distanceMax
 - **Hit detection**: Distance-based search, transform canvas coords → world coords accounting for pan/zoom
 
 **Cluster legend** — Floating overlay, top-right:
+
 - Color dot + cluster label + member count per cluster
 - Toggle visibility button (eye icon)
 - Only shown when clusters exist
@@ -246,8 +271,8 @@ Right-side panel alongside the graph canvas when a node is selected.
 **"Open in Editor" action:**
 
 ```typescript
-graphViewActive.set(false)   // Switch back to editor mode
-selectFile(selectedPath)     // Open the file in the editor
+graphViewActive.set(false) // Switch back to editor mode
+selectFile(selectedPath) // Open the file in the editor
 ```
 
 ### App Shell Integration
@@ -273,7 +298,12 @@ selectFile(selectedPath)     // Open the file in the editor
 **`Titlebar.svelte` changes** — Add graph toggle button in `.titlebar-right` before properties toggle:
 
 ```svelte
-<button class="icon-button" class:active={graphActive} title="Toggle Graph View" onclick={toggleGraph}>
+<button
+  class="icon-button"
+  class:active={graphActive}
+  title="Toggle Graph View"
+  onclick={toggleGraph}
+>
   <span class="material-symbols-outlined">hub</span>
 </button>
 ```

@@ -130,10 +130,7 @@ export class VaultWatcher {
   /** Idempotent. If already watching a different root, stops it first. */
   async start(root: string): Promise<void> {
     const normalizedRoot = resolve(root)
-    if (
-      this.root === normalizedRoot &&
-      (this.state === 'running' || this.state === 'starting')
-    ) {
+    if (this.root === normalizedRoot && (this.state === 'running' || this.state === 'starting')) {
       return
     }
     if (this.watcher) {

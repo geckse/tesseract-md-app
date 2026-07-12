@@ -23,27 +23,27 @@
  */
 
 /** Platform type for shortcut handling. */
-export type Platform = 'mac' | 'windows' | 'linux';
+export type Platform = 'mac' | 'windows' | 'linux'
 
 /** Shortcut handler function. */
-export type ShortcutHandler = (event: KeyboardEvent) => void;
+export type ShortcutHandler = (event: KeyboardEvent) => void
 
 /** Shortcut definition with modifier keys. */
 export interface Shortcut {
   /** Key to match (case-insensitive, e.g., 'k', 'Escape', 'ArrowUp'). */
-  key: string;
+  key: string
   /** Platform-aware meta key (Cmd on Mac, Ctrl on Windows/Linux). */
-  meta?: boolean;
+  meta?: boolean
   /** Shift modifier. */
-  shift?: boolean;
+  shift?: boolean
   /** Alt/Option modifier. */
-  alt?: boolean;
+  alt?: boolean
   /** Explicit Ctrl key (regardless of platform). */
-  ctrl?: boolean;
+  ctrl?: boolean
   /** Handler function to execute when shortcut matches. */
-  handler: ShortcutHandler;
+  handler: ShortcutHandler
   /** Whether to preventDefault on the event (default: true). */
-  preventDefault?: boolean;
+  preventDefault?: boolean
 }
 
 /**
@@ -51,12 +51,12 @@ export interface Shortcut {
  * Handles registration, matching, and execution of keyboard shortcuts.
  */
 class ShortcutManager {
-  private shortcuts: Shortcut[] = [];
-  private platform: Platform;
+  private shortcuts: Shortcut[] = []
+  private platform: Platform
 
   constructor() {
-    this.platform = detectPlatform();
-    this.handleKeydown = this.handleKeydown.bind(this);
+    this.platform = detectPlatform()
+    this.handleKeydown = this.handleKeydown.bind(this)
   }
 
   /**
@@ -64,10 +64,10 @@ class ShortcutManager {
    * @returns Unregister function to remove the shortcut.
    */
   register(shortcut: Shortcut): () => void {
-    this.shortcuts.push(shortcut);
+    this.shortcuts.push(shortcut)
     return () => {
-      this.shortcuts = this.shortcuts.filter((s) => s !== shortcut);
-    };
+      this.shortcuts = this.shortcuts.filter((s) => s !== shortcut)
+    }
   }
 
   /**
@@ -78,10 +78,10 @@ class ShortcutManager {
     for (const shortcut of this.shortcuts) {
       if (this.matches(event, shortcut)) {
         if (shortcut.preventDefault !== false) {
-          event.preventDefault();
+          event.preventDefault()
         }
-        shortcut.handler(event);
-        break; // Only trigger first matching shortcut
+        shortcut.handler(event)
+        break // Only trigger first matching shortcut
       }
     }
   }
@@ -92,35 +92,35 @@ class ShortcutManager {
   private matches(event: KeyboardEvent, shortcut: Shortcut): boolean {
     // Key must match (case-insensitive)
     if (event.key.toLowerCase() !== shortcut.key.toLowerCase()) {
-      return false;
+      return false
     }
 
     // Platform-aware meta key (Cmd on Mac, Ctrl on Win/Linux)
-    const metaPressed = this.platform === 'mac' ? event.metaKey : event.ctrlKey;
+    const metaPressed = this.platform === 'mac' ? event.metaKey : event.ctrlKey
     if (shortcut.meta !== undefined) {
-      if (shortcut.meta && !metaPressed) return false;
-      if (!shortcut.meta && metaPressed) return false;
+      if (shortcut.meta && !metaPressed) return false
+      if (!shortcut.meta && metaPressed) return false
     }
 
     // Shift key
     if (shortcut.shift !== undefined) {
-      if (shortcut.shift && !event.shiftKey) return false;
-      if (!shortcut.shift && event.shiftKey) return false;
+      if (shortcut.shift && !event.shiftKey) return false
+      if (!shortcut.shift && event.shiftKey) return false
     }
 
     // Alt key
     if (shortcut.alt !== undefined) {
-      if (shortcut.alt && !event.altKey) return false;
-      if (!shortcut.alt && event.altKey) return false;
+      if (shortcut.alt && !event.altKey) return false
+      if (!shortcut.alt && event.altKey) return false
     }
 
     // Explicit Ctrl key
     if (shortcut.ctrl !== undefined) {
-      if (shortcut.ctrl && !event.ctrlKey) return false;
-      if (!shortcut.ctrl && event.ctrlKey) return false;
+      if (shortcut.ctrl && !event.ctrlKey) return false
+      if (!shortcut.ctrl && event.ctrlKey) return false
     }
 
-    return true;
+    return true
   }
 
   /**
@@ -128,7 +128,7 @@ class ShortcutManager {
    * Call this in your component's onMount.
    */
   attach(): void {
-    document.addEventListener('keydown', this.handleKeydown);
+    document.addEventListener('keydown', this.handleKeydown)
   }
 
   /**
@@ -136,14 +136,14 @@ class ShortcutManager {
    * Call this in your component's cleanup/onDestroy.
    */
   detach(): void {
-    document.removeEventListener('keydown', this.handleKeydown);
+    document.removeEventListener('keydown', this.handleKeydown)
   }
 
   /**
    * Get the current platform.
    */
   getPlatform(): Platform {
-    return this.platform;
+    return this.platform
   }
 }
 
@@ -151,15 +151,15 @@ class ShortcutManager {
  * Detect the current platform from navigator.
  */
 export function detectPlatform(): Platform {
-  const ua = navigator.userAgent.toLowerCase();
-  const platform = navigator.platform.toLowerCase();
+  const ua = navigator.userAgent.toLowerCase()
+  const platform = navigator.platform.toLowerCase()
 
   if (platform.includes('mac') || ua.includes('mac')) {
-    return 'mac';
+    return 'mac'
   } else if (platform.includes('win') || ua.includes('win')) {
-    return 'windows';
+    return 'windows'
   } else {
-    return 'linux';
+    return 'linux'
   }
 }
 
@@ -178,26 +178,26 @@ export function getShortcutDisplay(
   shift?: boolean,
   alt?: boolean
 ): string {
-  const platform = detectPlatform();
-  const parts: string[] = [];
+  const platform = detectPlatform()
+  const parts: string[] = []
 
   if (meta) {
-    parts.push(platform === 'mac' ? '⌘' : 'Ctrl');
+    parts.push(platform === 'mac' ? '⌘' : 'Ctrl')
   }
   if (shift) {
-    parts.push(platform === 'mac' ? '⇧' : 'Shift');
+    parts.push(platform === 'mac' ? '⇧' : 'Shift')
   }
   if (alt) {
-    parts.push(platform === 'mac' ? '⌥' : 'Alt');
+    parts.push(platform === 'mac' ? '⌥' : 'Alt')
   }
 
-  parts.push(key.toUpperCase());
+  parts.push(key.toUpperCase())
 
-  return platform === 'mac' ? parts.join('') : parts.join('+');
+  return platform === 'mac' ? parts.join('') : parts.join('+')
 }
 
 /**
  * Singleton shortcut manager instance.
  * Import this to register shortcuts globally.
  */
-export const shortcutManager = new ShortcutManager();
+export const shortcutManager = new ShortcutManager()

@@ -83,26 +83,26 @@ The current 2D graph view has three limitations:
 
 ### File Changes
 
-| File | Action | Scope |
-|------|--------|-------|
-| `app/src/renderer/components/GraphView.svelte` | **Rewrite** | Replace Canvas 2D + d3-force with 3d-force-graph + HTML overlays |
-| `app/src/renderer/lib/graph-3d-bridge.ts` | **New** | Data conversion (GraphData → 3d-force-graph format), color computation, cluster sphere geometry |
-| `app/src/renderer/lib/edge-utils.ts` | **Modify** | Keep color/width/visibility utils. Remove `pointToSegmentDist` (raycaster handles hit detection). Add 3D-specific helpers. |
-| `app/src/renderer/lib/convex-hull.ts` | **Keep but unused** | Not needed for 3D (cluster spheres replace 2D hulls). Keep for LocalGraph.svelte. |
-| `app/src/renderer/stores/graph.ts` | **Keep** | No changes — stores work identically |
-| `app/src/renderer/components/GraphPreview.svelte` | **Keep** | Side panel unchanged |
-| `app/src/renderer/components/LocalGraph.svelte` | **Keep** | Stays SVG + d3-force 2D |
-| `app/src/renderer/types/cli.ts` | **Keep** | Data types unchanged |
+| File                                              | Action              | Scope                                                                                                                      |
+| ------------------------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `app/src/renderer/components/GraphView.svelte`    | **Rewrite**         | Replace Canvas 2D + d3-force with 3d-force-graph + HTML overlays                                                           |
+| `app/src/renderer/lib/graph-3d-bridge.ts`         | **New**             | Data conversion (GraphData → 3d-force-graph format), color computation, cluster sphere geometry                            |
+| `app/src/renderer/lib/edge-utils.ts`              | **Modify**          | Keep color/width/visibility utils. Remove `pointToSegmentDist` (raycaster handles hit detection). Add 3D-specific helpers. |
+| `app/src/renderer/lib/convex-hull.ts`             | **Keep but unused** | Not needed for 3D (cluster spheres replace 2D hulls). Keep for LocalGraph.svelte.                                          |
+| `app/src/renderer/stores/graph.ts`                | **Keep**            | No changes — stores work identically                                                                                       |
+| `app/src/renderer/components/GraphPreview.svelte` | **Keep**            | Side panel unchanged                                                                                                       |
+| `app/src/renderer/components/LocalGraph.svelte`   | **Keep**            | Stays SVG + d3-force 2D                                                                                                    |
+| `app/src/renderer/types/cli.ts`                   | **Keep**            | Data types unchanged                                                                                                       |
 
 ### 1. Graph Initialization
 
 ```typescript
-import ForceGraph3D from '3d-force-graph';
+import ForceGraph3D from '3d-force-graph'
 
 // In onMount:
 const graph = new ForceGraph3D(containerEl, {
   controlType: 'orbit',
-  rendererConfig: { antialias: true, alpha: true },
+  rendererConfig: { antialias: true, alpha: true }
 })
   .backgroundColor('#0a0a0b')
   .showNavInfo(false)
@@ -111,28 +111,28 @@ const graph = new ForceGraph3D(containerEl, {
   .linkTarget('target')
 
   // Node styling
-  .nodeVal(d => nodeSizeValue(d))
-  .nodeColor(d => nodeColor(d, coloringMode))
+  .nodeVal((d) => nodeSizeValue(d))
+  .nodeColor((d) => nodeColor(d, coloringMode))
   .nodeOpacity(0.9)
   .nodeResolution(12)
-  .nodeLabel(d => nodeTooltipHtml(d))
+  .nodeLabel((d) => nodeTooltipHtml(d))
 
   // Edge styling
-  .linkColor(d => edgeLinkColor(d, selectedNode))
-  .linkWidth(d => edgeLinkWidth(d))
+  .linkColor((d) => edgeLinkColor(d, selectedNode))
+  .linkWidth((d) => edgeLinkWidth(d))
   .linkOpacity(0.4)
-  .linkLabel(d => edgeTooltipHtml(d))
+  .linkLabel((d) => edgeTooltipHtml(d))
 
   // Directional arrows (document mode)
-  .linkDirectionalArrowLength(d => isDocumentMode ? 4 : 0)
-  .linkDirectionalArrowColor(d => edgeArrowColor(d, selectedNode))
+  .linkDirectionalArrowLength((d) => (isDocumentMode ? 4 : 0))
+  .linkDirectionalArrowColor((d) => edgeArrowColor(d, selectedNode))
   .linkDirectionalArrowRelPos(0.85)
 
   // Directional particles (optional: animated flow)
-  .linkDirectionalParticles(d => hasSelection && isNeighborEdge(d) ? 2 : 0)
+  .linkDirectionalParticles((d) => (hasSelection && isNeighborEdge(d) ? 2 : 0))
   .linkDirectionalParticleSpeed(0.005)
   .linkDirectionalParticleWidth(1.5)
-  .linkDirectionalParticleColor(d => edgeArrowColor(d, selectedNode))
+  .linkDirectionalParticleColor((d) => edgeArrowColor(d, selectedNode))
 
   // Force engine
   .d3AlphaDecay(0.02)
@@ -150,7 +150,7 @@ const graph = new ForceGraph3D(containerEl, {
   .onBackgroundClick(handleBackgroundClick)
   .onBackgroundRightClick(handleBackgroundRightClick)
   .enableNodeDrag(true)
-  .enableNavigationControls(true);
+  .enableNavigationControls(true)
 ```
 
 ### 2. Data Bridge (`graph-3d-bridge.ts`)
@@ -159,34 +159,34 @@ Convert our `GraphData` to the format 3d-force-graph expects:
 
 ```typescript
 interface Graph3DData {
-  nodes: Graph3DNode[];
-  links: Graph3DLink[];
+  nodes: Graph3DNode[]
+  links: Graph3DLink[]
 }
 
 interface Graph3DNode {
-  id: string;
-  path: string;
-  label: string | null;
-  cluster_id: number | null;
-  chunk_index: number | null;
-  size: number | null;
+  id: string
+  path: string
+  label: string | null
+  cluster_id: number | null
+  chunk_index: number | null
+  size: number | null
   // Computed:
-  val: number;           // sphere volume (from degree or content size)
-  color: string;         // hex color based on coloring mode
-  __dimmed?: boolean;    // flag for selection dimming
+  val: number // sphere volume (from degree or content size)
+  color: string // hex color based on coloring mode
+  __dimmed?: boolean // flag for selection dimming
 }
 
 interface Graph3DLink {
-  source: string;
-  target: string;
-  weight: number | null;
-  relationship_type?: string | null;
-  strength?: number | null;
-  context_text?: string | null;
-  edge_cluster_id?: number | null;
+  source: string
+  target: string
+  weight: number | null
+  relationship_type?: string | null
+  strength?: number | null
+  context_text?: string | null
+  edge_cluster_id?: number | null
   // Computed:
-  color: string;         // edge color
-  width: number;         // edge width from strength
+  color: string // edge color
+  width: number // edge width from strength
 }
 
 function buildGraph3DData(
@@ -199,6 +199,7 @@ function buildGraph3DData(
 ```
 
 **Node values (sphere size)**:
+
 - Document mode: degree-based. `val = 1 + degree * 2` (quadratic volume scaling by 3d-force-graph)
 - Chunk mode: content-size-based. `val = 1 + (size / maxSize) * 8`
 
@@ -215,50 +216,54 @@ Replace 2D convex hulls with 3D transparent spheres that enclose each cluster's 
 **Implementation**: Use ThreeJS `scene()` access to add custom `Mesh` objects:
 
 ```typescript
-function updateClusterSpheres(graph: ForceGraph3DInstance, nodes: Graph3DNode[], clusters: GraphCluster[]) {
+function updateClusterSpheres(
+  graph: ForceGraph3DInstance,
+  nodes: Graph3DNode[],
+  clusters: GraphCluster[]
+) {
   // Remove previous cluster meshes
-  clearClusterMeshes(scene);
+  clearClusterMeshes(scene)
 
   // Group nodes by cluster_id
-  const clusterGroups = groupByCluster(nodes);
+  const clusterGroups = groupByCluster(nodes)
 
   for (const [clusterId, clusterNodes] of clusterGroups) {
     // Compute 3D centroid
-    const cx = avg(clusterNodes.map(n => n.x));
-    const cy = avg(clusterNodes.map(n => n.y));
-    const cz = avg(clusterNodes.map(n => n.z));
+    const cx = avg(clusterNodes.map((n) => n.x))
+    const cy = avg(clusterNodes.map((n) => n.y))
+    const cz = avg(clusterNodes.map((n) => n.z))
 
     // Compute enclosing radius (max distance from centroid + padding)
-    const maxDist = Math.max(...clusterNodes.map(n =>
-      Math.sqrt((n.x - cx) ** 2 + (n.y - cy) ** 2 + (n.z - cz) ** 2)
-    ));
-    const radius = maxDist + 20; // padding
+    const maxDist = Math.max(
+      ...clusterNodes.map((n) => Math.sqrt((n.x - cx) ** 2 + (n.y - cy) ** 2 + (n.z - cz) ** 2))
+    )
+    const radius = maxDist + 20 // padding
 
     // Create transparent sphere
-    const geometry = new THREE.SphereGeometry(radius, 16, 12);
+    const geometry = new THREE.SphereGeometry(radius, 16, 12)
     const material = new THREE.MeshLambertMaterial({
       color: clusterPaletteColor(clusterId),
       transparent: true,
       opacity: 0.06,
-      side: THREE.BackSide,  // render inside faces so visible from within
-      depthWrite: false,
-    });
+      side: THREE.BackSide, // render inside faces so visible from within
+      depthWrite: false
+    })
 
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.position.set(cx, cy, cz);
-    scene.add(mesh);
+    const mesh = new THREE.Mesh(geometry, material)
+    mesh.position.set(cx, cy, cz)
+    scene.add(mesh)
 
     // Optional: wireframe outline for definition
-    const wireGeo = new THREE.SphereGeometry(radius, 16, 12);
+    const wireGeo = new THREE.SphereGeometry(radius, 16, 12)
     const wireMat = new THREE.MeshBasicMaterial({
       color: clusterPaletteColor(clusterId),
       wireframe: true,
       transparent: true,
-      opacity: 0.12,
-    });
-    const wireMesh = new THREE.Mesh(wireGeo, wireMat);
-    wireMesh.position.set(cx, cy, cz);
-    scene.add(wireMesh);
+      opacity: 0.12
+    })
+    const wireMesh = new THREE.Mesh(wireGeo, wireMat)
+    wireMesh.position.set(cx, cy, cz)
+    scene.add(wireMesh)
   }
 }
 ```
@@ -270,27 +275,32 @@ function updateClusterSpheres(graph: ForceGraph3DInstance, nodes: Graph3DNode[],
 ### 4. Interaction Porting
 
 **Node click (select/open)** — direct mapping:
+
 ```typescript
 function handleNodeClick(node: Graph3DNode | null, event: MouseEvent) {
-  if (!node) { selectGraphNode(null); return; }
-  const graphNode = toGraphNode(node);
-  const alreadySelected = currentSelected?.path === node.path;
-  if (alreadySelected) {
-    openGraphNode(graphNode);  // Second click → open side panel
-  } else {
-    selectGraphNode(graphNode);  // First click → select only
+  if (!node) {
+    selectGraphNode(null)
+    return
   }
-  updateVisualState(); // recolor nodes/edges for selection
+  const graphNode = toGraphNode(node)
+  const alreadySelected = currentSelected?.path === node.path
+  if (alreadySelected) {
+    openGraphNode(graphNode) // Second click → open side panel
+  } else {
+    selectGraphNode(graphNode) // First click → select only
+  }
+  updateVisualState() // recolor nodes/edges for selection
 }
 ```
 
 **Node right-click context menu**:
+
 ```typescript
 function handleNodeRightClick(node: Graph3DNode, event: MouseEvent) {
-  event.preventDefault();
-  contextMenuNode = toGraphNode(node);
-  contextMenuX = event.clientX;
-  contextMenuY = event.clientY;
+  event.preventDefault()
+  contextMenuNode = toGraphNode(node)
+  contextMenuX = event.clientX
+  contextMenuY = event.clientY
 }
 ```
 
@@ -311,12 +321,14 @@ function handleNodeRightClick(node: Graph3DNode, event: MouseEvent) {
 ### 5. Coloring Modes & Node Visual Meaning
 
 On mode switch (`graphColoringMode` store change):
+
 1. Recompute node colors in the data objects
 2. Call `graph.nodeColor(d => newColorFn(d))` to trigger re-render
 3. Update cluster spheres (add/remove based on cluster mode)
 4. Rebuild legend HTML
 
 Same 3 modes:
+
 - **Cluster**: 12-color palette by `cluster_id`, cluster enclosure spheres visible, cluster labels at centroids
 - **Folder**: Top-level folder extraction, per-folder color, no cluster spheres
 - **None**: Per-file hash coloring, no cluster spheres
@@ -354,6 +366,7 @@ This makes hub documents visually prominent — they glow, drawing the eye to th
 ### 6. Selection Visual State
 
 When a node is selected:
+
 1. Compute neighbor set from edge data
 2. Update node rendering:
    - Selected node: full opacity + slightly larger `val`
@@ -369,6 +382,7 @@ Implementation: Set `nodeOpacity`, `nodeColor`, `linkColor`, `linkWidth`, `linkO
 ### 7. Document / Chunk Mode Switch
 
 On level change:
+
 1. Fetch new graph data from CLI (`mdvdb graph --json --level chunk`)
 2. Rebuild Graph3DData from new GraphData
 3. Update graph via `graph.graphData(newData)`
@@ -388,6 +402,7 @@ Document mode edges are **directional** — they represent outgoing links from s
 - **Bidirectional edges** (both files link to each other): **Green** (`#51CF66`). **Arrows on BOTH ends** — two `linkDirectionalArrowLength` entries, or rendered via `linkThreeObject` as a custom line with two arrowheads.
 
 **Implementation for bidirectional arrows**: Since `3d-force-graph` only supports one arrow direction per link, bidirectional edges need special handling:
+
 ```typescript
 // Option A: Duplicate bidirectional edges (one per direction)
 // When building links array, if A→B and B→A both exist, keep both as separate links
@@ -406,6 +421,7 @@ Document mode edges are **directional** — they represent outgoing links from s
 Option A (duplicate links) is simpler and recommended — it naturally produces two arrows.
 
 **Directional particles**: When a node is selected, animate particles on neighbor edges to show information flow direction:
+
 ```typescript
 .linkDirectionalParticles(link => {
   if (!selectedNode) return 0;
@@ -455,42 +471,42 @@ Before feeding data to the graph, pre-compute initial positions:
 ```typescript
 function seedClusterPositions(nodes: Graph3DNode[], clusters: GraphCluster[]): void {
   // Arrange K cluster centroids on a sphere surface (Fibonacci sphere)
-  const K = clusters.length || 1;
-  const spreadRadius = 200; // graph-space units
-  const clusterCentroids = new Map<number, {x: number, y: number, z: number}>();
+  const K = clusters.length || 1
+  const spreadRadius = 200 // graph-space units
+  const clusterCentroids = new Map<number, { x: number; y: number; z: number }>()
 
   for (let i = 0; i < K; i++) {
     // Fibonacci sphere: evenly distributed points on a sphere
-    const phi = Math.acos(1 - 2 * (i + 0.5) / K);
-    const theta = Math.PI * (1 + Math.sqrt(5)) * i;
+    const phi = Math.acos(1 - (2 * (i + 0.5)) / K)
+    const theta = Math.PI * (1 + Math.sqrt(5)) * i
     clusterCentroids.set(clusters[i]?.id ?? i, {
       x: spreadRadius * Math.sin(phi) * Math.cos(theta),
       y: spreadRadius * Math.sin(phi) * Math.sin(theta),
-      z: spreadRadius * Math.cos(phi),
-    });
+      z: spreadRadius * Math.cos(phi)
+    })
   }
 
   // Place each node near its cluster centroid using golden-angle spiral
-  const clusterCounters = new Map<number, number>();
+  const clusterCounters = new Map<number, number>()
   for (const node of nodes) {
     if (node.cluster_id != null && clusterCentroids.has(node.cluster_id)) {
-      const center = clusterCentroids.get(node.cluster_id)!;
-      const idx = clusterCounters.get(node.cluster_id) ?? 0;
-      clusterCounters.set(node.cluster_id, idx + 1);
+      const center = clusterCentroids.get(node.cluster_id)!
+      const idx = clusterCounters.get(node.cluster_id) ?? 0
+      clusterCounters.set(node.cluster_id, idx + 1)
 
       // 3D golden-angle spiral around centroid
-      const goldenAngle = 2.399963;
-      const r = 15 * Math.sqrt(idx); // spacing
-      const theta = idx * goldenAngle;
-      const phi = idx * goldenAngle * 0.7; // offset for 3D spread
-      node.x = center.x + r * Math.sin(phi) * Math.cos(theta);
-      node.y = center.y + r * Math.sin(phi) * Math.sin(theta);
-      node.z = center.z + r * Math.cos(phi);
+      const goldenAngle = 2.399963
+      const r = 15 * Math.sqrt(idx) // spacing
+      const theta = idx * goldenAngle
+      const phi = idx * goldenAngle * 0.7 // offset for 3D spread
+      node.x = center.x + r * Math.sin(phi) * Math.cos(theta)
+      node.y = center.y + r * Math.sin(phi) * Math.sin(theta)
+      node.z = center.z + r * Math.cos(phi)
     } else {
       // Unclustered: center with random jitter
-      node.x = (Math.random() - 0.5) * 100;
-      node.y = (Math.random() - 0.5) * 100;
-      node.z = (Math.random() - 0.5) * 100;
+      node.x = (Math.random() - 0.5) * 100
+      node.y = (Math.random() - 0.5) * 100
+      node.z = (Math.random() - 0.5) * 100
     }
   }
 }
@@ -504,42 +520,59 @@ Document mode represents the **knowledge graph**: each node is a file, each edge
 
 ```typescript
 // Cluster-aware link distances
-graph.d3Force('link')
-  .distance(link => {
-    const sCluster = link.source.cluster_id;
-    const tCluster = link.target.cluster_id;
-    if (sCluster != null && tCluster != null && sCluster === tCluster) return 50;  // same cluster: tight
-    if (sCluster != null && tCluster != null) return 150;  // different clusters: far apart
-    return 100;  // unclustered
+graph
+  .d3Force('link')
+  .distance((link) => {
+    const sCluster = link.source.cluster_id
+    const tCluster = link.target.cluster_id
+    if (sCluster != null && tCluster != null && sCluster === tCluster) return 50 // same cluster: tight
+    if (sCluster != null && tCluster != null) return 150 // different clusters: far apart
+    return 100 // unclustered
   })
-  .strength(0.3);
+  .strength(0.3)
 
 // Degree-dependent repulsion: hubs push harder, preventing center collapse
-graph.d3Force('charge')
-  .strength(node => Math.max(-300, -80 - (degreeMap.get(node.id) ?? 0) * 5))
+graph
+  .d3Force('charge')
+  .strength((node) => Math.max(-300, -80 - (degreeMap.get(node.id) ?? 0) * 5))
   .distanceMax(500)
-  .theta(0.8);
+  .theta(0.8)
 
 // Cluster attraction: custom force pulling nodes toward live cluster centroids
 // Use d3Force to add forceX/forceY/forceZ targeting cluster centroids
-graph.d3Force('clusterX', d3.forceX().x(node => {
-  return clusterCentroids.get(node.cluster_id)?.x ?? 0;
-}).strength(node => node.cluster_id != null ? 0.15 : 0.02));
-graph.d3Force('clusterY', d3.forceY().y(node => {
-  return clusterCentroids.get(node.cluster_id)?.y ?? 0;
-}).strength(node => node.cluster_id != null ? 0.15 : 0.02));
-graph.d3Force('clusterZ', d3.forceZ().z(node => {
-  return clusterCentroids.get(node.cluster_id)?.z ?? 0;
-}).strength(node => node.cluster_id != null ? 0.15 : 0.02));
+graph.d3Force(
+  'clusterX',
+  d3
+    .forceX()
+    .x((node) => {
+      return clusterCentroids.get(node.cluster_id)?.x ?? 0
+    })
+    .strength((node) => (node.cluster_id != null ? 0.15 : 0.02))
+)
+graph.d3Force(
+  'clusterY',
+  d3
+    .forceY()
+    .y((node) => {
+      return clusterCentroids.get(node.cluster_id)?.y ?? 0
+    })
+    .strength((node) => (node.cluster_id != null ? 0.15 : 0.02))
+)
+graph.d3Force(
+  'clusterZ',
+  d3
+    .forceZ()
+    .z((node) => {
+      return clusterCentroids.get(node.cluster_id)?.z ?? 0
+    })
+    .strength((node) => (node.cluster_id != null ? 0.15 : 0.02))
+)
 
 // Remove forceCenter — it fights cluster separation
 // The cluster attraction forces provide centering for clustered nodes
 // Unclustered nodes get weak 0.02 pull toward origin
 
-graph.d3AlphaDecay(0.02)
-  .d3VelocityDecay(0.4)
-  .warmupTicks(100)
-  .cooldownTime(5000);
+graph.d3AlphaDecay(0.02).d3VelocityDecay(0.4).warmupTicks(100).cooldownTime(5000)
 ```
 
 **Semantic meaning**: In document mode, you're looking at your vault's intellectual structure. Clusters = topic groups. Arrows = information flow direction. Hub nodes (large spheres) = central documents that connect multiple topics. Isolated nodes = orphan files.
@@ -550,30 +583,32 @@ Chunk mode represents **content similarity**: each node is a section of a docume
 
 ```typescript
 // Chunk mode: tighter, no directional arrows (similarity is symmetric)
-graph.d3Force('link')
-  .distance(link => {
-    const sCluster = link.source.cluster_id;
-    const tCluster = link.target.cluster_id;
-    if (sCluster != null && tCluster != null && sCluster === tCluster) return 30;
-    if (sCluster != null && tCluster != null) return 100;
-    return 60;
+graph
+  .d3Force('link')
+  .distance((link) => {
+    const sCluster = link.source.cluster_id
+    const tCluster = link.target.cluster_id
+    if (sCluster != null && tCluster != null && sCluster === tCluster) return 30
+    if (sCluster != null && tCluster != null) return 100
+    return 60
   })
-  .strength(0.5);
+  .strength(0.5)
 
-graph.d3Force('charge')
-  .strength(-80)
-  .distanceMax(300);
+graph.d3Force('charge').strength(-80).distanceMax(300)
 
 // Same cluster attraction forces but tighter
-graph.d3Force('clusterX', d3.forceX().x(node => {
-  return clusterCentroids.get(node.cluster_id)?.x ?? 0;
-}).strength(node => node.cluster_id != null ? 0.2 : 0.02));
+graph.d3Force(
+  'clusterX',
+  d3
+    .forceX()
+    .x((node) => {
+      return clusterCentroids.get(node.cluster_id)?.x ?? 0
+    })
+    .strength((node) => (node.cluster_id != null ? 0.2 : 0.02))
+)
 // ... same for Y, Z
 
-graph.d3AlphaDecay(0.03)
-  .d3VelocityDecay(0.4)
-  .warmupTicks(80)
-  .cooldownTime(4000);
+graph.d3AlphaDecay(0.03).d3VelocityDecay(0.4).warmupTicks(80).cooldownTime(4000)
 ```
 
 **Semantic meaning**: In chunk mode, you're looking at your vault's idea landscape. Clusters = concept groups. Node size = content volume. Edge opacity = semantic similarity strength. Nodes from the same file share color — revealing how a single document spans multiple concept clusters.
@@ -585,27 +620,30 @@ During simulation, recompute cluster centroids from actual node positions so the
 ```typescript
 graph.onEngineTick(() => {
   // Recompute centroids every 10 ticks (throttled)
-  tickCount++;
-  if (tickCount % 10 !== 0) return;
+  tickCount++
+  if (tickCount % 10 !== 0) return
 
-  const sums = new Map<number, {sx: number, sy: number, sz: number, count: number}>();
+  const sums = new Map<number, { sx: number; sy: number; sz: number; count: number }>()
   for (const node of nodes) {
-    if (node.cluster_id == null) continue;
-    const s = sums.get(node.cluster_id) ?? {sx: 0, sy: 0, sz: 0, count: 0};
-    s.sx += node.x; s.sy += node.y; s.sz += node.z; s.count++;
-    sums.set(node.cluster_id, s);
+    if (node.cluster_id == null) continue
+    const s = sums.get(node.cluster_id) ?? { sx: 0, sy: 0, sz: 0, count: 0 }
+    s.sx += node.x
+    s.sy += node.y
+    s.sz += node.z
+    s.count++
+    sums.set(node.cluster_id, s)
   }
   for (const [id, s] of sums) {
     clusterCentroids.set(id, {
       x: s.sx / s.count,
       y: s.sy / s.count,
-      z: s.sz / s.count,
-    });
+      z: s.sz / s.count
+    })
   }
 
   // Also update cluster spheres periodically
-  updateClusterSpheres(graph, nodes, clusters);
-});
+  updateClusterSpheres(graph, nodes, clusters)
+})
 ```
 
 The 3rd dimension naturally provides better cluster separation — nodes have 3x the degrees of freedom to spread out. Combined with cluster-aware seeding and attraction forces, this produces dramatically better layouts than the current random-seeded 2D approach.
@@ -615,14 +653,15 @@ The 3rd dimension naturally provides better cluster separation — nodes have 3x
 **Zoom to fit**: `graph.zoomToFit(400, 50)` on initial load and data change.
 
 **Focus on node**: When selecting a node, optionally animate camera:
+
 ```typescript
-const distance = 200;
-const { x, y, z } = node;
+const distance = 200
+const { x, y, z } = node
 graph.cameraPosition(
   { x: x + distance, y: y + distance, z: z + distance },
-  { x, y, z },  // lookAt
-  1000           // ms transition
-);
+  { x, y, z }, // lookAt
+  1000 // ms transition
+)
 ```
 
 **Coordinate conversion**: `graph.graph2ScreenCoords(x, y, z)` for positioning HTML overlays at node locations.
@@ -630,19 +669,22 @@ graph.cameraPosition(
 ### 11. Resize Handling
 
 `ResizeObserver` on container:
+
 ```typescript
-graph.width(containerEl.clientWidth).height(containerEl.clientHeight);
+graph.width(containerEl.clientWidth).height(containerEl.clientHeight)
 ```
 
 ### 12. Performance Safeguards
 
 **Large graphs (>500 nodes)**:
+
 - Reduce `nodeResolution` to 6 (fewer polygons per sphere)
 - Disable `linkDirectionalParticles`
 - Reduce `cooldownTime` to 3000ms
 - Show performance notice
 
 **Very large graphs (>2000 nodes)**:
+
 - Set `linkWidth(0)` → renders as ThreeJS Line (constant 1px, much cheaper)
 - Reduce `nodeOpacity` to differentiate density
 - Disable edge labels on hover
@@ -654,6 +696,7 @@ graph.width(containerEl.clientWidth).height(containerEl.clientHeight);
 ## Migration Strategy
 
 ### Phase A: Core 3D Rendering (MVP)
+
 1. Install `3d-force-graph`
 2. Create `graph-3d-bridge.ts` with data conversion
 3. Rewrite GraphView.svelte: init graph, feed data, basic node/edge rendering
@@ -663,6 +706,7 @@ graph.width(containerEl.clientWidth).height(containerEl.clientHeight);
 7. **Milestone**: 3D graph renders, nodes clickable, orbit camera works
 
 ### Phase B: Visual Features
+
 8. Add cluster enclosure spheres (transparent + wireframe)
 9. Add directional arrows on edges
 10. Add directional particles for selected node edges
@@ -673,6 +717,7 @@ graph.width(containerEl.clientWidth).height(containerEl.clientHeight);
 15. **Milestone**: Full visual feature parity in 3D
 
 ### Phase C: Interactions & Overlays
+
 16. Port right-click context menu (HTML overlay)
 17. Port legend panel (cluster, folder, edge type filtering)
 18. Port level switcher tabs

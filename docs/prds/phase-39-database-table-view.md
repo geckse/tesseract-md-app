@@ -12,9 +12,9 @@ This PRD consumes the **canonical JSON contract** defined by the CLI PRD; the co
 
 ## Problem Statement
 
-Tesseract today is a file-tree + editor + graph over `mdvdb`. Frontmatter is only *viewable* per-file in the read-only `PropertiesPanel` (`src/renderer/components/PropertiesPanel.svelte`), and the per-file editing UI from phase-32 (`DocumentHeader` + `PropertyRow` + pickers) edits one document at a time. There is no way to see all documents in a folder *at once* as structured records, compare or sort by a field, bulk-scan status across a project, or edit a field across many files quickly.
+Tesseract today is a file-tree + editor + graph over `mdvdb`. Frontmatter is only _viewable_ per-file in the read-only `PropertiesPanel` (`src/renderer/components/PropertiesPanel.svelte`), and the per-file editing UI from phase-32 (`DocumentHeader` + `PropertyRow` + pickers) edits one document at a time. There is no way to see all documents in a folder _at once_ as structured records, compare or sort by a field, bulk-scan status across a project, or edit a field across many files quickly.
 
-Knowledge bases organized as "one folder = one collection of like records" (tasks, contacts, papers, CRM-style notes) are exactly the use case relational/no-code DB tools nail. Bringing a spreadsheet-grade table over Markdown frontmatter — *editable, with the file system as the source of truth* — turns Tesseract from "editor with search" into "structured database over your notes" without giving up plain-text portability.
+Knowledge bases organized as "one folder = one collection of like records" (tasks, contacts, papers, CRM-style notes) are exactly the use case relational/no-code DB tools nail. Bringing a spreadsheet-grade table over Markdown frontmatter — _editable, with the file system as the source of truth_ — turns Tesseract from "editor with search" into "structured database over your notes" without giving up plain-text portability.
 
 ## Canonical CLI contract (consumed verbatim)
 
@@ -26,14 +26,14 @@ Knowledge bases organized as "one folder = one collection of like records" (task
   "recursive": false,
   "columns": [
     {
-      "name": "status",             // NOT "key"
-      "field_type": "String",       // PascalCase: String|Number|Boolean|List|Date|Mixed
+      "name": "status", // NOT "key"
+      "field_type": "String", // PascalCase: String|Number|Boolean|List|Date|Mixed
       "description": "Publication status", // string | null
       "occurrence_count": 12,
-      "sample_values": ["draft","published"],
-      "allowed_values": ["draft","published"], // string[] | null (usually null)
+      "sample_values": ["draft", "published"],
+      "allowed_values": ["draft", "published"], // string[] | null (usually null)
       "required": true,
-      "in_schema": true             // false = key found only in a row's frontmatter
+      "in_schema": true // false = key found only in a row's frontmatter
     }
   ],
   "rows": [
@@ -42,15 +42,15 @@ Knowledge bases organized as "one folder = one collection of like records" (task
       "title": "Launch Announcement",
       "title_source": "frontmatter", // "frontmatter" | "filename"
       "frontmatter": { "status": "published", "tags": ["news"] }, // ALWAYS object, {} never null
-      "content_hash": "abc123…",    // string | null (null for state:"new")
+      "content_hash": "abc123…", // string | null (null for state:"new")
       "file_size": 2048,
-      "modified_at": 1718000000,    // number | null
-      "indexed_at": 1718000000,     // number | null (null for state:"new")
-      "state": "indexed"            // "indexed"|"modified"|"new"|"deleted"
+      "modified_at": 1718000000, // number | null
+      "indexed_at": 1718000000, // number | null (null for state:"new")
+      "state": "indexed" // "indexed"|"modified"|"new"|"deleted"
     }
   ],
-  "total_rows": 37,                 // post-filter, pre-limit/offset (NOT "total")
-  "limit": 50,                      // number | omitted
+  "total_rows": 37, // post-filter, pre-limit/offset (NOT "total")
+  "limit": 50, // number | omitted
   "offset": 0
 }
 ```
@@ -74,7 +74,7 @@ The app mirrors these field names exactly (`name`, `total_rows`, `description`, 
 ## Non-Goals
 
 - **No relational features** — no cross-table relations, lookups, rollups, or formulas. Each column maps 1:1 to a single frontmatter key.
-- **No schema editing from the grid** — you cannot rename/retype a column definition from the table in V1 (you can set a value on an existing column for a row, and editing a blank cell adds that key to one file). New column *definitions* arrive by editing files or via "add row".
+- **No schema editing from the grid** — you cannot rename/retype a column definition from the table in V1 (you can set a value on an existing column for a row, and editing a blank cell adds that key to one file). New column _definitions_ arrive by editing files or via "add row".
 - **No body/markdown editing in cells** — cells edit frontmatter only. The body is opened via the Title pop-out.
 - **No bulk multi-row edit / fill-down** in V1 (single-cell edits only). Deferred.
 - **No CLI writes** — mdvdb stays read-only; all writes happen in the Electron main process.
@@ -150,10 +150,10 @@ Extend the discriminated union in `src/renderer/stores/workspace.svelte.ts` exac
 export interface TableTab {
   id: string
   kind: 'table'
-  folderPath: string            // relative to collection root; '' = root (sent to CLI as '.')
-  title: string                 // folder name (or 'Root')
-  recursive: boolean            // include nested subfolders
-  activeViewId: string | null   // id of the saved view applied (null = ad-hoc/default)
+  folderPath: string // relative to collection root; '' = root (sent to CLI as '.')
+  title: string // folder name (or 'Root')
+  recursive: boolean // include nested subfolders
+  activeViewId: string | null // id of the saved view applied (null = ad-hoc/default)
   /** Ephemeral, unsaved table state (overlaid on top of the active saved view). */
   ephemeral: TableViewConfig | null
 }
@@ -164,12 +164,15 @@ export type TabState = DocumentTab | GraphTab | AssetTab | TerminalTab | TableTa
 `TableViewConfig` (shared shape, also persisted for saved views). Column identity uses the CLI's `name` (the Title column uses the sentinel `'__title__'`):
 
 ```ts
-export interface TableSort { columnName: string; direction: 'asc' | 'desc' }
+export interface TableSort {
+  columnName: string
+  direction: 'asc' | 'desc'
+}
 export interface TableColumnLayout {
-  name: string           // frontmatter key (== CLI column.name), or '__title__' for Title
+  name: string // frontmatter key (== CLI column.name), or '__title__' for Title
   hidden: boolean
-  width: number          // px
-  order: number          // display order
+  width: number // px
+  order: number // display order
 }
 export interface TableColumnFilter {
   columnName: string
@@ -184,8 +187,8 @@ export interface TableViewConfig {
   sort: TableSort[]
   filters: TableColumnFilter[]
   columns: TableColumnLayout[]
-  groupBy: string | null      // column name, or null
-  collapsedGroups: string[]   // group values currently collapsed
+  groupBy: string | null // column name, or null
+  collapsedGroups: string[] // group values currently collapsed
 }
 ```
 
@@ -226,18 +229,31 @@ New CLI bridge channel `cli:collection`, mirroring the `cli:schema`/`cli:tree` h
 
 ```ts
 // ipc-handlers.ts
-ipcMain.handle('cli:collection', (_event, root: string, folderPath: string,
-    options?: { recursive?: boolean; sort?: string; order?: 'asc' | 'desc';
-                filter?: string[]; limit?: number; offset?: number }) => {
-  const args: string[] = [folderPath || '.']          // root sentinel '.'
-  if (options?.recursive) args.push('--recursive')
-  if (options?.sort) args.push('--sort', options.sort)             // field name only
-  if (options?.order) args.push('--order', options.order)          // separate flag
-  for (const f of options?.filter ?? []) args.push('--filter', f)  // repeatable: KEY=VALUE each
-  if (options?.limit != null) args.push('--limit', String(options.limit))
-  if (options?.offset != null) args.push('--offset', String(options.offset))
-  return wrapHandler(() => execCommand<CollectionOutput>('collection', args, root))
-})
+ipcMain.handle(
+  'cli:collection',
+  (
+    _event,
+    root: string,
+    folderPath: string,
+    options?: {
+      recursive?: boolean
+      sort?: string
+      order?: 'asc' | 'desc'
+      filter?: string[]
+      limit?: number
+      offset?: number
+    }
+  ) => {
+    const args: string[] = [folderPath || '.'] // root sentinel '.'
+    if (options?.recursive) args.push('--recursive')
+    if (options?.sort) args.push('--sort', options.sort) // field name only
+    if (options?.order) args.push('--order', options.order) // separate flag
+    for (const f of options?.filter ?? []) args.push('--filter', f) // repeatable: KEY=VALUE each
+    if (options?.limit != null) args.push('--limit', String(options.limit))
+    if (options?.offset != null) args.push('--offset', String(options.offset))
+    return wrapHandler(() => execCommand<CollectionOutput>('collection', args, root))
+  }
+)
 ```
 
 Preload method in `src/preload/index.ts` (mirrors `tree`/`schema`) and `MdvdbApi` signature in `src/preload/api.d.ts` with the same `options` shape (`sort`/`order`/`filter: string[]`).
@@ -246,8 +262,8 @@ New TypeScript types mirrored into `src/renderer/types/cli.ts`, **matching the c
 
 ```ts
 export interface CollectionColumn {
-  name: string                   // == frontmatter key
-  field_type: FieldType          // existing union, types/cli.ts:151 (PascalCase)
+  name: string // == frontmatter key
+  field_type: FieldType // existing union, types/cli.ts:151 (PascalCase)
   description: string | null
   occurrence_count: number
   sample_values: string[]
@@ -260,12 +276,12 @@ export interface CollectionRow {
   path: string
   title: string
   title_source: TitleSource
-  frontmatter: Record<string, JsonValue>   // always an object ({} never null)
-  content_hash: string | null              // null for state:'new'
+  frontmatter: Record<string, JsonValue> // always an object ({} never null)
+  content_hash: string | null // null for state:'new'
   file_size: number
   modified_at: number | null
-  indexed_at: number | null                // null for state:'new'
-  state: FileState                          // existing union, types/cli.ts:275
+  indexed_at: number | null // null for state:'new'
+  state: FileState // existing union, types/cli.ts:275
 }
 export interface CollectionOutput {
   scope: string
@@ -315,14 +331,14 @@ We **virtualize rows** (windowed via `lib/virtual-list.ts`; viewport + buffer on
 
 Each cell renders a read view and, on edit, an inline editor. Editors live in `src/renderer/components/table/cells/` and **reuse the phase-32 widgets** (`PropertyRow` value widgets, `DatePicker`, `DateTimePicker`, `TypePickerDropdown`, the `DetectedType` detection, `Badge` for list chips, the `formatDate` helper) rather than rebuilding them. Commit = `Enter`/blur; cancel = `Escape`.
 
-| FieldType | Read render | Editor | Write value |
-|---|---|---|---|
-| `String` | text (ellipsized) | single-line text input; textarea if value has newlines | YAML string |
-| `Number` | right-aligned number | `<input type="number">`; rejects non-numeric | YAML **number** (not a quoted string) |
-| `Boolean` | checkbox/toggle glyph | toggle/checkbox (reuse phase-32 toggle) | `true`/`false` |
-| `List` | chips/`Badge` per item (as `PropertiesPanel` does at `:243`) | tag/chip editor (reuse phase-32 tags): add via input+Enter, remove via chip ✕ | YAML **sequence** |
-| `Date` | localized date (`formatDate`, `PropertiesPanel.svelte:133`) | reuse phase-32 `DatePicker` (+ free-text ISO fallback) | **quoted** `"YYYY-MM-DD"` string (see Write-back: keeps it a string, not a YAML timestamp) |
-| `Mixed` | best-effort string of the raw value | text input editing the **raw** value | writer infers scalar type on commit; never silently coerces a list/map to a string |
+| FieldType | Read render                                                  | Editor                                                                        | Write value                                                                                |
+| --------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `String`  | text (ellipsized)                                            | single-line text input; textarea if value has newlines                        | YAML string                                                                                |
+| `Number`  | right-aligned number                                         | `<input type="number">`; rejects non-numeric                                  | YAML **number** (not a quoted string)                                                      |
+| `Boolean` | checkbox/toggle glyph                                        | toggle/checkbox (reuse phase-32 toggle)                                       | `true`/`false`                                                                             |
+| `List`    | chips/`Badge` per item (as `PropertiesPanel` does at `:243`) | tag/chip editor (reuse phase-32 tags): add via input+Enter, remove via chip ✕ | YAML **sequence**                                                                          |
+| `Date`    | localized date (`formatDate`, `PropertiesPanel.svelte:133`)  | reuse phase-32 `DatePicker` (+ free-text ISO fallback)                        | **quoted** `"YYYY-MM-DD"` string (see Write-back: keeps it a string, not a YAML timestamp) |
+| `Mixed`   | best-effort string of the raw value                          | text input editing the **raw** value                                          | writer infers scalar type on commit; never silently coerces a list/map to a string         |
 
 **Title column** (`name: '__title__'`): renders `row.title` + a pop-out `open_in_new` IconButton calling `workspace.openFile(row.path)` (existing smart-open at `workspace.svelte.ts:382`). Not directly editable in V1 (a tooltip explains "open the doc to rename"). Dim style when `title_source === 'filename'`.
 
@@ -334,13 +350,13 @@ Each cell renders a read view and, on edit, an inline editor. Editors live in `s
 
 The renderer's existing hand-rolled frontmatter helpers (`markdown-bridge.ts` `splitFrontmatter`/`joinFrontmatter`/`parseFrontmatterData`/`serializeFrontmatter`, used by phase-32's `DocumentHeader`) are fine for whole-block re-serialization in the editor, but for **surgical, lossless single-key edits across arbitrary user files** we use a proper YAML AST.
 
-**Decision 1 — use a real YAML library for the write merge.** Add **`yaml`** (eemeli/yaml) as a dependency. Its **Document API** parses to a CST/AST that preserves source formatting of *untouched* nodes and lets us set/delete a single key while leaving everything else byte-stable as much as YAML round-tripping allows. We deliberately do **not** hand-roll a line-splice (brittle for block sequences, multi-line scalars, indentation), and we avoid `gray-matter`/`js-yaml` `dump` which reformats the whole block. We **reuse `markdown-bridge.ts`'s `splitFrontmatter`/`joinFrontmatter`** only to separate and re-attach the body byte-for-byte; the YAML *mutation* goes through eemeli `yaml`.
+**Decision 1 — use a real YAML library for the write merge.** Add **`yaml`** (eemeli/yaml) as a dependency. Its **Document API** parses to a CST/AST that preserves source formatting of _untouched_ nodes and lets us set/delete a single key while leaving everything else byte-stable as much as YAML round-tripping allows. We deliberately do **not** hand-roll a line-splice (brittle for block sequences, multi-line scalars, indentation), and we avoid `gray-matter`/`js-yaml` `dump` which reformats the whole block. We **reuse `markdown-bridge.ts`'s `splitFrontmatter`/`joinFrontmatter`** only to separate and re-attach the body byte-for-byte; the YAML _mutation_ goes through eemeli `yaml`.
 
 **Decision 2 — do the merge + write in MAIN, not the renderer.** A new IPC handler `fs:update-frontmatter` performs the read-modify-write atomically in the main process: single owner of the mutation, the same collection-path security check as `fs:write-file` (`ipc-handlers.ts:531`), atomic temp-file + `rename`, and reuse of the existing `file:saved-externally` broadcast. The renderer never assembles raw file bytes.
 
 ### Safe read-modify-write algorithm (main process)
 
-`src/main/frontmatter.ts` (new module), invoked by the `fs:update-frontmatter` handler. **The handler takes `(collectionId, relativePath, patch)`** and resolves the absolute path *in main* (so the renderer never constructs arbitrary absolute paths; the collection boundary is enforced server-side):
+`src/main/frontmatter.ts` (new module), invoked by the `fs:update-frontmatter` handler. **The handler takes `(collectionId, relativePath, patch)`** and resolves the absolute path _in main_ (so the renderer never constructs arbitrary absolute paths; the collection boundary is enforced server-side):
 
 1. Resolve `absolutePath = collection.path + relativePath` and **validate** it is within the collection (identical guard to `fs:write-file`).
 2. Read the file as UTF-8 (detect + preserve original EOL: `\r\n` vs `\n`, and trailing newline).
@@ -418,12 +434,12 @@ After a successful write, the renderer calls the existing single-file ingest pat
 tableViews: Record<string /* collectionId */, Record<string /* folderPath */, SavedTableView[]>>
 
 export interface SavedTableView {
-  id: string            // uuid
+  id: string // uuid
   name: string
-  version: number       // config schema version, for migration/degradation
+  version: number // config schema version, for migration/degradation
   config: TableViewConfig
   recursive: boolean
-  isDefault?: boolean   // applied when the folder is first opened
+  isDefault?: boolean // applied when the folder is first opened
   createdAt: number
   updatedAt: number
 }
@@ -443,7 +459,7 @@ When a folder opens, load its `isDefault` view if present, else an implicit "All
 ## Edge cases to cover
 
 - **Empty folder** — empty state + Add row CTA; columns from schema (may be just Title).
-- **No frontmatter anywhere** — only the Title column; editing a cell *creates* the frontmatter block via the writer (synthesize-only-when-no-leading-`---`). Group-by/filter menus show "no fields yet."
+- **No frontmatter anywhere** — only the Title column; editing a cell _creates_ the frontmatter block via the writer (synthesize-only-when-no-leading-`---`). Group-by/filter menus show "no fields yet."
 - **Mixed-type columns** — render raw value; editor edits raw text; writer infers scalar type but never silently coerces a list/map to a string; sort uses the CLI's lexicographic fallback. Document that editing may shift inferred type after re-ingest.
 - **Files on disk but not indexed (`state: 'new'`)** — "new" badge; CLI returns `{}` so frontmatter is read **live from disk** (via `readFile` + shared splitter) to stay editable; dropped by any server `--filter` (use client-side filtering to keep them visible). Badge clears after edit + re-index refresh.
 - **`deleted` rows** — read-only (no cell editing); shown until re-index removes them.
@@ -457,6 +473,7 @@ When a folder opens, load its `isDefault` view if present, else an implicit "All
 ## File-by-file changes (implementation outline)
 
 **New files**
+
 - `src/renderer/components/table/{TableView,TableToolbar,TableHeader,TableRow,TableGroupHeader,SaveViewModal}.svelte`.
 - `src/renderer/components/table/cells/{StringCell,NumberCell,BooleanCell,ListCell,DateCell,MixedCell,TitleCell}.svelte` (reusing phase-32 widgets internally).
 - `src/renderer/stores/table.svelte.ts` — per-tab data + derived rows + load/merge logic.
@@ -466,6 +483,7 @@ When a folder opens, load its `isDefault` view if present, else an implicit "All
 - Tests: `tests/unit/{table-store,frontmatter-writer,table-views}.test.ts`, `tests/integration/collection-ipc.test.ts`, `tests/e2e/table-view.spec.ts`.
 
 **Modified files**
+
 - `src/renderer/stores/workspace.svelte.ts` — add `TableTab` + `TableViewConfig` types, widen `TabState` (`:96`), `openTableTab`/`setTableRecursive`/`setTableActiveView`/`setTableEphemeral`, and `'table'` branches in `serializeSession` (`:1167`) / `restoreSession` (`:1222`).
 - `src/renderer/components/TabPane.svelte` — add `{:else if tabKind === 'table'}` branch (near `:159`) rendering lazy `<TableView />`.
 - `src/renderer/components/Sidebar.svelte` — thread `onfolderopen` → `workspace.openTableTab` (near `:248`).

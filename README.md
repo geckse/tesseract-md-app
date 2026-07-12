@@ -26,24 +26,28 @@ Under the hood, Tesseract is powered by [**mdvdb**](https://github.com/geckse/ma
 <summary><strong>3D Knowledge Graph</strong></summary>
 
 Visualize how your notes connect in an interactive WebGL 3D graph. Orbit, zoom, and drag nodes to explore your knowledge spatially. Related notes auto-group into clusters, link directions show how ideas flow, and multi-hop traversal uncovers distant relationships.
+
 </details>
 
 <details>
 <summary><strong>Hybrid Search (Semantic + Lexical)</strong></summary>
 
 Search by meaning, not just keywords. Find relevant notes even when they use completely different words. Three modes — semantic (meaning-based), lexical (keyword), and hybrid (both combined) — so you always find what you're looking for.
+
 </details>
 
 <details>
 <summary><strong>Frontmatter Filtering</strong></summary>
 
 Filter search results by frontmatter metadata. Combine semantic search with structured queries like `--filter status=published` to narrow results by any frontmatter field. Supports equality, range, set membership, and existence checks. mdvdb auto-infers your schema, so there's nothing to configure.
+
 </details>
 
 <details>
 <summary><strong>Notion-Like Markdown Editor</strong></summary>
 
 Three editing modes to match how you think:
+
 - **Source** — CodeMirror 6 with syntax highlighting for those who think in Markdown
 - **WYSIWYG** — Notion-like block editor (TipTap) with slash commands, drag-and-drop blocks, and floating toolbars
 - **Preview** — Clean rendered output with Mermaid diagram support
@@ -53,84 +57,93 @@ Three editing modes to match how you think:
 <summary><strong>Wikilinks & Backlinks</strong></summary>
 
 Type `[[page]]` to link any note. Backlinks update automatically — see every note that references the current one. Find orphaned notes before they're forgotten. Your knowledge becomes a web, not a filing cabinet.
+
 </details>
 
 <details>
 <summary><strong>Auto-Inferred Relationships</strong></summary>
 
 mdvdb automatically infers relationships between your documents — semantic similarity, shared clusters, link neighborhoods — without any manual tagging. Edges in your knowledge graph aren't just explicit links; they're discovered connections surfaced by vector embeddings and graph traversal.
+
 </details>
 
 <details>
 <summary><strong>Multi-Tab & Split Panes</strong></summary>
 
 Work across multiple documents simultaneously with VS Code-style tabs and split panes. Each tab maintains its own scroll position, cursor, and undo history. Open a graph in one pane and a document in the other.
+
 </details>
 
 <details>
 <summary><strong>Multi-Window</strong></summary>
 
 Open as many independent windows as you need (`Cmd+Shift+N`). Each window has its own tabs, layout, and session — all persisted across restarts.
+
 </details>
 
 <details>
 <summary><strong>Properties Panel (Frontmatter)</strong></summary>
 
 Document info, frontmatter editor, heading outline, links & backlinks explorer, and a local neighborhood graph — all in a collapsible sidebar.
+
 </details>
 
 <details>
 <summary><strong>File Tree with Sync Status</strong></summary>
 
 Hierarchical navigation with word counts, link counts, and index status indicators. Drag-and-drop reorganization, context menus, and asset detection for images, PDFs, and media files.
+
 </details>
 
 <details>
 <summary><strong>Collections</strong></summary>
 
 Manage multiple knowledge bases. Each collection has its own index, theme, and accent color. Switch between projects instantly.
+
 </details>
 
 <details>
 <summary><strong>Local-First & Private</strong></summary>
 
 Everything stays on your machine. No cloud sync. No account required. Plain `.md` files — take your notes anywhere.
+
 </details>
 
 <details>
 <summary><strong>Open Source</strong></summary>
 
 MIT licensed. Audit the code, fork it, contribute.
+
 </details>
 
 ---
 
 ## Tesseract vs Obsidian
 
-| | **Tesseract** | **Obsidian** |
-|---|---|---|
-| **License** | MIT open source | Proprietary |
-| **Search engine** | Semantic + lexical hybrid (mdvdb, Rust) | Keyword-only |
-| **Search by meaning** | Yes — finds related ideas even with different words | No |
-| **Knowledge graph** | Interactive 3D (WebGL) with cluster grouping | 2D flat graph |
-| **Auto-inferred edges** | Yes — mdvdb discovers semantic relationships, clusters, and neighborhoods automatically | No — only explicit links shown |
-| **Clustering** | Automatic document clustering with keyword labels via mdvdb | Not available |
-| **CLI integration** | Native CLI (`mdvdb`) — ingest, search, status, doctor, watch from terminal | No CLI |
-| **Agent-friendly** | JSON output from CLI, designed for AI agent workflows | Not designed for agents |
-| **Vector database** | Built-in (HNSW via usearch, zero-copy rkyv, mmap) | None |
-| **Link graph analysis** | Multi-hop traversal, orphan detection, backlink boosting, neighborhood expansion | Basic backlinks |
-| **Full-text search** | BM25 via Tantivy with RRF fusion | Basic text matching |
-| **Editor modes** | Source (CodeMirror) + WYSIWYG (TipTap) + Preview | Source + Preview |
-| **WYSIWYG editing** | Block editor with slash commands, drag handles, bubble menus | Live Preview (not true WYSIWYG) |
-| **Mermaid diagrams** | Built-in rendering | Plugin required |
-| **Split panes** | Yes | Yes |
-| **Multi-window** | Yes | Yes |
-| **Local-first** | Yes | Yes |
-| **Plain Markdown** | Yes | Yes |
-| **Platforms** | macOS, Windows, Linux | macOS, Windows, Linux |
-| **Price** | Free | Free (personal), paid for commercial/sync/publish |
-| **Plugin ecosystem** | Early stage | Extensive |
-| **Mobile app** | Not yet | Yes |
+|                         | **Tesseract**                                                                           | **Obsidian**                                      |
+| ----------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| **License**             | MIT open source                                                                         | Proprietary                                       |
+| **Search engine**       | Semantic + lexical hybrid (mdvdb, Rust)                                                 | Keyword-only                                      |
+| **Search by meaning**   | Yes — finds related ideas even with different words                                     | No                                                |
+| **Knowledge graph**     | Interactive 3D (WebGL) with cluster grouping                                            | 2D flat graph                                     |
+| **Auto-inferred edges** | Yes — mdvdb discovers semantic relationships, clusters, and neighborhoods automatically | No — only explicit links shown                    |
+| **Clustering**          | Automatic document clustering with keyword labels via mdvdb                             | Not available                                     |
+| **CLI integration**     | Native CLI (`mdvdb`) — ingest, search, status, doctor, watch from terminal              | No CLI                                            |
+| **Agent-friendly**      | JSON output from CLI, designed for AI agent workflows                                   | Not designed for agents                           |
+| **Vector database**     | Built-in (HNSW via usearch, zero-copy rkyv, mmap)                                       | None                                              |
+| **Link graph analysis** | Multi-hop traversal, orphan detection, backlink boosting, neighborhood expansion        | Basic backlinks                                   |
+| **Full-text search**    | BM25 via Tantivy with RRF fusion                                                        | Basic text matching                               |
+| **Editor modes**        | Source (CodeMirror) + WYSIWYG (TipTap) + Preview                                        | Source + Preview                                  |
+| **WYSIWYG editing**     | Block editor with slash commands, drag handles, bubble menus                            | Live Preview (not true WYSIWYG)                   |
+| **Mermaid diagrams**    | Built-in rendering                                                                      | Plugin required                                   |
+| **Split panes**         | Yes                                                                                     | Yes                                               |
+| **Multi-window**        | Yes                                                                                     | Yes                                               |
+| **Local-first**         | Yes                                                                                     | Yes                                               |
+| **Plain Markdown**      | Yes                                                                                     | Yes                                               |
+| **Platforms**           | macOS, Windows, Linux                                                                   | macOS, Windows, Linux                             |
+| **Price**               | Free                                                                                    | Free (personal), paid for commercial/sync/publish |
+| **Plugin ecosystem**    | Early stage                                                                             | Extensive                                         |
+| **Mobile app**          | Not yet                                                                                 | Yes                                               |
 
 ---
 
@@ -207,17 +220,17 @@ npm run typecheck     # TypeScript strict mode
 
 ### Tech Stack
 
-| Layer | Technology |
-|---|---|
-| Desktop runtime | Electron |
-| UI framework | Svelte 5 |
-| Source editor | CodeMirror 6 |
-| WYSIWYG editor | TipTap 3 (ProseMirror) |
-| 3D graph | 3d-force-graph (Three.js + d3-force-3d) |
-| Styling | Tailwind 4 + CSS custom properties |
-| Build | electron-vite (Vite 6) |
-| Search & indexing | mdvdb (Rust CLI) |
-| Testing | Vitest + Playwright |
+| Layer             | Technology                              |
+| ----------------- | --------------------------------------- |
+| Desktop runtime   | Electron                                |
+| UI framework      | Svelte 5                                |
+| Source editor     | CodeMirror 6                            |
+| WYSIWYG editor    | TipTap 3 (ProseMirror)                  |
+| 3D graph          | 3d-force-graph (Three.js + d3-force-3d) |
+| Styling           | Tailwind 4 + CSS custom properties      |
+| Build             | electron-vite (Vite 6)                  |
+| Search & indexing | mdvdb (Rust CLI)                        |
+| Testing           | Vitest + Playwright                     |
 
 ---
 

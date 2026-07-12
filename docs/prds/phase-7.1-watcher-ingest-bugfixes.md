@@ -15,6 +15,7 @@ Failed to acquire Lockfile: LockBusy. "Failed to acquire index lock..."
 ```
 
 Affected operations:
+
 - "Ingest" button (`cli:ingest`)
 - "Full Reindex" button (`cli:ingest` with `--reindex`)
 - Right-click "Reindex File" on a single file (`cli:ingest-file`)
@@ -109,11 +110,12 @@ export interface WatcherEvent {
 
 ### Files Changed
 
-| File | Change |
-|---|---|
+| File                           | Change                                                                                                                                                  |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `app/src/main/ipc-handlers.ts` | Add `withWatcherPaused()` helper; wrap `cli:ingest` and `cli:ingest-file` with it; wrap watcher event/error/state forwarding in `WatcherEvent` envelope |
 
 No changes needed to:
+
 - `app/src/renderer/stores/watcher.ts` — already handles `'watch-event'`, `'state-change'`, `'error'` types correctly
 - `app/src/preload/index.ts` — already listens on the correct `watcher:event` channel
 - Rust CLI code — watcher and index behavior is correct

@@ -57,11 +57,17 @@
     class="ingest-trigger"
     class:disabled
     onclick={toggleDropdown}
-    title={disabled ? (currentRunning ? 'Ingest in progress...' : 'Select a collection first') : 'Ingest actions'}
+    title={disabled
+      ? currentRunning
+        ? 'Ingest in progress...'
+        : 'Select a collection first'
+      : 'Ingest actions'}
   >
     <span class="material-symbols-outlined trigger-icon">bolt</span>
     <span class="trigger-label">Ingest</span>
-    <span class="material-symbols-outlined trigger-chevron" class:open={dropdownOpen}>expand_more</span>
+    <span class="material-symbols-outlined trigger-chevron" class:open={dropdownOpen}
+      >expand_more</span
+    >
   </button>
 
   {#if dropdownOpen}
@@ -81,7 +87,11 @@
         </div>
       </button>
       <div class="dropdown-divider"></div>
-      <button class="dropdown-item dropdown-item-warning" role="menuitem" onclick={handleFullReindex}>
+      <button
+        class="dropdown-item dropdown-item-warning"
+        role="menuitem"
+        onclick={handleFullReindex}
+      >
         <span class="material-symbols-outlined item-icon">restart_alt</span>
         <div class="item-content">
           <span class="item-label">Full Reindex</span>
@@ -105,7 +115,7 @@
     border-radius: 6px;
     background: var(--color-surface, #161617);
     border: 1px solid var(--color-border, #27272a);
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
     cursor: pointer;
     font-size: 13px;
     font-family: inherit;
@@ -115,7 +125,7 @@
 
   .ingest-trigger:hover:not(.disabled) {
     background: var(--color-surface-darker, #0a0a0a);
-    border-color: var(--color-primary, #00E5FF);
+    border-color: var(--color-primary, #00e5ff);
     box-shadow: 0 0 8px var(--color-primary-dim, rgba(0, 229, 255, 0.15));
   }
 
@@ -186,7 +196,7 @@
   }
 
   .dropdown-item:hover .item-icon {
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
   }
 
   .dropdown-item-warning:hover .item-icon {

@@ -13,7 +13,12 @@ vi.mock('../../src/main/cli', () => ({
 const mockFetch = vi.fn()
 vi.stubGlobal('fetch', mockFetch)
 
-import { detectCli, getInstallPath, getAssetName, checkLatestVersion } from '../../src/main/cli-install'
+import {
+  detectCli,
+  getInstallPath,
+  getAssetName,
+  checkLatestVersion
+} from '../../src/main/cli-install'
 
 beforeEach(() => {
   mockFindCli.mockReset()

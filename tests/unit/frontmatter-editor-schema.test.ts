@@ -9,12 +9,12 @@ const mockApi = {
   removeCollection: vi.fn(),
   setActiveCollection: vi.fn(),
   status: vi.fn(),
-  renameFile: vi.fn(),
+  renameFile: vi.fn()
 }
 
 Object.defineProperty(globalThis, 'window', {
   value: { api: mockApi },
-  writable: true,
+  writable: true
 })
 
 import DocumentHeader from '@renderer/components/wysiwyg/DocumentHeader.svelte'
@@ -28,7 +28,7 @@ function makeSchemaField(overrides: Partial<SchemaField> & { name: string }): Sc
     sample_values: [],
     allowed_values: null,
     required: false,
-    ...overrides,
+    ...overrides
   }
 }
 
@@ -39,7 +39,7 @@ function makeSchema(fields: SchemaField[]): Schema {
 const defaultProps = {
   filePath: 'docs/test.md',
   collectionPath: '/collections/test',
-  onFileRenamed: vi.fn(),
+  onFileRenamed: vi.fn()
 }
 
 describe('DocumentHeader schema integration', () => {
@@ -53,8 +53,8 @@ describe('DocumentHeader schema integration', () => {
         frontmatterYaml: 'title: Hello',
         onFrontmatterUpdate: vi.fn(),
         schema: null,
-        ...defaultProps,
-      },
+        ...defaultProps
+      }
     })
 
     // Should render the document header with properties
@@ -67,8 +67,8 @@ describe('DocumentHeader schema integration', () => {
     const schema = makeSchema([
       makeSchemaField({
         name: 'status',
-        allowed_values: ['draft', 'published', 'archived'],
-      }),
+        allowed_values: ['draft', 'published', 'archived']
+      })
     ])
 
     const { container } = render(DocumentHeader, {
@@ -76,8 +76,8 @@ describe('DocumentHeader schema integration', () => {
         frontmatterYaml: 'status: draft',
         onFrontmatterUpdate: vi.fn(),
         schema,
-        ...defaultProps,
-      },
+        ...defaultProps
+      }
     })
 
     const select = container.querySelector('select.pr-select') as HTMLSelectElement
@@ -92,17 +92,15 @@ describe('DocumentHeader schema integration', () => {
   })
 
   it('renders required indicator for required fields', () => {
-    const schema = makeSchema([
-      makeSchemaField({ name: 'title', required: true }),
-    ])
+    const schema = makeSchema([makeSchemaField({ name: 'title', required: true })])
 
     const { container } = render(DocumentHeader, {
       props: {
         frontmatterYaml: 'title: My Doc',
         onFrontmatterUpdate: vi.fn(),
         schema,
-        ...defaultProps,
-      },
+        ...defaultProps
+      }
     })
 
     const indicator = container.querySelector('.pr-required')
@@ -114,8 +112,8 @@ describe('DocumentHeader schema integration', () => {
     const schema = makeSchema([
       makeSchemaField({
         name: 'title',
-        description: 'The document title',
-      }),
+        description: 'The document title'
+      })
     ])
 
     render(DocumentHeader, {
@@ -123,8 +121,8 @@ describe('DocumentHeader schema integration', () => {
         frontmatterYaml: 'title: Test',
         onFrontmatterUpdate: vi.fn(),
         schema,
-        ...defaultProps,
-      },
+        ...defaultProps
+      }
     })
 
     const keyInput = screen.getByLabelText('Property name')
@@ -135,8 +133,8 @@ describe('DocumentHeader schema integration', () => {
     const schema = makeSchema([
       makeSchemaField({
         name: 'status',
-        allowed_values: ['draft', 'published', 'archived'],
-      }),
+        allowed_values: ['draft', 'published', 'archived']
+      })
     ])
 
     const { container } = render(DocumentHeader, {
@@ -144,8 +142,8 @@ describe('DocumentHeader schema integration', () => {
         frontmatterYaml: 'status: published',
         onFrontmatterUpdate: vi.fn(),
         schema,
-        ...defaultProps,
-      },
+        ...defaultProps
+      }
     })
 
     const select = container.querySelector('select.pr-select') as HTMLSelectElement
@@ -160,8 +158,8 @@ describe('DocumentHeader schema integration', () => {
     const schema = makeSchema([
       makeSchemaField({
         name: 'status',
-        allowed_values: ['draft', 'published'],
-      }),
+        allowed_values: ['draft', 'published']
+      })
     ])
 
     const { container } = render(DocumentHeader, {
@@ -169,8 +167,8 @@ describe('DocumentHeader schema integration', () => {
         frontmatterYaml: 'status: custom-value',
         onFrontmatterUpdate: vi.fn(),
         schema,
-        ...defaultProps,
-      },
+        ...defaultProps
+      }
     })
 
     const select = container.querySelector('select.pr-select') as HTMLSelectElement
@@ -182,17 +180,15 @@ describe('DocumentHeader schema integration', () => {
   })
 
   it('does not render required indicator for non-required fields', () => {
-    const schema = makeSchema([
-      makeSchemaField({ name: 'tags', required: false }),
-    ])
+    const schema = makeSchema([makeSchemaField({ name: 'tags', required: false })])
 
     const { container } = render(DocumentHeader, {
       props: {
         frontmatterYaml: 'tags: foo',
         onFrontmatterUpdate: vi.fn(),
         schema,
-        ...defaultProps,
-      },
+        ...defaultProps
+      }
     })
 
     const indicator = container.querySelector('.pr-required')
@@ -200,17 +196,15 @@ describe('DocumentHeader schema integration', () => {
   })
 
   it('renders text input (not select) when no allowed_values', () => {
-    const schema = makeSchema([
-      makeSchemaField({ name: 'author', allowed_values: null }),
-    ])
+    const schema = makeSchema([makeSchemaField({ name: 'author', allowed_values: null })])
 
     render(DocumentHeader, {
       props: {
         frontmatterYaml: 'author: Alice',
         onFrontmatterUpdate: vi.fn(),
         schema,
-        ...defaultProps,
-      },
+        ...defaultProps
+      }
     })
 
     expect(screen.getByDisplayValue('Alice')).toBeTruthy()
@@ -222,8 +216,8 @@ describe('DocumentHeader schema integration', () => {
         frontmatterYaml: null,
         onFrontmatterUpdate: vi.fn(),
         schema: null,
-        ...defaultProps,
-      },
+        ...defaultProps
+      }
     })
 
     // Should show filename without .md extension
@@ -238,8 +232,8 @@ describe('DocumentHeader schema integration', () => {
         frontmatterYaml: null,
         onFrontmatterUpdate: vi.fn(),
         schema: null,
-        ...defaultProps,
-      },
+        ...defaultProps
+      }
     })
 
     expect(screen.getByText('Add property')).toBeTruthy()
@@ -251,8 +245,8 @@ describe('DocumentHeader schema integration', () => {
         frontmatterYaml: 'count: 42',
         onFrontmatterUpdate: vi.fn(),
         schema: null,
-        ...defaultProps,
-      },
+        ...defaultProps
+      }
     })
 
     // Number type icon should be present
@@ -266,8 +260,8 @@ describe('DocumentHeader schema integration', () => {
         frontmatterYaml: 'created: 2024-03-15',
         onFrontmatterUpdate: vi.fn(),
         schema: null,
-        ...defaultProps,
-      },
+        ...defaultProps
+      }
     })
 
     // Should render date picker button
@@ -281,8 +275,8 @@ describe('DocumentHeader schema integration', () => {
         frontmatterYaml: 'updated: 2024-03-15T14:30',
         onFrontmatterUpdate: vi.fn(),
         schema: null,
-        ...defaultProps,
-      },
+        ...defaultProps
+      }
     })
 
     // Should render datetime picker button
@@ -296,8 +290,8 @@ describe('DocumentHeader schema integration', () => {
         frontmatterYaml: 'website: https://example.com',
         onFrontmatterUpdate: vi.fn(),
         schema: null,
-        ...defaultProps,
-      },
+        ...defaultProps
+      }
     })
 
     // Should render open URL button
@@ -311,8 +305,8 @@ describe('DocumentHeader schema integration', () => {
         frontmatterYaml: 'published: true',
         onFrontmatterUpdate: vi.fn(),
         schema: null,
-        ...defaultProps,
-      },
+        ...defaultProps
+      }
     })
 
     // Should render toggle switch
@@ -323,11 +317,11 @@ describe('DocumentHeader schema integration', () => {
   it('detects tags type correctly', () => {
     const { container } = render(DocumentHeader, {
       props: {
-        frontmatterYaml: "tags:\n  - rust\n  - ai",
+        frontmatterYaml: 'tags:\n  - rust\n  - ai',
         onFrontmatterUpdate: vi.fn(),
         schema: null,
-        ...defaultProps,
-      },
+        ...defaultProps
+      }
     })
 
     // Should render tag pills

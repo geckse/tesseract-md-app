@@ -34,16 +34,18 @@ The current frontmatter editor is buried behind a collapsed accordion toggle lab
 
 Add one new IPC channel to `app/src/main/ipc-handlers.ts`:
 
-| Channel | Signature | Purpose |
-|---|---|---|
+| Channel          | Signature                                   | Purpose                                                                                |
+| ---------------- | ------------------------------------------- | -------------------------------------------------------------------------------------- |
 | `fs:rename-file` | `(oldPath: string, newPath: string) → void` | Rename/move a file. Both paths must be within the same collection. Uses `fs.rename()`. |
 
 **Preload type** (`app/src/preload/api.d.ts`):
+
 ```typescript
 renameFile(oldAbsolutePath: string, newAbsolutePath: string): Promise<void>
 ```
 
 **Preload bridge** (`app/src/preload/index.ts`):
+
 ```typescript
 renameFile: (oldPath, newPath) => invoke('fs:rename-file', oldPath, newPath),
 ```
@@ -51,6 +53,7 @@ renameFile: (oldPath, newPath) => invoke('fs:rename-file', oldPath, newPath),
 **Validation**: Both `oldPath` and `newPath` must resolve within the same collection directory. The new path's parent directory must exist. Fail with descriptive error if the target already exists.
 
 **Post-rename effects**: After successful rename, the renderer must:
+
 1. Update the active tab's `filePath` and `title`
 2. Refresh the file tree
 3. Update the index via `mdvdb ingest` (incremental — detects the move)
@@ -59,18 +62,18 @@ renameFile: (oldPath, newPath) => invoke('fs:rename-file', oldPath, newPath),
 
 Replace the current `detectType()` function with a richer type system. The current types are: `text`, `number`, `boolean`, `date`, `array`, `complex`. Extend to:
 
-| Type | Detection Rule | Widget |
-|---|---|---|
-| `boolean` | `typeof value === 'boolean'` | Toggle switch |
-| `number` | `typeof value === 'number'` | Number input with stepper |
-| `date` | String matching `/^\d{4}-\d{2}-\d{2}$/` | Date picker (calendar popup) |
-| `datetime` | String matching `/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/ ` | DateTime picker (calendar + time) |
-| `url` | String matching `/^https?:\/\//` | URL input with open-link button |
-| `email` | String matching `/^[^@]+@[^@]+\.[^@]+$/` | Email input with mailto button |
-| `select` | Schema field has `allowed_values` | Dropdown select |
-| `tags` | `Array.isArray(value)` | Tag pills with autocomplete input |
-| `text` | Default string fallback | Text input with value autocomplete |
-| `complex` | Non-null object (not array) | JSON textarea |
+| Type       | Detection Rule                                      | Widget                             |
+| ---------- | --------------------------------------------------- | ---------------------------------- |
+| `boolean`  | `typeof value === 'boolean'`                        | Toggle switch                      |
+| `number`   | `typeof value === 'number'`                         | Number input with stepper          |
+| `date`     | String matching `/^\d{4}-\d{2}-\d{2}$/`             | Date picker (calendar popup)       |
+| `datetime` | String matching `/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/ ` | DateTime picker (calendar + time)  |
+| `url`      | String matching `/^https?:\/\//`                    | URL input with open-link button    |
+| `email`    | String matching `/^[^@]+@[^@]+\.[^@]+$/`            | Email input with mailto button     |
+| `select`   | Schema field has `allowed_values`                   | Dropdown select                    |
+| `tags`     | `Array.isArray(value)`                              | Tag pills with autocomplete input  |
+| `text`     | Default string fallback                             | Text input with value autocomplete |
+| `complex`  | Non-null object (not array)                         | JSON textarea                      |
 
 **Schema override**: If a schema field specifies `field_type: 'Date'`, force date picker even if the current value doesn't match the regex (e.g., empty string). Similarly for other types.
 
@@ -102,13 +105,14 @@ Top-level container that replaces the current `FrontmatterEditor` embedding in `
 ```
 
 **Props**:
+
 ```typescript
 interface Props {
   frontmatterYaml: string | null
   onFrontmatterUpdate: (newYaml: string | null) => void
   schema: Schema | null
-  filePath: string              // For FileNameEditor
-  collectionPath: string        // For rename validation
+  filePath: string // For FileNameEditor
+  collectionPath: string // For rename validation
   onFileRenamed: (newPath: string) => void
 }
 ```
@@ -118,6 +122,7 @@ interface Props {
 Inline editable file name at the top of the document header.
 
 **Behavior**:
+
 - Displays the file name (without directory path, without `.md` extension) as large, editable text
 - Click to focus and edit. Show the `.md` extension grayed out and non-editable
 - On blur or Enter: if name changed, call `window.api.renameFile(oldPath, newPath)` and emit `onFileRenamed`
@@ -127,6 +132,7 @@ Inline editable file name at the top of the document header.
 - File icon to the left of the name, matching the current file type
 
 **Styling**:
+
 - Font: `--font-display` (Space Grotesk), `--text-xl` (20px), `--color-text` (#e4e4e7)
 - Transparent background, border only on hover/focus
 - `.md` suffix in `--color-text-dim` (#71717a)
@@ -136,12 +142,13 @@ Inline editable file name at the top of the document header.
 Single property row with type icon, key label, and type-specific value widget.
 
 **Props**:
+
 ```typescript
 interface Props {
   rowKey: string
   value: JsonValue
-  fieldType: DetectedType               // 'text' | 'number' | 'boolean' | 'date' | 'datetime' | 'url' | 'email' | 'select' | 'tags' | 'complex'
-  schemaField: SchemaField | null       // For suggestions, allowed_values, description, required
+  fieldType: DetectedType // 'text' | 'number' | 'boolean' | 'date' | 'datetime' | 'url' | 'email' | 'select' | 'tags' | 'complex'
+  schemaField: SchemaField | null // For suggestions, allowed_values, description, required
   onKeyChange: (newKey: string) => void
   onValueChange: (newValue: JsonValue) => void
   onRemove: () => void
@@ -164,7 +171,7 @@ interface Props {
 | tags | 🏷 | `sell` |
 | complex | {} | `data_object` |
 
-**Key label**: Monospace, `--color-text-dim`, uppercase. Click to edit. Shows tooltip with `schemaField.description` if available. Required indicator (*) in cyan if `schemaField.required`.
+**Key label**: Monospace, `--color-text-dim`, uppercase. Click to edit. Shows tooltip with `schemaField.description` if available. Required indicator (\*) in cyan if `schemaField.required`.
 
 **Value widgets by type**:
 
@@ -184,6 +191,7 @@ interface Props {
 Custom date picker popover component. Not using `<input type="date">` because native date pickers have inconsistent styling and don't respect the dark theme.
 
 **Behavior**:
+
 - Calendar grid showing one month at a time
 - Navigation: `<` / `>` arrows for month, click month/year header to switch to month picker / year picker
 - Click a day to select. Selected day highlighted in cyan
@@ -198,6 +206,7 @@ Custom date picker popover component. Not using `<input type="date">` because na
 Extends DatePicker with a time input section below the calendar.
 
 **Behavior**:
+
 - Calendar grid (same as DatePicker) on top
 - Time input below: hour (00–23) and minute (00–59) as two number inputs with steppers, or a combined `HH:mm` text input
 - Output format: `YYYY-MM-DDTHH:mm`
@@ -209,6 +218,7 @@ Extends DatePicker with a time input section below the calendar.
 Interactive "add property" row at the bottom of the frontmatter section.
 
 **Behavior**:
+
 1. Shows `+ Add property` button (subtle, left-aligned)
 2. On click, transforms into an inline input for the property name
 3. As the user types, show autocomplete dropdown with:
@@ -269,12 +279,14 @@ Replace the current `<FrontmatterEditor>` embedding (line ~720) with `<DocumentH
 ### 5. Styling Guidelines
 
 **Document header area**:
+
 - Background: `--color-surface` (#161617) or transparent (blends with editor background)
 - No card border — properties flow naturally as part of the document
 - Padding: `1rem 4rem` (matching editor content margins)
 - Subtle divider line (`--color-border`) between file name and properties, and between properties and editor content
 
 **Property rows**:
+
 - Row height: ~36px
 - Hover: subtle background highlight (`rgba(255, 255, 255, 0.03)`)
 - Key text: `--font-mono`, 11px, `--color-text-dim`, uppercase
@@ -289,17 +301,18 @@ Replace the current `<FrontmatterEditor>` embedding (line ~720) with `<DocumentH
 
 ### 6. Keyboard Shortcuts
 
-| Shortcut | Action |
-|---|---|
-| `Tab` / `Shift+Tab` | Navigate between property values |
-| `Enter` | Confirm edit, move to next row value |
-| `Escape` | Cancel edit, revert to previous value |
-| `Cmd+Shift+P` | Focus the "Add property" input |
-| Arrow keys in dropdowns | Navigate options |
+| Shortcut                | Action                                |
+| ----------------------- | ------------------------------------- |
+| `Tab` / `Shift+Tab`     | Navigate between property values      |
+| `Enter`                 | Confirm edit, move to next row value  |
+| `Escape`                | Cancel edit, revert to previous value |
+| `Cmd+Shift+P`           | Focus the "Add property" input        |
+| Arrow keys in dropdowns | Navigate options                      |
 
 ### 7. Empty State
 
 When a document has no frontmatter:
+
 - Show the file name editor
 - Show a subtle `+ Add property` link below it
 - When the first property is added, frontmatter is created automatically
@@ -311,18 +324,18 @@ Delete `app/src/renderer/components/wysiwyg/FrontmatterEditor.svelte` after the 
 
 ## Implementation Order
 
-| Step | Task | Files | Dependencies |
-|---|---|---|---|
-| 1 | Add `fs:rename-file` IPC channel | `ipc-handlers.ts`, `api.d.ts`, `index.ts` | None |
-| 2 | Create `PropertyRow.svelte` with all type-specific widgets (except date/datetime pickers) | `components/wysiwyg/PropertyRow.svelte` | None |
-| 3 | Create `DatePicker.svelte` calendar popover | `components/wysiwyg/DatePicker.svelte` | Floating UI |
-| 4 | Create `DateTimePicker.svelte` extending DatePicker | `components/wysiwyg/DateTimePicker.svelte` | Step 3 |
-| 5 | Create `TypePickerDropdown.svelte` | `components/wysiwyg/TypePickerDropdown.svelte` | None |
-| 6 | Create `AddPropertyRow.svelte` with name input + type picker flow | `components/wysiwyg/AddPropertyRow.svelte` | Steps 2, 5 |
-| 7 | Create `FileNameEditor.svelte` | `components/wysiwyg/FileNameEditor.svelte` | Step 1 |
-| 8 | Create `DocumentHeader.svelte` composing FileNameEditor + PropertyRows + AddPropertyRow | `components/wysiwyg/DocumentHeader.svelte` | Steps 2–7 |
-| 9 | Integrate DocumentHeader into WysiwygEditor, remove old FrontmatterEditor | `WysiwygEditor.svelte` | Step 8 |
-| 10 | Update tests | `tests/unit/` | Step 9 |
+| Step | Task                                                                                      | Files                                          | Dependencies |
+| ---- | ----------------------------------------------------------------------------------------- | ---------------------------------------------- | ------------ |
+| 1    | Add `fs:rename-file` IPC channel                                                          | `ipc-handlers.ts`, `api.d.ts`, `index.ts`      | None         |
+| 2    | Create `PropertyRow.svelte` with all type-specific widgets (except date/datetime pickers) | `components/wysiwyg/PropertyRow.svelte`        | None         |
+| 3    | Create `DatePicker.svelte` calendar popover                                               | `components/wysiwyg/DatePicker.svelte`         | Floating UI  |
+| 4    | Create `DateTimePicker.svelte` extending DatePicker                                       | `components/wysiwyg/DateTimePicker.svelte`     | Step 3       |
+| 5    | Create `TypePickerDropdown.svelte`                                                        | `components/wysiwyg/TypePickerDropdown.svelte` | None         |
+| 6    | Create `AddPropertyRow.svelte` with name input + type picker flow                         | `components/wysiwyg/AddPropertyRow.svelte`     | Steps 2, 5   |
+| 7    | Create `FileNameEditor.svelte`                                                            | `components/wysiwyg/FileNameEditor.svelte`     | Step 1       |
+| 8    | Create `DocumentHeader.svelte` composing FileNameEditor + PropertyRows + AddPropertyRow   | `components/wysiwyg/DocumentHeader.svelte`     | Steps 2–7    |
+| 9    | Integrate DocumentHeader into WysiwygEditor, remove old FrontmatterEditor                 | `WysiwygEditor.svelte`                         | Step 8       |
+| 10   | Update tests                                                                              | `tests/unit/`                                  | Step 9       |
 
 ## Verification
 
@@ -343,13 +356,13 @@ Delete `app/src/renderer/components/wysiwyg/FrontmatterEditor.svelte` after the 
 
 ### Unit Tests (`app/tests/unit/`)
 
-| Test File | What to Test |
-|---|---|
-| `document-header.test.ts` | Renders file name + properties, emits updates, handles empty frontmatter |
-| `file-name-editor.test.ts` | Rename flow, validation (empty name, invalid chars), error display, escape to cancel |
-| `property-row.test.ts` | Each type renders correct widget, value changes emit updates, type icon matches |
-| `date-picker.test.ts` | Month navigation, day selection, keyboard navigation, today indicator |
-| `datetime-picker.test.ts` | Date + time selection, "Now" button, format output |
-| `add-property-row.test.ts` | Name input → autocomplete → type picker → row insertion flow |
-| `type-picker-dropdown.test.ts` | All types shown, keyboard navigation, selection callback |
-| `rename-ipc.test.ts` | IPC handler validates paths, calls fs.rename, rejects cross-collection moves |
+| Test File                      | What to Test                                                                         |
+| ------------------------------ | ------------------------------------------------------------------------------------ |
+| `document-header.test.ts`      | Renders file name + properties, emits updates, handles empty frontmatter             |
+| `file-name-editor.test.ts`     | Rename flow, validation (empty name, invalid chars), error display, escape to cancel |
+| `property-row.test.ts`         | Each type renders correct widget, value changes emit updates, type icon matches      |
+| `date-picker.test.ts`          | Month navigation, day selection, keyboard navigation, today indicator                |
+| `datetime-picker.test.ts`      | Date + time selection, "Now" button, format output                                   |
+| `add-property-row.test.ts`     | Name input → autocomplete → type picker → row insertion flow                         |
+| `type-picker-dropdown.test.ts` | All types shown, keyboard navigation, selection callback                             |
+| `rename-ipc.test.ts`           | IPC handler validates paths, calls fs.rename, rejects cross-collection moves         |

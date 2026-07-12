@@ -97,6 +97,7 @@ Add a new section to the Settings component, visible only when a collection is t
 ### Data Flow
 
 **Adding a cluster:**
+
 ```
 User fills modal → validate (name non-empty, no :/| in name, seeds non-empty, no dup names)
   → stage change in settings draft
@@ -163,18 +164,20 @@ export interface CustomClusterSummary {
 ```
 
 Update existing `GraphNode`:
+
 ```typescript
 export interface GraphNode {
   // ...existing fields...
-  custom_cluster_id: number | null  // NEW
+  custom_cluster_id: number | null // NEW
 }
 ```
 
 Update existing `GraphData`:
+
 ```typescript
 export interface GraphData {
   // ...existing fields...
-  custom_clusters: GraphCluster[]  // NEW
+  custom_clusters: GraphCluster[] // NEW
 }
 ```
 
@@ -235,14 +238,17 @@ The "Ingest Now" button opens the existing IngestModal with full ingest pre-sele
 // Parsed from MDVDB_CUSTOM_CLUSTERS config value
 export function parseCustomClusters(raw: string): CustomClusterDef[] {
   if (!raw) return []
-  return raw.split('|').map(entry => {
-    const [name, seedsStr] = entry.split(':')
-    return { name: name.trim(), seeds: seedsStr.split(',').map(s => s.trim()) }
-  }).filter(c => c.name && c.seeds.length > 0)
+  return raw
+    .split('|')
+    .map((entry) => {
+      const [name, seedsStr] = entry.split(':')
+      return { name: name.trim(), seeds: seedsStr.split(',').map((s) => s.trim()) }
+    })
+    .filter((c) => c.name && c.seeds.length > 0)
 }
 
 export function encodeCustomClusters(defs: CustomClusterDef[]): string {
-  return defs.map(d => `${d.name}:${d.seeds.join(',')}`).join('|')
+  return defs.map((d) => `${d.name}:${d.seeds.join(',')}`).join('|')
 }
 ```
 
@@ -252,12 +258,12 @@ These are used by the Settings panel to read/write the cluster list within the e
 
 The coloring mode cycle button tooltip updates:
 
-| Current Mode | Tooltip |
-|---|---|
-| `cluster` | "Color by custom clusters" |
-| `custom-cluster` | "Color by folders" |
-| `folder` | "No coloring" |
-| `none` | "Color by clusters" |
+| Current Mode     | Tooltip                    |
+| ---------------- | -------------------------- |
+| `cluster`        | "Color by custom clusters" |
+| `custom-cluster` | "Color by folders"         |
+| `folder`         | "No coloring"              |
+| `none`           | "Color by clusters"        |
 
 If no custom clusters are defined, skip `custom-cluster` in the cycle.
 
@@ -293,20 +299,20 @@ If no custom clusters are defined, skip `custom-cluster` in the cycle.
 
 ## Files Modified
 
-| File | Change |
-|---|---|
-| `app/src/renderer/types/cli.ts` | `CustomClusterDef`, `CustomClusterSummary`, `GraphNode.custom_cluster_id`, `GraphData.custom_clusters` |
-| `app/src/main/ipc-handlers.ts` | `cli:custom-clusters`, `cli:clusters-list` handlers |
-| `app/src/preload/index.ts` | `customClusters()`, `clusterDefinitions()` API methods |
-| `app/src/renderer/components/Settings.svelte` | Custom Clusters section with list + add/edit/remove |
-| `app/src/renderer/components/CustomClusterModal.svelte` | New modal for add/edit cluster |
-| `app/src/renderer/stores/graph.ts` | `GraphColoringMode` expansion, `cycleColoringMode()` update |
-| `app/src/renderer/lib/graph-3d-bridge.ts` | `nodeColor()` custom-cluster case |
-| `app/src/renderer/stores/palette.ts` | `customClusterPalette` store |
-| `app/src/renderer/lib/custom-clusters.ts` | `parseCustomClusters()`, `encodeCustomClusters()` |
-| `app/src/renderer/stores/workspace.svelte.ts` | `GraphTab.graphColoringMode` type update |
-| `app/src/renderer/components/GraphView.svelte` | Legend for custom clusters, coloring button tooltip |
-| `app/src/preload/api.d.ts` | Type declarations for new API methods |
+| File                                                    | Change                                                                                                 |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `app/src/renderer/types/cli.ts`                         | `CustomClusterDef`, `CustomClusterSummary`, `GraphNode.custom_cluster_id`, `GraphData.custom_clusters` |
+| `app/src/main/ipc-handlers.ts`                          | `cli:custom-clusters`, `cli:clusters-list` handlers                                                    |
+| `app/src/preload/index.ts`                              | `customClusters()`, `clusterDefinitions()` API methods                                                 |
+| `app/src/renderer/components/Settings.svelte`           | Custom Clusters section with list + add/edit/remove                                                    |
+| `app/src/renderer/components/CustomClusterModal.svelte` | New modal for add/edit cluster                                                                         |
+| `app/src/renderer/stores/graph.ts`                      | `GraphColoringMode` expansion, `cycleColoringMode()` update                                            |
+| `app/src/renderer/lib/graph-3d-bridge.ts`               | `nodeColor()` custom-cluster case                                                                      |
+| `app/src/renderer/stores/palette.ts`                    | `customClusterPalette` store                                                                           |
+| `app/src/renderer/lib/custom-clusters.ts`               | `parseCustomClusters()`, `encodeCustomClusters()`                                                      |
+| `app/src/renderer/stores/workspace.svelte.ts`           | `GraphTab.graphColoringMode` type update                                                               |
+| `app/src/renderer/components/GraphView.svelte`          | Legend for custom clusters, coloring button tooltip                                                    |
+| `app/src/preload/api.d.ts`                              | Type declarations for new API methods                                                                  |
 
 ## Validation Criteria
 

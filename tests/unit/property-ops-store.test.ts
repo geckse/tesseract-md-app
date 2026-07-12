@@ -173,7 +173,12 @@ describe('openConvert', () => {
         { path: 'c.md', action: 'no-value', before: null, after: null }
       ]
     })
-    propertyOps.openConvert({ kind: 'table', tabId: 't1', folderPath: 'docs' }, 'status', 'select', 'text')
+    propertyOps.openConvert(
+      { kind: 'table', tabId: 't1', folderPath: 'docs' },
+      'status',
+      'select',
+      'text'
+    )
     await vi.waitFor(() => expect(propertyOps.modal?.phase).toBe('preview'))
     const op = propertyOps.modal?.req.op
     expect(op?.kind === 'convert' && op.allowedValues).toEqual(['drafted', 'published'])

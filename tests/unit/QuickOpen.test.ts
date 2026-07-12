@@ -20,17 +20,17 @@ vi.mock('@renderer/stores/quickopen', () => {
       },
       set: (value: boolean) => {
         currentValue = value
-        subscribers.forEach(cb => cb(value))
+        subscribers.forEach((cb) => cb(value))
       }
     },
     openQuickOpen: vi.fn(() => {
       currentValue = true
-      subscribers.forEach(cb => cb(true))
+      subscribers.forEach((cb) => cb(true))
     }),
     closeQuickOpen: () => {
       mockCloseQuickOpen()
       currentValue = false
-      subscribers.forEach(cb => cb(false))
+      subscribers.forEach((cb) => cb(false))
     }
   }
 })
@@ -48,7 +48,7 @@ vi.mock('@renderer/stores/files', () => {
       },
       set: (value: FileTreeNode[]) => {
         currentFiles = value
-        subscribers.forEach(cb => cb(value))
+        subscribers.forEach((cb) => cb(value))
       }
     },
     selectFile: (path: string) => mockSelectFile(path)
@@ -318,7 +318,7 @@ describe('QuickOpen component', () => {
 
     // Verify no script tags are actually present in the DOM
     const scriptTags = document.querySelectorAll('script')
-    const injectedScripts = Array.from(scriptTags).filter(script =>
+    const injectedScripts = Array.from(scriptTags).filter((script) =>
       script.textContent?.includes('alert("xss")')
     )
     expect(injectedScripts.length).toBe(0)

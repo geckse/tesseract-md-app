@@ -6,12 +6,12 @@ const mockApi = {
   getPrimaryColor: vi.fn(),
   setPrimaryColor: vi.fn(),
   getCollectionColor: vi.fn(),
-  setCollectionColor: vi.fn(),
+  setCollectionColor: vi.fn()
 }
 
 Object.defineProperty(globalThis, 'window', {
   value: { api: mockApi },
-  writable: true,
+  writable: true
 })
 
 import {
@@ -22,7 +22,7 @@ import {
   loadAccentColors,
   loadCollectionAccentColor,
   setGlobalAccentColor,
-  setCollectionAccentColor,
+  setCollectionAccentColor
 } from '../../src/renderer/stores/accent-color'
 
 beforeEach(() => {

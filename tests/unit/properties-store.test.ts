@@ -12,12 +12,12 @@ const mockApi = {
   addCollection: vi.fn(),
   removeCollection: vi.fn(),
   setActiveCollection: vi.fn(),
-  status: vi.fn(),
+  status: vi.fn()
 }
 
 Object.defineProperty(globalThis, 'window', {
   value: { api: mockApi },
-  writable: true,
+  writable: true
 })
 
 import {
@@ -30,12 +30,9 @@ import {
   frontmatter,
   outline,
   loadProperties,
-  clearProperties,
+  clearProperties
 } from '../../src/renderer/stores/properties'
-import {
-  activeCollectionId,
-  collections,
-} from '../../src/renderer/stores/collections'
+import { activeCollectionId, collections } from '../../src/renderer/stores/collections'
 import type { DocumentInfo, BacklinksOutput, LinksOutput } from '../../src/renderer/types/cli'
 
 const col1 = { id: 'a', name: 'alpha', path: '/alpha', addedAt: 1, lastOpenedAt: 1 }
@@ -46,12 +43,12 @@ const sampleDoc: DocumentInfo = {
   frontmatter: {
     status: 'in-progress',
     tags: ['design', 'v1'],
-    title: 'Test Document',
+    title: 'Test Document'
   },
   chunk_count: 3,
   file_size: 1024,
   indexed_at: 1704067200,
-  modified_at: 1704153600,
+  modified_at: 1704153600
 }
 
 const sampleBacklinks: BacklinksOutput = {
@@ -63,9 +60,9 @@ const sampleBacklinks: BacklinksOutput = {
         target: 'docs/test.md',
         text: 'See test document',
         line_number: 5,
-        is_wikilink: false,
+        is_wikilink: false
       },
-      state: 'Valid',
+      state: 'Valid'
     },
     {
       entry: {
@@ -73,12 +70,12 @@ const sampleBacklinks: BacklinksOutput = {
         target: 'docs/test.md',
         text: 'Discussed test doc',
         line_number: 12,
-        is_wikilink: true,
+        is_wikilink: true
       },
-      state: 'Valid',
-    },
+      state: 'Valid'
+    }
   ],
-  total_backlinks: 2,
+  total_backlinks: 2
 }
 
 const sampleLinks: LinksOutput = {
@@ -92,13 +89,13 @@ const sampleLinks: LinksOutput = {
           target: 'docs/guide.md',
           text: 'see guide',
           line_number: 10,
-          is_wikilink: false,
+          is_wikilink: false
         },
-        state: 'Valid',
-      },
+        state: 'Valid'
+      }
     ],
-    incoming: [],
-  },
+    incoming: []
+  }
 }
 
 function resetStores() {
@@ -266,7 +263,7 @@ describe('properties store', () => {
       expect(fm).toEqual({
         status: 'in-progress',
         tags: ['design', 'v1'],
-        title: 'Test Document',
+        title: 'Test Document'
       })
     })
 
@@ -298,7 +295,7 @@ describe('properties store', () => {
       expect(get(outline)).toEqual([
         { level: 1, heading: 'Title', line: 1 },
         { level: 2, heading: 'Section One', line: 5 },
-        { level: 3, heading: 'Subsection', line: 7 },
+        { level: 3, heading: 'Subsection', line: 7 }
       ])
     })
 
@@ -309,7 +306,7 @@ describe('properties store', () => {
 
       expect(get(outline)).toEqual([
         { level: 1, heading: 'Real Heading', line: 6 },
-        { level: 2, heading: 'Another', line: 8 },
+        { level: 2, heading: 'Another', line: 8 }
       ])
     })
 
@@ -324,9 +321,7 @@ describe('properties store', () => {
     })
 
     it('handles all heading levels (h1-h6)', () => {
-      propertiesFileContent.set(
-        '# H1\n## H2\n### H3\n#### H4\n##### H5\n###### H6\n'
-      )
+      propertiesFileContent.set('# H1\n## H2\n### H3\n#### H4\n##### H5\n###### H6\n')
 
       expect(get(outline)).toEqual([
         { level: 1, heading: 'H1', line: 1 },
@@ -334,7 +329,7 @@ describe('properties store', () => {
         { level: 3, heading: 'H3', line: 3 },
         { level: 4, heading: 'H4', line: 4 },
         { level: 5, heading: 'H5', line: 5 },
-        { level: 6, heading: 'H6', line: 6 },
+        { level: 6, heading: 'H6', line: 6 }
       ])
     })
 
@@ -351,18 +346,16 @@ describe('properties store', () => {
 
       expect(get(outline)).toEqual([
         { level: 1, heading: 'Real Heading', line: 1 },
-        { level: 2, heading: 'After Code Block', line: 8 },
+        { level: 2, heading: 'After Code Block', line: 8 }
       ])
     })
 
     it('skips headings inside indented code blocks with language tag', () => {
-      propertiesFileContent.set(
-        '# Title\n\n```markdown\n# Code Heading\n```\n\n## Real Section\n'
-      )
+      propertiesFileContent.set('# Title\n\n```markdown\n# Code Heading\n```\n\n## Real Section\n')
 
       expect(get(outline)).toEqual([
         { level: 1, heading: 'Title', line: 1 },
-        { level: 2, heading: 'Real Section', line: 7 },
+        { level: 2, heading: 'Real Section', line: 7 }
       ])
     })
 
@@ -374,7 +367,7 @@ describe('properties store', () => {
       expect(get(outline)).toEqual([
         { level: 1, heading: 'First', line: 1 },
         { level: 2, heading: 'Second', line: 7 },
-        { level: 3, heading: 'Third', line: 13 },
+        { level: 3, heading: 'Third', line: 13 }
       ])
     })
   })

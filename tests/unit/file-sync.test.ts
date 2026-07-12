@@ -270,7 +270,15 @@ describe('applyDiskContentToTab', () => {
 
 describe('resetFileSyncState', () => {
   it('clears conflicts and the update notice', () => {
-    conflicts.set({ 'a.md': { filePath: 'a.md', kind: 'modified', diskContent: null, diskMtimeMs: null, detectedAt: 0 } })
+    conflicts.set({
+      'a.md': {
+        filePath: 'a.md',
+        kind: 'modified',
+        diskContent: null,
+        diskMtimeMs: null,
+        detectedAt: 0
+      }
+    })
     externalUpdateNotice.set({ filePath: 'a.md', previous: '', at: 0 })
     resetFileSyncState()
     expect(get(conflicts)).toEqual({})

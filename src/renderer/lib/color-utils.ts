@@ -35,7 +35,7 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } {
   return {
     r: parseInt(clean.substring(0, 2), 16),
     g: parseInt(clean.substring(2, 4), 16),
-    b: parseInt(clean.substring(4, 6), 16),
+    b: parseInt(clean.substring(4, 6), 16)
   }
 }
 
@@ -154,7 +154,7 @@ export function contrastRatio(hex1: string, hex2: string): number {
 /** Background colors for each theme mode */
 export const THEME_BACKGROUNDS = {
   dark: '#0f0f10',
-  light: '#f6f6f6',
+  light: '#f6f6f6'
 } as const
 
 /** Check if a color has sufficient luminance for visibility on dark backgrounds */
@@ -191,7 +191,7 @@ export function checkAccentContrast(hex: string): {
     darkOk: darkRatio >= 3.0,
     lightOk: lightRatio >= 3.0,
     darkRatio: Math.round(darkRatio * 10) / 10,
-    lightRatio: Math.round(lightRatio * 10) / 10,
+    lightRatio: Math.round(lightRatio * 10) / 10
   }
 }
 
@@ -215,11 +215,7 @@ export function adjustToMinLuminance(hex: string, minLuminance = 0.15): string {
  * Adjust a color to meet contrast requirements against a specific background.
  * Brightens for dark backgrounds, darkens for light backgrounds.
  */
-export function adjustForContrast(
-  hex: string,
-  backgroundHex: string,
-  minRatio = 3.0
-): string {
+export function adjustForContrast(hex: string, backgroundHex: string, minRatio = 3.0): string {
   if (isContrastAcceptable(hex, backgroundHex, minRatio)) return hex
 
   const bgLum = relativeLuminance(backgroundHex)
@@ -265,7 +261,7 @@ export function resolveThemeAwareAccent(hex: string, minRatio = 3.0): ThemeAware
     darkColor: darkOk ? hex : adjustForContrast(hex, darkBg, minRatio),
     lightColor: lightOk ? hex : adjustForContrast(hex, lightBg, minRatio),
     darkAdjusted: !darkOk,
-    lightAdjusted: !lightOk,
+    lightAdjusted: !lightOk
   }
 }
 
@@ -275,7 +271,7 @@ export function derivePrimaryVariants(hex: string): PrimaryVariants {
     primary: hex,
     dark: darken(hex, 20),
     dim: hexToRgba(hex, 0.1),
-    glow: hexToRgba(hex, 0.4),
+    glow: hexToRgba(hex, 0.4)
   }
 }
 
@@ -290,7 +286,7 @@ export const PRESET_COLORS: { name: string; hex: string }[] = [
   { name: 'Blue', hex: '#60A5FA' },
   { name: 'Red', hex: '#F87171' },
   { name: 'Teal', hex: '#2DD4BF' },
-  { name: 'Lime', hex: '#A3E635' },
+  { name: 'Lime', hex: '#A3E635' }
 ]
 
 /** The default primary color */

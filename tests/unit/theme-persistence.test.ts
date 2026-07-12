@@ -6,8 +6,8 @@ const mockSet = vi.fn()
 vi.mock('electron-store', () => ({
   default: vi.fn().mockImplementation(() => ({
     get: (...args: unknown[]) => mockGet(...args),
-    set: (...args: unknown[]) => mockSet(...args),
-  })),
+    set: (...args: unknown[]) => mockSet(...args)
+  }))
 }))
 
 // Mock crypto
@@ -20,7 +20,7 @@ import {
   getThemeMode,
   setThemeMode,
   getCollectionTheme,
-  setCollectionTheme,
+  setCollectionTheme
 } from '../../src/main/store'
 
 beforeEach(() => {
@@ -83,7 +83,7 @@ describe('setCollectionTheme', () => {
     setCollectionTheme('col-2', 'dark')
     expect(mockSet).toHaveBeenCalledWith('collectionThemes', {
       'col-1': 'light',
-      'col-2': 'dark',
+      'col-2': 'dark'
     })
   })
 })

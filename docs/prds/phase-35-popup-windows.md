@@ -53,6 +53,7 @@ Users need a lighter-weight window option that shows just the content, opens fas
 The popup window loads the same `index.html` and Vite bundle as full windows. The main process passes URL search params (`?mode=popup&kind=document&filePath=...`) when creating the window. `App.svelte` reads these params at mount and renders a lightweight `PopupShell` component instead of the full chrome.
 
 This approach:
+
 - **Maximizes code reuse**: Editors, viewers, and graph are complex — they work unmodified
 - **No build config changes**: No second HTML entry, no second Vite target
 - **Same preload/IPC surface**: Popup uses the same `window.api`
@@ -71,14 +72,14 @@ Each popup is a separate `BrowserWindow` → separate renderer process → separ
 
 ### Window Configuration
 
-| Property | Full Window | Popup Window |
-|---|---|---|
-| Default size | 1200×800 | 700×500 |
-| Min size | 800×600 | 400×300 |
-| Title bar | `hiddenInset` | `frame: false` (frameless) |
-| Preload | Same | Same |
-| Bounds persistence | Yes (electron-store) | No (ephemeral) |
-| Session persistence | Yes | No |
+| Property            | Full Window          | Popup Window               |
+| ------------------- | -------------------- | -------------------------- |
+| Default size        | 1200×800             | 700×500                    |
+| Min size            | 800×600              | 400×300                    |
+| Title bar           | `hiddenInset`        | `frame: false` (frameless) |
+| Preload             | Same                 | Same                       |
+| Bounds persistence  | Yes (electron-store) | No (ephemeral)             |
+| Session persistence | Yes                  | No                         |
 
 ### Data Model Changes
 
@@ -87,13 +88,13 @@ Each popup is a separate `BrowserWindow` → separate renderer process → separ
 ```typescript
 interface PopupWindowOptions {
   kind: 'document' | 'asset' | 'graph'
-  filePath?: string             // Absolute path for documents/assets
-  editorMode?: EditorMode       // 'wysiwyg' | 'editor' — for documents
-  collectionId?: string         // Active collection ID (for CLI calls)
-  collectionPath?: string       // Active collection root path
-  mimeCategory?: MimeCategory   // For assets: 'image' | 'pdf' | 'video' | 'audio' | 'other'
-  graphLevel?: GraphLevel       // For graph: 'document' | 'chunk'
-  graphColoringMode?: GraphColoringMode  // For graph: 'cluster' | 'folder' | 'none'
+  filePath?: string // Absolute path for documents/assets
+  editorMode?: EditorMode // 'wysiwyg' | 'editor' — for documents
+  collectionId?: string // Active collection ID (for CLI calls)
+  collectionPath?: string // Active collection root path
+  mimeCategory?: MimeCategory // For assets: 'image' | 'pdf' | 'video' | 'audio' | 'other'
+  graphLevel?: GraphLevel // For graph: 'document' | 'chunk'
+  graphColoringMode?: GraphColoringMode // For graph: 'cluster' | 'folder' | 'none'
   // Dirty document transfer (popping out a tab with unsaved changes):
   isDirty?: boolean
   content?: string | null
@@ -127,7 +128,7 @@ class WindowManager {
   isPopup(id: number): boolean
 
   // Internal:
-  private popups: Set<number>  // Track popup webContents IDs
+  private popups: Set<number> // Track popup webContents IDs
 }
 ```
 
@@ -138,15 +139,18 @@ class Workspace {
   // New:
   isPopup = $state(false)
 
-  initAsPopup(kind: 'document' | 'asset' | 'graph', options: {
-    filePath?: string
-    editorMode?: EditorMode
-    content?: string | null
-    savedContent?: string | null
-    mimeCategory?: MimeCategory
-    graphLevel?: GraphLevel
-    graphColoringMode?: GraphColoringMode
-  }): void
+  initAsPopup(
+    kind: 'document' | 'asset' | 'graph',
+    options: {
+      filePath?: string
+      editorMode?: EditorMode
+      content?: string | null
+      savedContent?: string | null
+      mimeCategory?: MimeCategory
+      graphLevel?: GraphLevel
+      graphColoringMode?: GraphColoringMode
+    }
+  ): void
 }
 ```
 
@@ -164,17 +168,17 @@ interface MdvdbApi {
 
 ### Modified IPC Channels
 
-| Channel | Direction | Change |
-|---|---|---|
+| Channel      | Direction       | Change                                                                                                                                                                                                           |
+| ------------ | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `tab:detach` | Renderer → Main | **Modified**: Now creates a popup window instead of a full window. Calls `windowManager.createPopupWindow()` instead of `windowManager.createWindow()`. Sends `popup:init` (instead of `tab:attach`) after load. |
 
 ### New IPC Channels
 
-| Channel | Direction | Purpose |
-|---|---|---|
-| `popup:open` | Renderer → Main | Request a new popup window (from context menus) |
-| `popup:init` | Main → Renderer | Send content to popup after load (dirty transfers + detach) |
-| `popup:title-update` | Renderer → Main | Update OS window title (dirty indicator) |
+| Channel              | Direction       | Purpose                                                     |
+| -------------------- | --------------- | ----------------------------------------------------------- |
+| `popup:open`         | Renderer → Main | Request a new popup window (from context menus)             |
+| `popup:init`         | Main → Renderer | Send content to popup after load (dirty transfers + detach) |
+| `popup:title-update` | Renderer → Main | Update OS window title (dirty indicator)                    |
 
 ### New Components
 
@@ -198,6 +202,7 @@ Root component for popup windows. Receives URL params as props.
 ```
 
 Responsibilities:
+
 - Parse URL params, initialize workspace in popup mode
 - Load theme and accent color
 - Load file content (or receive dirty content via `popup:init`)
@@ -314,17 +319,17 @@ No migration needed. This is a purely additive feature. Existing "open in new wi
     <div class="popup-content">
       {#if kind === 'document'}
         {#if currentEditorMode === 'wysiwyg'}
-          <WysiwygEditor tabId={tabId} />
+          <WysiwygEditor {tabId} />
         {:else}
-          <Editor tabId={tabId} />
+          <Editor {tabId} />
         {/if}
       {:else if kind === 'asset'}
         {#if mimeCategory === 'image'}
-          <ImageViewer filePath={filePath} fileSize={fileSize} />
+          <ImageViewer {filePath} {fileSize} />
         {:else if mimeCategory === 'pdf'}
-          <PdfViewer filePath={filePath} />
+          <PdfViewer {filePath} />
         {:else}
-          <AssetInfoCard filePath={filePath} mimeCategory={mimeCategory} fileSize={fileSize} />
+          <AssetInfoCard {filePath} {mimeCategory} {fileSize} />
         {/if}
       {:else if kind === 'graph'}
         <GraphView paneId="popup-pane" />

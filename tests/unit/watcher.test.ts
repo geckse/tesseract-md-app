@@ -24,7 +24,10 @@ const mockCreateInterface = (opts: { input: EventEmitter }) => {
 }
 vi.mock('node:readline', () => {
   return {
-    default: { createInterface: (...args: unknown[]) => mockCreateInterface(args[0] as { input: EventEmitter }) },
+    default: {
+      createInterface: (...args: unknown[]) =>
+        mockCreateInterface(args[0] as { input: EventEmitter })
+    },
     createInterface: (...args: unknown[]) => mockCreateInterface(args[0] as { input: EventEmitter })
   }
 })
@@ -102,7 +105,7 @@ describe('WatcherManager', () => {
       expect(states).toContain('starting')
 
       // Emit a JSON line on stdout
-      pushStdout(child,'{"type":"ready"}\n')
+      pushStdout(child, '{"type":"ready"}\n')
       await vi.advanceTimersByTimeAsync(0)
 
       expect(states).toContain('running')
@@ -312,7 +315,7 @@ describe('WatcherManager', () => {
 
       await wm.start('/tmp/project')
 
-      pushStdout(child,'{"type":"change","path":"test.md"}\n')
+      pushStdout(child, '{"type":"change","path":"test.md"}\n')
       await vi.advanceTimersByTimeAsync(0)
 
       expect(events).toHaveLength(1)
@@ -329,8 +332,8 @@ describe('WatcherManager', () => {
 
       await wm.start('/tmp/project')
 
-      pushStdout(child,'not json\n')
-      pushStdout(child,'{"type":"ok"}\n')
+      pushStdout(child, 'not json\n')
+      pushStdout(child, '{"type":"ok"}\n')
       await vi.advanceTimersByTimeAsync(0)
 
       expect(events).toHaveLength(1)
@@ -347,7 +350,7 @@ describe('WatcherManager', () => {
 
       await wm.start('/tmp/project')
 
-      pushStdout(child,'\n\n  \n')
+      pushStdout(child, '\n\n  \n')
       await vi.advanceTimersByTimeAsync(0)
 
       expect(events).toHaveLength(0)
@@ -368,7 +371,7 @@ describe('WatcherManager', () => {
       wm.removeAllListeners()
 
       await wm.start('/tmp/project')
-      pushStdout(child,'{"type":"test"}\n')
+      pushStdout(child, '{"type":"test"}\n')
       await vi.advanceTimersByTimeAsync(0)
 
       expect(events).toHaveLength(0)

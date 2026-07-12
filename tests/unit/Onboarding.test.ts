@@ -21,7 +21,9 @@ const mockApi = {
   ingestPreview: vi.fn().mockResolvedValue({ files: [], total_files: 0 }),
   cancelIngest: vi.fn(),
   detectCli: vi.fn().mockResolvedValue({ found: false }),
-  installCli: vi.fn().mockResolvedValue({ success: true, path: '/usr/local/bin/mdvdb', version: '1.0.0' }),
+  installCli: vi
+    .fn()
+    .mockResolvedValue({ success: true, path: '/usr/local/bin/mdvdb', version: '1.0.0' }),
   onInstallProgress: vi.fn(),
   removeInstallProgressListener: vi.fn(),
   getOnboardingComplete: vi.fn().mockResolvedValue(false),
@@ -33,7 +35,7 @@ const mockApi = {
   deleteUserConfig: vi.fn(),
   getCollectionConfig: vi.fn().mockResolvedValue({}),
   setCollectionConfig: vi.fn(),
-  deleteCollectionConfig: vi.fn(),
+  deleteCollectionConfig: vi.fn()
 }
 
 ;(globalThis as any).window = Object.assign(globalThis.window ?? {}, { api: mockApi })
@@ -65,7 +67,11 @@ describe('Onboarding component', () => {
   })
 
   it('CLI step shows detected CLI info when found', async () => {
-    mockApi.detectCli.mockResolvedValue({ found: true, path: '/usr/local/bin/mdvdb', version: '2.0.0' })
+    mockApi.detectCli.mockResolvedValue({
+      found: true,
+      path: '/usr/local/bin/mdvdb',
+      version: '2.0.0'
+    })
     const oncomplete = vi.fn()
     render(Onboarding, { props: { oncomplete } })
     await fireEvent.click(screen.getByText('Get Started'))

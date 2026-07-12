@@ -16,7 +16,15 @@
     onFileRenamed: (newPath: string) => void
   }
 
-  let { frontmatterYaml, onFrontmatterUpdate, schema, filePath, collectionPath, isUntitled = false, onFileRenamed }: Props = $props()
+  let {
+    frontmatterYaml,
+    onFrontmatterUpdate,
+    schema,
+    filePath,
+    collectionPath,
+    isUntitled = false,
+    onFileRenamed
+  }: Props = $props()
 
   interface FrontmatterRow {
     key: string
@@ -41,7 +49,7 @@
     rows = Object.entries(data).map(([key, value]) => ({
       key,
       value,
-      id: nextId++,
+      id: nextId++
     }))
   })
 
@@ -92,19 +100,28 @@
 
   function getDefaultValue(type: string): JsonValue {
     switch (type) {
-      case 'boolean': return false
-      case 'number': return 0
-      case 'date': return new Date().toISOString().slice(0, 10)
+      case 'boolean':
+        return false
+      case 'number':
+        return 0
+      case 'date':
+        return new Date().toISOString().slice(0, 10)
       case 'datetime': {
         const now = new Date()
         return `${now.toISOString().slice(0, 10)}T${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`
       }
-      case 'url': return 'https://'
-      case 'email': return ''
-      case 'tags': return []
-      case 'select': return ''
-      case 'complex': return {}
-      default: return ''
+      case 'url':
+        return 'https://'
+      case 'email':
+        return ''
+      case 'tags':
+        return []
+      case 'select':
+        return ''
+      case 'complex':
+        return {}
+      default:
+        return ''
     }
   }
 
@@ -115,12 +132,18 @@
 
   function handleKeyChange(id: number, newKey: string) {
     const row = rows.find((r) => r.id === id)
-    if (row) { row.key = newKey; emitUpdate() }
+    if (row) {
+      row.key = newKey
+      emitUpdate()
+    }
   }
 
   function handleValueChange(id: number, newValue: JsonValue) {
     const row = rows.find((r) => r.id === id)
-    if (row) { row.value = newValue; emitUpdate() }
+    if (row) {
+      row.value = newValue
+      emitUpdate()
+    }
   }
 
   function handleRemove(id: number) {

@@ -20,12 +20,12 @@ const mockApi = {
   fileTree: vi.fn(),
   ingest: vi.fn(),
   ingestPreview: vi.fn(),
-  cancelIngest: vi.fn(),
+  cancelIngest: vi.fn()
 }
 
 Object.defineProperty(globalThis, 'window', {
   value: { api: mockApi },
-  writable: true,
+  writable: true
 })
 
 import {
@@ -41,7 +41,7 @@ import {
   setupWatcherListener,
   teardownWatcherListener,
   clearWatcherEvents,
-  restoreWatcherForCollection,
+  restoreWatcherForCollection
 } from '../../src/renderer/stores/watcher'
 
 import { collections, activeCollectionId } from '../../src/renderer/stores/collections'

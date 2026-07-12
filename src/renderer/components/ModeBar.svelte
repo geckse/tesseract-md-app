@@ -1,12 +1,12 @@
 <script lang="ts">
-  import { get } from 'svelte/store';
-  import { workspace } from '../stores/workspace.svelte';
-  import type { TabState } from '../stores/workspace.svelte';
-  import { editorMode, requestSave, requestDiscard } from '../stores/editor';
-  import { isDirty } from '../stores/editor';
-  import { fileContent } from '../stores/files';
-  import { graphLevel, setGraphLevel } from '../stores/graph';
-  import { renderMarkdown } from '../lib/markdown-render';
+  import { get } from 'svelte/store'
+  import { workspace } from '../stores/workspace.svelte'
+  import type { TabState } from '../stores/workspace.svelte'
+  import { editorMode, requestSave, requestDiscard } from '../stores/editor'
+  import { isDirty } from '../stores/editor'
+  import { fileContent } from '../stores/files'
+  import { graphLevel, setGraphLevel } from '../stores/graph'
+  import { renderMarkdown } from '../lib/markdown-render'
 
   interface ModeBarProps {
     paneId: string
@@ -54,8 +54,8 @@
     await navigator.clipboard.write([
       new ClipboardItem({
         'text/html': new Blob([html], { type: 'text/html' }),
-        'text/plain': new Blob([html], { type: 'text/plain' }),
-      }),
+        'text/plain': new Blob([html], { type: 'text/plain' })
+      })
     ])
     copyFeedback = 'Copied as HTML'
     closeCopyDropdown()
@@ -104,11 +104,7 @@
     </div>
     <div class="mode-toggle-spacer">
       <div class="copy-dropdown-wrapper">
-        <button
-          class="copy-split-button"
-          onclick={copyAsMarkdown}
-          title="Copy as Markdown"
-        >
+        <button class="copy-split-button" onclick={copyAsMarkdown} title="Copy as Markdown">
           {#if copyFeedback}
             <span class="material-symbols-outlined copy-icon">check</span>
             <span class="copy-label">{copyFeedback}</span>
@@ -119,7 +115,10 @@
         </button>
         <button
           class="copy-chevron-button"
-          onclick={(e) => { e.stopPropagation(); copyDropdownOpen = !copyDropdownOpen; }}
+          onclick={(e) => {
+            e.stopPropagation()
+            copyDropdownOpen = !copyDropdownOpen
+          }}
           aria-haspopup="true"
           aria-expanded={copyDropdownOpen}
           title="Copy options"
@@ -226,7 +225,7 @@
 
   .mode-tab.active {
     background: var(--color-surface, #161617);
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
   }
 
   /* ── Save button ──────────────────────────────── */
@@ -236,7 +235,7 @@
     align-items: center;
     gap: 6px;
     padding: 4px 10px;
-    background: var(--color-primary, #00E5FF);
+    background: var(--color-primary, #00e5ff);
     color: var(--color-surface-darker, #0a0a0a);
     border: none;
     border-radius: 4px;
@@ -250,7 +249,7 @@
   }
 
   .save-button:hover {
-    background: var(--color-primary-dark, #00B8CC);
+    background: var(--color-primary-dark, #00b8cc);
   }
 
   .save-kbd {

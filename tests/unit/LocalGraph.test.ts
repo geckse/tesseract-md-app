@@ -20,12 +20,12 @@ vi.mock('d3-force', () => ({
     velocityDecay: vi.fn().mockReturnThis(),
     tick: vi.fn(),
     stop: vi.fn(),
-    on: vi.fn().mockReturnThis(),
+    on: vi.fn().mockReturnThis()
   })),
   forceLink: vi.fn(() => makeForceMock()),
   forceManyBody: vi.fn(() => makeForceMock()),
   forceCenter: vi.fn(() => makeForceMock()),
-  forceCollide: vi.fn(() => makeForceMock()),
+  forceCollide: vi.fn(() => makeForceMock())
 }))
 
 // Mock window.api before importing component
@@ -49,12 +49,12 @@ const mockApi = {
   listRecents: vi.fn().mockResolvedValue([]),
   addRecent: vi.fn(),
   saveWindowSession: vi.fn().mockResolvedValue(undefined),
-  getWindowSession: vi.fn().mockResolvedValue(null),
+  getWindowSession: vi.fn().mockResolvedValue(null)
 }
 
 Object.defineProperty(globalThis, 'window', {
   value: { api: mockApi },
-  writable: true,
+  writable: true
 })
 
 import LocalGraph from '@renderer/components/LocalGraph.svelte'
@@ -68,22 +68,25 @@ function flushPromises() {
 function makeLink(source: string, target: string, state: 'Valid' | 'Broken' = 'Valid') {
   return {
     entry: { source, target, text: `link to ${target}`, line_number: 1, is_wikilink: false },
-    state,
+    state
   }
 }
 
 function makeLinksOutput(file: string, outgoing: ReturnType<typeof makeLink>[]): LinksOutput {
   return {
     file,
-    links: { file, outgoing, incoming: [] },
+    links: { file, outgoing, incoming: [] }
   }
 }
 
-function makeBacklinksOutput(file: string, backlinks: ReturnType<typeof makeLink>[]): BacklinksOutput {
+function makeBacklinksOutput(
+  file: string,
+  backlinks: ReturnType<typeof makeLink>[]
+): BacklinksOutput {
   return {
     file,
     backlinks,
-    total_backlinks: backlinks.length,
+    total_backlinks: backlinks.length
   }
 }
 
@@ -112,7 +115,7 @@ describe('buildLocalGraph utility', () => {
   it('creates nodes from outgoing links', () => {
     const links = makeLinksOutput('docs/test.md', [
       makeLink('docs/test.md', 'docs/guide.md'),
-      makeLink('docs/test.md', 'docs/api.md'),
+      makeLink('docs/test.md', 'docs/api.md')
     ])
     const result = buildLocalGraph('docs/test.md', links, null)
     expect(result.nodes).toHaveLength(3) // center + 2 targets
@@ -121,9 +124,7 @@ describe('buildLocalGraph utility', () => {
   })
 
   it('creates correct edges for outgoing links', () => {
-    const links = makeLinksOutput('docs/test.md', [
-      makeLink('docs/test.md', 'docs/guide.md'),
-    ])
+    const links = makeLinksOutput('docs/test.md', [makeLink('docs/test.md', 'docs/guide.md')])
     const result = buildLocalGraph('docs/test.md', links, null)
     expect(result.edges).toHaveLength(1)
     expect(result.edges[0].source).toBe('docs/test.md')
@@ -132,7 +133,7 @@ describe('buildLocalGraph utility', () => {
 
   it('creates nodes from incoming backlinks', () => {
     const backlinks = makeBacklinksOutput('docs/test.md', [
-      makeLink('notes/standup.md', 'docs/test.md'),
+      makeLink('notes/standup.md', 'docs/test.md')
     ])
     const result = buildLocalGraph('docs/test.md', null, backlinks)
     expect(result.nodes).toHaveLength(2) // center + 1 backlink source
@@ -141,7 +142,7 @@ describe('buildLocalGraph utility', () => {
 
   it('creates correct edges for backlinks', () => {
     const backlinks = makeBacklinksOutput('docs/test.md', [
-      makeLink('notes/standup.md', 'docs/test.md'),
+      makeLink('notes/standup.md', 'docs/test.md')
     ])
     const result = buildLocalGraph('docs/test.md', null, backlinks)
     expect(result.edges).toHaveLength(1)
@@ -150,11 +151,9 @@ describe('buildLocalGraph utility', () => {
   })
 
   it('deduplicates nodes when same file in both links and backlinks', () => {
-    const links = makeLinksOutput('docs/test.md', [
-      makeLink('docs/test.md', 'docs/guide.md'),
-    ])
+    const links = makeLinksOutput('docs/test.md', [makeLink('docs/test.md', 'docs/guide.md')])
     const backlinks = makeBacklinksOutput('docs/test.md', [
-      makeLink('docs/guide.md', 'docs/test.md'),
+      makeLink('docs/guide.md', 'docs/test.md')
     ])
     const result = buildLocalGraph('docs/test.md', links, backlinks)
     // center + guide.md (deduplicated)
@@ -164,11 +163,9 @@ describe('buildLocalGraph utility', () => {
   })
 
   it('deduplicates edges when same connection in both directions and marks bidirectional', () => {
-    const links = makeLinksOutput('docs/test.md', [
-      makeLink('docs/test.md', 'docs/guide.md'),
-    ])
+    const links = makeLinksOutput('docs/test.md', [makeLink('docs/test.md', 'docs/guide.md')])
     const backlinks = makeBacklinksOutput('docs/test.md', [
-      makeLink('docs/guide.md', 'docs/test.md'),
+      makeLink('docs/guide.md', 'docs/test.md')
     ])
     const result = buildLocalGraph('docs/test.md', links, backlinks)
     // Only one edge, not two — but marked as bidirectional
@@ -179,7 +176,7 @@ describe('buildLocalGraph utility', () => {
   it('filters out broken links', () => {
     const links = makeLinksOutput('docs/test.md', [
       makeLink('docs/test.md', 'docs/guide.md', 'Valid'),
-      makeLink('docs/test.md', 'docs/missing.md', 'Broken'),
+      makeLink('docs/test.md', 'docs/missing.md', 'Broken')
     ])
     const result = buildLocalGraph('docs/test.md', links, null)
     expect(result.nodes).toHaveLength(2) // center + guide.md only
@@ -188,7 +185,7 @@ describe('buildLocalGraph utility', () => {
 
   it('filters out broken backlinks', () => {
     const backlinks = makeBacklinksOutput('docs/test.md', [
-      makeLink('notes/standup.md', 'docs/test.md', 'Broken'),
+      makeLink('notes/standup.md', 'docs/test.md', 'Broken')
     ])
     const result = buildLocalGraph('docs/test.md', null, backlinks)
     expect(result.nodes).toHaveLength(1) // center only
@@ -197,7 +194,7 @@ describe('buildLocalGraph utility', () => {
   it('excludes self-links from outgoing', () => {
     const links = makeLinksOutput('docs/test.md', [
       makeLink('docs/test.md', 'docs/test.md'),
-      makeLink('docs/test.md', 'docs/guide.md'),
+      makeLink('docs/test.md', 'docs/guide.md')
     ])
     const result = buildLocalGraph('docs/test.md', links, null)
     expect(result.nodes).toHaveLength(2) // center + guide.md
@@ -206,7 +203,7 @@ describe('buildLocalGraph utility', () => {
 
   it('excludes self-links from backlinks', () => {
     const backlinks = makeBacklinksOutput('docs/test.md', [
-      makeLink('docs/test.md', 'docs/test.md'),
+      makeLink('docs/test.md', 'docs/test.md')
     ])
     const result = buildLocalGraph('docs/test.md', null, backlinks)
     expect(result.nodes).toHaveLength(1) // center only
@@ -228,18 +225,14 @@ describe('buildLocalGraph utility', () => {
   })
 
   it('neighbor nodes are not marked as center', () => {
-    const links = makeLinksOutput('docs/test.md', [
-      makeLink('docs/test.md', 'docs/guide.md'),
-    ])
+    const links = makeLinksOutput('docs/test.md', [makeLink('docs/test.md', 'docs/guide.md')])
     const result = buildLocalGraph('docs/test.md', links, null)
     const neighbor = result.nodes.find((n) => n.path === 'docs/guide.md')
     expect(neighbor?.isCenter).toBe(false)
   })
 
   it('depth-1 neighbors have depth 1', () => {
-    const links = makeLinksOutput('docs/test.md', [
-      makeLink('docs/test.md', 'docs/guide.md'),
-    ])
+    const links = makeLinksOutput('docs/test.md', [makeLink('docs/test.md', 'docs/guide.md')])
     const result = buildLocalGraph('docs/test.md', links, null)
     const neighbor = result.nodes.find((n) => n.path === 'docs/guide.md')
     expect(neighbor?.depth).toBe(1)
@@ -248,16 +241,12 @@ describe('buildLocalGraph utility', () => {
 
 describe('buildLocalGraph 2-hop (depth 2)', () => {
   it('adds depth-2 nodes from neighbor outgoing links', () => {
-    const links = makeLinksOutput('docs/test.md', [
-      makeLink('docs/test.md', 'docs/guide.md'),
-    ])
+    const links = makeLinksOutput('docs/test.md', [makeLink('docs/test.md', 'docs/guide.md')])
 
     const neighborMap = new Map<string, NeighborLinks>()
     neighborMap.set('docs/guide.md', {
-      links: makeLinksOutput('docs/guide.md', [
-        makeLink('docs/guide.md', 'docs/deep.md'),
-      ]),
-      backlinks: null,
+      links: makeLinksOutput('docs/guide.md', [makeLink('docs/guide.md', 'docs/deep.md')]),
+      backlinks: null
     })
 
     const result = buildLocalGraph('docs/test.md', links, null, neighborMap)
@@ -268,16 +257,12 @@ describe('buildLocalGraph 2-hop (depth 2)', () => {
   })
 
   it('adds depth-2 nodes from neighbor backlinks', () => {
-    const links = makeLinksOutput('docs/test.md', [
-      makeLink('docs/test.md', 'docs/guide.md'),
-    ])
+    const links = makeLinksOutput('docs/test.md', [makeLink('docs/test.md', 'docs/guide.md')])
 
     const neighborMap = new Map<string, NeighborLinks>()
     neighborMap.set('docs/guide.md', {
       links: null,
-      backlinks: makeBacklinksOutput('docs/guide.md', [
-        makeLink('docs/ref.md', 'docs/guide.md'),
-      ]),
+      backlinks: makeBacklinksOutput('docs/guide.md', [makeLink('docs/ref.md', 'docs/guide.md')])
     })
 
     const result = buildLocalGraph('docs/test.md', links, null, neighborMap)
@@ -288,39 +273,33 @@ describe('buildLocalGraph 2-hop (depth 2)', () => {
   })
 
   it('creates edges between depth-1 and depth-2 nodes', () => {
-    const links = makeLinksOutput('docs/test.md', [
-      makeLink('docs/test.md', 'docs/guide.md'),
-    ])
+    const links = makeLinksOutput('docs/test.md', [makeLink('docs/test.md', 'docs/guide.md')])
 
     const neighborMap = new Map<string, NeighborLinks>()
     neighborMap.set('docs/guide.md', {
-      links: makeLinksOutput('docs/guide.md', [
-        makeLink('docs/guide.md', 'docs/deep.md'),
-      ]),
-      backlinks: null,
+      links: makeLinksOutput('docs/guide.md', [makeLink('docs/guide.md', 'docs/deep.md')]),
+      backlinks: null
     })
 
     const result = buildLocalGraph('docs/test.md', links, null, neighborMap)
     // 2 edges: center->guide, guide->deep
     expect(result.edges).toHaveLength(2)
-    expect(result.edges.some(
-      (e) => e.source === 'docs/guide.md' && e.target === 'docs/deep.md',
-    )).toBe(true)
+    expect(
+      result.edges.some((e) => e.source === 'docs/guide.md' && e.target === 'docs/deep.md')
+    ).toBe(true)
   })
 
   it('does not overwrite depth-0 or depth-1 nodes with depth 2', () => {
-    const links = makeLinksOutput('docs/test.md', [
-      makeLink('docs/test.md', 'docs/guide.md'),
-    ])
+    const links = makeLinksOutput('docs/test.md', [makeLink('docs/test.md', 'docs/guide.md')])
 
     // Neighbor links back to center — should NOT create a depth-2 node for center
     const neighborMap = new Map<string, NeighborLinks>()
     neighborMap.set('docs/guide.md', {
       links: makeLinksOutput('docs/guide.md', [
         makeLink('docs/guide.md', 'docs/test.md'),
-        makeLink('docs/guide.md', 'docs/deep.md'),
+        makeLink('docs/guide.md', 'docs/deep.md')
       ]),
-      backlinks: null,
+      backlinks: null
     })
 
     const result = buildLocalGraph('docs/test.md', links, null, neighborMap)
@@ -333,22 +312,18 @@ describe('buildLocalGraph 2-hop (depth 2)', () => {
   it('deduplicates edges across hops', () => {
     const links = makeLinksOutput('docs/test.md', [
       makeLink('docs/test.md', 'docs/guide.md'),
-      makeLink('docs/test.md', 'docs/api.md'),
+      makeLink('docs/test.md', 'docs/api.md')
     ])
 
     // Both neighbors link to the same depth-2 node
     const neighborMap = new Map<string, NeighborLinks>()
     neighborMap.set('docs/guide.md', {
-      links: makeLinksOutput('docs/guide.md', [
-        makeLink('docs/guide.md', 'docs/shared.md'),
-      ]),
-      backlinks: null,
+      links: makeLinksOutput('docs/guide.md', [makeLink('docs/guide.md', 'docs/shared.md')]),
+      backlinks: null
     })
     neighborMap.set('docs/api.md', {
-      links: makeLinksOutput('docs/api.md', [
-        makeLink('docs/api.md', 'docs/shared.md'),
-      ]),
-      backlinks: null,
+      links: makeLinksOutput('docs/api.md', [makeLink('docs/api.md', 'docs/shared.md')]),
+      backlinks: null
     })
 
     const result = buildLocalGraph('docs/test.md', links, null, neighborMap)
@@ -360,9 +335,7 @@ describe('buildLocalGraph 2-hop (depth 2)', () => {
   })
 
   it('handles empty neighborLinksMap gracefully', () => {
-    const links = makeLinksOutput('docs/test.md', [
-      makeLink('docs/test.md', 'docs/guide.md'),
-    ])
+    const links = makeLinksOutput('docs/test.md', [makeLink('docs/test.md', 'docs/guide.md')])
 
     const result = buildLocalGraph('docs/test.md', links, null, new Map())
     expect(result.nodes).toHaveLength(2) // center + guide
@@ -370,17 +343,15 @@ describe('buildLocalGraph 2-hop (depth 2)', () => {
   })
 
   it('skips neighbor self-links in depth-2 expansion', () => {
-    const links = makeLinksOutput('docs/test.md', [
-      makeLink('docs/test.md', 'docs/guide.md'),
-    ])
+    const links = makeLinksOutput('docs/test.md', [makeLink('docs/test.md', 'docs/guide.md')])
 
     const neighborMap = new Map<string, NeighborLinks>()
     neighborMap.set('docs/guide.md', {
       links: makeLinksOutput('docs/guide.md', [
         makeLink('docs/guide.md', 'docs/guide.md'), // self-link
-        makeLink('docs/guide.md', 'docs/deep.md'),
+        makeLink('docs/guide.md', 'docs/deep.md')
       ]),
-      backlinks: null,
+      backlinks: null
     })
 
     const result = buildLocalGraph('docs/test.md', links, null, neighborMap)
@@ -401,7 +372,7 @@ describe('LocalGraph component rendering', () => {
 
   it('shows "Loading…" when centerPath set but no link data', () => {
     render(LocalGraph, {
-      props: { centerPath: 'docs/test.md', linksInfo: null, backlinksInfo: null },
+      props: { centerPath: 'docs/test.md', linksInfo: null, backlinksInfo: null }
     })
     expect(screen.getByText('Loading…')).toBeTruthy()
   })
@@ -410,18 +381,16 @@ describe('LocalGraph component rendering', () => {
     const links = makeLinksOutput('docs/test.md', [])
     const backlinks = makeBacklinksOutput('docs/test.md', [])
     render(LocalGraph, {
-      props: { centerPath: 'docs/test.md', linksInfo: links, backlinksInfo: backlinks },
+      props: { centerPath: 'docs/test.md', linksInfo: links, backlinksInfo: backlinks }
     })
     expect(screen.getByText('No connections')).toBeTruthy()
   })
 
   it('renders SVG with nodes when valid links exist', async () => {
-    const links = makeLinksOutput('docs/test.md', [
-      makeLink('docs/test.md', 'docs/guide.md'),
-    ])
+    const links = makeLinksOutput('docs/test.md', [makeLink('docs/test.md', 'docs/guide.md')])
     const backlinks = makeBacklinksOutput('docs/test.md', [])
     const { container } = render(LocalGraph, {
-      props: { centerPath: 'docs/test.md', linksInfo: links, backlinksInfo: backlinks },
+      props: { centerPath: 'docs/test.md', linksInfo: links, backlinksInfo: backlinks }
     })
     await flushPromises()
     const svg = container.querySelector('svg')
@@ -432,24 +401,20 @@ describe('LocalGraph component rendering', () => {
   })
 
   it('renders center node label', async () => {
-    const links = makeLinksOutput('docs/test.md', [
-      makeLink('docs/test.md', 'docs/guide.md'),
-    ])
+    const links = makeLinksOutput('docs/test.md', [makeLink('docs/test.md', 'docs/guide.md')])
     const backlinks = makeBacklinksOutput('docs/test.md', [])
     render(LocalGraph, {
-      props: { centerPath: 'docs/test.md', linksInfo: links, backlinksInfo: backlinks },
+      props: { centerPath: 'docs/test.md', linksInfo: links, backlinksInfo: backlinks }
     })
     await flushPromises()
     expect(screen.getByText('test.md')).toBeTruthy()
   })
 
   it('renders edge lines', async () => {
-    const links = makeLinksOutput('docs/test.md', [
-      makeLink('docs/test.md', 'docs/guide.md'),
-    ])
+    const links = makeLinksOutput('docs/test.md', [makeLink('docs/test.md', 'docs/guide.md')])
     const backlinks = makeBacklinksOutput('docs/test.md', [])
     const { container } = render(LocalGraph, {
-      props: { centerPath: 'docs/test.md', linksInfo: links, backlinksInfo: backlinks },
+      props: { centerPath: 'docs/test.md', linksInfo: links, backlinksInfo: backlinks }
     })
     await flushPromises()
     const lines = container.querySelectorAll('line')
@@ -466,12 +431,15 @@ import {
   neighborhoodInfo,
   propertiesLoading,
   propertiesError,
-  propertiesFileContent,
+  propertiesFileContent
 } from '../../src/renderer/stores/properties'
 import { workspace } from '@renderer/stores/workspace.svelte'
 import { syncFileStoresFromTab } from '../../src/renderer/stores/files'
 import PropertiesPanel from '@renderer/components/PropertiesPanel.svelte'
-import type { LinksOutput as LinksOutputType, BacklinksOutput as BacklinksOutputType } from '../../src/renderer/types/cli'
+import type {
+  LinksOutput as LinksOutputType,
+  BacklinksOutput as BacklinksOutputType
+} from '../../src/renderer/types/cli'
 
 const sampleLinks: LinksOutputType = {
   file: 'docs/test.md',
@@ -479,23 +447,35 @@ const sampleLinks: LinksOutputType = {
     file: 'docs/test.md',
     outgoing: [
       {
-        entry: { source: 'docs/test.md', target: 'docs/guide.md', text: 'see guide', line_number: 10, is_wikilink: false },
-        state: 'Valid',
-      },
+        entry: {
+          source: 'docs/test.md',
+          target: 'docs/guide.md',
+          text: 'see guide',
+          line_number: 10,
+          is_wikilink: false
+        },
+        state: 'Valid'
+      }
     ],
-    incoming: [],
-  },
+    incoming: []
+  }
 }
 
 const sampleBacklinks: BacklinksOutputType = {
   file: 'docs/test.md',
   backlinks: [
     {
-      entry: { source: 'notes/standup.md', target: 'docs/test.md', text: 'Discussed test doc', line_number: 12, is_wikilink: true },
-      state: 'Valid',
-    },
+      entry: {
+        source: 'notes/standup.md',
+        target: 'docs/test.md',
+        text: 'Discussed test doc',
+        line_number: 12,
+        is_wikilink: true
+      },
+      state: 'Valid'
+    }
   ],
-  total_backlinks: 1,
+  total_backlinks: 1
 }
 
 function resetStores() {

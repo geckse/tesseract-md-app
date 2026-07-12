@@ -279,10 +279,7 @@ export class WatcherManager {
       return
     }
 
-    const delay = Math.min(
-      INITIAL_BACKOFF_MS * Math.pow(2, this.retryCount),
-      MAX_BACKOFF_MS
-    )
+    const delay = Math.min(INITIAL_BACKOFF_MS * Math.pow(2, this.retryCount), MAX_BACKOFF_MS)
     this.retryCount++
 
     this.retryTimer = setTimeout(() => {

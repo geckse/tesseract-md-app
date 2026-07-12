@@ -85,7 +85,8 @@
       {#if conflict.kind === 'deleted'}
         <p class="conflict-title">File deleted on disk</p>
         <p class="conflict-message">
-          This file was deleted by another program. Keep it in the editor (saving will recreate it) or close the tab.
+          This file was deleted by another program. Keep it in the editor (saving will recreate it)
+          or close the tab.
         </p>
       {:else}
         <p class="conflict-title">File changed on disk</p>
@@ -97,28 +98,50 @@
     </div>
     <div class="conflict-actions">
       {#if conflict.kind === 'deleted'}
-        <button class="conflict-btn conflict-btn-secondary" onclick={handleCloseDeleted} aria-label="Close tab">
+        <button
+          class="conflict-btn conflict-btn-secondary"
+          onclick={handleCloseDeleted}
+          aria-label="Close tab"
+        >
           Close Tab
         </button>
-        <button class="conflict-btn conflict-btn-primary" onclick={handleKeepDeleted} aria-label="Keep file in editor">
+        <button
+          class="conflict-btn conflict-btn-primary"
+          onclick={handleKeepDeleted}
+          aria-label="Keep file in editor"
+        >
           Keep in Editor
         </button>
       {:else}
-        <button class="conflict-btn conflict-btn-secondary" onclick={handleViewDiff} aria-label="View differences">
+        <button
+          class="conflict-btn conflict-btn-secondary"
+          onclick={handleViewDiff}
+          aria-label="View differences"
+        >
           View Diff
         </button>
-        <button class="conflict-btn conflict-btn-secondary" onclick={handleKeepMine} aria-label="Keep my changes">
+        <button
+          class="conflict-btn conflict-btn-secondary"
+          onclick={handleKeepMine}
+          aria-label="Keep my changes"
+        >
           Keep Mine
         </button>
         <button
-          class="conflict-btn {conflict.mergeClean ? 'conflict-btn-secondary' : 'conflict-btn-primary'}"
+          class="conflict-btn {conflict.mergeClean
+            ? 'conflict-btn-secondary'
+            : 'conflict-btn-primary'}"
           onclick={handleTakeDisk}
           aria-label="Take the disk version"
         >
           Take Disk
         </button>
         {#if conflict.mergeClean}
-          <button class="conflict-btn conflict-btn-primary" onclick={handleMerge} aria-label="Merge both changes">
+          <button
+            class="conflict-btn conflict-btn-primary"
+            onclick={handleMerge}
+            aria-label="Merge both changes"
+          >
             Merge
           </button>
         {/if}

@@ -71,7 +71,7 @@ export const isDirty: Writable<boolean> = {
       tab.isDirty = newValue
     }
     _editorSync.update((n) => n + 1)
-  },
+  }
 }
 
 /**
@@ -97,7 +97,7 @@ export const wordCount: Writable<number> = {
       tab.wordCount = newValue
     }
     _editorSync.update((n) => n + 1)
-  },
+  }
 }
 
 /**
@@ -123,7 +123,7 @@ export const tokenCount: Writable<number> = {
       tab.tokenCount = newValue
     }
     _editorSync.update((n) => n + 1)
-  },
+  }
 }
 
 /**
@@ -149,7 +149,7 @@ export const editorMode: Writable<EditorMode> = {
       tab.editorMode = newValue
     }
     _editorSync.update((n) => n + 1)
-  },
+  }
 }
 
 // ─── Ephemeral stores (not per-tab — editor-instance signals) ───────────

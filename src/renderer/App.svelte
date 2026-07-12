@@ -1,150 +1,202 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { get } from 'svelte/store';
-  import Sidebar from './components/Sidebar.svelte';
-  import Titlebar from './components/Titlebar.svelte';
-  import StatusBar from './components/StatusBar.svelte';
-  import SplitPaneContainer from './components/SplitPaneContainer.svelte';
-  import PropertiesPanel from './components/PropertiesPanel.svelte';
-  import IngestModal from './components/IngestModal.svelte';
-  import ConvertTypeModal from './components/ConvertTypeModal.svelte';
-  import QuickOpen from './components/QuickOpen.svelte';
-  import Onboarding from './components/Onboarding.svelte';
-  import Settings from './components/Settings.svelte';
-  import UpdateNotification from './components/UpdateNotification.svelte';
-  import { loadCollections, setActiveCollection, activeCollectionId, activeCollection } from './stores/collections';
-  import { fileContentLoading, resetFileState, syncFileStoresFromTab, loadAssetTree, loadFileTree } from './stores/files';
-  import { searchOpen, clearSearch } from './stores/search';
-  import { scrollToLine, editorMode, toggleEditorMode, requestSave, resetEditorState } from './stores/editor';
-  import { loadFavorites } from './stores/favorites';
-  import { openQuickOpen } from './stores/quickopen';
-  import { shortcutManager } from './lib/shortcuts';
-  import { openNewNotePopup } from './lib/new-note';
-  import { setupWatcherListener, teardownWatcherListener, fetchWatcherStatus, clearWatcherEvents, restoreWatcherForCollection } from './stores/watcher';
-  import { setupVaultListener, teardownVaultListener } from './stores/vault-events';
-  import { setupFileSyncListener, teardownFileSyncListener, resetFileSyncState, applyDiskContentToTab } from './stores/file-sync';
-  import DiffView from './components/DiffView.svelte';
-  import { graphViewActive, toggleGraphView, loadGraphData, resetGraphState } from './stores/graph';
-  import { goBack, goForward, setNavigating, clearNavigation, recordNavigation } from './stores/navigation';
-  import { settingsOpen, onboardingComplete, loadOnboardingState, editorFontSize, loadEditorFontSize } from './stores/ui';
-  import { setupUpdateListener, teardownUpdateListener } from './stores/updater';
-  import { loadAccentColors, loadCollectionAccentColor, primaryVariants } from './stores/accent-color';
-  import { applyAccentColor } from './lib/apply-accent-color';
-  import { reinitMermaid } from './lib/mermaid-renderer';
-  import { loadTheme, loadCollectionTheme, initSystemPreference, resolvedTheme, themeTokens } from './stores/theme';
-  import { applyTheme } from './lib/apply-theme';
-  import { workspace } from './stores/workspace.svelte';
-  import { closedTabs } from './stores/closed-tabs.svelte';
-  import PopupShell from './components/PopupShell.svelte';
-  import BottomPanel from './components/BottomPanel.svelte';
-  import { terminalStore } from './stores/terminal.svelte';
-  import type { SearchResult } from './types/cli';
+  import { onMount } from 'svelte'
+  import { get } from 'svelte/store'
+  import Sidebar from './components/Sidebar.svelte'
+  import Titlebar from './components/Titlebar.svelte'
+  import StatusBar from './components/StatusBar.svelte'
+  import SplitPaneContainer from './components/SplitPaneContainer.svelte'
+  import PropertiesPanel from './components/PropertiesPanel.svelte'
+  import IngestModal from './components/IngestModal.svelte'
+  import ConvertTypeModal from './components/ConvertTypeModal.svelte'
+  import QuickOpen from './components/QuickOpen.svelte'
+  import Onboarding from './components/Onboarding.svelte'
+  import Settings from './components/Settings.svelte'
+  import UpdateNotification from './components/UpdateNotification.svelte'
+  import {
+    loadCollections,
+    setActiveCollection,
+    activeCollectionId,
+    activeCollection
+  } from './stores/collections'
+  import {
+    fileContentLoading,
+    resetFileState,
+    syncFileStoresFromTab,
+    loadAssetTree,
+    loadFileTree
+  } from './stores/files'
+  import { searchOpen, clearSearch } from './stores/search'
+  import {
+    scrollToLine,
+    editorMode,
+    toggleEditorMode,
+    requestSave,
+    resetEditorState
+  } from './stores/editor'
+  import { loadFavorites } from './stores/favorites'
+  import { openQuickOpen } from './stores/quickopen'
+  import { shortcutManager } from './lib/shortcuts'
+  import { openNewNotePopup } from './lib/new-note'
+  import {
+    setupWatcherListener,
+    teardownWatcherListener,
+    fetchWatcherStatus,
+    clearWatcherEvents,
+    restoreWatcherForCollection
+  } from './stores/watcher'
+  import { setupVaultListener, teardownVaultListener } from './stores/vault-events'
+  import {
+    setupFileSyncListener,
+    teardownFileSyncListener,
+    resetFileSyncState,
+    applyDiskContentToTab
+  } from './stores/file-sync'
+  import DiffView from './components/DiffView.svelte'
+  import { graphViewActive, toggleGraphView, loadGraphData, resetGraphState } from './stores/graph'
+  import {
+    goBack,
+    goForward,
+    setNavigating,
+    clearNavigation,
+    recordNavigation
+  } from './stores/navigation'
+  import {
+    settingsOpen,
+    onboardingComplete,
+    loadOnboardingState,
+    editorFontSize,
+    loadEditorFontSize
+  } from './stores/ui'
+  import { setupUpdateListener, teardownUpdateListener } from './stores/updater'
+  import {
+    loadAccentColors,
+    loadCollectionAccentColor,
+    primaryVariants
+  } from './stores/accent-color'
+  import { applyAccentColor } from './lib/apply-accent-color'
+  import { reinitMermaid } from './lib/mermaid-renderer'
+  import {
+    loadTheme,
+    loadCollectionTheme,
+    initSystemPreference,
+    resolvedTheme,
+    themeTokens
+  } from './stores/theme'
+  import { applyTheme } from './lib/apply-theme'
+  import { workspace } from './stores/workspace.svelte'
+  import { closedTabs } from './stores/closed-tabs.svelte'
+  import PopupShell from './components/PopupShell.svelte'
+  import BottomPanel from './components/BottomPanel.svelte'
+  import { terminalStore } from './stores/terminal.svelte'
+  import type { SearchResult } from './types/cli'
 
   // ── Popup Mode Detection ──────────────────────────────────────────
-  const popupParams = new URLSearchParams(window.location.search);
-  const isPopupMode = popupParams.get('mode') === 'popup';
+  const popupParams = new URLSearchParams(window.location.search)
+  const isPopupMode = popupParams.get('mode') === 'popup'
 
-  let propertiesOpen = $state(localStorage.getItem('mdvdb-properties-open') === 'true');
-  let searchAreaEl: HTMLElement | undefined = $state(undefined);
+  let propertiesOpen = $state(localStorage.getItem('mdvdb-properties-open') === 'true')
+  let searchAreaEl: HTMLElement | undefined = $state(undefined)
 
   // Focus management refs for Tab navigation
-  let sidebarEl: HTMLElement | undefined = $state(undefined);
-  let editorEl: HTMLElement | undefined = $state(undefined);
-  let propertiesEl: HTMLElement | undefined = $state(undefined);
+  let sidebarEl: HTMLElement | undefined = $state(undefined)
+  let editorEl: HTMLElement | undefined = $state(undefined)
+  let propertiesEl: HTMLElement | undefined = $state(undefined)
 
   // Split pane state is managed by workspace + SplitPaneContainer
 
   onMount(() => {
     // Popup windows render PopupShell — skip all heavyweight initialization
-    if (isPopupMode) return;
+    if (isPopupMode) return
 
     // Load collections first, then restore tab session once the active collection is known.
     // restoreSession() validates file existence via the preload API, so it needs an active collection.
     loadCollections().then(async () => {
       // Load file tree, asset tree, and graph data for the active collection
-      loadFileTree().catch(() => {});
-      loadAssetTree().catch(() => {});
-      loadGraphData().catch(() => {});
+      loadFileTree().catch(() => {})
+      loadAssetTree().catch(() => {})
+      loadGraphData().catch(() => {})
       try {
-        const session = await window.api.getWindowSession();
+        const session = await window.api.getWindowSession()
         if (session) {
-          await workspace.restoreSession(session);
-          syncFileStoresFromTab();
+          await workspace.restoreSession(session)
+          syncFileStoresFromTab()
         } else {
           // No saved session — enable persistence so this session gets auto-saved
-          workspace.enablePersistence();
+          workspace.enablePersistence()
         }
       } catch {
         // If restore fails, still enable persistence for this session
-        workspace.enablePersistence();
+        workspace.enablePersistence()
       }
       // Restart the mdvdb watcher if it was left running for this collection
-      restoreWatcherForCollection().catch(() => {});
-    });
-    loadFavorites();
-    setupWatcherListener();
-    setupVaultListener();
-    setupFileSyncListener();
-    setupUpdateListener();
-    fetchWatcherStatus();
-    loadOnboardingState();
-    loadEditorFontSize();
-    loadAccentColors();
-    loadTheme();
+      restoreWatcherForCollection().catch(() => {})
+    })
+    loadFavorites()
+    setupWatcherListener()
+    setupVaultListener()
+    setupFileSyncListener()
+    setupUpdateListener()
+    fetchWatcherStatus()
+    loadOnboardingState()
+    loadEditorFontSize()
+    loadAccentColors()
+    loadTheme()
 
     // Flush the session synchronously on quit/reload — the debounced save
     // would silently drop a layout change made in its last 500ms.
-    const flushSession = (): void => workspace.flushSessionSync();
-    window.addEventListener('beforeunload', flushSession);
+    const flushSession = (): void => workspace.flushSessionSync()
+    window.addEventListener('beforeunload', flushSession)
 
     // System preference listener for auto theme mode
-    const cleanupSystemPref = initSystemPreference();
+    const cleanupSystemPref = initSystemPreference()
 
     // Apply theme tokens to CSS custom properties reactively
-    let currentResolvedTheme: 'light' | 'dark' = 'dark';
-    const unsubTheme = resolvedTheme.subscribe((mode) => { currentResolvedTheme = mode; });
+    let currentResolvedTheme: 'light' | 'dark' = 'dark'
+    const unsubTheme = resolvedTheme.subscribe((mode) => {
+      currentResolvedTheme = mode
+    })
     const unsubThemeTokens = themeTokens.subscribe((tokens) => {
-      applyTheme(tokens, currentResolvedTheme);
-      reinitMermaid();
-    });
+      applyTheme(tokens, currentResolvedTheme)
+      reinitMermaid()
+    })
 
     // Apply accent color variants to CSS custom properties reactively
     const unsubAccent = primaryVariants.subscribe((variants) => {
-      applyAccentColor(variants);
-      reinitMermaid();
-    });
+      applyAccentColor(variants)
+      reinitMermaid()
+    })
 
     // Re-load collection accent color and theme when active collection changes
     const unsubCollectionColor = activeCollectionId.subscribe((id) => {
-      loadCollectionAccentColor(id);
-      loadCollectionTheme(id);
-    });
+      loadCollectionAccentColor(id)
+      loadCollectionTheme(id)
+    })
 
     // Listen for cross-window file saves — silently update matching open tabs
     // (shares the same apply path as external live-updates)
     window.api.onFileSavedExternally(({ path: savedPath, content }) => {
       for (const tab of Object.values(workspace.tabs)) {
-        if (tab.kind !== 'document') continue;
-        const coll = get(activeCollection);
-        if (!coll) continue;
-        const absTabPath = `${coll.path}/${tab.filePath}`;
-        if (savedPath !== absTabPath) continue;
+        if (tab.kind !== 'document') continue
+        const coll = get(activeCollection)
+        if (!coll) continue
+        const absTabPath = `${coll.path}/${tab.filePath}`
+        if (savedPath !== absTabPath) continue
 
-        applyDiskContentToTab(tab, content);
+        applyDiskContentToTab(tab, content)
       }
-      syncFileStoresFromTab();
-    });
+      syncFileStoresFromTab()
+    })
 
     // Listen for native menu "Open Recent" clicks
     window.api.onMenuOpenRecent(({ collectionId, filePath }) => {
-      setActiveCollection(collectionId);
+      setActiveCollection(collectionId)
       // Small delay to let collection switch propagate before opening tab
       setTimeout(() => {
-        recordNavigation(filePath);
-        workspace.openFile(filePath);
-        syncFileStoresFromTab();
-      }, 50);
-    });
+        recordNavigation(filePath)
+        workspace.openFile(filePath)
+        syncFileStoresFromTab()
+      }, 50)
+    })
 
     // Register keyboard shortcuts
     const unregisterShortcuts = [
@@ -153,8 +205,8 @@
         key: 'o',
         meta: true,
         handler: () => {
-          openQuickOpen();
-        },
+          openQuickOpen()
+        }
       }),
 
       // Cmd+K / Ctrl+K: Open search
@@ -162,8 +214,8 @@
         key: 'k',
         meta: true,
         handler: () => {
-          searchOpen.set(true);
-        },
+          searchOpen.set(true)
+        }
       }),
 
       // Cmd+Shift+B / Ctrl+Shift+B: Toggle properties panel
@@ -172,9 +224,9 @@
         meta: true,
         shift: true,
         handler: () => {
-          propertiesOpen = !propertiesOpen;
-          localStorage.setItem('mdvdb-properties-open', String(propertiesOpen));
-        },
+          propertiesOpen = !propertiesOpen
+          localStorage.setItem('mdvdb-properties-open', String(propertiesOpen))
+        }
       }),
 
       // Cmd+W / Ctrl+W: Close active tab (with dirty check) or deselect if no document tab
@@ -182,29 +234,29 @@
         key: 'w',
         meta: true,
         handler: () => {
-          const tab = workspace.focusedTab;
+          const tab = workspace.focusedTab
           if (tab && tab.kind === 'document') {
             if (tab.isDirty) {
               // Show save/discard/cancel prompt for dirty tabs
               const shouldClose = window.confirm(
                 `"${tab.title}" has unsaved changes. Discard changes and close?`
-              );
-              if (!shouldClose) return;
+              )
+              if (!shouldClose) return
             }
-            const paneId = workspace.activePaneId;
-            const closed = workspace.closeTab(tab.id);
+            const paneId = workspace.activePaneId
+            const closed = workspace.closeTab(tab.id)
             if (closed && closed.kind === 'document') {
-              closedTabs.push(closed, paneId);
+              closedTabs.push(closed, paneId)
             }
           } else {
             // No document tab focused — deselect
-            const pane = workspace.focusedPane;
+            const pane = workspace.focusedPane
             if (pane) {
-              pane.activeTabId = null;
+              pane.activeTabId = null
             }
           }
-          syncFileStoresFromTab();
-        },
+          syncFileStoresFromTab()
+        }
       }),
 
       // Cmd+G / Ctrl+G: Switch to graph tab in focused pane (toggle)
@@ -212,9 +264,9 @@
         key: 'g',
         meta: true,
         handler: () => {
-          toggleGraphView();
-          syncFileStoresFromTab();
-        },
+          toggleGraphView()
+          syncFileStoresFromTab()
+        }
       }),
 
       // Cmd+T / Ctrl+T: New tab (open file picker)
@@ -222,8 +274,8 @@
         key: 't',
         meta: true,
         handler: () => {
-          openQuickOpen();
-        },
+          openQuickOpen()
+        }
       }),
 
       // Cmd+Shift+T / Ctrl+Shift+T: Reopen last closed tab
@@ -232,12 +284,12 @@
         meta: true,
         shift: true,
         handler: () => {
-          const entry = closedTabs.pop();
+          const entry = closedTabs.pop()
           if (entry) {
-            workspace.openTab(entry.tab.filePath);
-            syncFileStoresFromTab();
+            workspace.openTab(entry.tab.filePath)
+            syncFileStoresFromTab()
           }
-        },
+        }
       }),
 
       // Cmd+N / Ctrl+N: New note in a popped-out window
@@ -245,8 +297,8 @@
         key: 'n',
         meta: true,
         handler: () => {
-          openNewNotePopup();
-        },
+          openNewNotePopup()
+        }
       }),
 
       // Cmd+\ / Ctrl+\: Toggle split pane
@@ -254,9 +306,9 @@
         key: '\\',
         meta: true,
         handler: () => {
-          workspace.toggleSplit();
-          syncFileStoresFromTab();
-        },
+          workspace.toggleSplit()
+          syncFileStoresFromTab()
+        }
       }),
 
       // Cmd+Option+1 / Ctrl+Alt+1: Focus pane 1 (left)
@@ -265,12 +317,12 @@
         meta: true,
         alt: true,
         handler: () => {
-          const paneId = workspace.paneOrder[0];
+          const paneId = workspace.paneOrder[0]
           if (paneId) {
-            workspace.setActivePane(paneId);
-            syncFileStoresFromTab();
+            workspace.setActivePane(paneId)
+            syncFileStoresFromTab()
           }
-        },
+        }
       }),
 
       // Cmd+Option+2 / Ctrl+Alt+2: Focus pane 2 (right)
@@ -279,12 +331,12 @@
         meta: true,
         alt: true,
         handler: () => {
-          const paneId = workspace.paneOrder[1];
+          const paneId = workspace.paneOrder[1]
           if (paneId) {
-            workspace.setActivePane(paneId);
-            syncFileStoresFromTab();
+            workspace.setActivePane(paneId)
+            syncFileStoresFromTab()
           }
-        },
+        }
       }),
 
       // Cmd+Option+Left / Ctrl+Alt+Left: Switch to previous tab
@@ -293,15 +345,15 @@
         meta: true,
         alt: true,
         handler: () => {
-          const pane = workspace.focusedPane;
-          if (!pane) return;
-          const docTabs = pane.tabOrder.filter((id) => workspace.tabs[id]?.kind === 'document');
-          if (docTabs.length === 0) return;
-          const currentIdx = pane.activeTabId ? docTabs.indexOf(pane.activeTabId) : -1;
-          const prevIdx = currentIdx <= 0 ? docTabs.length - 1 : currentIdx - 1;
-          workspace.switchTab(docTabs[prevIdx]);
-          syncFileStoresFromTab();
-        },
+          const pane = workspace.focusedPane
+          if (!pane) return
+          const docTabs = pane.tabOrder.filter((id) => workspace.tabs[id]?.kind === 'document')
+          if (docTabs.length === 0) return
+          const currentIdx = pane.activeTabId ? docTabs.indexOf(pane.activeTabId) : -1
+          const prevIdx = currentIdx <= 0 ? docTabs.length - 1 : currentIdx - 1
+          workspace.switchTab(docTabs[prevIdx])
+          syncFileStoresFromTab()
+        }
       }),
 
       // Cmd+Option+Right / Ctrl+Alt+Right: Switch to next tab
@@ -310,15 +362,15 @@
         meta: true,
         alt: true,
         handler: () => {
-          const pane = workspace.focusedPane;
-          if (!pane) return;
-          const docTabs = pane.tabOrder.filter((id) => workspace.tabs[id]?.kind === 'document');
-          if (docTabs.length === 0) return;
-          const currentIdx = pane.activeTabId ? docTabs.indexOf(pane.activeTabId) : -1;
-          const nextIdx = currentIdx < 0 || currentIdx >= docTabs.length - 1 ? 0 : currentIdx + 1;
-          workspace.switchTab(docTabs[nextIdx]);
-          syncFileStoresFromTab();
-        },
+          const pane = workspace.focusedPane
+          if (!pane) return
+          const docTabs = pane.tabOrder.filter((id) => workspace.tabs[id]?.kind === 'document')
+          if (docTabs.length === 0) return
+          const currentIdx = pane.activeTabId ? docTabs.indexOf(pane.activeTabId) : -1
+          const nextIdx = currentIdx < 0 || currentIdx >= docTabs.length - 1 ? 0 : currentIdx + 1
+          workspace.switchTab(docTabs[nextIdx])
+          syncFileStoresFromTab()
+        }
       }),
 
       // Cmd+1 through Cmd+9 / Ctrl+1 through Ctrl+9: Switch to tab N
@@ -327,15 +379,15 @@
           key: String(i + 1),
           meta: true,
           handler: () => {
-            const pane = workspace.focusedPane;
-            if (!pane) return;
-            const docTabs = pane.tabOrder.filter((id) => workspace.tabs[id]?.kind === 'document');
-            const tabIndex = i; // 0-based: Cmd+1 = index 0
+            const pane = workspace.focusedPane
+            if (!pane) return
+            const docTabs = pane.tabOrder.filter((id) => workspace.tabs[id]?.kind === 'document')
+            const tabIndex = i // 0-based: Cmd+1 = index 0
             if (tabIndex < docTabs.length) {
-              workspace.switchTab(docTabs[tabIndex]);
-              syncFileStoresFromTab();
+              workspace.switchTab(docTabs[tabIndex])
+              syncFileStoresFromTab()
             }
-          },
+          }
         })
       ),
 
@@ -345,9 +397,9 @@
         meta: true,
         handler: () => {
           if (!get(graphViewActive)) {
-            toggleEditorMode();
+            toggleEditorMode()
           }
-        },
+        }
       }),
 
       // Cmd+S / Ctrl+S: Global save (works in wysiwyg mode too)
@@ -355,12 +407,12 @@
         key: 's',
         meta: true,
         handler: () => {
-          const mode = get(editorMode);
+          const mode = get(editorMode)
           if (mode === 'wysiwyg') {
-            requestSave();
+            requestSave()
           }
           // In editor mode, CodeMirror's own keymap handles Cmd+S
-        },
+        }
       }),
 
       // Escape: Close settings if open
@@ -368,9 +420,9 @@
         key: 'Escape',
         handler: () => {
           if (get(settingsOpen)) {
-            settingsOpen.set(false);
+            settingsOpen.set(false)
           }
-        },
+        }
       }),
 
       // Cmd+Shift+N / Ctrl+Shift+N: Open new window
@@ -379,8 +431,8 @@
         meta: true,
         shift: true,
         handler: () => {
-          window.api.newWindow();
-        },
+          window.api.newWindow()
+        }
       }),
 
       // Cmd+, / Ctrl+,: Toggle settings panel
@@ -388,8 +440,8 @@
         key: ',',
         meta: true,
         handler: () => {
-          settingsOpen.update((v) => !v);
-        },
+          settingsOpen.update((v) => !v)
+        }
       }),
 
       // Cmd+[ / Ctrl+[: Navigate back
@@ -397,14 +449,14 @@
         key: '[',
         meta: true,
         handler: () => {
-          const path = goBack();
+          const path = goBack()
           if (path) {
-            setNavigating(true);
-            workspace.replaceTab(path);
-            syncFileStoresFromTab();
-            setNavigating(false);
+            setNavigating(true)
+            workspace.replaceTab(path)
+            syncFileStoresFromTab()
+            setNavigating(false)
           }
-        },
+        }
       }),
 
       // Cmd+] / Ctrl+]: Navigate forward
@@ -412,14 +464,14 @@
         key: ']',
         meta: true,
         handler: () => {
-          const path = goForward();
+          const path = goForward()
           if (path) {
-            setNavigating(true);
-            workspace.replaceTab(path);
-            syncFileStoresFromTab();
-            setNavigating(false);
+            setNavigating(true)
+            workspace.replaceTab(path)
+            syncFileStoresFromTab()
+            setNavigating(false)
           }
-        },
+        }
       }),
 
       // Tab: Cycle focus forward through regions (sidebar → editor → metadata)
@@ -427,14 +479,14 @@
         key: 'Tab',
         handler: (event) => {
           // Only handle Tab if we're not in an input/textarea
-          const target = event.target as HTMLElement;
+          const target = event.target as HTMLElement
           if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
-            return;
+            return
           }
 
-          cycleFocus(false);
+          cycleFocus(false)
         },
-        preventDefault: true,
+        preventDefault: true
       }),
 
       // Shift+Tab: Cycle focus backward through regions
@@ -443,14 +495,14 @@
         shift: true,
         handler: (event) => {
           // Only handle Shift+Tab if we're not in an input/textarea
-          const target = event.target as HTMLElement;
+          const target = event.target as HTMLElement
           if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
-            return;
+            return
           }
 
-          cycleFocus(true);
+          cycleFocus(true)
         },
-        preventDefault: true,
+        preventDefault: true
       }),
 
       // Cmd+` / Ctrl+`: Toggle the bottom panel
@@ -458,9 +510,9 @@
         key: '`',
         meta: true,
         handler: () => {
-          void terminalStore.toggleBottomPanel();
+          void terminalStore.toggleBottomPanel()
         },
-        preventDefault: true,
+        preventDefault: true
       }),
 
       // Cmd+Shift+` / Ctrl+Shift+`: New terminal in the bottom panel
@@ -469,105 +521,108 @@
         meta: true,
         shift: true,
         handler: () => {
-          void terminalStore.newBottomTerminal();
+          void terminalStore.newBottomTerminal()
         },
-        preventDefault: true,
-      }),
-    ];
+        preventDefault: true
+      })
+    ]
 
     // Attach shortcut manager to document
-    shortcutManager.attach();
+    shortcutManager.attach()
 
     // Click-away to close search
     function handleClickAway(e: MouseEvent) {
       if (searchAreaEl && !searchAreaEl.contains(e.target as Node)) {
-        clearSearch();
-        searchOpen.set(false);
+        clearSearch()
+        searchOpen.set(false)
       }
     }
 
-    document.addEventListener('mousedown', handleClickAway);
+    document.addEventListener('mousedown', handleClickAway)
 
     // Reset all collection-dependent state when switching collections
-    let firstRun = true;
+    let firstRun = true
     const unsub = activeCollectionId.subscribe(() => {
       // Skip the initial subscription fire — state is already clean on mount
       if (firstRun) {
-        firstRun = false;
-        return;
+        firstRun = false
+        return
       }
       // Clear file selection, tree, properties, and editor state FIRST
       // to prevent stale paths from being used in CLI calls
-      resetFileState();
-      resetFileSyncState();
-      resetEditorState();
-      clearSearch();
-      clearNavigation();
-      clearWatcherEvents();
+      resetFileState()
+      resetFileSyncState()
+      resetEditorState()
+      clearSearch()
+      clearNavigation()
+      clearWatcherEvents()
       // Reset graph state (clears old data immediately) then reload if active
-      const wasGraphActive = get(graphViewActive);
-      resetGraphState();
+      const wasGraphActive = get(graphViewActive)
+      resetGraphState()
       if (wasGraphActive) {
-        loadGraphData();
+        loadGraphData()
       }
       // Restart the mdvdb watcher if the new collection had it running
-      restoreWatcherForCollection().catch(() => {});
-    });
+      restoreWatcherForCollection().catch(() => {})
+    })
 
     return () => {
       // Unregister all shortcuts
-      unregisterShortcuts.forEach((unregister) => unregister());
-      shortcutManager.detach();
-      window.removeEventListener('beforeunload', flushSession);
-      document.removeEventListener('mousedown', handleClickAway);
-      teardownWatcherListener();
-      teardownVaultListener();
-      teardownFileSyncListener();
-      teardownUpdateListener();
-      window.api.removeMenuOpenRecentListener();
-      window.api.removeFileSavedExternallyListener();
-      unsub();
-      unsubAccent();
-      unsubCollectionColor();
-      unsubTheme();
-      unsubThemeTokens();
-      cleanupSystemPref();
-    };
-  });
+      unregisterShortcuts.forEach((unregister) => unregister())
+      shortcutManager.detach()
+      window.removeEventListener('beforeunload', flushSession)
+      document.removeEventListener('mousedown', handleClickAway)
+      teardownWatcherListener()
+      teardownVaultListener()
+      teardownFileSyncListener()
+      teardownUpdateListener()
+      window.api.removeMenuOpenRecentListener()
+      window.api.removeFileSavedExternallyListener()
+      unsub()
+      unsubAccent()
+      unsubCollectionColor()
+      unsubTheme()
+      unsubThemeTokens()
+      cleanupSystemPref()
+    }
+  })
 
   function handleNavigate(detail: { id: string }) {
-    setActiveCollection(detail.id);
+    setActiveCollection(detail.id)
   }
 
   function handleFileSelect(detail: { folderId: string; fileId: string; forceNewTab?: boolean }) {
-    recordNavigation(detail.fileId);
-    workspace.openFile(detail.fileId, { forceNewTab: detail.forceNewTab });
-    syncFileStoresFromTab();
+    recordNavigation(detail.fileId)
+    workspace.openFile(detail.fileId, { forceNewTab: detail.forceNewTab })
+    syncFileStoresFromTab()
   }
 
   function navigateToResult(result: SearchResult) {
-    recordNavigation(result.file.path);
-    workspace.openFile(result.file.path);
-    syncFileStoresFromTab();
+    recordNavigation(result.file.path)
+    workspace.openFile(result.file.path)
+    syncFileStoresFromTab()
     // Wait for loading to finish, then scroll to the result line
-    let wasLoading = false;
+    let wasLoading = false
     const unsub = fileContentLoading.subscribe((loading) => {
-      if (loading) { wasLoading = true; return; }
+      if (loading) {
+        wasLoading = true
+        return
+      }
       if (wasLoading) {
         // Defer scroll so the editor's content $effect creates the view first
         requestAnimationFrame(() => {
-          scrollToLine.set(result.chunk.start_line);
-        });
-        unsub();
+          scrollToLine.set(result.chunk.start_line)
+        })
+        unsub()
       }
-    });
-    clearSearch();
-    searchOpen.set(false);
+    })
+    clearSearch()
+    searchOpen.set(false)
   }
 
   function handleToggleProperties(detail: { open: boolean }) {
-    propertiesOpen = detail.open;
-    localStorage.setItem('mdvdb-properties-open', String(propertiesOpen));
+    propertiesOpen = detail.open
+    localStorage.setItem('mdvdb-properties-open', String(propertiesOpen))
   }
 
   /**
@@ -575,38 +630,39 @@
    * @param reverse - If true, cycle backward (Shift+Tab), otherwise forward (Tab)
    */
   function cycleFocus(reverse: boolean = false) {
-    const regions = [sidebarEl, editorEl, propertiesOpen ? propertiesEl : null].filter(Boolean) as HTMLElement[];
+    const regions = [sidebarEl, editorEl, propertiesOpen ? propertiesEl : null].filter(
+      Boolean
+    ) as HTMLElement[]
 
-    if (regions.length === 0) return;
+    if (regions.length === 0) return
 
     // Find currently focused region
-    const activeElement = document.activeElement as HTMLElement;
-    let currentIndex = -1;
+    const activeElement = document.activeElement as HTMLElement
+    let currentIndex = -1
 
     for (let i = 0; i < regions.length; i++) {
       if (regions[i] === activeElement || regions[i].contains(activeElement)) {
-        currentIndex = i;
-        break;
+        currentIndex = i
+        break
       }
     }
 
     // Calculate next index
-    let nextIndex: number;
+    let nextIndex: number
     if (currentIndex === -1) {
       // No region focused, start at the beginning
-      nextIndex = reverse ? regions.length - 1 : 0;
+      nextIndex = reverse ? regions.length - 1 : 0
     } else {
       if (reverse) {
-        nextIndex = (currentIndex - 1 + regions.length) % regions.length;
+        nextIndex = (currentIndex - 1 + regions.length) % regions.length
       } else {
-        nextIndex = (currentIndex + 1) % regions.length;
+        nextIndex = (currentIndex + 1) % regions.length
       }
     }
 
     // Focus the next region
-    regions[nextIndex]?.focus();
+    regions[nextIndex]?.focus()
   }
-
 </script>
 
 {#if isPopupMode}
@@ -614,53 +670,64 @@
 {:else if !$onboardingComplete}
   <Onboarding />
 {:else}
-<!-- Skip navigation link for accessibility -->
-<a href="#main-content" class="skip-link">Skip to main content</a>
+  <!-- Skip navigation link for accessibility -->
+  <a href="#main-content" class="skip-link">Skip to main content</a>
 
-<div class="app-shell bg-grain" style="--editor-font-size: {$editorFontSize}px">
-  <UpdateNotification />
-  <div class="titlebar-region" bind:this={searchAreaEl}>
-    <Titlebar
-      bind:propertiesOpen
-      onsearchresultclick={navigateToResult}
-      ontoggleproperties={handleToggleProperties}
-    />
-  </div>
-
-  <div class="body-region">
-    <div class="sidebar-region" bind:this={sidebarEl} tabindex="-1" role="navigation" aria-label="File navigation">
-      <Sidebar
-        onnavigate={handleNavigate}
-        onfileselect={handleFileSelect}
+  <div class="app-shell bg-grain" style="--editor-font-size: {$editorFontSize}px">
+    <UpdateNotification />
+    <div class="titlebar-region" bind:this={searchAreaEl}>
+      <Titlebar
+        bind:propertiesOpen
+        onsearchresultclick={navigateToResult}
+        ontoggleproperties={handleToggleProperties}
       />
     </div>
 
-    <main class="main-area">
-      <div class="content-area">
+    <div class="body-region">
+      <div
+        class="sidebar-region"
+        bind:this={sidebarEl}
+        tabindex="-1"
+        role="navigation"
+        aria-label="File navigation"
+      >
+        <Sidebar onnavigate={handleNavigate} onfileselect={handleFileSelect} />
+      </div>
+
+      <main class="main-area">
+        <div class="content-area">
           <div id="main-content" class="tab-pane-region" bind:this={editorEl} tabindex="-1">
             <SplitPaneContainer />
           </div>
           {#if propertiesOpen}
-            <div class="properties-region" bind:this={propertiesEl} tabindex="-1" role="complementary" aria-label="File metadata">
-              <PropertiesPanel onfileselect={(detail) => handleFileSelect({ folderId: '', fileId: detail.path })} />
+            <div
+              class="properties-region"
+              bind:this={propertiesEl}
+              tabindex="-1"
+              role="complementary"
+              aria-label="File metadata"
+            >
+              <PropertiesPanel
+                onfileselect={(detail) => handleFileSelect({ folderId: '', fileId: detail.path })}
+              />
             </div>
           {/if}
-      </div>
+        </div>
 
-      <BottomPanel />
+        <BottomPanel />
 
-      <StatusBar />
-    </main>
+        <StatusBar />
+      </main>
+    </div>
+
+    {#if $settingsOpen}
+      <Settings onclose={() => settingsOpen.set(false)} />
+    {/if}
+    <IngestModal />
+    <QuickOpen />
+    <DiffView />
+    <ConvertTypeModal />
   </div>
-
-  {#if $settingsOpen}
-    <Settings onclose={() => settingsOpen.set(false)} />
-  {/if}
-  <IngestModal />
-  <QuickOpen />
-  <DiffView />
-  <ConvertTypeModal />
-</div>
 {/if}
 
 <style>
@@ -669,7 +736,7 @@
     position: absolute;
     top: -40px;
     left: 0;
-    background: var(--color-primary, #00E5FF);
+    background: var(--color-primary, #00e5ff);
     color: var(--color-surface-darker, #0a0a0a);
     padding: 8px 16px;
     text-decoration: none;
@@ -702,7 +769,7 @@
 
   .app-shell::selection,
   .app-shell :global(::selection) {
-    background: var(--color-primary, #00E5FF);
+    background: var(--color-primary, #00e5ff);
     color: var(--color-surface-darker, #0a0a0a);
   }
 
@@ -759,5 +826,4 @@
     flex-direction: column;
     height: 100%;
   }
-
 </style>

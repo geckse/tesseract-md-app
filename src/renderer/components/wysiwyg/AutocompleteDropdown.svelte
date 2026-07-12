@@ -86,7 +86,12 @@
 </script>
 
 {#if suggestions.length > 0}
-  <div class="autocomplete-dropdown" bind:this={menuEl} role="listbox" aria-label="Autocomplete suggestions">
+  <div
+    class="autocomplete-dropdown"
+    bind:this={menuEl}
+    role="listbox"
+    aria-label="Autocomplete suggestions"
+  >
     {#each suggestions as suggestion, index}
       <button
         class="autocomplete-item"

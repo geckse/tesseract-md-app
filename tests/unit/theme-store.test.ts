@@ -6,19 +6,19 @@ const mockApi = {
   getTheme: vi.fn(),
   setTheme: vi.fn(),
   getCollectionTheme: vi.fn(),
-  setCollectionTheme: vi.fn(),
+  setCollectionTheme: vi.fn()
 }
 
 // Mock matchMedia
 const mockMatchMedia = vi.fn().mockReturnValue({
   matches: true,
   addEventListener: vi.fn(),
-  removeEventListener: vi.fn(),
+  removeEventListener: vi.fn()
 })
 
 Object.defineProperty(globalThis, 'window', {
   value: { api: mockApi, matchMedia: mockMatchMedia },
-  writable: true,
+  writable: true
 })
 
 import {
@@ -30,7 +30,7 @@ import {
   loadTheme,
   loadCollectionTheme,
   setGlobalTheme,
-  setCollectionThemeOverride,
+  setCollectionThemeOverride
 } from '../../src/renderer/stores/theme'
 
 import { DARK_TOKENS, LIGHT_TOKENS } from '../../src/renderer/lib/theme-tokens'

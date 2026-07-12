@@ -16,7 +16,10 @@ vi.mock('../../src/renderer/stores/schema', () => ({ fetchSchema: vi.fn() }))
 vi.mock('../../src/renderer/stores/file-sync', () => ({ handleVaultFileEvent: vi.fn() }))
 vi.mock('../../src/renderer/stores/editor', () => ({ requestSave: vi.fn() }))
 
-import { propertyOps, type PropertyOpModalState } from '../../src/renderer/stores/property-ops.svelte'
+import {
+  propertyOps,
+  type PropertyOpModalState
+} from '../../src/renderer/stores/property-ops.svelte'
 import ConvertTypeModal from '../../src/renderer/components/ConvertTypeModal.svelte'
 import type { PropertyOpPlan } from '../../src/preload/api'
 
@@ -54,7 +57,13 @@ const plan: PropertyOpPlan = {
   scope: 'knowledge-graph',
   files: [
     { path: 'knowledge-graph/a.md', action: 'convert', before: '"3"', after: '3' },
-    { path: 'knowledge-graph/b.md', action: 'skip', before: 'drafted', reason: 'not a number', after: null },
+    {
+      path: 'knowledge-graph/b.md',
+      action: 'skip',
+      before: 'drafted',
+      reason: 'not a number',
+      after: null
+    },
     { path: 'knowledge-graph/c.md', action: 'no-value', before: null, after: null }
   ],
   totals: { convert: 1, unchanged: 0, noValue: 1, skip: 1 },

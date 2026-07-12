@@ -13,12 +13,12 @@ const mockApi = {
   readFile: vi.fn(),
   writeFile: vi.fn(),
   saveWindowSession: vi.fn().mockResolvedValue(undefined),
-  detachTab: vi.fn().mockResolvedValue(undefined),
+  detachTab: vi.fn().mockResolvedValue(undefined)
 }
 
 Object.defineProperty(globalThis, 'window', {
   value: { api: mockApi },
-  writable: true,
+  writable: true
 })
 
 // Mock CodeMirror modules to avoid DOM issues in tests
@@ -40,9 +40,9 @@ vi.mock('@codemirror/view', () => {
     EditorView: Object.assign(EditorView, {
       updateListener: { of: vi.fn(() => []) },
       domEventHandlers: vi.fn(() => []),
-      scrollIntoView: vi.fn(() => ({})),
+      scrollIntoView: vi.fn(() => ({}))
     }),
-    keymap: { of: vi.fn(() => []) },
+    keymap: { of: vi.fn(() => []) }
   }
 })
 
@@ -54,11 +54,11 @@ vi.mock('@codemirror/state', () => ({
         length: (config.doc || '').length,
         lineAt: () => ({ from: 0, to: 0, number: 1, text: '' }),
         line: () => ({ from: 0, to: 0, number: 1, text: '' }),
-        sliceString: () => config.doc || '',
+        sliceString: () => config.doc || ''
       },
       selection: {
-        main: { head: 0 },
-      },
+        main: { head: 0 }
+      }
     })),
     fromJSON: vi.fn(() => ({
       doc: {
@@ -66,42 +66,42 @@ vi.mock('@codemirror/state', () => ({
         length: 0,
         lineAt: () => ({ from: 0, to: 0, number: 1, text: '' }),
         line: () => ({ from: 0, to: 0, number: 1, text: '' }),
-        sliceString: () => '',
+        sliceString: () => ''
       },
       selection: {
-        main: { head: 0 },
-      },
-    })),
-  },
+        main: { head: 0 }
+      }
+    }))
+  }
 }))
 
 vi.mock('@codemirror/lang-markdown', () => ({
   markdown: vi.fn(() => []),
-  markdownLanguage: {},
+  markdownLanguage: {}
 }))
 
 vi.mock('@codemirror/commands', () => ({
   history: vi.fn(() => []),
   historyKeymap: [],
   defaultKeymap: [],
-  historyField: {},
+  historyField: {}
 }))
 
 vi.mock('@codemirror/search', () => ({
   search: vi.fn(() => []),
-  searchKeymap: [],
+  searchKeymap: []
 }))
 
 vi.mock('../../src/renderer/lib/editor-theme', () => ({
-  editorTheme: vi.fn(() => []),
+  editorTheme: vi.fn(() => [])
 }))
 
 vi.mock('../../src/renderer/lib/soft-render', () => ({
-  softRender: vi.fn(() => []),
+  softRender: vi.fn(() => [])
 }))
 
 vi.mock('../../src/renderer/lib/frontmatter-decoration', () => ({
-  frontmatterDecoration: vi.fn(() => []),
+  frontmatterDecoration: vi.fn(() => [])
 }))
 
 import { collections, activeCollectionId } from '../../src/renderer/stores/collections'

@@ -92,7 +92,9 @@ export async function upsertOverlayField(
   patch: OverlayFieldPatch
 ): Promise<void> {
   if (scopeKey !== null && (scopeKey === '' || scopeKey.endsWith('/'))) {
-    throw new Error(`Overlay scope keys must be non-empty and have no trailing slash: "${scopeKey}"`)
+    throw new Error(
+      `Overlay scope keys must be non-empty and have no trailing slash: "${scopeKey}"`
+    )
   }
   if (patch.fieldType !== undefined && !VALID_FIELD_TYPES.has(patch.fieldType)) {
     throw new Error(`Invalid overlay field_type: "${patch.fieldType}"`)

@@ -379,10 +379,11 @@ export function seedNearNeighbors(
     }
 
     if (anchors.length > 0) {
-      const sum = anchors.reduce(
-        (acc, p) => ({ x: acc.x + p.x, y: acc.y + p.y, z: acc.z + p.z }),
-        { x: 0, y: 0, z: 0 }
-      )
+      const sum = anchors.reduce((acc, p) => ({ x: acc.x + p.x, y: acc.y + p.y, z: acc.z + p.z }), {
+        x: 0,
+        y: 0,
+        z: 0
+      })
       node.x = sum.x / anchors.length + jit()
       node.y = sum.y / anchors.length + jit()
       node.z = sum.z / anchors.length + jit()
@@ -445,7 +446,14 @@ export function buildGraph3DData(data: GraphData, options: BuildGraph3DOptions):
   const nodes: Graph3DNode[] = data.nodes.map((node) => {
     const degree = degreeMap.get(node.id) ?? 0
     const val = nodeSizeValue(options.level, degree, node.size ?? 0, maxSize)
-    const color = nodeColorForMode(node, options.coloringMode, folderColorMap, isChunk, options.clusterPalette, options.customClusterPalette)
+    const color = nodeColorForMode(
+      node,
+      options.coloringMode,
+      folderColorMap,
+      isChunk,
+      options.clusterPalette,
+      options.customClusterPalette
+    )
 
     return {
       id: node.id,
@@ -470,7 +478,12 @@ export function buildGraph3DData(data: GraphData, options: BuildGraph3DOptions):
     strength: edge.strength ?? null,
     context_text: edge.context_text ?? null,
     edge_cluster_id: edge.edge_cluster_id ?? null,
-    color: edgeLinkColor(edge.edge_cluster_id, edge.strength ?? 0.5, options.weakThreshold, options.edgePalette),
+    color: edgeLinkColor(
+      edge.edge_cluster_id,
+      edge.strength ?? 0.5,
+      options.weakThreshold,
+      options.edgePalette
+    ),
     width: edgeLinkWidth(edge.strength ?? 0.5)
   }))
 

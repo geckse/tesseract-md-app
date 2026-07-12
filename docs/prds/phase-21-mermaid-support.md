@@ -55,6 +55,7 @@ export async function initMermaid(): Promise<void>
 **New TipTap extension: `lib/tiptap/mermaid-block-extension.ts`**
 
 A custom TipTap `Node.create()` extension that:
+
 - Defines a `mermaidBlock` node type with a `code` attribute
 - Uses a Svelte NodeView (`MermaidNodeView.svelte`) to render either SVG preview or editable code
 - Handles markdown serialization/deserialization as ` ```mermaid\n...\n``` `
@@ -65,11 +66,11 @@ The NodeView component displayed inside the WYSIWYG editor for mermaid blocks. T
 
 ### New Commands / API / UI
 
-| Surface | Change |
-|---------|--------|
-| Slash command menu | New "Mermaid Diagram" item with `schema` icon |
-| Markdown Preview | ` ```mermaid ` blocks render as SVG diagrams instead of code |
-| WYSIWYG Editor | Mermaid blocks show as diagrams with hover edit button; edit mode = normal code block |
+| Surface            | Change                                                                                |
+| ------------------ | ------------------------------------------------------------------------------------- |
+| Slash command menu | New "Mermaid Diagram" item with `schema` icon                                         |
+| Markdown Preview   | ` ```mermaid ` blocks render as SVG diagrams instead of code                          |
+| WYSIWYG Editor     | Mermaid blocks show as diagrams with hover edit button; edit mode = normal code block |
 
 ### Migration Strategy
 
@@ -131,10 +132,10 @@ export async function initMermaid(): Promise<void> {
         clusterBorder: '#27272a',
         titleColor: '#e4e4e7',
         edgeLabelBackground: '#161617',
-        nodeTextColor: '#e4e4e7',
+        nodeTextColor: '#e4e4e7'
       },
       fontFamily: "'Space Grotesk', system-ui, sans-serif",
-      securityLevel: 'strict',
+      securityLevel: 'strict'
     })
   })()
   return initPromise
@@ -142,6 +143,7 @@ export async function initMermaid(): Promise<void> {
 ```
 
 Key implementation details:
+
 - Use `const mermaid = await import('mermaid')` for dynamic import with a module-level cache
 - `renderMermaidDiagram(id, code)` calls `mermaid.default.render(id, code)` inside try/catch — returns `{ svg }` or `{ error }`
 - Generate unique IDs: `mermaid-diagram-${counter++}` to avoid DOM ID collisions
@@ -163,7 +165,7 @@ const mermaidExtension = {
         const encoded = encodeURIComponent(text)
         return `<div class="mermaid-preview" data-mermaid-code="${encoded}"><div class="mermaid-loading">Loading diagram...</div></div>`
       }
-      return false  // fall through to default renderer
+      return false // fall through to default renderer
     }
   }
 }
@@ -185,13 +187,13 @@ let previewContainer: HTMLDivElement
 let renderGeneration = 0
 
 $effect(() => {
-  void renderedHtml  // re-run when content changes
+  void renderedHtml // re-run when content changes
   const gen = ++renderGeneration
   requestAnimationFrame(async () => {
     if (!previewContainer || gen !== renderGeneration) return
     const blocks = previewContainer.querySelectorAll('.mermaid-preview[data-mermaid-code]')
     for (const block of blocks) {
-      if (gen !== renderGeneration) return  // abort if file changed
+      if (gen !== renderGeneration) return // abort if file changed
       const code = decodeURIComponent(block.getAttribute('data-mermaid-code') ?? '')
       if (!code) continue
       const result = await renderMermaidDiagram(`preview-${crypto.randomUUID()}`, code)
@@ -216,18 +218,23 @@ This is a custom TipTap Node that represents a mermaid diagram. The underlying d
 
 ```typescript
 import { Node } from '@tiptap/core'
-import type { JSONContent, MarkdownToken, MarkdownParseHelpers, MarkdownParseResult } from '@tiptap/core'
+import type {
+  JSONContent,
+  MarkdownToken,
+  MarkdownParseHelpers,
+  MarkdownParseResult
+} from '@tiptap/core'
 
 export const MermaidBlockExtension = Node.create({
   name: 'mermaidBlock',
   group: 'block',
-  atom: true,       // not directly editable by ProseMirror — NodeView handles editing
+  atom: true, // not directly editable by ProseMirror — NodeView handles editing
   defining: true,
   isolating: true,
 
   addAttributes() {
     return {
-      code: { default: '' },
+      code: { default: '' }
     }
   },
 
@@ -243,26 +250,32 @@ export const MermaidBlockExtension = Node.create({
 
   // HTML serialization (clipboard)
   renderHTML({ node }) {
-    return ['div', { class: 'mermaid-block', 'data-mermaid-code': node.attrs.code }, node.attrs.code]
+    return [
+      'div',
+      { class: 'mermaid-block', 'data-mermaid-code': node.attrs.code },
+      node.attrs.code
+    ]
   },
 
   parseHTML() {
-    return [{
-      tag: 'div.mermaid-block[data-mermaid-code]',
-      getAttrs: (el) => ({ code: (el as HTMLElement).getAttribute('data-mermaid-code') ?? '' })
-    }]
+    return [
+      {
+        tag: 'div.mermaid-block[data-mermaid-code]',
+        getAttrs: (el) => ({ code: (el as HTMLElement).getAttribute('data-mermaid-code') ?? '' })
+      }
+    ]
   },
 
   addNodeView() {
     // Use Svelte NodeView — see MermaidNodeView.svelte
     // TipTap v3 has SvelteNodeViewRenderer or use imperative mount/unmount
-  },
+  }
 })
 ```
 
 **Critical: Markdown tokenization.** The extension needs a `markdownTokenizer` to intercept ` ```mermaid ` blocks before CodeBlockLowlight handles them. Follow the same pattern as the Wikilink extension (`wikilink-extension.ts`) but at `level: 'block'`:
 
-```typescript
+````typescript
 markdownTokenizer: {
   name: 'mermaidBlock',
   level: 'block',
@@ -277,9 +290,10 @@ markdownTokenizer: {
     }
   },
 }
-```
+````
 
 If TipTap v3's markdown tokenizer does not support block-level tokens for fenced code blocks, the fallback approach is:
+
 1. Let CodeBlockLowlight parse all fenced code blocks as `codeBlock` nodes
 2. Add a ProseMirror plugin (`appendTransaction`) that transforms `codeBlock` nodes where `language === 'mermaid'` into `mermaidBlock` nodes
 3. On markdown serialization, `renderMarkdown` outputs the ` ```mermaid\n...\n``` ` format
@@ -291,6 +305,7 @@ If TipTap v3's markdown tokenizer does not support block-level tokens for fenced
 This component toggles between two states:
 
 **Preview state (default):**
+
 - Renders the mermaid SVG diagram
 - Shows a pencil edit button (Material Symbol `edit`) on hover, top-right corner
 - Shows a styled error message if the mermaid syntax is invalid
@@ -298,15 +313,17 @@ This component toggles between two states:
 - Clicking the edit button or double-clicking the block switches to edit state
 
 **Edit state:**
+
 - Shows a `<pre contenteditable>` or `<textarea>` with the mermaid code, styled like a code block (monospace, dark background)
 - Mermaid syntax highlighting via lowlight if practical, or plain monospace text
 - Clicking outside the block (blur) or pressing Escape returns to preview state and re-renders the diagram
 - On every code change, update the node's `code` attribute via `updateAttributes({ code: newCode })`
 
 Props:
+
 ```typescript
 interface Props {
-  node: ProseMirrorNode       // from TipTap NodeView
+  node: ProseMirrorNode // from TipTap NodeView
   updateAttributes: (attrs: Record<string, unknown>) => void
   selected: boolean
   editor: Editor
@@ -314,6 +331,7 @@ interface Props {
 ```
 
 Key behaviors:
+
 - **Debounced rendering**: When entering preview state, render with a 300ms debounce to avoid re-rendering on every tiny change
 - **Generation counter**: Prevent stale renders if the user rapidly toggles in/out of edit mode
 - **Cleanup**: Use `onDestroy` to cancel pending renders and timers
@@ -332,8 +350,8 @@ import { MermaidBlockExtension } from './mermaid-block-extension'
 // In the extensions array:
 extensions: [
   // ... StarterKit, Placeholder, Typography, Markdown, Image, TableKit ...
-  MermaidBlockExtension,       // BEFORE CodeBlockLowlight
-  CodeBlockLowlight.configure({ lowlight }),
+  MermaidBlockExtension, // BEFORE CodeBlockLowlight
+  CodeBlockLowlight.configure({ lowlight })
   // ... TaskList, TaskItem, Wikilink, SlashCommand, etc. ...
 ]
 ```
@@ -380,7 +398,7 @@ Add mermaid block styles for the WYSIWYG editor:
 }
 
 .ProseMirror .mermaid-node-view.selected {
-  outline: 2px solid var(--color-primary, #00E5FF);
+  outline: 2px solid var(--color-primary, #00e5ff);
   outline-offset: 2px;
 }
 
@@ -395,7 +413,9 @@ Add mermaid block styles for the WYSIWYG editor:
   padding: 4px;
   cursor: pointer;
   opacity: 0;
-  transition: opacity 150ms ease, color 150ms ease;
+  transition:
+    opacity 150ms ease,
+    color 150ms ease;
   z-index: 1;
 }
 
@@ -404,7 +424,7 @@ Add mermaid block styles for the WYSIWYG editor:
 }
 
 .ProseMirror .mermaid-edit-btn:hover {
-  color: var(--color-primary, #00E5FF);
+  color: var(--color-primary, #00e5ff);
 }
 
 .ProseMirror .mermaid-svg-preview {
@@ -523,16 +543,19 @@ Add styles for mermaid in preview mode using `:global()` selectors:
 ### Step 9: Handle edge cases
 
 **In `mermaid-renderer.ts`:**
+
 - Empty code string: return `{ error: 'Empty diagram' }` without calling mermaid
 - Extremely long code (> 50KB): return `{ error: 'Diagram code too large' }` to prevent hangs
 - Concurrent renders: serialize with async queue (Promise chain), only one `mermaid.render()` at a time
 
 **In `MermaidNodeView.svelte`:**
+
 - Handle component destroyed mid-render: generation counter, abort if generation changed
 - Use `onDestroy` to clean up debounce timers
 - When editor is read-only, hide the edit button — show diagram only
 
 **In `MarkdownPreview.svelte`:**
+
 - Generation counter to abort stale renders when user switches files rapidly
 - Don't re-render diagrams if the mermaid code hasn't changed (compare `data-mermaid-code` values)
 
@@ -546,12 +569,13 @@ Test the mermaid renderer utility (mock mermaid module since jsdom can't do full
 vi.mock('mermaid', () => ({
   default: {
     initialize: vi.fn(),
-    render: vi.fn().mockResolvedValue({ svg: '<svg>mock</svg>' }),
+    render: vi.fn().mockResolvedValue({ svg: '<svg>mock</svg>' })
   }
 }))
 ```
 
 Tests:
+
 - `initMermaid()` completes without error
 - `renderMermaidDiagram()` returns `{ svg }` for valid input
 - `renderMermaidDiagram()` returns `{ error }` when mermaid.render throws
@@ -572,6 +596,7 @@ it('includes Mermaid Diagram command', () => {
 **Create** `app/tests/unit/mermaid-block-extension.test.ts`
 
 Test markdown round-trip serialization:
+
 - `renderMarkdown()` produces correct fenced code block format
 - Code attribute is preserved through parse → serialize cycle
 
@@ -579,24 +604,24 @@ Test markdown round-trip serialization:
 
 ## New Files
 
-| File | Purpose |
-|------|---------|
-| `app/src/renderer/lib/mermaid-renderer.ts` | Lazy-loading mermaid init, render function, dark theme config, render queue |
-| `app/src/renderer/lib/tiptap/mermaid-block-extension.ts` | TipTap Node extension for mermaid blocks with markdown round-trip |
-| `app/src/renderer/components/wysiwyg/MermaidNodeView.svelte` | NodeView: toggle between SVG preview (default) and code editing |
-| `app/tests/unit/mermaid-renderer.test.ts` | Unit tests for mermaid renderer utility |
-| `app/tests/unit/mermaid-block-extension.test.ts` | Unit tests for mermaid extension markdown serialization |
+| File                                                         | Purpose                                                                     |
+| ------------------------------------------------------------ | --------------------------------------------------------------------------- |
+| `app/src/renderer/lib/mermaid-renderer.ts`                   | Lazy-loading mermaid init, render function, dark theme config, render queue |
+| `app/src/renderer/lib/tiptap/mermaid-block-extension.ts`     | TipTap Node extension for mermaid blocks with markdown round-trip           |
+| `app/src/renderer/components/wysiwyg/MermaidNodeView.svelte` | NodeView: toggle between SVG preview (default) and code editing             |
+| `app/tests/unit/mermaid-renderer.test.ts`                    | Unit tests for mermaid renderer utility                                     |
+| `app/tests/unit/mermaid-block-extension.test.ts`             | Unit tests for mermaid extension markdown serialization                     |
 
 ## Modified Files
 
-| File | Changes |
-|------|---------|
-| `app/package.json` | Add `mermaid` dependency |
-| `app/src/renderer/lib/markdown-render.ts` | Add `marked.use()` extension to intercept mermaid code blocks → placeholder divs |
-| `app/src/renderer/components/MarkdownPreview.svelte` | Add `$effect` to post-process mermaid placeholders into rendered SVGs; add `bind:this` on container; add mermaid CSS |
-| `app/src/renderer/lib/tiptap/editor-factory.ts` | Import and register `MermaidBlockExtension` before CodeBlockLowlight |
-| `app/src/renderer/lib/tiptap/slash-command-extension.ts` | Add "Mermaid Diagram" item to `slashCommandItems` after "Code Block" |
-| `app/src/renderer/lib/tiptap/wysiwyg-theme.css` | Add mermaid block styles (`.mermaid-node-view`, `.mermaid-edit-btn`, `.mermaid-svg-preview`, etc.) |
+| File                                                     | Changes                                                                                                              |
+| -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `app/package.json`                                       | Add `mermaid` dependency                                                                                             |
+| `app/src/renderer/lib/markdown-render.ts`                | Add `marked.use()` extension to intercept mermaid code blocks → placeholder divs                                     |
+| `app/src/renderer/components/MarkdownPreview.svelte`     | Add `$effect` to post-process mermaid placeholders into rendered SVGs; add `bind:this` on container; add mermaid CSS |
+| `app/src/renderer/lib/tiptap/editor-factory.ts`          | Import and register `MermaidBlockExtension` before CodeBlockLowlight                                                 |
+| `app/src/renderer/lib/tiptap/slash-command-extension.ts` | Add "Mermaid Diagram" item to `slashCommandItems` after "Code Block"                                                 |
+| `app/src/renderer/lib/tiptap/wysiwyg-theme.css`          | Add mermaid block styles (`.mermaid-node-view`, `.mermaid-edit-btn`, `.mermaid-svg-preview`, etc.)                   |
 
 ---
 

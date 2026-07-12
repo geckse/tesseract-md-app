@@ -8,10 +8,12 @@
     downloadUpdate,
     installUpdate,
     skipVersion,
-    dismissNotification,
+    dismissNotification
   } from '../stores/updater'
 
-  let currentState = $state<'idle' | 'checking' | 'update-available' | 'downloading' | 'ready' | 'error'>('idle')
+  let currentState = $state<
+    'idle' | 'checking' | 'update-available' | 'downloading' | 'ready' | 'error'
+  >('idle')
   let currentVersion = $state<string | null>(null)
   let currentProgress = $state(0)
   let currentError = $state<string | null>(null)
@@ -25,7 +27,10 @@
 
   let visible = $derived(
     !currentDismissed &&
-    (currentState === 'update-available' || currentState === 'downloading' || currentState === 'ready' || currentState === 'error')
+      (currentState === 'update-available' ||
+        currentState === 'downloading' ||
+        currentState === 'ready' ||
+        currentState === 'error')
   )
 
   function handleDownload() {
@@ -57,7 +62,6 @@
         <button class="update-btn update-btn-secondary" onclick={handleLater}>Later</button>
         <button class="update-btn update-btn-secondary" onclick={handleSkip}>Skip</button>
       </div>
-
     {:else if currentState === 'downloading'}
       <span class="material-symbols-outlined update-icon spinning">downloading</span>
       <span class="update-message">
@@ -66,7 +70,6 @@
       <div class="update-progress-track">
         <div class="update-progress-fill" style="width: {currentProgress}%"></div>
       </div>
-
     {:else if currentState === 'ready'}
       <span class="material-symbols-outlined update-icon">restart_alt</span>
       <span class="update-message">Update ready to install</span>
@@ -74,7 +77,6 @@
         <button class="update-btn update-btn-primary" onclick={handleInstall}>Restart Now</button>
         <button class="update-btn update-btn-secondary" onclick={handleLater}>Later</button>
       </div>
-
     {:else if currentState === 'error'}
       <span class="material-symbols-outlined update-icon">error</span>
       <span class="update-message">Update failed: {currentError ?? 'Unknown error'}</span>
@@ -170,7 +172,11 @@
   }
 
   @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
   }
 </style>

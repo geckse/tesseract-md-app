@@ -18,7 +18,6 @@
   let textareaEl: HTMLTextAreaElement | undefined = $state(undefined)
   let localCode = $state('')
   let copied = $state(false)
-  let lightbox = $state(false)
   let lightboxEl: HTMLDivElement | undefined = $state(undefined)
   let wrapperEl: HTMLDivElement | undefined = $state(undefined)
   let previewEl: HTMLDivElement | undefined = $state(undefined)
@@ -143,7 +142,6 @@
   }
 
   function openLightbox() {
-    lightbox = true
     // Mount overlay to document.body so it escapes the ProseMirror container
     const overlay = document.createElement('div')
     overlay.className = 'mermaid-lightbox-overlay'
@@ -203,10 +201,14 @@
     }
 
     // Wheel zoom
-    diagramEl.addEventListener('wheel', (e) => {
-      e.preventDefault()
-      zoomBy(e.deltaY < 0 ? 1.15 : 1 / 1.15, e.clientX, e.clientY)
-    }, { passive: false })
+    diagramEl.addEventListener(
+      'wheel',
+      (e) => {
+        e.preventDefault()
+        zoomBy(e.deltaY < 0 ? 1.15 : 1 / 1.15, e.clientX, e.clientY)
+      },
+      { passive: false }
+    )
 
     // Pan via mouse drag
     diagramEl.addEventListener('mousedown', (e) => {
@@ -247,7 +249,9 @@
     })
     overlay.querySelector('.mermaid-lightbox-zoom-fit')!.addEventListener('click', (e) => {
       e.stopPropagation()
-      scale = 1; tx = 0; ty = 0
+      scale = 1
+      tx = 0
+      ty = 0
       applyTransform()
     })
 
@@ -280,7 +284,6 @@
       lightboxEl.remove()
       lightboxEl = undefined
     }
-    lightbox = false
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -387,6 +390,7 @@
           style:transform="translate({inlineTx}px, {inlineTy}px) scale({inlineScale})"
           style:transform-origin="0 0"
         >
+          <!-- eslint-disable-next-line svelte/no-at-html-tags -->
           {@html svgHtml}
         </div>
       </div>

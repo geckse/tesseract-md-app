@@ -1,11 +1,11 @@
 <script lang="ts">
   interface IconButtonProps {
-    icon: string;
-    title?: string;
-    active?: boolean;
-    size?: 'sm' | 'md';
-    disabled?: boolean;
-    onclick?: (e: MouseEvent) => void;
+    icon: string
+    title?: string
+    active?: boolean
+    size?: 'sm' | 'md'
+    disabled?: boolean
+    onclick?: (e: MouseEvent) => void
   }
 
   let {
@@ -14,17 +14,11 @@
     active = false,
     size = 'md',
     disabled = false,
-    onclick,
-  }: IconButtonProps = $props();
+    onclick
+  }: IconButtonProps = $props()
 </script>
 
-<button
-  class="icon-btn icon-btn-{size}"
-  class:active
-  {title}
-  {disabled}
-  {onclick}
->
+<button class="icon-btn icon-btn-{size}" class:active {title} {disabled} {onclick}>
   <span class="material-symbols-outlined">{icon}</span>
 </button>
 
@@ -38,13 +32,14 @@
     border-radius: var(--radius-md, 6px);
     color: var(--color-text-dim, #71717a);
     cursor: pointer;
-    transition: color var(--transition-fast, 150ms ease),
-                background var(--transition-fast, 150ms ease);
+    transition:
+      color var(--transition-fast, 150ms ease),
+      background var(--transition-fast, 150ms ease);
   }
 
   .icon-btn:hover:not(:disabled),
   .icon-btn.active {
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
     background: var(--color-surface-dark, #0a0a0a);
   }
 

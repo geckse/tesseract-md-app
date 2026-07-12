@@ -80,7 +80,7 @@ schema(root: string, path?: string): Promise<Schema>
 interface Props {
   frontmatterYaml: string | null
   onUpdate: (newYaml: string | null) => void
-  schema: Schema | null  // NEW — nullable for graceful fallback
+  schema: Schema | null // NEW — nullable for graceful fallback
 }
 ```
 
@@ -109,12 +109,14 @@ export async function fetchSchema(root: string, path?: string): Promise<void> {
 Reusable floating dropdown for value/field suggestions.
 
 Props:
+
 - `suggestions: string[]` — filtered list of suggestions
 - `onSelect: (value: string) => void` — callback when a suggestion is picked
 - `anchorEl: HTMLElement | null` — input element to position against
 - `secondaryLabels?: Map<string, string>` — optional type labels (e.g., "List", "Date")
 
 Behavior:
+
 - Positioned with `@floating-ui/dom` (`computePosition` + `flip` + `shift` + `offset(8)`)
 - Arrow up/down to navigate, Enter/Tab to select, Escape to dismiss
 - Mouse click to select
@@ -123,14 +125,14 @@ Behavior:
 
 **FrontmatterEditor enhancements:**
 
-| Feature | Trigger | Behavior |
-|---------|---------|----------|
+| Feature                | Trigger                                        | Behavior                                                                                                                                                                                                                                                      |
+| ---------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Field name suggestions | Focus on empty key input after `addProperty()` | Show AutocompleteDropdown with schema field names not already used. Secondary label shows field type. Selecting fills key + sets type-appropriate default value (`''` for String, `false` for Boolean, `[]` for List, `0` for Number, today's date for Date). |
-| Value autocomplete | Focus on text input for a string field | If schema field has `sample_values` and no `allowed_values`, show AutocompleteDropdown filtered by typed text. Selecting fills value. |
-| Constrained dropdown | Render of field with `allowed_values` | Replace `<input type="text">` with styled `<select>`. Options from `allowed_values`. Include current value even if not in list (preserve data). |
-| Tag autocomplete | Typing in `.fm-tag-input` | If schema field (type List) has `sample_values`, show AutocompleteDropdown filtering out already-used values. Enter still works for free-form. |
-| Description tooltip | Render of field key | Set `title` attribute on `.fm-key` input from `getSchemaField(key)?.description`. |
-| Required indicator | Render of field key | Show `*` in accent color (`#00E5FF`) after key name when `getSchemaField(key)?.required` is true. |
+| Value autocomplete     | Focus on text input for a string field         | If schema field has `sample_values` and no `allowed_values`, show AutocompleteDropdown filtered by typed text. Selecting fills value.                                                                                                                         |
+| Constrained dropdown   | Render of field with `allowed_values`          | Replace `<input type="text">` with styled `<select>`. Options from `allowed_values`. Include current value even if not in list (preserve data).                                                                                                               |
+| Tag autocomplete       | Typing in `.fm-tag-input`                      | If schema field (type List) has `sample_values`, show AutocompleteDropdown filtering out already-used values. Enter still works for free-form.                                                                                                                |
+| Description tooltip    | Render of field key                            | Set `title` attribute on `.fm-key` input from `getSchemaField(key)?.description`.                                                                                                                                                                             |
+| Required indicator     | Render of field key                            | Show `*` in accent color (`#00E5FF`) after key name when `getSchemaField(key)?.required` is true.                                                                                                                                                             |
 
 ### Migration Strategy
 

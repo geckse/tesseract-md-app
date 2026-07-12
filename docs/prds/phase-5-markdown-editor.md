@@ -38,17 +38,19 @@ Users need to view and edit markdown files within the app. A raw textarea loses 
 No persistent data changes. New in-memory state:
 
 ```typescript
-isDirty: Writable<boolean>        // True when editor content differs from saved file
-wordCount: Writable<number>       // Updated on content change
-readingTime: Writable<string>     // "N mins" (250 words/min average)
+isDirty: Writable<boolean> // True when editor content differs from saved file
+wordCount: Writable<number> // Updated on content change
+readingTime: Writable<string> // "N mins" (250 words/min average)
 ```
 
 ### Interface Changes
 
 **New IPC channel:**
+
 - `'fs:write-file'` → writes content to an absolute file path
 
 **Updated preload `window.api`:**
+
 ```typescript
 interface MdvdbApi {
   // ... existing methods ...
@@ -64,35 +66,37 @@ The main content area component. Full width of the remaining space after sidebar
 
 **Soft-render theme specifications** (from `app-mockup-code.html`):
 
-| Element | Font | Size | Color | Extra |
-|---|---|---|---|---|
-| Body text | Space Grotesk | 17px | `#d1d5db` (gray-300) | `line-height: 1.8` |
-| H1 | Space Grotesk | 2.25rem (36px) | `#ffffff` | `font-bold`, `tracking-tight` |
-| H2 | Space Grotesk | 1.5rem (24px) | `#ffffff` | `font-semibold`, `tracking-tight` |
-| H3 | Space Grotesk | 1.25rem (20px) | `#ffffff` | `font-medium`, `tracking-tight` |
-| Syntax chars (`#`, `**`, etc.) | Space Grotesk | inherit | `#526366` | `opacity: 0.4-0.6`, `font-weight: normal` |
-| Frontmatter delimiters `---` | JetBrains Mono | 13px | `#526366` | `opacity: 0.5` |
-| Frontmatter keys | JetBrains Mono | 13px | `#71717a` (text-dim) | — |
-| Frontmatter string values | JetBrains Mono | 13px | `#00E5FF` (primary) | — |
-| Frontmatter status values | JetBrains Mono | 13px | `#34d399` (emerald-400) | — |
-| Frontmatter array values | JetBrains Mono | 13px | `#60a5fa` (blue-400) | — |
-| Frontmatter date values | JetBrains Mono | 13px | `#fdba74` (orange-300) | — |
-| Code blocks | JetBrains Mono | 13px | `#71717a` | `bg: #0a0a0a`, `border: #27272a`, `rounded` |
-| Code block header | JetBrains Mono | 11px | `#71717a` | `bg: #161617`, `border-b` |
-| Inline code | JetBrains Mono | 13px | `#00E5FF` | `bg: #161617`, `border: #27272a`, `px-1.5 py-0.5 rounded` |
-| Links | Space Grotesk | inherit | `#00E5FF` | `hover:underline`, `underline-offset-4` |
-| Wikilinks `[[...]]` | Space Grotesk | inherit | `#00E5FF` | Same as links |
-| Blockquotes | Space Grotesk | inherit | `#9ca3af` (gray-400) | `italic`, `border-l-2 border-primary`, `pl-5` |
-| Bullet marker `-` | Space Grotesk | inherit | `#526366` | `select-none` |
-| Checkbox unchecked `- [ ]` | — | — | `#71717a` border | `w-4 h-4`, `rounded-sm`, `bg-surface-darker` |
-| Checkbox checked `- [x]` | — | — | `#00E5FF` fill | `shadow: 0 0 8px rgba(0,229,255,0.3)` |
+| Element                        | Font           | Size           | Color                   | Extra                                                     |
+| ------------------------------ | -------------- | -------------- | ----------------------- | --------------------------------------------------------- |
+| Body text                      | Space Grotesk  | 17px           | `#d1d5db` (gray-300)    | `line-height: 1.8`                                        |
+| H1                             | Space Grotesk  | 2.25rem (36px) | `#ffffff`               | `font-bold`, `tracking-tight`                             |
+| H2                             | Space Grotesk  | 1.5rem (24px)  | `#ffffff`               | `font-semibold`, `tracking-tight`                         |
+| H3                             | Space Grotesk  | 1.25rem (20px) | `#ffffff`               | `font-medium`, `tracking-tight`                           |
+| Syntax chars (`#`, `**`, etc.) | Space Grotesk  | inherit        | `#526366`               | `opacity: 0.4-0.6`, `font-weight: normal`                 |
+| Frontmatter delimiters `---`   | JetBrains Mono | 13px           | `#526366`               | `opacity: 0.5`                                            |
+| Frontmatter keys               | JetBrains Mono | 13px           | `#71717a` (text-dim)    | —                                                         |
+| Frontmatter string values      | JetBrains Mono | 13px           | `#00E5FF` (primary)     | —                                                         |
+| Frontmatter status values      | JetBrains Mono | 13px           | `#34d399` (emerald-400) | —                                                         |
+| Frontmatter array values       | JetBrains Mono | 13px           | `#60a5fa` (blue-400)    | —                                                         |
+| Frontmatter date values        | JetBrains Mono | 13px           | `#fdba74` (orange-300)  | —                                                         |
+| Code blocks                    | JetBrains Mono | 13px           | `#71717a`               | `bg: #0a0a0a`, `border: #27272a`, `rounded`               |
+| Code block header              | JetBrains Mono | 11px           | `#71717a`               | `bg: #161617`, `border-b`                                 |
+| Inline code                    | JetBrains Mono | 13px           | `#00E5FF`               | `bg: #161617`, `border: #27272a`, `px-1.5 py-0.5 rounded` |
+| Links                          | Space Grotesk  | inherit        | `#00E5FF`               | `hover:underline`, `underline-offset-4`                   |
+| Wikilinks `[[...]]`            | Space Grotesk  | inherit        | `#00E5FF`               | Same as links                                             |
+| Blockquotes                    | Space Grotesk  | inherit        | `#9ca3af` (gray-400)    | `italic`, `border-l-2 border-primary`, `pl-5`             |
+| Bullet marker `-`              | Space Grotesk  | inherit        | `#526366`               | `select-none`                                             |
+| Checkbox unchecked `- [ ]`     | —              | —              | `#71717a` border        | `w-4 h-4`, `rounded-sm`, `bg-surface-darker`              |
+| Checkbox checked `- [x]`       | —              | —              | `#00E5FF` fill          | `shadow: 0 0 8px rgba(0,229,255,0.3)`                     |
 
 **Frontmatter block container:**
+
 - `bg-surface-darker border border-border-dark rounded-md p-5`
 - Left accent bar: `w-1 h-full bg-border-dark` (hover: `bg-primary`)
 - Grid layout: `grid-cols-[100px_1fr]` for key-value pairs
 
 **Content area layout:**
+
 - Container: `max-w-3xl mx-auto py-16 px-10`
 - Background: `#0f0f10` (background-dark)
 

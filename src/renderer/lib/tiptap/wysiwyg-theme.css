@@ -530,13 +530,13 @@
 
 .ProseMirror::-webkit-scrollbar-thumb,
 .wysiwyg-instance::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb, rgba(255, 255, 255, 0.10));
+  background: var(--scrollbar-thumb, rgba(255, 255, 255, 0.1));
   border-radius: var(--radius-full, 3px);
 }
 
 .ProseMirror::-webkit-scrollbar-thumb:hover,
 .wysiwyg-instance::-webkit-scrollbar-thumb:hover {
-  background: var(--scrollbar-thumb-hover, rgba(255, 255, 255, 0.20));
+  background: var(--scrollbar-thumb-hover, rgba(255, 255, 255, 0.2));
 }
 
 /* -------------------------------------------------------------------------- */

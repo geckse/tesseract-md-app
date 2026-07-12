@@ -143,7 +143,10 @@ export class AppUpdater {
 
       this.setState('available')
       store.set('lastUpdateCheck', Date.now())
-      this.sendToRenderer('update-available', { version: info.version, releaseNotes: info.releaseNotes })
+      this.sendToRenderer('update-available', {
+        version: info.version,
+        releaseNotes: info.releaseNotes
+      })
     })
 
     autoUpdater.on('update-not-available', (_info: UpdateInfo) => {
@@ -197,9 +200,10 @@ export class AppUpdater {
 
     // Map event name to the type expected by the renderer's UpdateEvent interface.
     // For 'state-changed', use the state value directly as the type.
-    const type = event === 'state-changed'
-      ? (data.state as string)
-      : (AppUpdater.EVENT_TYPE_MAP[event] ?? event)
+    const type =
+      event === 'state-changed'
+        ? (data.state as string)
+        : (AppUpdater.EVENT_TYPE_MAP[event] ?? event)
 
     this.windowManager.broadcastToAll(`${IPC_PREFIX}:event`, { type, data })
   }

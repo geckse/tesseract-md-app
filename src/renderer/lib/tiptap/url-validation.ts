@@ -7,7 +7,12 @@ export function isValidUrl(url: string): boolean {
   if (!trimmed) return false
 
   // Allow relative paths and anchors
-  if (trimmed.startsWith('./') || trimmed.startsWith('../') || trimmed.startsWith('/') || trimmed.startsWith('#')) {
+  if (
+    trimmed.startsWith('./') ||
+    trimmed.startsWith('../') ||
+    trimmed.startsWith('/') ||
+    trimmed.startsWith('#')
+  ) {
     return true
   }
 

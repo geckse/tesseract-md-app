@@ -8,12 +8,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
-import {
-  CliNotFoundError,
-  CliExecutionError,
-  CliParseError,
-  CliTimeoutError
-} from './errors'
+import { CliNotFoundError, CliExecutionError, CliParseError, CliTimeoutError } from './errors'
 
 const execFileAsync = promisify(execFile)
 
@@ -50,7 +45,7 @@ export interface ExecRawResult {
  * Used for exponential backoff between retry attempts.
  */
 function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 /**
@@ -130,7 +125,6 @@ export async function execCommand<T>(
 
   while (attempt <= maxRetries) {
     let stdout: string
-    let stderr: string
 
     try {
       const result = await execFileAsync(cliPath, fullArgs, {
@@ -139,7 +133,6 @@ export async function execCommand<T>(
         env: { ...process.env }
       })
       stdout = result.stdout
-      stderr = result.stderr
 
       // Handle empty stdout (e.g., init command)
       if (!stdout.trim()) {
@@ -156,7 +149,9 @@ export async function execCommand<T>(
         if (jsonMatch) {
           try {
             return JSON.parse(jsonMatch[0]) as T
-          } catch { /* fall through to error */ }
+          } catch {
+            /* fall through to error */
+          }
         }
         throw new CliParseError(
           `Failed to parse JSON output from '${command}': ${stdout.slice(0, 200)}`
@@ -232,7 +227,13 @@ export async function execRaw(
       })
       return { stdout, stderr, exitCode: 0 }
     } catch (error: unknown) {
-      const err = error as { killed?: boolean; code?: string; exitCode?: number; stdout?: string; stderr?: string }
+      const err = error as {
+        killed?: boolean
+        code?: string
+        exitCode?: number
+        stdout?: string
+        stderr?: string
+      }
 
       // Don't retry CliNotFoundError
       if (error instanceof CliNotFoundError) {

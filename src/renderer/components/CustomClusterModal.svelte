@@ -10,10 +10,16 @@
 
   let { existingDef, existingNames, onsave, onclose }: Props = $props()
 
+  // Intentional capture-on-open: the form is initialized from the prop and stays locally editable.
+  // svelte-ignore state_referenced_locally
   let name = $state(existingDef?.name ?? '')
+  // svelte-ignore state_referenced_locally
   let seedsText = $state(existingDef?.seeds.join(', ') ?? '')
+  // svelte-ignore state_referenced_locally
   let description = $state(existingDef?.description ?? '')
+  // svelte-ignore state_referenced_locally
   let thresholdEnabled = $state(existingDef?.threshold != null)
+  // svelte-ignore state_referenced_locally
   let threshold = $state(existingDef?.threshold ?? 0.3)
   let error = $state('')
 
@@ -31,8 +37,7 @@
     if (!trimmedName) return 'Name is required.'
     if (trimmedName.includes(':') || trimmedName.includes('|'))
       return 'Name cannot contain ":" or "|".'
-    if (existingNames.includes(trimmedName))
-      return `A topic named "${trimmedName}" already exists.`
+    if (existingNames.includes(trimmedName)) return `A topic named "${trimmedName}" already exists.`
 
     const seeds = parseSeeds()
     if (seeds.length === 0 && description.trim().length === 0)
@@ -93,8 +98,10 @@
     </div>
 
     <div class="modal-body">
-      <label class="field-label">Name</label>
+      <label class="field-label" for="topic-name-input">Name</label>
+      <!-- svelte-ignore a11y_autofocus -->
       <input
+        id="topic-name-input"
         class="field-input"
         type="text"
         bind:value={name}
@@ -102,16 +109,22 @@
         autofocus
       />
 
-      <label class="field-label" style="margin-top: 12px;">Description</label>
+      <label class="field-label" style="margin-top: 12px;" for="topic-description-input"
+        >Description</label
+      >
       <textarea
+        id="topic-description-input"
         class="field-textarea"
         bind:value={description}
         placeholder="Optional — a sentence describing this topic improves matching accuracy"
         rows="2"
       ></textarea>
 
-      <label class="field-label" style="margin-top: 12px;">Seed phrases (comma-separated)</label>
+      <label class="field-label" style="margin-top: 12px;" for="topic-seeds-input"
+        >Seed phrases (comma-separated)</label
+      >
       <textarea
+        id="topic-seeds-input"
         class="field-textarea"
         bind:value={seedsText}
         placeholder="e.g. machine learning, neural networks, deep learning"

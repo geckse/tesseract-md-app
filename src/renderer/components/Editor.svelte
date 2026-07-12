@@ -1,35 +1,48 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
-  import { get } from 'svelte/store';
-  import { EditorView, keymap } from '@codemirror/view';
-  import { EditorState, Transaction } from '@codemirror/state';
-  import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
-  import { history, historyKeymap, historyField } from '@codemirror/commands';
-  import { defaultKeymap } from '@codemirror/commands';
-  import { search, searchKeymap } from '@codemirror/search';
-  import { editorTheme } from '../lib/editor-theme';
-  import { softRender } from '../lib/soft-render';
-  import { frontmatterDecoration } from '../lib/frontmatter-decoration';
-  import { computeMinimalChanges } from '../lib/external-apply';
-  import { activeCollection } from '../stores/collections';
-  import { workspace, type DocumentTab } from '../stores/workspace.svelte';
-  import { isDirty, wordCount, tokenCount, countWords, countTokens, saveRequested, discardRequested, scrollToLine, activeHeadingIndex, editorMode, syncEditorStoresFromTab, type EditorMode } from '../stores/editor';
-  import { propertiesFileContent, outline } from '../stores/properties';
-  import ConflictNotification from './ConflictNotification.svelte';
-  import { dismissConflict } from '../stores/conflict';
-  import { requestSaveAs } from '../stores/save-as';
+  import { onMount, onDestroy } from 'svelte'
+  import { get } from 'svelte/store'
+  import { EditorView, keymap } from '@codemirror/view'
+  import { EditorState, Transaction } from '@codemirror/state'
+  import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
+  import { history, historyKeymap, historyField } from '@codemirror/commands'
+  import { defaultKeymap } from '@codemirror/commands'
+  import { search, searchKeymap } from '@codemirror/search'
+  import { editorTheme } from '../lib/editor-theme'
+  import { softRender } from '../lib/soft-render'
+  import { frontmatterDecoration } from '../lib/frontmatter-decoration'
+  import { computeMinimalChanges } from '../lib/external-apply'
+  import { activeCollection } from '../stores/collections'
+  import { workspace, type DocumentTab } from '../stores/workspace.svelte'
+  import {
+    isDirty,
+    wordCount,
+    tokenCount,
+    countWords,
+    countTokens,
+    saveRequested,
+    discardRequested,
+    scrollToLine,
+    activeHeadingIndex,
+    editorMode,
+    syncEditorStoresFromTab,
+    type EditorMode
+  } from '../stores/editor'
+  import { propertiesFileContent, outline } from '../stores/properties'
+  import ConflictNotification from './ConflictNotification.svelte'
+  import { dismissConflict } from '../stores/conflict'
+  import { requestSaveAs } from '../stores/save-as'
 
   // ── Props ─────────────────────────────────────────────────────────────
   interface EditorProps {
     tabId?: string
   }
-  let { tabId }: EditorProps = $props();
+  let { tabId }: EditorProps = $props()
 
   // ── Constants ─────────────────────────────────────────────────────────
   /** Maximum number of live EditorView instances to keep in the pool. */
-  const MAX_POOL_SIZE = 10;
+  const MAX_POOL_SIZE = 10
   /** Large file handling (>1MB). */
-  const LARGE_FILE_THRESHOLD = 1024 * 1024;
+  const LARGE_FILE_THRESHOLD = 1024 * 1024
 
   // ── Instance Pool ─────────────────────────────────────────────────────
   /**
@@ -57,132 +70,132 @@
     useBasicMode: boolean
   }
 
-  const pool = new Map<string, PoolEntry>();
-  const serializedPool = new Map<string, SerializedEntry>();
+  const pool = new Map<string, PoolEntry>()
+  const serializedPool = new Map<string, SerializedEntry>()
   /** LRU access order — most recently accessed tab ID is last. */
-  const accessOrder: string[] = [];
+  const accessOrder: string[] = []
 
   // ── Component State ───────────────────────────────────────────────────
-  let editorHost: HTMLDivElement | undefined = $state(undefined);
-  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  let largeFileWarning = $state(false);
-  let composingRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  let editorHost: HTMLDivElement | undefined = $state(undefined)
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null
+  let largeFileWarning = $state(false)
+  let composingRetryTimer: ReturnType<typeof setTimeout> | null = null
 
   // ── Store Subscriptions ───────────────────────────────────────────────
-  let currentOutline: import('../stores/properties').OutlineHeading[] = [];
-  const unsubOutline = outline.subscribe((v) => (currentOutline = v));
+  let currentOutline: import('../stores/properties').OutlineHeading[] = []
+  const unsubOutline = outline.subscribe((v) => (currentOutline = v))
 
-  let currentActiveCollection: import('../../preload/api').Collection | null = $state(null);
-  const unsubCollection = activeCollection.subscribe((v) => (currentActiveCollection = v));
+  let currentActiveCollection: import('../../preload/api').Collection | null = $state(null)
+  const unsubCollection = activeCollection.subscribe((v) => (currentActiveCollection = v))
 
-  let currentScrollToLine: number | null = $state(null);
-  const unsubScrollToLine = scrollToLine.subscribe((v) => (currentScrollToLine = v));
+  let currentScrollToLine: number | null = $state(null)
+  const unsubScrollToLine = scrollToLine.subscribe((v) => (currentScrollToLine = v))
 
-  let saveCounter = $state(0);
-  let lastSaveCounter = 0;
-  const unsubSave = saveRequested.subscribe((v) => (saveCounter = v));
+  let saveCounter = $state(0)
+  let lastSaveCounter = 0
+  const unsubSave = saveRequested.subscribe((v) => (saveCounter = v))
   $effect(() => {
     if (saveCounter > 0 && saveCounter !== lastSaveCounter) {
-      lastSaveCounter = saveCounter;
-      handleSave();
+      lastSaveCounter = saveCounter
+      handleSave()
     }
-  });
+  })
 
-  let discardCounter = $state(0);
-  let lastDiscardCounter = 0;
-  const unsubDiscard = discardRequested.subscribe((v) => (discardCounter = v));
+  let discardCounter = $state(0)
+  let lastDiscardCounter = 0
+  const unsubDiscard = discardRequested.subscribe((v) => (discardCounter = v))
   $effect(() => {
     if (discardCounter > 0 && discardCounter !== lastDiscardCounter) {
-      lastDiscardCounter = discardCounter;
-      handleDiscard();
+      lastDiscardCounter = discardCounter
+      handleDiscard()
     }
-  });
+  })
 
-  let currentEditorMode = $state<EditorMode>('wysiwyg');
-  const unsubEditorMode = editorMode.subscribe((v) => (currentEditorMode = v));
+  let currentEditorMode = $state<EditorMode>('wysiwyg')
+  const unsubEditorMode = editorMode.subscribe((v) => (currentEditorMode = v))
   $effect(() => {
     if (currentEditorMode === 'editor') {
-      const entry = activeTabId ? pool.get(activeTabId) : null;
+      const entry = activeTabId ? pool.get(activeTabId) : null
       if (entry) {
-        requestAnimationFrame(() => entry.view.focus());
+        requestAnimationFrame(() => entry.view.focus())
       }
     }
-  });
+  })
 
   // ── Derived Tab State ─────────────────────────────────────────────────
   /**
    * Resolve the active tab ID: use the explicit tabId prop if provided,
    * otherwise fall back to the workspace's focused document tab.
    */
-  const activeTabId = $derived(tabId ?? workspace.focusedDocumentTab?.id ?? null);
+  const activeTabId = $derived(tabId ?? workspace.focusedDocumentTab?.id ?? null)
   const activeDocTab = $derived.by(() => {
-    if (!activeTabId) return null;
-    const tab = workspace.tabs[activeTabId];
-    return tab?.kind === 'document' ? tab as DocumentTab : null;
-  });
+    if (!activeTabId) return null
+    const tab = workspace.tabs[activeTabId]
+    return tab?.kind === 'document' ? (tab as DocumentTab) : null
+  })
 
   // ── Scroll to Line ────────────────────────────────────────────────────
   $effect(() => {
     if (currentScrollToLine !== null && activeTabId) {
-      const entry = pool.get(activeTabId);
+      const entry = pool.get(activeTabId)
       if (entry) {
-        const doc = entry.view.state.doc;
-        const lineNumber = Math.max(1, Math.min(currentScrollToLine, doc.lines));
-        const line = doc.line(lineNumber);
+        const doc = entry.view.state.doc
+        const lineNumber = Math.max(1, Math.min(currentScrollToLine, doc.lines))
+        const line = doc.line(lineNumber)
         entry.view.dispatch({
-          effects: EditorView.scrollIntoView(line.from, { y: 'start' }),
-        });
-        scrollToLine.set(null);
+          effects: EditorView.scrollIntoView(line.from, { y: 'start' })
+        })
+        scrollToLine.set(null)
       }
     }
-  });
+  })
 
   // ── Pool Management ───────────────────────────────────────────────────
 
   /** Touch a tab ID in the LRU access order (move to end). */
   function touchAccess(id: string): void {
-    const idx = accessOrder.indexOf(id);
-    if (idx >= 0) accessOrder.splice(idx, 1);
-    accessOrder.push(id);
+    const idx = accessOrder.indexOf(id)
+    if (idx >= 0) accessOrder.splice(idx, 1)
+    accessOrder.push(id)
   }
 
   /** Evict the least recently used pool entries beyond MAX_POOL_SIZE. */
   function evictIfNeeded(): void {
     while (pool.size > MAX_POOL_SIZE) {
       // Find the oldest entry in accessOrder that is NOT the active tab
-      let evictId: string | null = null;
+      let evictId: string | null = null
       for (const id of accessOrder) {
         if (id !== activeTabId && pool.has(id)) {
-          evictId = id;
-          break;
+          evictId = id
+          break
         }
       }
-      if (!evictId) break;
+      if (!evictId) break
 
-      const entry = pool.get(evictId)!;
+      const entry = pool.get(evictId)!
       // Serialize the state (including undo history)
       serializedPool.set(evictId, {
         stateJSON: entry.view.state.toJSON({ history: historyField }),
         scrollTop: entry.view.scrollDOM.scrollTop,
         lastSavedContent: entry.lastSavedContent,
-        useBasicMode: entry.useBasicMode,
-      });
+        useBasicMode: entry.useBasicMode
+      })
 
       // Destroy the live view and remove its container
-      entry.view.destroy();
-      entry.container.remove();
-      pool.delete(evictId);
+      entry.view.destroy()
+      entry.container.remove()
+      pool.delete(evictId)
 
       // Remove from access order
-      const idx = accessOrder.indexOf(evictId);
-      if (idx >= 0) accessOrder.splice(idx, 1);
+      const idx = accessOrder.indexOf(evictId)
+      if (idx >= 0) accessOrder.splice(idx, 1)
     }
   }
 
   // ── EditorView Factory ────────────────────────────────────────────────
 
   /** Guard flag: true while an editor is being created, to suppress spurious dirty marking. */
-  let initializing = false;
+  let initializing = false
 
   function createExtensions(useBasicMode: boolean) {
     const baseExtensions = [
@@ -194,15 +207,17 @@
       keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
       EditorView.updateListener.of(handleUpdate),
       EditorView.domEventHandlers({
-        scroll() { updateActiveHeading(); },
-      }),
-    ];
+        scroll() {
+          updateActiveHeading()
+        }
+      })
+    ]
 
     if (!useBasicMode) {
-      baseExtensions.push(softRender(), frontmatterDecoration());
+      baseExtensions.push(softRender(), frontmatterDecoration())
     }
 
-    return baseExtensions;
+    return baseExtensions
   }
 
   /**
@@ -212,78 +227,78 @@
    */
   function getOrCreateEntry(id: string, content: string): PoolEntry {
     // Check if already in the live pool
-    const existing = pool.get(id);
+    const existing = pool.get(id)
     if (existing) {
-      touchAccess(id);
-      return existing;
+      touchAccess(id)
+      return existing
     }
 
     // Create a container div for this editor instance
-    const container = document.createElement('div');
-    container.className = 'editor-instance';
-    container.style.display = 'none';
-    container.style.flex = '1';
-    container.style.minHeight = '0';
-    container.style.flexDirection = 'column';
-    container.style.overflow = 'hidden';
+    const container = document.createElement('div')
+    container.className = 'editor-instance'
+    container.style.display = 'none'
+    container.style.flex = '1'
+    container.style.minHeight = '0'
+    container.style.flexDirection = 'column'
+    container.style.overflow = 'hidden'
 
     // Determine if file is large
-    const contentSize = new Blob([content]).size;
-    const isLargeFile = contentSize > LARGE_FILE_THRESHOLD;
-    const useBasicMode = isLargeFile;
+    const contentSize = new Blob([content]).size
+    const isLargeFile = contentSize > LARGE_FILE_THRESHOLD
+    const useBasicMode = isLargeFile
 
-    let view: EditorView;
-    let scrollTop = 0;
-    let lastSavedContent = content;
+    let view: EditorView
+    let scrollTop = 0
+    let lastSavedContent = content
 
     // Suppress spurious dirty marking during editor creation
-    initializing = true;
+    initializing = true
     try {
+      // Check for serialized state (evicted editor with preserved undo history)
+      const serialized = serializedPool.get(id)
+      if (serialized) {
+        serializedPool.delete(id)
+        scrollTop = serialized.scrollTop
+        lastSavedContent = serialized.lastSavedContent
 
-    // Check for serialized state (evicted editor with preserved undo history)
-    const serialized = serializedPool.get(id);
-    if (serialized) {
-      serializedPool.delete(id);
-      scrollTop = serialized.scrollTop;
-      lastSavedContent = serialized.lastSavedContent;
-
-      const state = EditorState.fromJSON(
-        serialized.stateJSON,
-        { extensions: createExtensions(serialized.useBasicMode) },
-        { history: historyField }
-      );
-      view = new EditorView({ state, parent: container });
-    } else {
-      // Fresh editor
-      view = new EditorView({
-        state: EditorState.create({
-          doc: content,
-          extensions: createExtensions(useBasicMode),
-        }),
-        parent: container,
-      });
+        const state = EditorState.fromJSON(
+          serialized.stateJSON,
+          { extensions: createExtensions(serialized.useBasicMode) },
+          { history: historyField }
+        )
+        view = new EditorView({ state, parent: container })
+      } else {
+        // Fresh editor
+        view = new EditorView({
+          state: EditorState.create({
+            doc: content,
+            extensions: createExtensions(useBasicMode)
+          }),
+          parent: container
+        })
+      }
+    } finally {
+      initializing = false
     }
-
-    } finally { initializing = false; }
 
     const entry: PoolEntry = {
       view,
       container,
       scrollTop,
       lastSavedContent,
-      useBasicMode,
-    };
+      useBasicMode
+    }
 
-    pool.set(id, entry);
-    touchAccess(id);
-    evictIfNeeded();
+    pool.set(id, entry)
+    touchAccess(id)
+    evictIfNeeded()
 
-    return entry;
+    return entry
   }
 
   // ── Show / Hide ───────────────────────────────────────────────────────
 
-  let previousActiveTabId: string | null = null;
+  let previousActiveTabId: string | null = null
 
   /**
    * Main reactive effect: whenever the active tab changes, show its editor
@@ -291,84 +306,84 @@
    * initial creation.
    */
   $effect(() => {
-    const currentTabId = activeTabId;
-    const tab = activeDocTab;
+    const currentTabId = activeTabId
+    const tab = activeDocTab
 
     if (!editorHost || !currentTabId || !tab) {
       // No active document tab — hide all
-      hideEntry(previousActiveTabId);
-      previousActiveTabId = null;
-      return;
+      hideEntry(previousActiveTabId)
+      previousActiveTabId = null
+      return
     }
 
     // Content still loading — wait
     if (tab.contentLoading || tab.content === null) {
-      return;
+      return
     }
 
-    const isSwitching = previousActiveTabId !== currentTabId;
+    const isSwitching = previousActiveTabId !== currentTabId
 
     if (isSwitching) {
       // Save scroll position of previous tab and hide it
-      hideEntry(previousActiveTabId);
+      hideEntry(previousActiveTabId)
     }
 
     // Get or create the editor for this tab
-    const entry = getOrCreateEntry(currentTabId, tab.content);
+    const entry = getOrCreateEntry(currentTabId, tab.content)
 
     // Ensure the container is in the host DOM
     if (!editorHost.contains(entry.container)) {
-      editorHost.appendChild(entry.container);
+      editorHost.appendChild(entry.container)
     }
 
     if (isSwitching) {
       // Show this editor
-      entry.container.style.display = 'flex';
+      entry.container.style.display = 'flex'
 
       // Restore scroll position on next frame
       requestAnimationFrame(() => {
         if (entry.view.scrollDOM) {
-          entry.view.scrollDOM.scrollTop = entry.scrollTop;
+          entry.view.scrollDOM.scrollTop = entry.scrollTop
         }
-      });
+      })
 
       // Use savedContent (disk state) for dirty tracking across mode switches
-      entry.lastSavedContent = tab.savedContent ?? tab.content!;
+      entry.lastSavedContent = tab.savedContent ?? tab.content!
 
       // Reconcile hidden pool entries whose tab content moved on while hidden
       // (external live-applies, cross-window saves, serialized-pool restores)
-      const viewContent = entry.view.state.doc.toString();
+      const viewContent = entry.view.state.doc.toString()
       if (!tab.isDirty && viewContent !== tab.content) {
-        applyExternalContent(entry, tab.content!, tab);
+        applyExternalContent(entry, tab.content!, tab)
       } else {
-        isDirty.set(viewContent !== entry.lastSavedContent);
-        wordCount.set(countWords(viewContent));
-        tokenCount.set(countTokens(viewContent));
+        isDirty.set(viewContent !== entry.lastSavedContent)
+        wordCount.set(countWords(viewContent))
+        tokenCount.set(countTokens(viewContent))
       }
 
       // Update large file warning
-      const contentSize = new Blob([tab.content!]).size;
-      largeFileWarning = contentSize > LARGE_FILE_THRESHOLD;
+      const contentSize = new Blob([tab.content!]).size
+      largeFileWarning = contentSize > LARGE_FILE_THRESHOLD
 
-      previousActiveTabId = currentTabId;
+      previousActiveTabId = currentTabId
     } else {
       // Same tab — content changed from outside the editor (external live
       // apply, conflict resolution, or cross-window sync)
-      const viewContent = entry.view.state.doc.toString();
+      const viewContent = entry.view.state.doc.toString()
       if (tab.content !== entry.lastSavedContent && tab.content !== viewContent) {
-        applyExternalContent(entry, tab.content, tab);
+        applyExternalContent(entry, tab.content, tab)
       }
     }
-  });
+  })
 
   function hideEntry(id: string | null): void {
-    if (!id) return;
-    const entry = pool.get(id);
-    if (!entry) return;
+    if (!id) return
+    const entry = pool.get(id)
+    if (!entry) return
 
     // Save scroll position before hiding
-    entry.scrollTop = entry.view.scrollDOM.scrollTop;
-    entry.container.style.display = 'none';
+    entry.scrollTop = entry.view.scrollDOM.scrollTop
+    entry.container.style.display = 'none'
   }
 
   /**
@@ -378,206 +393,223 @@
    * agent's disk write.
    */
   function applyExternalContent(entry: PoolEntry, content: string, tab: DocumentTab): void {
-    const viewContent = entry.view.state.doc.toString();
+    const viewContent = entry.view.state.doc.toString()
     if (viewContent === content) {
-      entry.lastSavedContent = tab.savedContent ?? content;
-      return;
+      entry.lastSavedContent = tab.savedContent ?? content
+      return
     }
 
     // Never dispatch into an in-progress IME composition — retry after it ends
     if (entry.view.composing) {
-      scheduleComposingRetry(entry, tab);
-      return;
+      scheduleComposingRetry(entry, tab)
+      return
     }
 
-    entry.lastSavedContent = tab.savedContent ?? content;
-    initializing = true;
+    entry.lastSavedContent = tab.savedContent ?? content
+    initializing = true
     try {
       entry.view.dispatch({
         changes: computeMinimalChanges(viewContent, content),
-        annotations: Transaction.addToHistory.of(false),
-      });
+        annotations: Transaction.addToHistory.of(false)
+      })
     } finally {
-      initializing = false;
+      initializing = false
     }
 
     // Write tab fields directly (not the focused-tab store shims) — with
     // split panes this component may not host the focused tab.
-    tab.content = content;
-    tab.isDirty = content !== entry.lastSavedContent;
-    tab.wordCount = countWords(content);
-    tab.tokenCount = countTokens(content);
-    syncEditorStoresFromTab();
+    tab.content = content
+    tab.isDirty = content !== entry.lastSavedContent
+    tab.wordCount = countWords(content)
+    tab.tokenCount = countTokens(content)
+    syncEditorStoresFromTab()
   }
 
   /** Re-apply the tab's latest content once the IME composition ends. */
   function scheduleComposingRetry(entry: PoolEntry, tab: DocumentTab): void {
     const retry = () => {
-      entry.view.contentDOM.removeEventListener('compositionend', retry);
+      entry.view.contentDOM.removeEventListener('compositionend', retry)
       if (composingRetryTimer) {
-        clearTimeout(composingRetryTimer);
-        composingRetryTimer = null;
+        clearTimeout(composingRetryTimer)
+        composingRetryTimer = null
       }
       if (tab.content !== null && !tab.isDirty) {
-        applyExternalContent(entry, tab.content, tab);
+        applyExternalContent(entry, tab.content, tab)
       }
-    };
-    entry.view.contentDOM.addEventListener('compositionend', retry, { once: true });
-    composingRetryTimer = setTimeout(retry, 300);
+    }
+    entry.view.contentDOM.addEventListener('compositionend', retry, { once: true })
+    composingRetryTimer = setTimeout(retry, 300)
   }
 
   // ── Editor Update Handler ─────────────────────────────────────────────
 
   function handleUpdate(update: import('@codemirror/view').ViewUpdate) {
-    if (initializing) return;
+    if (initializing) return
     if (update.docChanged) {
-      const content = update.state.doc.toString();
+      const content = update.state.doc.toString()
       // Sync content to tab immediately so mode switches pick up latest edits
-      const tab = activeDocTab;
-      if (tab) tab.content = content;
+      const tab = activeDocTab
+      if (tab) tab.content = content
       // Find which pool entry this view belongs to
-      const entry = activeTabId ? pool.get(activeTabId) : null;
-      const savedContent = entry?.lastSavedContent ?? '';
-      isDirty.set(content !== savedContent);
-      wordCount.set(countWords(content));
-      tokenCount.set(countTokens(content));
+      const entry = activeTabId ? pool.get(activeTabId) : null
+      const savedContent = entry?.lastSavedContent ?? ''
+      isDirty.set(content !== savedContent)
+      wordCount.set(countWords(content))
+      tokenCount.set(countTokens(content))
       // Debounce metadata store update
-      if (debounceTimer) clearTimeout(debounceTimer);
+      if (debounceTimer) clearTimeout(debounceTimer)
       debounceTimer = setTimeout(() => {
-        propertiesFileContent.set(content);
-      }, 200);
+        propertiesFileContent.set(content)
+      }, 200)
     }
   }
 
   /** Update activeHeadingIndex based on the editor's scroll position. */
   function updateActiveHeading() {
-    const entry = activeTabId ? pool.get(activeTabId) : null;
+    const entry = activeTabId ? pool.get(activeTabId) : null
     if (!entry || currentOutline.length === 0) {
-      activeHeadingIndex.set(-1);
-      return;
+      activeHeadingIndex.set(-1)
+      return
     }
-    const view = entry.view;
-    const topPos = view.lineBlockAtHeight(view.scrollDOM.scrollTop);
-    const topLine = view.state.doc.lineAt(topPos.from).number;
+    const view = entry.view
+    const topPos = view.lineBlockAtHeight(view.scrollDOM.scrollTop)
+    const topLine = view.state.doc.lineAt(topPos.from).number
 
-    let idx = -1;
+    let idx = -1
     for (let i = 0; i < currentOutline.length; i++) {
       if (currentOutline[i].line <= topLine + 1) {
-        idx = i;
+        idx = i
       } else {
-        break;
+        break
       }
     }
-    activeHeadingIndex.set(idx);
+    activeHeadingIndex.set(idx)
   }
 
   // ── Save ──────────────────────────────────────────────────────────────
 
   function handleSave(): boolean {
-    if (!activeTabId || !currentActiveCollection) return true;
-    const entry = pool.get(activeTabId);
-    if (!entry) return true;
+    if (!activeTabId || !currentActiveCollection) return true
+    const entry = pool.get(activeTabId)
+    if (!entry) return true
 
-    const tab = activeDocTab;
-    if (!tab) return true;
+    const tab = activeDocTab
+    if (!tab) return true
 
     // Skip save if already clean (e.g., SaveAsModal already handled it)
-    if (!tab.isDirty && !tab.isUntitled) return true;
+    if (!tab.isDirty && !tab.isUntitled) return true
 
     // Untitled files need a "Save As" dialog to pick a filename
     if (tab.isUntitled) {
       // Update tab content before requesting save-as
-      const content = entry.view.state.doc.toString();
-      tab.content = content;
-      requestSaveAs(activeTabId);
-      return true;
+      const content = entry.view.state.doc.toString()
+      tab.content = content
+      requestSaveAs(activeTabId)
+      return true
     }
 
-    const content = entry.view.state.doc.toString();
-    const fullPath = `${currentActiveCollection.path}/${tab.filePath}`;
+    const content = entry.view.state.doc.toString()
+    const fullPath = `${currentActiveCollection.path}/${tab.filePath}`
 
-    entry.lastSavedContent = content;
-    tab.content = content;
-    tab.savedContent = content;
-    isDirty.set(false);
+    entry.lastSavedContent = content
+    tab.content = content
+    tab.savedContent = content
+    isDirty.set(false)
 
-    const savedPath = tab.filePath;
-    window.api.writeFile(fullPath, content).then(() => {
-      dismissConflict(savedPath);
-    }).catch((err) => {
-      console.error('Save failed:', err);
-    });
-    return true;
+    const savedPath = tab.filePath
+    window.api
+      .writeFile(fullPath, content)
+      .then(() => {
+        dismissConflict(savedPath)
+      })
+      .catch((err) => {
+        console.error('Save failed:', err)
+      })
+    return true
   }
 
   // ── Discard ───────────────────────────────────────────────────────────
 
   function handleDiscard(): void {
-    if (!activeTabId) return;
-    const entry = pool.get(activeTabId);
-    const tab = activeDocTab;
-    if (!entry || !tab) return;
+    if (!activeTabId) return
+    const entry = pool.get(activeTabId)
+    const tab = activeDocTab
+    if (!entry || !tab) return
 
     // Replace editor content with last saved content
-    applyExternalContent(entry, entry.lastSavedContent, tab);
+    applyExternalContent(entry, entry.lastSavedContent, tab)
   }
 
   // ── Large File Warning ────────────────────────────────────────────────
 
   function dismissLargeFileWarning() {
-    largeFileWarning = false;
+    largeFileWarning = false
   }
 
   // ── Lifecycle ─────────────────────────────────────────────────────────
 
   onMount(() => {
     // The main $effect handles initial creation
-  });
+  })
 
   onDestroy(() => {
-    if (debounceTimer) clearTimeout(debounceTimer);
-    if (composingRetryTimer) clearTimeout(composingRetryTimer);
+    if (debounceTimer) clearTimeout(debounceTimer)
+    if (composingRetryTimer) clearTimeout(composingRetryTimer)
 
     // Sync all pool entries' content to workspace tabs before destroying
     for (const [id, entry] of pool) {
-      const tab = workspace.tabs[id];
+      const tab = workspace.tabs[id]
       if (tab && tab.kind === 'document') {
-        tab.content = entry.view.state.doc.toString();
+        tab.content = entry.view.state.doc.toString()
       }
     }
 
     // Destroy all pooled EditorViews
     for (const [, entry] of pool) {
-      entry.view.destroy();
-      entry.container.remove();
+      entry.view.destroy()
+      entry.container.remove()
     }
-    pool.clear();
-    serializedPool.clear();
-    accessOrder.length = 0;
+    pool.clear()
+    serializedPool.clear()
+    accessOrder.length = 0
 
-    isDirty.set(false);
-    wordCount.set(0);
-    tokenCount.set(0);
+    isDirty.set(false)
+    wordCount.set(0)
+    tokenCount.set(0)
 
-    unsubCollection();
-    unsubSave();
-    unsubDiscard();
-    unsubScrollToLine();
-    unsubOutline();
-    unsubEditorMode();
-  });
+    unsubCollection()
+    unsubSave()
+    unsubDiscard()
+    unsubScrollToLine()
+    unsubOutline()
+    unsubEditorMode()
+  })
 
   // ── Drag-and-drop (internal tree + external OS) ──────────────────────
 
   const CM_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico'])
-  const CM_ASSET_EXTS = new Set([...CM_IMAGE_EXTS, 'pdf', 'mp4', 'webm', 'mov', 'mp3', 'wav', 'ogg'])
+  const CM_ASSET_EXTS = new Set([
+    ...CM_IMAGE_EXTS,
+    'pdf',
+    'mp4',
+    'webm',
+    'mov',
+    'mp3',
+    'wav',
+    'ogg'
+  ])
 
   function cmRelativePath(fromFile: string, toFile: string): string {
     const fromParts = fromFile.split('/')
     fromParts.pop()
     const toParts = toFile.split('/')
     let common = 0
-    while (common < fromParts.length && common < toParts.length && fromParts[common] === toParts[common]) common++
+    while (
+      common < fromParts.length &&
+      common < toParts.length &&
+      fromParts[common] === toParts[common]
+    )
+      common++
     const ups = fromParts.length - common
     const rest = toParts.slice(common)
     return ups > 0 ? `${Array(ups).fill('..').join('/')}/${rest.join('/')}` : rest.join('/')
@@ -592,7 +624,7 @@
     e.preventDefault()
     if (!e.dataTransfer) return
 
-    const view = currentEntry?.view
+    const view = activeTabId ? pool.get(activeTabId)?.view : undefined
     if (!view) return
     const currentFile = activeDocTab?.filePath
     if (!currentFile) return
@@ -606,7 +638,7 @@
     function insertText(text: string) {
       view!.dispatch({
         changes: { from: pos!, insert: text },
-        selection: { anchor: pos! + text.length },
+        selection: { anchor: pos! + text.length }
       })
     }
 
@@ -639,13 +671,17 @@
 
         if (checkResult.within && checkResult.collectionPath === collection.path) {
           const collPath = collection.path.endsWith('/') ? collection.path : collection.path + '/'
-          const relToCollection = absolutePath.startsWith(collPath) ? absolutePath.slice(collPath.length) : file.name
+          const relToCollection = absolutePath.startsWith(collPath)
+            ? absolutePath.slice(collPath.length)
+            : file.name
           const relPath = cmRelativePath(currentFile, relToCollection)
           const name = file.name
 
           insertText(CM_IMAGE_EXTS.has(ext) ? `![${name}](${relPath})` : `[${name}](${relPath})`)
         } else {
-          const confirmed = window.confirm(`"${file.name}" is outside your collection. Copy it alongside the current file?`)
+          const confirmed = window.confirm(
+            `"${file.name}" is outside your collection. Copy it alongside the current file?`
+          )
           if (!confirmed) continue
 
           const currentDir = currentFile.split('/').slice(0, -1).join('/')
@@ -662,13 +698,22 @@
               destName = `${baseName}-${suffix}${extension}`
               destRelPath = currentDir ? `${currentDir}/${destName}` : destName
               destAbsPath = `${collection.path}/${destRelPath}`
-              try { await window.api.fileInfo(destAbsPath); suffix++ } catch { break }
+              try {
+                await window.api.fileInfo(destAbsPath)
+                suffix++
+              } catch {
+                break
+              }
             }
-          } catch { /* good, doesn't exist */ }
+          } catch {
+            /* good, doesn't exist */
+          }
 
           await window.api.copyFile(absolutePath, destAbsPath)
           const relPath = cmRelativePath(currentFile, destRelPath)
-          insertText(CM_IMAGE_EXTS.has(ext) ? `![${destName}](${relPath})` : `[${destName}](${relPath})`)
+          insertText(
+            CM_IMAGE_EXTS.has(ext) ? `![${destName}](${relPath})` : `[${destName}](${relPath})`
+          )
         }
       }
     }
@@ -683,15 +728,27 @@
         <span class="material-symbols-outlined warning-icon">warning</span>
         <div class="warning-content">
           <p class="warning-title">Large file detected</p>
-          <p class="warning-message">This file is larger than 1MB. Some advanced features like frontmatter highlighting and outline parsing have been disabled for better performance.</p>
+          <p class="warning-message">
+            This file is larger than 1MB. Some advanced features like frontmatter highlighting and
+            outline parsing have been disabled for better performance.
+          </p>
         </div>
-        <button class="warning-dismiss" onclick={dismissLargeFileWarning} aria-label="Dismiss warning">
+        <button
+          class="warning-dismiss"
+          onclick={dismissLargeFileWarning}
+          aria-label="Dismiss warning"
+        >
           <span class="material-symbols-outlined">close</span>
         </button>
       </div>
     {/if}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="editor-content" bind:this={editorHost} ondragover={handleCmDragOver} ondrop={handleCmDrop}></div>
+    <div
+      class="editor-content"
+      bind:this={editorHost}
+      ondragover={handleCmDragOver}
+      ondrop={handleCmDrop}
+    ></div>
   </div>
 {:else}
   <div class="empty-state">
@@ -754,14 +811,27 @@
     min-height: 0;
     overflow: auto !important;
     scrollbar-width: thin;
-    scrollbar-color: var(--scrollbar-thumb, rgba(255, 255, 255, 0.10)) var(--scrollbar-track, transparent);
+    scrollbar-color: var(--scrollbar-thumb, rgba(255, 255, 255, 0.1))
+      var(--scrollbar-track, transparent);
   }
 
-  .editor-content :global(.cm-scroller)::-webkit-scrollbar { width: var(--scrollbar-width, 6px); height: var(--scrollbar-width, 6px); }
-  .editor-content :global(.cm-scroller)::-webkit-scrollbar-track { background: var(--scrollbar-track, transparent); }
-  .editor-content :global(.cm-scroller)::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb, rgba(255, 255, 255, 0.10)); border-radius: 3px; }
-  .editor-content :global(.cm-scroller)::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover, rgba(255, 255, 255, 0.20)); }
-  .editor-content :global(.cm-scroller)::-webkit-scrollbar-corner { background: var(--scrollbar-track, transparent); }
+  .editor-content :global(.cm-scroller)::-webkit-scrollbar {
+    width: var(--scrollbar-width, 6px);
+    height: var(--scrollbar-width, 6px);
+  }
+  .editor-content :global(.cm-scroller)::-webkit-scrollbar-track {
+    background: var(--scrollbar-track, transparent);
+  }
+  .editor-content :global(.cm-scroller)::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb, rgba(255, 255, 255, 0.1));
+    border-radius: 3px;
+  }
+  .editor-content :global(.cm-scroller)::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover, rgba(255, 255, 255, 0.2));
+  }
+  .editor-content :global(.cm-scroller)::-webkit-scrollbar-corner {
+    background: var(--scrollbar-track, transparent);
+  }
 
   .empty-state {
     flex: 1;

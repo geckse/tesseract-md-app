@@ -80,7 +80,9 @@ describe('addCollection', () => {
       { id: '1', name: 'test', path: '/tmp/test', addedAt: 1000, lastOpenedAt: 1000 }
     ])
 
-    expect(() => addCollection('/tmp/test')).toThrow('Collection already exists for path: /tmp/test')
+    expect(() => addCollection('/tmp/test')).toThrow(
+      'Collection already exists for path: /tmp/test'
+    )
   })
 
   it('appends to existing collections', () => {
@@ -117,7 +119,8 @@ describe('removeCollection', () => {
 
   it('clears activeCollectionId when removing active collection', () => {
     mockGet.mockImplementation((key: string) => {
-      if (key === 'collections') return [{ id: '1', name: 'a', path: '/a', addedAt: 1, lastOpenedAt: 1 }]
+      if (key === 'collections')
+        return [{ id: '1', name: 'a', path: '/a', addedAt: 1, lastOpenedAt: 1 }]
       if (key === 'activeCollectionId') return '1'
       return undefined
     })
@@ -143,9 +146,7 @@ describe('removeCollection', () => {
 
 describe('setActiveCollection', () => {
   it('sets active collection and updates lastOpenedAt', () => {
-    const collections = [
-      { id: '1', name: 'a', path: '/a', addedAt: 1000, lastOpenedAt: 1000 }
-    ]
+    const collections = [{ id: '1', name: 'a', path: '/a', addedAt: 1000, lastOpenedAt: 1000 }]
     mockGet.mockImplementation((key: string) => {
       if (key === 'collections') return [...collections]
       return undefined

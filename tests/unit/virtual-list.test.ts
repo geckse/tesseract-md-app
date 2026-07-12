@@ -6,7 +6,7 @@ import {
   throttleScroll,
   getItemIndexAtY,
   scrollToIndex,
-  type VirtualListConfig,
+  type VirtualListConfig
 } from '@renderer/lib/virtual-list'
 
 describe('calculateVisibleRange', () => {
@@ -225,7 +225,7 @@ describe('throttleScroll', () => {
     const event = new Event('scroll')
     Object.defineProperty(event, 'currentTarget', {
       value: { scrollTop },
-      writable: false,
+      writable: false
     })
     return event
   }

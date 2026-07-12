@@ -1,6 +1,14 @@
 import { writable, derived, get } from 'svelte/store'
 import type { Writable } from 'svelte/store'
-import type { FileTree, FileTreeNode, FileState, AssetScanResult, AssetFileNode, UnifiedTreeNode, MimeCategory, WatchEventReport } from '../types/cli'
+import type {
+  FileTree,
+  FileTreeNode,
+  FileState,
+  AssetScanResult,
+  AssetFileNode,
+  MimeCategory,
+  WatchEventReport
+} from '../types/cli'
 import type { VaultFileEvent } from '../../preload/api'
 import { activeCollection } from './collections'
 import { loadProperties, clearProperties, propertiesFileContent } from './properties'
@@ -66,7 +74,7 @@ export const fileStateCounts = derived(fileTree, ($fileTree) => {
     indexed: 0,
     modified: 0,
     new: 0,
-    deleted: 0,
+    deleted: 0
   }
   if (!$fileTree) return counts
   function walk(node: FileTreeNode): void {
@@ -215,7 +223,7 @@ export const fileContent: Writable<string | null> = {
       tab.content = newValue
     }
     _workspaceSync.update((n) => n + 1)
-  },
+  }
 }
 
 /** Whether file content is currently loading — derived from focused tab. */
@@ -455,7 +463,7 @@ export function insertFileNode(relativePath: string, state: FileState | null = '
         path: relativePath,
         is_dir: false,
         state,
-        children: [],
+        children: []
       })
       parent.children.sort((a, b) => {
         if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1
@@ -559,7 +567,7 @@ export function insertAssetNode(
         is_dir: false,
         children: [],
         ...(fileSize !== undefined ? { fileSize } : {}),
-        ...(mimeCategory !== undefined ? { mimeCategory } : {}),
+        ...(mimeCategory !== undefined ? { mimeCategory } : {})
       })
       parent.children.sort((a, b) => {
         if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1

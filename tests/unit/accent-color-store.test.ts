@@ -6,8 +6,8 @@ const mockSet = vi.fn()
 vi.mock('electron-store', () => ({
   default: vi.fn().mockImplementation(() => ({
     get: (...args: unknown[]) => mockGet(...args),
-    set: (...args: unknown[]) => mockSet(...args),
-  })),
+    set: (...args: unknown[]) => mockSet(...args)
+  }))
 }))
 
 // Mock crypto
@@ -21,7 +21,7 @@ import {
   setPrimaryColor,
   getCollectionColor,
   setCollectionColor,
-  getCollectionColors,
+  getCollectionColors
 } from '../../src/main/store'
 
 beforeEach(() => {
@@ -89,7 +89,7 @@ describe('setCollectionColor', () => {
     setCollectionColor('collection-2', '#A78BFA')
     expect(mockSet).toHaveBeenCalledWith('collectionColors', {
       'collection-1': '#FB923C',
-      'collection-2': '#A78BFA',
+      'collection-2': '#A78BFA'
     })
   })
 })
@@ -101,7 +101,7 @@ describe('getCollectionColors', () => {
   })
 
   it('returns all collection colors', () => {
-    const colors = { 'c1': '#FF0000', 'c2': '#00FF00' }
+    const colors = { c1: '#FF0000', c2: '#00FF00' }
     mockGet.mockReturnValue(colors)
     expect(getCollectionColors()).toEqual(colors)
   })

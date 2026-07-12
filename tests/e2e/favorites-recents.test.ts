@@ -206,9 +206,8 @@ test.describe('Favorites & Recents Management', () => {
     // Get initial recents count
     const recentsSection = window.locator('.recents-section')
     const initialRecentsCount = await recentsSection.count()
-    const initialItemCount = initialRecentsCount > 0
-      ? await window.locator('.recent-item').count()
-      : 0
+    const _initialItemCount =
+      initialRecentsCount > 0 ? await window.locator('.recent-item').count() : 0
 
     // Open a file
     const fileTreeItems = window.locator('.file-tree-item')
@@ -310,10 +309,10 @@ test.describe('Favorites & Recents Management', () => {
           /\d+ hours? ago/,
           /yesterday/,
           /\d+ days ago/,
-          /[A-Z][a-z]+ \d+/  // Date format like "Jan 1"
+          /[A-Z][a-z]+ \d+/ // Date format like "Jan 1"
         ]
 
-        const matchesFormat = validTimeFormats.some(format => format.test(timeText!))
+        const matchesFormat = validTimeFormats.some((format) => format.test(timeText!))
         expect(matchesFormat).toBe(true)
       }
     }

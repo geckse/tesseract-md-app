@@ -24,7 +24,7 @@
     { type: 'email', icon: 'mail', label: 'Email' },
     { type: 'tags', icon: 'sell', label: 'Tags' },
     { type: 'select', icon: 'arrow_drop_down_circle', label: 'Select' },
-    { type: 'complex', icon: 'data_object', label: 'JSON' },
+    { type: 'complex', icon: 'data_object', label: 'JSON' }
   ] as const
 
   const typeOptions = $derived(allTypeOptions.filter((o) => !excludeTypes.includes(o.type)))
@@ -42,22 +42,28 @@
   function handleKeyDown(e: KeyboardEvent) {
     const len = typeOptions.length
     if (e.key === 'ArrowDown') {
-      e.preventDefault(); e.stopPropagation()
+      e.preventDefault()
+      e.stopPropagation()
       selectedIndex = (selectedIndex + 2) % len
     } else if (e.key === 'ArrowUp') {
-      e.preventDefault(); e.stopPropagation()
+      e.preventDefault()
+      e.stopPropagation()
       selectedIndex = (selectedIndex - 2 + len) % len
     } else if (e.key === 'ArrowRight') {
-      e.preventDefault(); e.stopPropagation()
+      e.preventDefault()
+      e.stopPropagation()
       selectedIndex = (selectedIndex + 1) % len
     } else if (e.key === 'ArrowLeft') {
-      e.preventDefault(); e.stopPropagation()
+      e.preventDefault()
+      e.stopPropagation()
       selectedIndex = (selectedIndex - 1 + len) % len
     } else if (e.key === 'Enter' || e.key === 'Tab') {
-      e.preventDefault(); e.stopPropagation()
+      e.preventDefault()
+      e.stopPropagation()
       onSelect(typeOptions[selectedIndex].type)
     } else if (e.key === 'Escape') {
-      e.preventDefault(); e.stopPropagation()
+      e.preventDefault()
+      e.stopPropagation()
       onDismiss()
     }
   }
@@ -67,12 +73,25 @@
     computePosition(anchorEl, menuEl, {
       placement: 'bottom-start',
       middleware: [offset(4), flip(), shift({ padding: 8 })]
-    }).then(({ x, y }) => { if (menuEl) { menuEl.style.left = `${x}px`; menuEl.style.top = `${y}px` } })
+    }).then(({ x, y }) => {
+      if (menuEl) {
+        menuEl.style.left = `${x}px`
+        menuEl.style.top = `${y}px`
+      }
+    })
   }
 
-  onMount(() => { positionMenu(); document.addEventListener('keydown', handleKeyDown, true) })
-  onDestroy(() => { document.removeEventListener('keydown', handleKeyDown, true) })
-  $effect(() => { void anchorEl; positionMenu() })
+  onMount(() => {
+    positionMenu()
+    document.addEventListener('keydown', handleKeyDown, true)
+  })
+  onDestroy(() => {
+    document.removeEventListener('keydown', handleKeyDown, true)
+  })
+  $effect(() => {
+    void anchorEl
+    positionMenu()
+  })
 </script>
 
 <div class="tp" bind:this={menuEl} role="listbox" aria-label="Select property type">
@@ -83,8 +102,13 @@
       class:current={opt.type === currentType}
       role="option"
       aria-selected={i === selectedIndex}
-      onmousedown={(e) => { e.preventDefault(); onSelect(opt.type) }}
-      onmouseenter={() => { selectedIndex = i }}
+      onmousedown={(e) => {
+        e.preventDefault()
+        onSelect(opt.type)
+      }}
+      onmouseenter={() => {
+        selectedIndex = i
+      }}
     >
       <span class="material-symbols-outlined tp-icon">{opt.icon}</span>
       <span class="tp-label">{opt.label}</span>
@@ -123,7 +147,8 @@
     text-align: left;
     transition: background 150ms ease;
   }
-  .tp-option:hover, .tp-option.selected {
+  .tp-option:hover,
+  .tp-option.selected {
     background: var(--color-border, #27272a);
   }
   .tp-icon {
@@ -131,16 +156,24 @@
     color: var(--color-text-dim, #71717a);
     transition: color 150ms ease;
   }
-  .tp-option:hover .tp-icon, .tp-option.selected .tp-icon {
-    color: var(--color-primary, #00E5FF);
+  .tp-option:hover .tp-icon,
+  .tp-option.selected .tp-icon {
+    color: var(--color-primary, #00e5ff);
   }
-  .tp-label { flex: 1; }
-  .tp-option.current .tp-icon { color: var(--color-primary, #00E5FF); }
+  .tp-label {
+    flex: 1;
+  }
+  .tp-option.current .tp-icon {
+    color: var(--color-primary, #00e5ff);
+  }
   .tp-current-check {
     font-size: 14px;
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
   }
   @media (prefers-reduced-motion: reduce) {
-    .tp-option, .tp-icon { transition: none; }
+    .tp-option,
+    .tp-icon {
+      transition: none;
+    }
   }
 </style>

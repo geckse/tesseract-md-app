@@ -26,12 +26,12 @@ const mockApi = {
   onUpdateEvent: vi.fn(),
   removeUpdateEventListener: vi.fn(),
   skipVersion: vi.fn().mockResolvedValue(undefined),
-  getAppVersion: vi.fn().mockResolvedValue('1.0.0'),
+  getAppVersion: vi.fn().mockResolvedValue('1.0.0')
 }
 
 Object.defineProperty(globalThis, 'window', {
   value: { api: mockApi },
-  writable: true,
+  writable: true
 })
 
 import {
@@ -39,7 +39,7 @@ import {
   updateVersion,
   downloadProgress,
   updateError,
-  updateDismissed,
+  updateDismissed
 } from '../../src/renderer/stores/updater'
 import UpdateNotification from '@renderer/components/UpdateNotification.svelte'
 

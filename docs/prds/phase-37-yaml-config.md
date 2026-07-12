@@ -43,12 +43,15 @@ import { parse, stringify } from 'yaml'
 export async function readYamlConfig(filePath: string): Promise<Record<string, unknown>>
 
 /** Write a full config object to a YAML file. Creates parent dirs if needed. */
-export async function writeYamlConfig(filePath: string, config: Record<string, unknown>): Promise<void>
+export async function writeYamlConfig(
+  filePath: string,
+  config: Record<string, unknown>
+): Promise<void>
 
 /** Read YAML, set a nested key by dot-path, write back. */
 export async function setConfigValue(
   filePath: string,
-  keyPath: string,    // e.g., "embedding.provider", "search.decay.enabled"
+  keyPath: string, // e.g., "embedding.provider", "search.decay.enabled"
   value: unknown
 ): Promise<void>
 
@@ -97,6 +100,7 @@ function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
 `app/src/main/ipc-handlers.ts` — update six handlers:
 
 **File paths change:**
+
 - `.markdownvdb/.config` → `.markdownvdb/config.yaml`
 - `~/.mdvdb/config` → `~/.mdvdb/config.yaml`
 
@@ -122,8 +126,10 @@ ipcMain.handle('settings:get-collection-config', (_event, root: string) =>
   wrapHandler(() => readYamlConfig(join(root, '.markdownvdb', 'config.yaml')))
 )
 
-ipcMain.handle('settings:set-collection-config', (_event, root: string, keyPath: string, value: unknown) =>
-  wrapHandler(() => setConfigValue(join(root, '.markdownvdb', 'config.yaml'), keyPath, value))
+ipcMain.handle(
+  'settings:set-collection-config',
+  (_event, root: string, keyPath: string, value: unknown) =>
+    wrapHandler(() => setConfigValue(join(root, '.markdownvdb', 'config.yaml'), keyPath, value))
 )
 
 ipcMain.handle('settings:delete-collection-config', (_event, root: string, keyPath: string) =>
@@ -174,9 +180,9 @@ let collectionConfig = $state<Record<string, unknown>>({})
 **Draft mechanism stays flat** — drafts remain as `Record<string, unknown>` with dot-path keys:
 
 ```typescript
-let userDraft = $state<Record<string, unknown>>({})       // e.g., { "embedding.provider": "ollama" }
+let userDraft = $state<Record<string, unknown>>({}) // e.g., { "embedding.provider": "ollama" }
 let collectionDraft = $state<Record<string, unknown>>({})
-let collectionDeletions = $state<Set<string>>(new Set())   // dot-path keys to delete
+let collectionDeletions = $state<Set<string>>(new Set()) // dot-path keys to delete
 ```
 
 **`getConfigValue(keyPath)` changes:**
@@ -221,27 +227,27 @@ async function saveAllSettings(collectionRoot?: string) {
 
 `app/src/renderer/components/Settings.svelte` — all key references change:
 
-| Before (dotenv) | After (YAML dot-path) |
-|---|---|
-| `MDVDB_EMBEDDING_PROVIDER` | `embedding.provider` |
-| `MDVDB_EMBEDDING_MODEL` | `embedding.model` |
-| `MDVDB_EMBEDDING_DIMENSIONS` | `embedding.dimensions` |
-| `MDVDB_SEARCH_MODE` | `search.mode` |
-| `MDVDB_SEARCH_DEFAULT_LIMIT` | `search.limit` |
-| `MDVDB_SEARCH_MIN_SCORE` | `search.min_score` |
-| `MDVDB_SEARCH_BOOST_LINKS` | `search.boost_links` |
-| `MDVDB_SEARCH_BOOST_HOPS` | `search.boost_hops` |
-| `MDVDB_SEARCH_EXPAND_GRAPH` | `search.expand_graph` |
-| `MDVDB_SEARCH_EXPAND_LIMIT` | `search.expand_limit` |
-| `MDVDB_SEARCH_DECAY` | `search.decay.enabled` |
-| `MDVDB_SEARCH_DECAY_HALF_LIFE` | `search.decay.half_life` |
-| `MDVDB_SEARCH_DECAY_INCLUDE` | `search.decay.include` |
-| `MDVDB_SEARCH_DECAY_EXCLUDE` | `search.decay.exclude` |
-| `MDVDB_CHUNK_MAX_TOKENS` | `chunking.max_tokens` |
-| `MDVDB_CHUNK_OVERLAP_TOKENS` | `chunking.overlap_tokens` |
-| `MDVDB_CUSTOM_CLUSTERS` | `clustering.custom` |
-| `MDVDB_CLUSTER_GRANULARITY` | `clustering.granularity` |
-| `MDVDB_SEARCH_RRF_K` | `search.rrf_k` |
+| Before (dotenv)                | After (YAML dot-path)     |
+| ------------------------------ | ------------------------- |
+| `MDVDB_EMBEDDING_PROVIDER`     | `embedding.provider`      |
+| `MDVDB_EMBEDDING_MODEL`        | `embedding.model`         |
+| `MDVDB_EMBEDDING_DIMENSIONS`   | `embedding.dimensions`    |
+| `MDVDB_SEARCH_MODE`            | `search.mode`             |
+| `MDVDB_SEARCH_DEFAULT_LIMIT`   | `search.limit`            |
+| `MDVDB_SEARCH_MIN_SCORE`       | `search.min_score`        |
+| `MDVDB_SEARCH_BOOST_LINKS`     | `search.boost_links`      |
+| `MDVDB_SEARCH_BOOST_HOPS`      | `search.boost_hops`       |
+| `MDVDB_SEARCH_EXPAND_GRAPH`    | `search.expand_graph`     |
+| `MDVDB_SEARCH_EXPAND_LIMIT`    | `search.expand_limit`     |
+| `MDVDB_SEARCH_DECAY`           | `search.decay.enabled`    |
+| `MDVDB_SEARCH_DECAY_HALF_LIFE` | `search.decay.half_life`  |
+| `MDVDB_SEARCH_DECAY_INCLUDE`   | `search.decay.include`    |
+| `MDVDB_SEARCH_DECAY_EXCLUDE`   | `search.decay.exclude`    |
+| `MDVDB_CHUNK_MAX_TOKENS`       | `chunking.max_tokens`     |
+| `MDVDB_CHUNK_OVERLAP_TOKENS`   | `chunking.overlap_tokens` |
+| `MDVDB_CUSTOM_CLUSTERS`        | `clustering.custom`       |
+| `MDVDB_CLUSTER_GRANULARITY`    | `clustering.granularity`  |
+| `MDVDB_SEARCH_RRF_K`           | `search.rrf_k`            |
 
 The `handleChange(keyPath, value)` function signature stays the same — only the key format changes.
 
@@ -252,8 +258,8 @@ The `parseCustomClusters(raw)` and `encodeCustomClusters(defs)` functions in `ap
 ```yaml
 clustering:
   custom:
-    - name: "AI Research"
-      seeds: ["machine learning", "neural networks"]
+    - name: 'AI Research'
+      seeds: ['machine learning', 'neural networks']
 ```
 
 **Reading:** `getConfigValue('clustering.custom')` returns the array directly.
@@ -343,20 +349,20 @@ export interface YamlConfig {
 
 ## Files Modified
 
-| File | Change |
-|---|---|
-| `app/package.json` | Add `yaml` dependency |
-| `app/src/main/config-io.ts` | Complete rewrite: dotenv → YAML read/write |
-| `app/src/main/ipc-handlers.ts` | File paths → `config.yaml`, function calls → new config-io exports |
-| `app/src/preload/index.ts` | Type signature updates for config methods |
-| `app/src/preload/api.d.ts` | Type declaration updates |
-| `app/src/renderer/stores/settings.ts` | Store types, `getConfigValue()`, `saveAllSettings()` |
-| `app/src/renderer/types/cli.ts` | `YamlConfig` interface |
-| `app/src/renderer/components/Settings.svelte` | All key references: `MDVDB_*` → dot-path |
-| `app/src/renderer/lib/custom-clusters.ts` | Deprecate/remove encode/decode for settings path |
-| `app/tests/unit/config-io.test.ts` | Rewrite for YAML semantics |
-| `app/tests/unit/settings-store.test.ts` | Update mock return types |
-| `app/tests/unit/ipc-handlers.test.ts` | Update expectations |
+| File                                          | Change                                                             |
+| --------------------------------------------- | ------------------------------------------------------------------ |
+| `app/package.json`                            | Add `yaml` dependency                                              |
+| `app/src/main/config-io.ts`                   | Complete rewrite: dotenv → YAML read/write                         |
+| `app/src/main/ipc-handlers.ts`                | File paths → `config.yaml`, function calls → new config-io exports |
+| `app/src/preload/index.ts`                    | Type signature updates for config methods                          |
+| `app/src/preload/api.d.ts`                    | Type declaration updates                                           |
+| `app/src/renderer/stores/settings.ts`         | Store types, `getConfigValue()`, `saveAllSettings()`               |
+| `app/src/renderer/types/cli.ts`               | `YamlConfig` interface                                             |
+| `app/src/renderer/components/Settings.svelte` | All key references: `MDVDB_*` → dot-path                           |
+| `app/src/renderer/lib/custom-clusters.ts`     | Deprecate/remove encode/decode for settings path                   |
+| `app/tests/unit/config-io.test.ts`            | Rewrite for YAML semantics                                         |
+| `app/tests/unit/settings-store.test.ts`       | Update mock return types                                           |
+| `app/tests/unit/ipc-handlers.test.ts`         | Update expectations                                                |
 
 ## Validation Criteria
 

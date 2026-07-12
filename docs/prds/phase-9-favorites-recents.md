@@ -40,21 +40,22 @@ interface AppStore {
 }
 
 interface FavoriteEntry {
-  collectionId: string     // Which collection this file belongs to
-  filePath: string         // Relative path within the collection
-  addedAt: number          // Unix timestamp
+  collectionId: string // Which collection this file belongs to
+  filePath: string // Relative path within the collection
+  addedAt: number // Unix timestamp
 }
 
 interface RecentEntry {
   collectionId: string
   filePath: string
-  openedAt: number         // Unix timestamp, updated on each open
+  openedAt: number // Unix timestamp, updated on each open
 }
 ```
 
 ### Interface Changes
 
 **New IPC channels:**
+
 - `'favorites:list'` → returns all favorites
 - `'favorites:add'` → add a file to favorites
 - `'favorites:remove'` → remove a file from favorites
@@ -64,6 +65,7 @@ interface RecentEntry {
 - `'recents:clear'` → clear all recents
 
 **Updated preload `window.api`:**
+
 ```typescript
 interface MdvdbApi {
   // ... existing methods ...
@@ -80,6 +82,7 @@ interface MdvdbApi {
 ### New Commands / API / UI
 
 **Sidebar Favorites section** (matching mockup):
+
 - Star icon + "Favorites" label
 - List of favorited files: `file icon + filename`, dimmed collection name as subtitle
 - Click: open file in editor (switch collection if different from current)
@@ -87,6 +90,7 @@ interface MdvdbApi {
 - Empty state: (section hidden when no favorites)
 
 **Sidebar Recents section** (matching mockup):
+
 - Clock icon + "Recent" label
 - List of recently opened files: `file icon + filename`, relative time ("2 min ago", "yesterday")
 - Click: open file in editor
@@ -95,6 +99,7 @@ interface MdvdbApi {
 - Empty state: (section hidden when no recents)
 
 **Star toggle in editor:**
+
 - Star icon in the header breadcrumb area or near the file name
 - Outlined star when not favorited, filled star when favorited
 - Click toggles favorite state

@@ -20,7 +20,7 @@ The data needed is already available: `cli:links` and `cli:backlinks` return out
 
 ## Non-Goals
 
-- ~~**Depth > 1**~~ — *Now implemented:* 2-hop neighbors (depth=2) are fetched asynchronously and displayed with dimmer styling.
+- ~~**Depth > 1**~~ — _Now implemented:_ 2-hop neighbors (depth=2) are fetched asynchronously and displayed with dimmer styling.
 - **Cluster coloring in the widget** — The widget is too small for a cluster legend. Cluster visualization is a full graph view feature.
 - **Editable edges** — Read-only, same as Phase 14.
 - **New Rust API** — This phase reuses existing `links()` and `backlinks()` data already fetched by the Properties Panel. No new CLI commands needed.
@@ -33,8 +33,8 @@ The Properties Panel already fetches link data for the selected file:
 
 ```typescript
 // stores/properties.ts (existing)
-backlinksInfo: Writable<BacklinksOutput | null>   // { backlinks: ResolvedLink[], total_backlinks }
-linksInfo: Writable<LinksOutput | null>           // { links: LinkQueryResult }
+backlinksInfo: Writable<BacklinksOutput | null> // { backlinks: ResolvedLink[], total_backlinks }
+linksInfo: Writable<LinksOutput | null> // { links: LinkQueryResult }
 ```
 
 The local graph builds its node/edge model directly from these existing stores — no additional IPC calls.
@@ -44,27 +44,27 @@ The local graph builds its node/edge model directly from these existing stores �
 ```typescript
 interface LocalGraphNode {
   path: string
-  label: string       // filename extracted from path
+  label: string // filename extracted from path
   isCenterNode: boolean
 }
 
 interface LocalGraphEdge {
-  source: string      // path
-  target: string      // path
+  source: string // path
+  target: string // path
 }
 
 function buildLocalGraph(
   centerPath: string,
   linksInfo: LinksOutput | null,
   backlinksInfo: BacklinksOutput | null
-): { nodes: LocalGraphNode[], edges: LocalGraphEdge[] } {
+): { nodes: LocalGraphNode[]; edges: LocalGraphEdge[] } {
   const nodeMap = new Map<string, LocalGraphNode>()
 
   // Center node (the currently open file)
   nodeMap.set(centerPath, {
     path: centerPath,
     label: getFileName(centerPath),
-    isCenterNode: true,
+    isCenterNode: true
   })
 
   // Outgoing link targets
@@ -74,7 +74,7 @@ function buildLocalGraph(
         nodeMap.set(link.entry.target, {
           path: link.entry.target,
           label: getFileName(link.entry.target),
-          isCenterNode: false,
+          isCenterNode: false
         })
       }
     }
@@ -87,7 +87,7 @@ function buildLocalGraph(
         nodeMap.set(link.entry.source, {
           path: link.entry.source,
           label: getFileName(link.entry.source),
-          isCenterNode: false,
+          isCenterNode: false
         })
       }
     }
@@ -121,6 +121,7 @@ New file: `app/src/renderer/components/LocalGraph.svelte`
 **Rendering approach: SVG** (not Canvas)
 
 SVG is the right choice here because:
+
 - Ego graphs have at most ~30 nodes — no performance concern
 - SVG elements are DOM nodes — easier click/hover handling, cursor changes, accessibility
 - Integrates naturally with Svelte's reactive rendering
@@ -130,11 +131,17 @@ SVG is the right choice here because:
 
 ```typescript
 forceSimulation(nodes)
-  .force('link', forceLink(edges).id(d => d.path).distance(50).strength(0.6))
+  .force(
+    'link',
+    forceLink(edges)
+      .id((d) => d.path)
+      .distance(50)
+      .strength(0.6)
+  )
   .force('charge', forceManyBody().strength(-80))
   .force('center', forceCenter(width / 2, height / 2))
   .force('collide', forceCollide(12))
-  .alphaDecay(0.05)   // faster stabilization (small graph)
+  .alphaDecay(0.05) // faster stabilization (small graph)
 ```
 
 Warm-up with `simulation.tick(100)` before first render — small graph stabilizes quickly.
@@ -163,6 +170,7 @@ Warm-up with `simulation.tick(100)` before first render — small graph stabiliz
 **Section placement:** Between Metadata and Links. The graph provides a visual complement to the Links text list below it.
 
 **SVG container sizing:**
+
 - Width: Fills the panel width (minus padding) — typically ~250px
 - Height: Fixed 200px (compact but usable). Collapsible to 0 when section is closed.
 - Background: `var(--color-surface-dark)` with subtle border, matching the panel aesthetic
@@ -184,8 +192,8 @@ Warm-up with `simulation.tick(100)` before first render — small graph stabiliz
     tabindex="0"
     aria-label={node.label}
     onclick={() => handleNodeClick(node)}
-    onmouseenter={() => hoveredNode = node.path}
-    onmouseleave={() => hoveredNode = null}
+    onmouseenter={() => (hoveredNode = node.path)}
+    onmouseleave={() => (hoveredNode = null)}
   />
 {/each}
 ```
@@ -199,8 +207,10 @@ Warm-up with `simulation.tick(100)` before first render — small graph stabiliz
 ```svelte
 {#each simulationEdges as edge}
   <line
-    x1={edge.source.x} y1={edge.source.y}
-    x2={edge.target.x} y2={edge.target.y}
+    x1={edge.source.x}
+    y1={edge.source.y}
+    x2={edge.target.x}
+    y2={edge.target.y}
     stroke="rgba(255, 255, 255, 0.12)"
     stroke-width="1"
   />
@@ -282,7 +292,11 @@ Modify `app/src/renderer/components/PropertiesPanel.svelte`:
     {#if localGraphNodeCount > 0}
       <span class="section-count">{localGraphNodeCount}</span>
     {/if}
-    <button class="expand-button" title="Open full graph" onclick|stopPropagation={expandToFullGraph}>
+    <button
+      class="expand-button"
+      title="Open full graph"
+      onclick|stopPropagation={expandToFullGraph}
+    >
       <span class="material-symbols-outlined">open_in_full</span>
     </button>
   </div>
@@ -350,18 +364,19 @@ The original PRD specified depth=1 only. The widget now fetches and displays dep
 
 Edges are color-coded by direction using design token CSS variables:
 
-| Direction | Color | Token | Default |
-|---|---|---|---|
-| Outgoing (center → target) | Cyan | `--color-edge-out` | `#00E5FF` |
-| Incoming (source → center) | Red | `--color-edge-in` | `#FF6B6B` |
-| Bidirectional (both ways) | Green | `--color-edge-bidi` | `#51CF66` |
-| Depth-2 / default | Dim white | — | `rgba(255,255,255,0.08–0.15)` |
+| Direction                  | Color     | Token               | Default                       |
+| -------------------------- | --------- | ------------------- | ----------------------------- |
+| Outgoing (center → target) | Cyan      | `--color-edge-out`  | `#00E5FF`                     |
+| Incoming (source → center) | Red       | `--color-edge-in`   | `#FF6B6B`                     |
+| Bidirectional (both ways)  | Green     | `--color-edge-bidi` | `#51CF66`                     |
+| Depth-2 / default          | Dim white | —                   | `rgba(255,255,255,0.08–0.15)` |
 
 - **Bidirectional detection:** `buildLocalGraph()` tracks when A→B and B→A both exist, marks the edge `bidirectional: true`, and renders a single line (not two overlapping lines)
 - **Arrowheads on hover only:** SVG marker arrowheads appear only when hovering a connected node, keeping the default view clean
 - **Bidirectional arrows:** Bidirectional edges show green arrowheads on both ends (`marker-start` + `marker-end`) on hover
 
 These same tokens are also applied in:
+
 - `GraphView.svelte` — global graph uses the same bidi detection and green color for canvas-drawn edges
 - `PropertiesPanel.svelte` — incoming link icons use `--color-edge-in`, outgoing link icons use `--color-edge-out`
 
@@ -394,21 +409,21 @@ Edges are rendered in a deliberate order for visibility: depth-2 edges first (ba
 
 ### Files Modified
 
-| File | Purpose |
-|---|---|
-| `app/src/renderer/utils/local-graph.ts` | Graph building utility — `LocalNode` (with `depth`), `LocalEdge` (with `bidirectional`), `NeighborLinks`, `buildLocalGraph()` |
-| `app/src/renderer/components/LocalGraph.svelte` | SVG graph component with zoom/pan, spread, directional edges, hover arrowheads |
-| `app/src/renderer/components/PropertiesPanel.svelte` | Direction-colored link icons (`.link-icon-in`, `.link-icon-out`) |
-| `app/src/renderer/components/GraphView.svelte` | Bidirectional edge detection + green color in global canvas graph |
-| `app/src/renderer/styles/tokens.css` | Design tokens: `--color-edge-out`, `--color-edge-in`, `--color-edge-bidi` |
-| `app/src/renderer/styles/app.css` | Tailwind theme mapping for edge color tokens |
-| `app/tests/unit/LocalGraph.test.ts` | 34 tests covering depth-2, bidirectional edges, component rendering |
+| File                                                 | Purpose                                                                                                                       |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `app/src/renderer/utils/local-graph.ts`              | Graph building utility — `LocalNode` (with `depth`), `LocalEdge` (with `bidirectional`), `NeighborLinks`, `buildLocalGraph()` |
+| `app/src/renderer/components/LocalGraph.svelte`      | SVG graph component with zoom/pan, spread, directional edges, hover arrowheads                                                |
+| `app/src/renderer/components/PropertiesPanel.svelte` | Direction-colored link icons (`.link-icon-in`, `.link-icon-out`)                                                              |
+| `app/src/renderer/components/GraphView.svelte`       | Bidirectional edge detection + green color in global canvas graph                                                             |
+| `app/src/renderer/styles/tokens.css`                 | Design tokens: `--color-edge-out`, `--color-edge-in`, `--color-edge-bidi`                                                     |
+| `app/src/renderer/styles/app.css`                    | Tailwind theme mapping for edge color tokens                                                                                  |
+| `app/tests/unit/LocalGraph.test.ts`                  | 34 tests covering depth-2, bidirectional edges, component rendering                                                           |
 
 ## Anti-Patterns to Avoid
 
 - **Canvas for the widget** — Canvas is overkill for ~30 nodes and makes click handling harder. SVG gives native DOM events, cursor changes, and accessibility for free.
 - **Fetching extra data** — Don't add new IPC calls. The Properties Panel already fetches `linksInfo` and `backlinksInfo` for the selected file. Build the graph from existing store data.
-- ~~**Pan/zoom on the widget**~~ — *Now implemented:* Zoom/pan controls were added (bottom-left buttons) since depth-2 graphs can be dense. ViewBox-based zoom keeps the SVG crisp at all levels.
+- ~~**Pan/zoom on the widget**~~ — _Now implemented:_ Zoom/pan controls were added (bottom-left buttons) since depth-2 graphs can be dense. ViewBox-based zoom keeps the SVG crisp at all levels.
 - **Re-running simulation on every store update** — Only rebuild the simulation when the selected file path changes, not on every render. Use `$effect` keyed on `centerPath`.
 - **Large fixed height** — Don't make the graph section taller than 200px. It should complement the other sections, not dominate the panel. Users who want more space use the expand button.
 

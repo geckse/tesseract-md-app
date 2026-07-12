@@ -23,9 +23,9 @@ function createMockDocTab(filePath: string, overrides?: Partial<DocumentTab>): D
     navigation: {
       backStack: [],
       forwardStack: [],
-      current: filePath,
+      current: filePath
     },
-    ...overrides,
+    ...overrides
   }
 }
 
@@ -68,7 +68,7 @@ describe('ClosedTabStack', () => {
         scrollPosition: 150,
         cursorPosition: 42,
         wordCount: 100,
-        tokenCount: 50,
+        tokenCount: 50
       })
       closedTabs.push(tab, 'pane-1')
 
@@ -283,7 +283,7 @@ describe('ClosedTabStack', () => {
   describe('reopen restores correct state', () => {
     it('preserves file path and editor mode', () => {
       const tab = createMockDocTab('important.md', {
-        editorMode: 'editor',
+        editorMode: 'editor'
       })
       closedTabs.push(tab, 'pane-1')
 
@@ -295,7 +295,7 @@ describe('ClosedTabStack', () => {
     it('preserves dirty state', () => {
       const tab = createMockDocTab('unsaved.md', {
         isDirty: true,
-        content: '# Unsaved changes',
+        content: '# Unsaved changes'
       })
       closedTabs.push(tab, 'pane-1')
 
@@ -307,7 +307,7 @@ describe('ClosedTabStack', () => {
     it('preserves scroll and cursor position', () => {
       const tab = createMockDocTab('scrolled.md', {
         scrollPosition: 500,
-        cursorPosition: 123,
+        cursorPosition: 123
       })
       closedTabs.push(tab, 'pane-1')
 
@@ -321,8 +321,8 @@ describe('ClosedTabStack', () => {
         navigation: {
           backStack: ['prev-a.md', 'prev-b.md'],
           forwardStack: ['next-a.md'],
-          current: 'navigated.md',
-        },
+          current: 'navigated.md'
+        }
       })
       closedTabs.push(tab, 'pane-1')
 
@@ -335,7 +335,7 @@ describe('ClosedTabStack', () => {
     it('preserves word and token counts', () => {
       const tab = createMockDocTab('counted.md', {
         wordCount: 250,
-        tokenCount: 180,
+        tokenCount: 180
       })
       closedTabs.push(tab, 'pane-1')
 

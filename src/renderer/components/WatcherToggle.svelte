@@ -1,27 +1,27 @@
 <script lang="ts">
-  import { watcherState, watcherError, watcherToggling, toggleWatcher } from '../stores/watcher';
+  import { watcherState, watcherError, watcherToggling, toggleWatcher } from '../stores/watcher'
 
-  type WatcherStateValue = 'stopped' | 'starting' | 'running' | 'error';
+  type WatcherStateValue = 'stopped' | 'starting' | 'running' | 'error'
 
-  let currentState: WatcherStateValue = $state('stopped');
-  watcherState.subscribe((v) => (currentState = v as WatcherStateValue));
+  let currentState: WatcherStateValue = $state('stopped')
+  watcherState.subscribe((v) => (currentState = v as WatcherStateValue))
 
-  let currentError: string | null = $state(null);
-  watcherError.subscribe((v) => (currentError = v));
+  let currentError: string | null = $state(null)
+  watcherError.subscribe((v) => (currentError = v))
 
-  let toggling = $state(false);
-  watcherToggling.subscribe((v) => (toggling = v));
+  let toggling = $state(false)
+  watcherToggling.subscribe((v) => (toggling = v))
 
   const stateLabel: Record<WatcherStateValue, string> = {
     stopped: 'Watch',
     starting: 'Starting...',
     running: 'Watching',
-    error: 'Watch Error',
-  };
+    error: 'Watch Error'
+  }
 
   function handleClick(): void {
-    if (toggling) return;
-    toggleWatcher();
+    if (toggling) return
+    toggleWatcher()
   }
 </script>
 
@@ -98,7 +98,12 @@
   }
 
   @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.4;
+    }
   }
 </style>

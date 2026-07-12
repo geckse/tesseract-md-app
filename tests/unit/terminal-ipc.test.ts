@@ -6,19 +6,23 @@ import type { PtyManager } from '../../src/main/pty'
 const mockHandle = vi.fn()
 vi.mock('electron', () => ({
   ipcMain: {
-    handle: (...args: unknown[]) => mockHandle(...args),
-  },
+    handle: (...args: unknown[]) => mockHandle(...args)
+  }
 }))
 
 // Stub ipc-handlers module so we don't pull in its heavy transitive deps
 // (updater, window-manager, etc.). wrapHandler's logic is exercised via
 // the errors.ts serialize() methods we test below.
 vi.mock('../../src/main/ipc-handlers', () => ({
-  wrapHandler: async <T>(fn: () => Promise<T>): Promise<T | { error: true; type: string; message: string }> => {
+  wrapHandler: async <T>(
+    fn: () => Promise<T>
+  ): Promise<T | { error: true; type: string; message: string }> => {
     try {
       return await fn()
     } catch (err: unknown) {
-      const maybeSerializable = err as { serialize?: () => { error: true; type: string; message: string } }
+      const maybeSerializable = err as {
+        serialize?: () => { error: true; type: string; message: string }
+      }
       if (typeof maybeSerializable.serialize === 'function') {
         return maybeSerializable.serialize()
       }
@@ -27,7 +31,7 @@ vi.mock('../../src/main/ipc-handlers', () => ({
       }
       return { error: true, type: 'CliExecutionError', message: String(err) }
     }
-  },
+  }
 }))
 
 import { registerTerminalHandlers } from '../../src/main/pty-handlers'
@@ -41,7 +45,7 @@ function createMockPtyManager(): PtyManager {
     disposeByWindow: vi.fn(),
     disposeAll: vi.fn(),
     list: vi.fn().mockReturnValue([]),
-    has: vi.fn().mockReturnValue(true),
+    has: vi.fn().mockReturnValue(true)
   } as unknown as PtyManager
 }
 
@@ -66,7 +70,7 @@ describe('registerTerminalHandlers', () => {
         'terminal:write',
         'terminal:resize',
         'terminal:dispose',
-        'terminal:list',
+        'terminal:list'
       ])
     )
   })
@@ -111,13 +115,13 @@ describe('registerTerminalHandlers', () => {
   it('terminal:list returns the live terminal list', async () => {
     const mgr = createMockPtyManager()
     vi.mocked(mgr.list).mockReturnValue([
-      { id: 'T1', pid: 1, shell: '/bin/zsh', cwd: '/tmp', status: 'running' },
+      { id: 'T1', pid: 1, shell: '/bin/zsh', cwd: '/tmp', status: 'running' }
     ])
     registerTerminalHandlers(mgr)
     const handler = getHandler('terminal:list')
     const result = await handler({} as unknown)
     expect(result).toEqual([
-      { id: 'T1', pid: 1, shell: '/bin/zsh', cwd: '/tmp', status: 'running' },
+      { id: 'T1', pid: 1, shell: '/bin/zsh', cwd: '/tmp', status: 'running' }
     ])
   })
 
@@ -132,9 +136,13 @@ describe('registerTerminalHandlers', () => {
       id: 'T1',
       cwd: '/tmp',
       cols: 80,
-      rows: 24,
+      rows: 24
     })
-    expect(result).toMatchObject({ error: true, type: 'TerminalSpawnError', message: 'missing shell' })
+    expect(result).toMatchObject({
+      error: true,
+      type: 'TerminalSpawnError',
+      message: 'missing shell'
+    })
   })
 
   it('serializes TerminalNotFoundError through wrapHandler', async () => {

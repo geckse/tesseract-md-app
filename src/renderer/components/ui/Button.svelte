@@ -1,12 +1,12 @@
 <script lang="ts">
-  import type { Snippet } from 'svelte';
+  import type { Snippet } from 'svelte'
 
   interface ButtonProps {
-    variant?: 'primary' | 'secondary';
-    size?: 'sm' | 'md' | 'lg';
-    disabled?: boolean;
-    onclick?: (e: MouseEvent) => void;
-    children: Snippet;
+    variant?: 'primary' | 'secondary'
+    size?: 'sm' | 'md' | 'lg'
+    disabled?: boolean
+    onclick?: (e: MouseEvent) => void
+    children: Snippet
   }
 
   let {
@@ -14,15 +14,11 @@
     size = 'md',
     disabled = false,
     onclick,
-    children,
-  }: ButtonProps = $props();
+    children
+  }: ButtonProps = $props()
 </script>
 
-<button
-  class="btn btn-{variant} btn-{size}"
-  {disabled}
-  {onclick}
->
+<button class="btn btn-{variant} btn-{size}" {disabled} {onclick}>
   {@render children()}
 </button>
 
@@ -39,8 +35,9 @@
     letter-spacing: 0.05em;
     text-transform: uppercase;
     cursor: pointer;
-    transition: background var(--transition-fast, 150ms ease),
-                opacity var(--transition-fast, 150ms ease);
+    transition:
+      background var(--transition-fast, 150ms ease),
+      opacity var(--transition-fast, 150ms ease);
     white-space: nowrap;
   }
 
@@ -52,12 +49,12 @@
   /* --- Variants --- */
 
   .btn-primary {
-    background: var(--color-primary, #00E5FF);
+    background: var(--color-primary, #00e5ff);
     color: var(--color-surface-dark, #0a0a0a);
   }
 
   .btn-primary:hover:not(:disabled) {
-    background: var(--color-primary-dark, #00B8CC);
+    background: var(--color-primary-dark, #00b8cc);
   }
 
   .btn-secondary {

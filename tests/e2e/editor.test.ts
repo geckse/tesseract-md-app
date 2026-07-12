@@ -240,7 +240,7 @@ test.describe('Editor Workflow', () => {
         await expect(cmEditor).toBeVisible()
 
         // Get first file content
-        const firstContent = await window.locator('.cm-content').textContent()
+        const _firstContent = await window.locator('.cm-content').textContent()
 
         // Switch to second file
         await fileRows.nth(1).click()

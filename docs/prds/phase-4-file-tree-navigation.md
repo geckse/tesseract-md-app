@@ -35,22 +35,24 @@ No persistent data changes. New in-memory stores in the renderer:
 
 ```typescript
 // Svelte stores
-fileTree: Writable<FileTree | null>           // Parsed CLI output
-activeFilePath: Writable<string | null>        // Currently selected file (relative path)
-fileContent: Writable<string | null>           // Raw markdown content of selected file
-expandedDirs: Writable<Set<string>>            // Expanded directory paths (per-collection)
+fileTree: Writable<FileTree | null> // Parsed CLI output
+activeFilePath: Writable<string | null> // Currently selected file (relative path)
+fileContent: Writable<string | null> // Raw markdown content of selected file
+expandedDirs: Writable<Set<string>> // Expanded directory paths (per-collection)
 ```
 
 ### Interface Changes
 
 **New IPC channel for file reading:**
+
 - `'fs:read-file'` → reads a file from disk given absolute path, returns string content
 
 **Updated preload `window.api`:**
+
 ```typescript
 interface MdvdbApi {
   // ... existing methods ...
-  readFile(absolutePath: string): Promise<string>  // Read file content from disk
+  readFile(absolutePath: string): Promise<string> // Read file content from disk
 }
 ```
 
@@ -78,12 +80,14 @@ Recursive component rendering `FileTreeNode` objects:
 | deleted | red | small dot | `text-red-500` |
 
 **Active file styling** (from mockup):
+
 - Background: `bg-primary-dim` (rgba(0, 229, 255, 0.1))
 - Text: `text-primary` (#00E5FF)
 - Right border: `border-r-2 border-primary`
 - Font weight: `font-medium`
 
 **Breadcrumb in Header:**
+
 - Format: `Collection Name > parent_dir > filename.md`
 - Collection name: `text-text-dim hover:text-white` (clickable, deselects file)
 - Chevron separators: `text-border-dark`

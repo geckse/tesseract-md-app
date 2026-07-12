@@ -11,7 +11,6 @@
   let step = $state(0)
   let cliDetecting = $state(false)
   let cliResult: CliDetectResult | null = $state(null)
-  let cliError: string | null = $state(null)
   let installing = $state(false)
   let installPercent = $state(0)
   let installStage = $state('')
@@ -21,11 +20,10 @@
 
   async function detectCli() {
     cliDetecting = true
-    cliError = null
     try {
       cliResult = await window.api.detectCli()
-    } catch (e) {
-      cliError = e instanceof Error ? e.message : 'Detection failed'
+    } catch {
+      // Detection failure leaves cliResult null; the UI offers install instead
     } finally {
       cliDetecting = false
     }
@@ -81,20 +79,21 @@
   })
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events -->
-<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="onboarding-overlay">
   <div class="onboarding-card">
-
     {#if step === 0}
       <!-- Step 1: Welcome -->
       <div class="step-content welcome">
         <span class="material-symbols-outlined logo-icon">search_insights</span>
         <h1 class="app-name">Tesseract</h1>
         <p class="tagline">Search your notes by meaning</p>
-        <button class="primary-btn" onclick={() => { step = 1 }}>Get Started</button>
+        <button
+          class="primary-btn"
+          onclick={() => {
+            step = 1
+          }}>Get Started</button
+        >
       </div>
-
     {:else if step === 1}
       <!-- Step 2: CLI Setup -->
       <div class="step-content">
@@ -106,7 +105,6 @@
           <div class="progress-bar-track">
             <div class="progress-bar-indeterminate"></div>
           </div>
-
         {:else if cliResult?.found}
           <div class="cli-found">
             <span class="material-symbols-outlined check-icon">check_circle</span>
@@ -117,30 +115,41 @@
               {/if}
             </div>
           </div>
-          <button class="primary-btn" onclick={() => { step = 2 }}>Continue</button>
-
+          <button
+            class="primary-btn"
+            onclick={() => {
+              step = 2
+            }}>Continue</button
+          >
         {:else if installing}
           <p class="step-desc">{installStage}</p>
           <div class="progress-bar-track">
             <div class="progress-bar-fill" style="width: {installPercent}%"></div>
           </div>
           <span class="progress-percent">{installPercent}%</span>
-
         {:else if installError}
           <div class="error-box">
             <span class="material-symbols-outlined error-icon">error</span>
             <p>{installError}</p>
           </div>
           <button class="primary-btn" onclick={handleInstallCli}>Retry</button>
-          <button class="skip-link" onclick={() => { step = 2 }}>Skip for now</button>
-
+          <button
+            class="skip-link"
+            onclick={() => {
+              step = 2
+            }}>Skip for now</button
+          >
         {:else}
           <p class="step-desc">The CLI tool was not found on your system.</p>
           <button class="primary-btn" onclick={handleInstallCli}>Install CLI</button>
-          <button class="skip-link" onclick={() => { step = 2 }}>Skip for now</button>
+          <button
+            class="skip-link"
+            onclick={() => {
+              step = 2
+            }}>Skip for now</button
+          >
         {/if}
       </div>
-
     {:else if step === 2}
       <!-- Step 3: First Collection -->
       <div class="step-content">
@@ -380,7 +389,11 @@
   }
 
   @keyframes indeterminate {
-    0% { transform: translateX(-100%); }
-    100% { transform: translateX(350%); }
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(350%);
+    }
   }
 </style>

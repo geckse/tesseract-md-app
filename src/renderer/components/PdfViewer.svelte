@@ -103,7 +103,7 @@
   }
 
   $effect(() => {
-    filePath // track dependency
+    void filePath // track dependency
     loadPdf()
   })
 </script>
@@ -130,11 +130,19 @@
 
   {#if totalPages > 0 && !loading && !error}
     <div class="toolbar">
-      <button class="tool-btn" onclick={() => goToPage(currentPage - 1)} disabled={currentPage <= 1}>
+      <button
+        class="tool-btn"
+        onclick={() => goToPage(currentPage - 1)}
+        disabled={currentPage <= 1}
+      >
         <span class="material-symbols-outlined">chevron_left</span>
       </button>
       <span class="page-info">{currentPage} / {totalPages}</span>
-      <button class="tool-btn" onclick={() => goToPage(currentPage + 1)} disabled={currentPage >= totalPages}>
+      <button
+        class="tool-btn"
+        onclick={() => goToPage(currentPage + 1)}
+        disabled={currentPage >= totalPages}
+      >
         <span class="material-symbols-outlined">chevron_right</span>
       </button>
       <div class="separator"></div>
@@ -178,7 +186,8 @@
     height: auto;
   }
 
-  .loading, .error {
+  .loading,
+  .error {
     flex: 1;
     display: flex;
     align-items: center;
@@ -188,13 +197,19 @@
     font-size: 14px;
   }
 
-  .error { color: var(--color-error, #ef4444); }
+  .error {
+    color: var(--color-error, #ef4444);
+  }
 
   .spinning {
     animation: spin 1s linear infinite;
   }
 
-  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
 
   .toolbar {
     display: flex;
@@ -232,7 +247,8 @@
     font-size: 18px;
   }
 
-  .page-info, .zoom-level {
+  .page-info,
+  .zoom-level {
     font-size: 12px;
     font-family: var(--font-mono, 'JetBrains Mono', monospace);
     color: var(--color-text-dim, #71717a);
@@ -248,6 +264,8 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .spinning { animation: none; }
+    .spinning {
+      animation: none;
+    }
   }
 </style>

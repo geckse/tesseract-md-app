@@ -33,7 +33,7 @@ const mockApi = {
   setTerminalShellArgs: vi.fn().mockResolvedValue(undefined),
   getTerminalFontSize: vi.fn().mockResolvedValue(14),
   setTerminalFontSize: vi.fn().mockResolvedValue(undefined),
-  openPath: vi.fn(),
+  openPath: vi.fn()
 }
 
 // Attach mock api to the existing jsdom window (don't replace window itself)
@@ -41,7 +41,7 @@ const mockApi = {
 
 // Mock KeyboardShortcuts component to avoid complex child rendering
 vi.mock('../../src/renderer/components/KeyboardShortcuts.svelte', () => ({
-  default: vi.fn(),
+  default: vi.fn()
 }))
 
 import {
@@ -49,7 +49,7 @@ import {
   collectionConfig,
   configLoading,
   activeSection,
-  settingsTarget,
+  settingsTarget
 } from '../../src/renderer/stores/settings'
 import { collections, activeCollectionId } from '../../src/renderer/stores/collections'
 import { get } from 'svelte/store'
@@ -104,7 +104,7 @@ describe('Settings component', () => {
   it('renders collections in nav when collections exist', () => {
     collections.set([
       { id: 'c1', name: 'My Notes', path: '/tmp/notes' },
-      { id: 'c2', name: 'Work Docs', path: '/tmp/work' },
+      { id: 'c2', name: 'Work Docs', path: '/tmp/work' }
     ])
     render(Settings, { props: { onclose: vi.fn() } })
 
@@ -114,9 +114,7 @@ describe('Settings component', () => {
   })
 
   it('clicking collection in nav shows collection settings', async () => {
-    collections.set([
-      { id: 'c1', name: 'My Notes', path: '/tmp/notes' },
-    ])
+    collections.set([{ id: 'c1', name: 'My Notes', path: '/tmp/notes' }])
     render(Settings, { props: { onclose: vi.fn() } })
 
     const collectionNav = screen.getByText('My Notes')
@@ -128,17 +126,15 @@ describe('Settings component', () => {
   })
 
   it('collection view shows only embedding/search/chunking/appearance tabs', async () => {
-    collections.set([
-      { id: 'c1', name: 'My Notes', path: '/tmp/notes' },
-    ])
+    collections.set([{ id: 'c1', name: 'My Notes', path: '/tmp/notes' }])
     settingsTarget.set('c1')
     activeSection.set('embedding')
     render(Settings, { props: { onclose: vi.fn() } })
 
     // These should be present as section tabs
-    const sectionTabs = screen.getAllByRole('button').filter(
-      (btn) => btn.classList.contains('section-tab')
-    )
+    const sectionTabs = screen
+      .getAllByRole('button')
+      .filter((btn) => btn.classList.contains('section-tab'))
     const tabTexts = sectionTabs.map((btn) => btn.textContent?.trim() ?? '')
 
     expect(tabTexts.some((t) => t.includes('Embedding Provider'))).toBe(true)
@@ -154,9 +150,9 @@ describe('Settings component', () => {
     render(Settings, { props: { onclose: vi.fn() } })
 
     // Find the Embedding Provider section tab and click it
-    const tabs = screen.getAllByRole('button').filter(
-      (btn) => btn.classList.contains('section-tab')
-    )
+    const tabs = screen
+      .getAllByRole('button')
+      .filter((btn) => btn.classList.contains('section-tab'))
     const embeddingTab = tabs.find((btn) => btn.textContent?.includes('Embedding Provider'))
     expect(embeddingTab).toBeTruthy()
     await fireEvent.click(embeddingTab!)
@@ -257,13 +253,13 @@ describe('Settings component', () => {
     activeSection.set('cli')
     render(Settings, { props: { onclose: vi.fn() } })
 
-    expect(screen.getByText('Manage the mdvdb command-line binary used for indexing and search.')).toBeTruthy()
+    expect(
+      screen.getByText('Manage the mdvdb command-line binary used for indexing and search.')
+    ).toBeTruthy()
   })
 
   it('collection view shows annotations for overridden and inherited fields', async () => {
-    collections.set([
-      { id: 'c1', name: 'My Notes', path: '/tmp/notes' },
-    ])
+    collections.set([{ id: 'c1', name: 'My Notes', path: '/tmp/notes' }])
     settingsTarget.set('c1')
     activeSection.set('embedding')
     userConfig.set({ MDVDB_EMBEDDING_PROVIDER: 'openai' })
@@ -280,7 +276,7 @@ describe('Settings component', () => {
   it('deep-link via settingsTarget opens correct collection', async () => {
     collections.set([
       { id: 'c1', name: 'My Notes', path: '/tmp/notes' },
-      { id: 'c2', name: 'Work Docs', path: '/tmp/work' },
+      { id: 'c2', name: 'Work Docs', path: '/tmp/work' }
     ])
     settingsTarget.set('c2')
     activeSection.set('embedding')

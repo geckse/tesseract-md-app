@@ -7,7 +7,7 @@ import {
   Decoration,
   EditorView,
   ViewPlugin,
-  type ViewUpdate,
+  type ViewUpdate
 } from '@codemirror/view'
 import { type EditorState, Prec, type Range } from '@codemirror/state'
 import { syntaxTree } from '@codemirror/language'
@@ -18,26 +18,23 @@ const dimTheme = EditorView.theme({
   '.cm-syntax-dim': {
     color: '#526366',
     opacity: '0.5',
-    fontWeight: 'normal',
-  },
+    fontWeight: 'normal'
+  }
 })
 
 /** Node types whose full range should be dimmed */
 const FULL_DIM_NODES = new Set([
-  'HeaderMark',       // #, ##, ### etc.
-  'EmphasisMark',     // * or _
+  'HeaderMark', // #, ##, ### etc.
+  'EmphasisMark', // * or _
   'StrongEmphasisMark', // ** or __
-  'CodeMark',         // ` (inline code delimiters)
-  'CodeInfo',         // language info on fences
-  'QuoteMark',        // >
-  'ListMark',         // - * +
-  'LinkMark',         // [ ] ( )
-  'HorizontalRule',   // --- *** ___
-  'TaskMarker',       // [x] or [ ] (the x or space inside)
+  'CodeMark', // ` (inline code delimiters)
+  'CodeInfo', // language info on fences
+  'QuoteMark', // >
+  'ListMark', // - * +
+  'LinkMark', // [ ] ( )
+  'HorizontalRule', // --- *** ___
+  'TaskMarker' // [x] or [ ] (the x or space inside)
 ])
-
-/** Fenced code delimiter nodes */
-const FENCE_NODES = new Set(['FencedCode'])
 
 function buildDecorations(state: EditorState): DecorationSet {
   const decorations: Range<Decoration>[] = []
@@ -52,7 +49,7 @@ function buildDecorations(state: EditorState): DecorationSet {
         // The CodeMark children handle the ``` delimiters already
         return
       }
-    },
+    }
   })
 
   return Decoration.set(decorations, true)
@@ -73,7 +70,7 @@ const softRenderPlugin = ViewPlugin.fromClass(
     }
   },
   {
-    decorations: (v) => v.decorations,
+    decorations: (v) => v.decorations
   }
 )
 

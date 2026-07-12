@@ -8,7 +8,6 @@
 
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
-import { Decoration, DecorationSet } from '@tiptap/pm/view'
 
 /** Cache of resolved image URLs to avoid redundant IPC calls. */
 const resolvedImageCache = new Map<string, string>()
@@ -41,7 +40,7 @@ export const ImageResolverExtension = Extension.create<ImageResolverOptions>({
   addOptions() {
     return {
       collectionPath: '',
-      currentFilePath: '',
+      currentFilePath: ''
     }
   },
 
@@ -55,7 +54,7 @@ export const ImageResolverExtension = Extension.create<ImageResolverOptions>({
           // After the DOM is rendered, find <img> elements with relative src and resolve them
           handleDOMEvents: {
             // Use a small delay to let images render first
-          },
+          }
         },
         view() {
           return {
@@ -90,12 +89,12 @@ export const ImageResolverExtension = Extension.create<ImageResolverOptions>({
                 img.setAttribute('data-resolved', 'loading')
                 loadImage(absolutePath, src, cacheKey, img as HTMLImageElement)
               }
-            },
+            }
           }
-        },
-      }),
+        }
+      })
     ]
-  },
+  }
 })
 
 /** Resolve a relative path against a base directory. */
@@ -132,7 +131,7 @@ async function loadImage(
       svg: 'image/svg+xml',
       webp: 'image/webp',
       bmp: 'image/bmp',
-      ico: 'image/x-icon',
+      ico: 'image/x-icon'
     }
     const mime = mimeMap[ext] ?? 'image/png'
     const dataUrl = `data:${mime};base64,${base64}`

@@ -11,14 +11,27 @@
     frontmatter,
     outline,
     propertiesLoading,
-    propertiesError,
+    propertiesError
   } from '../stores/properties'
   import { activeCollectionId } from '../stores/collections'
   import { selectedFilePath } from '../stores/files'
   import { scrollToLine, activeHeadingIndex, isDirty } from '../stores/editor'
   import { isFavorited, toggleFavorite } from '../stores/favorites'
-  import { graphViewActive, graphSelectedNode, graphOpenedNode, openGraphWithNeighborhood, loadGraphData } from '../stores/graph'
-  import type { DocumentInfo, BacklinksOutput, LinksOutput, NeighborhoodResult, NeighborhoodNode, JsonValue } from '../types/cli'
+  import {
+    graphViewActive,
+    graphSelectedNode,
+    graphOpenedNode,
+    openGraphWithNeighborhood,
+    loadGraphData
+  } from '../stores/graph'
+  import type {
+    DocumentInfo,
+    BacklinksOutput,
+    LinksOutput,
+    NeighborhoodResult,
+    NeighborhoodNode,
+    JsonValue
+  } from '../types/cli'
   import type { OutlineHeading } from '../stores/properties'
 
   interface PropertiesPanelProps {
@@ -81,7 +94,7 @@
     activeHeadingIndex.subscribe((v) => (currentActiveHeadingIndex = v)),
     activeCollectionId.subscribe((v) => (currentActiveCollectionId = v)),
     isDirty.subscribe((v) => (currentIsDirty = v)),
-    isFavorited.subscribe((v) => (currentIsFavorited = v)),
+    isFavorited.subscribe((v) => (currentIsFavorited = v))
   ]
 
   onDestroy(() => unsubs.forEach((u) => u()))
@@ -110,21 +123,31 @@
   type LinksTab = 'incoming' | 'outgoing'
   let linksTab: LinksTab = $state('incoming')
 
-  let incomingCount = $derived(currentNeighborhood?.incoming_depth_count ?? currentBacklinks?.total_backlinks ?? 0)
-  let outgoingCount = $derived(currentNeighborhood?.outgoing_depth_count ?? currentLinks?.links?.outgoing?.length ?? 0)
+  let incomingCount = $derived(
+    currentNeighborhood?.incoming_depth_count ?? currentBacklinks?.total_backlinks ?? 0
+  )
+  let outgoingCount = $derived(
+    currentNeighborhood?.outgoing_depth_count ?? currentLinks?.links?.outgoing?.length ?? 0
+  )
   let neighborCount = $derived(incomingCount + outgoingCount)
 
   function expandToFullGraph() {
     if (!currentFilePath) return
     const nh = currentNeighborhood
-    const hasNeighbors = nh && ((nh.outgoing?.length ?? 0) + (nh.incoming?.length ?? 0)) > 0
+    const hasNeighbors = nh && (nh.outgoing?.length ?? 0) + (nh.incoming?.length ?? 0) > 0
     if (hasNeighbors) {
       openGraphWithNeighborhood(currentFilePath, nh)
     } else {
       // No local neighborhood — open full graph with this file selected
       graphViewActive.set(true)
       loadGraphData()
-      const node = { id: currentFilePath, path: currentFilePath, label: null, cluster_id: null, chunk_index: null }
+      const node = {
+        id: currentFilePath,
+        path: currentFilePath,
+        label: null,
+        cluster_id: null,
+        chunk_index: null
+      }
       graphSelectedNode.set(node)
       graphOpenedNode.set(node)
     }
@@ -136,7 +159,7 @@
     return new Intl.DateTimeFormat('en-US', {
       month: 'short',
       day: 'numeric',
-      year: 'numeric',
+      year: 'numeric'
     }).format(date)
   }
 
@@ -189,7 +212,9 @@
   <!-- File name + favorite -->
   {#if fileName}
     <div class="file-header">
-      <span class="file-name">{fileName}{#if currentIsDirty}<span class="dirty-indicator"> ●</span>{/if}</span>
+      <span class="file-name"
+        >{fileName}{#if currentIsDirty}<span class="dirty-indicator"> ●</span>{/if}</span
+      >
       <button
         class="star-button"
         title={currentIsFavorited ? 'Remove from favorites' : 'Add to favorites'}
@@ -284,7 +309,10 @@
         <button
           class="expand-button"
           title="Open full graph view"
-          onclick={(e) => { e.stopPropagation(); expandToFullGraph(); }}
+          onclick={(e) => {
+            e.stopPropagation()
+            expandToFullGraph()
+          }}
         >
           <span class="material-symbols-outlined">open_in_full</span>
         </button>
@@ -296,7 +324,7 @@
             centerPath={currentFilePath}
             linksInfo={currentLinks}
             backlinksInfo={currentBacklinks}
-            onfileselect={onfileselect}
+            {onfileselect}
             onexpand={expandToFullGraph}
           />
         </div>
@@ -355,7 +383,6 @@
               <div class="links-list">
                 {#each currentBacklinks.backlinks as link}
                   <!-- svelte-ignore a11y_click_events_have_key_events -->
-                  <!-- svelte-ignore a11y_no_static_element_interactions -->
                   <div
                     class="link-item"
                     role="button"
@@ -389,14 +416,15 @@
               <div class="links-list">
                 {#each currentLinks.links.outgoing as link}
                   <!-- svelte-ignore a11y_click_events_have_key_events -->
-                  <!-- svelte-ignore a11y_no_static_element_interactions -->
                   <div
                     class="link-item"
                     role="button"
                     tabindex="0"
                     onclick={() => handleBacklinkClick(link.entry.target)}
                   >
-                    <span class="material-symbols-outlined link-icon link-icon-out">arrow_forward</span>
+                    <span class="material-symbols-outlined link-icon link-icon-out"
+                      >arrow_forward</span
+                    >
                     <div class="link-info">
                       <span class="link-name">{getFileName(link.entry.target)}</span>
                       {#if link.entry.text}
@@ -431,7 +459,6 @@
             <nav class="outline-list">
               {#each currentOutline as item, i}
                 <!-- svelte-ignore a11y_click_events_have_key_events -->
-                <!-- svelte-ignore a11y_no_static_element_interactions -->
                 <div
                   class="outline-item"
                   class:active={i === currentActiveHeadingIndex}
@@ -454,7 +481,6 @@
 
   {#snippet neighborhoodTreeNode(node: NeighborhoodNode, direction: 'in' | 'out', depth: number)}
     <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       class="link-item"
       class:depth-1={depth === 1}
@@ -464,7 +490,11 @@
       style="padding-left: {8 + depth * 14}px"
       onclick={() => node.state === 'Valid' && handleBacklinkClick(node.path)}
     >
-      <span class="material-symbols-outlined link-icon {direction === 'in' ? 'link-icon-in' : 'link-icon-out'}">
+      <span
+        class="material-symbols-outlined link-icon {direction === 'in'
+          ? 'link-icon-in'
+          : 'link-icon-out'}"
+      >
         {direction === 'in' ? 'arrow_back' : 'arrow_forward'}
       </span>
       <div class="link-info">
@@ -553,7 +583,7 @@
   }
 
   .star-button:hover {
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
     background: var(--color-surface, #161617);
   }
 
@@ -562,8 +592,12 @@
   }
 
   .star-button .material-symbols-outlined.filled {
-    font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20;
-    color: var(--color-primary, #00E5FF);
+    font-variation-settings:
+      'FILL' 1,
+      'wght' 400,
+      'GRAD' 0,
+      'opsz' 20;
+    color: var(--color-primary, #00e5ff);
   }
 
   /* Empty / loading / error states */
@@ -677,7 +711,7 @@
   }
 
   .expand-button:hover {
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
     background: var(--color-surface, #161617);
   }
 
@@ -806,11 +840,11 @@
   }
 
   .link-icon-in {
-    color: var(--color-edge-in, #FF6B6B);
+    color: var(--color-edge-in, #ff6b6b);
   }
 
   .link-icon-out {
-    color: var(--color-edge-out, #00E5FF);
+    color: var(--color-edge-out, #00e5ff);
   }
 
   .link-info {

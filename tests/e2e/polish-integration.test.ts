@@ -24,7 +24,7 @@ async function injectAxe(page: any) {
 
 async function runAxe(page: any) {
   return await page.evaluate(() => {
-    // @ts-ignore - axe is injected at runtime
+    // @ts-expect-error - axe is injected at runtime
     return window.axe.run()
   })
 }
@@ -132,7 +132,9 @@ test.describe('Polish Features Integration', () => {
     })
 
     expect(sidebarAfterToggle).not.toBe(sidebarInitiallyVisible)
-    console.log(`✅ Sidebar toggled successfully (${sidebarInitiallyVisible ? 'visible → hidden' : 'hidden → visible'})`)
+    console.log(
+      `✅ Sidebar toggled successfully (${sidebarInitiallyVisible ? 'visible → hidden' : 'hidden → visible'})`
+    )
 
     // Toggle back to ensure sidebar is visible for next tests
     await window.keyboard.press('Meta+b')
@@ -273,7 +275,9 @@ test.describe('Polish Features Integration', () => {
       // Test scroll performance
       const scrollStart = Date.now()
       await window.evaluate(() => {
-        const scrollContainer = document.querySelector('.file-tree-scroll-container, .file-tree-container')
+        const scrollContainer = document.querySelector(
+          '.file-tree-scroll-container, .file-tree-container'
+        )
         if (scrollContainer) {
           scrollContainer.scrollTop = 500
         }
@@ -312,7 +316,9 @@ test.describe('Polish Features Integration', () => {
     if (criticalViolations.length > 0) {
       console.log('\n   Critical/Serious Violations:')
       criticalViolations.forEach((violation) => {
-        console.log(`   - [${violation.impact.toUpperCase()}] ${violation.id}: ${violation.description}`)
+        console.log(
+          `   - [${violation.impact.toUpperCase()}] ${violation.id}: ${violation.description}`
+        )
         console.log(`     Help: ${violation.help}`)
         console.log(`     Nodes: ${violation.nodes.length}`)
       })
@@ -419,7 +425,7 @@ test.describe('Polish Features Integration', () => {
               }
             }
           }
-        } catch (e) {
+        } catch {
           // Cross-origin stylesheets may throw
           continue
         }

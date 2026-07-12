@@ -112,7 +112,11 @@ function formatYamlValue(value: JsonValue): string {
   if (typeof value === 'number') return String(value)
   if (typeof value === 'string') {
     // Quote strings that could be misinterpreted
-    if (/^(true|false|null|-?\d+(\.\d+)?)$/.test(value) || value.includes(':') || value.includes('#')) {
+    if (
+      /^(true|false|null|-?\d+(\.\d+)?)$/.test(value) ||
+      value.includes(':') ||
+      value.includes('#')
+    ) {
       return `"${value}"`
     }
     return value

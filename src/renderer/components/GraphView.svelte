@@ -1,9 +1,12 @@
 <script module lang="ts">
   /** Per-graph-tab camera state cache. Survives component destroy/recreate cycles. */
-  const cameraStateCache = new Map<string, {
-    position: { x: number; y: number; z: number }
-    target: { x: number; y: number; z: number }
-  }>()
+  const cameraStateCache = new Map<
+    string,
+    {
+      position: { x: number; y: number; z: number }
+      target: { x: number; y: number; z: number }
+    }
+  >()
 
   /** Per-graph-tab node position cache. Preserves force-simulation layout across remounts. */
   const nodePositionCache = new Map<string, Map<string, { x: number; y: number; z: number }>>()
@@ -65,7 +68,12 @@
   import { edgeClusterColor, isEdgeVisible, edgeLinkColor, edgeLinkWidth } from '../lib/edge-utils'
   import { diffGraphData, shouldPatch, isEmptyDelta, type GraphDelta } from '../lib/graph-delta'
   import { paletteColor, paletteTextColor, type HarmonicPalette } from '../lib/harmonic-palette'
-  import { clusterPalette, customClusterPalette, edgePalette, arrowPalette } from '../stores/palette'
+  import {
+    clusterPalette,
+    customClusterPalette,
+    edgePalette,
+    arrowPalette
+  } from '../stores/palette'
   import {
     buildSearchScoreMap,
     buildGraphContextMap,
@@ -81,7 +89,6 @@
     nodeSizeValue,
     nodeColorForMode,
     edgeArrowColor,
-    nodeTooltipHtml,
     edgeTooltipHtml,
     type Graph3DNode,
     type Graph3DLink,
@@ -96,20 +103,18 @@
   let { paneId }: GraphViewProps = $props()
 
   // Derive graph tab ID for camera state caching
-  let graphTabId = $derived(
-    paneId ? workspace.panes[paneId]?.graphTabId ?? null : null
-  )
+  let graphTabId = $derived(paneId ? (workspace.panes[paneId]?.graphTabId ?? null) : null)
 
   // ─── Palette State ───────────────────────────────────────────────────
 
   /** Current cluster palette (reactive, updated via store subscription). */
-  let currentClusterPalette: HarmonicPalette = get(clusterPalette)
+  let currentClusterPalette: HarmonicPalette = $state.raw(get(clusterPalette))
 
   /** Current custom cluster palette (reactive). */
-  let currentCustomClusterPalette: HarmonicPalette = get(customClusterPalette)
+  let currentCustomClusterPalette: HarmonicPalette = $state.raw(get(customClusterPalette))
 
   /** Current edge palette (reactive). */
-  let currentEdgePalette: HarmonicPalette = get(edgePalette)
+  let currentEdgePalette: HarmonicPalette = $state.raw(get(edgePalette))
 
   /** Current arrow palette (reactive). */
   let currentArrowPalette: HarmonicPalette = get(arrowPalette)
@@ -128,7 +133,7 @@
   // ─── State ──────────────────────────────────────────────────────────
 
   /** The 3d-force-graph instance. Created in onMount via dynamic import. */
-  let graph: GraphInstance | null = null
+  let graph: GraphInstance | null = $state.raw(null)
 
   /** Outer container div (used for ResizeObserver and overlay positioning). */
   let containerEl: HTMLDivElement | undefined = $state(undefined)
@@ -375,7 +380,7 @@
 
       graphSearchScores = directScores
       graphSearchContextScores = contextScores
-      graphSearchResultCount = result.total_results ?? (result.results?.length ?? 0)
+      graphSearchResultCount = result.total_results ?? result.results?.length ?? 0
       graphSearchError = null
       applySearchDimming()
     } catch (err) {
@@ -1073,9 +1078,16 @@
 
   /** All keys that trigger the camera movement loop. */
   const CAMERA_KEYS = new Set([
-    'w', 'a', 's', 'd',
-    'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
-    'q', 'e',
+    'w',
+    'a',
+    's',
+    'd',
+    'ArrowUp',
+    'ArrowDown',
+    'ArrowLeft',
+    'ArrowRight',
+    'q',
+    'e'
   ])
 
   /**
@@ -1293,7 +1305,9 @@
         selectGraphNode(graphNode)
         openGraphNode(graphNode)
         // Re-enable after the store subscription has fired synchronously
-        requestAnimationFrame(() => { suppressCameraFocus = false })
+        requestAnimationFrame(() => {
+          suppressCameraFocus = false
+        })
       }
     }
   }
@@ -1336,9 +1350,7 @@
 
     // 1. Remove deleted nodes and any link touching them
     const removed = delta.removedNodeIds
-    let nodes: ForceNode[] = removed.size
-      ? liveNodes.filter((n) => !removed.has(n.id))
-      : liveNodes
+    let nodes: ForceNode[] = removed.size ? liveNodes.filter((n) => !removed.has(n.id)) : liveNodes
     let links: ForceLink[] = removed.size
       ? liveLinks.filter(
           (l) => !removed.has(linkNodeId(l.source)) && !removed.has(linkNodeId(l.target))
@@ -1362,7 +1374,12 @@
 
     // 3. Recompute sphere size (val) for every surviving node
     for (const node of nodes) {
-      node.val = nodeSizeValue(currentLevel, degreeOfNode.get(node.id) ?? 0, node.size ?? 0, maxSize)
+      node.val = nodeSizeValue(
+        currentLevel,
+        degreeOfNode.get(node.id) ?? 0,
+        node.size ?? 0,
+        maxSize
+      )
     }
 
     // 4. Add new nodes, seeded near their already-positioned neighbors
@@ -1689,9 +1706,7 @@
       // enclosure follows elongated, flat, or irregular cluster shapes.
 
       // Collect node positions as Vector3
-      const nodePoints = cnodes.map(
-        (n) => new THREE.Vector3(n.x ?? 0, n.y ?? 0, n.z ?? 0)
-      )
+      const nodePoints = cnodes.map((n) => new THREE.Vector3(n.x ?? 0, n.y ?? 0, n.z ?? 0))
 
       // Helper: push each point outward from centroid by (scale * distance + fixedPad)
       function padPoints(pts: THREE.Vector3[], scale: number, fixedPad: number): THREE.Vector3[] {
@@ -2246,7 +2261,10 @@
     // '/': open graph search (only when not typing in an input)
     if (e.key === '/' && !graphSearchVisible) {
       const tag = (e.target as HTMLElement)?.tagName?.toLowerCase()
-      const isEditable = tag === 'input' || tag === 'textarea' || (e.target as HTMLElement)?.hasAttribute('contenteditable')
+      const isEditable =
+        tag === 'input' ||
+        tag === 'textarea' ||
+        (e.target as HTMLElement)?.hasAttribute('contenteditable')
       if (!isEditable) {
         e.preventDefault()
         graphSearchVisible = true
@@ -2281,7 +2299,10 @@
     if (graph && CAMERA_KEYS.has(e.key)) {
       // Skip if user is typing in an input
       const tag = (e.target as HTMLElement)?.tagName?.toLowerCase()
-      const isEditable = tag === 'input' || tag === 'textarea' || (e.target as HTMLElement)?.hasAttribute('contenteditable')
+      const isEditable =
+        tag === 'input' ||
+        tag === 'textarea' ||
+        (e.target as HTMLElement)?.hasAttribute('contenteditable')
       if (isEditable) return
 
       if (currentSelected && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
@@ -2443,7 +2464,12 @@
   }
 
   /** Get custom cluster items for legend display. */
-  function getCustomClusters(): { id: number; label: string; color: string; member_count: number }[] {
+  function getCustomClusters(): {
+    id: number
+    label: string
+    color: string
+    member_count: number
+  }[] {
     if (!currentData?.custom_clusters) return []
     return currentData.custom_clusters.map((c) => ({
       id: c.id,
@@ -2537,7 +2563,10 @@
     })
       .width(initWidth)
       .height(initHeight)
-      .backgroundColor(getComputedStyle(document.documentElement).getPropertyValue('--color-graph-bg').trim() || '#0a0a0b')
+      .backgroundColor(
+        getComputedStyle(document.documentElement).getPropertyValue('--color-graph-bg').trim() ||
+          '#0a0a0b'
+      )
       .showNavInfo(false)
       .nodeOpacity(0.85)
       .linkOpacity(0.15)
@@ -2708,7 +2737,11 @@
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const controls = graph.controls() as any
         const target = controls?.target
-          ? { x: controls.target.x as number, y: controls.target.y as number, z: controls.target.z as number }
+          ? {
+              x: controls.target.x as number,
+              y: controls.target.y as number,
+              z: controls.target.z as number
+            }
           : { x: 0, y: 0, z: 0 }
         cameraStateCache.set(graphTabId, { position: pos, target })
 
@@ -2788,474 +2821,496 @@
 </script>
 
 <div class="graph-tab-layout">
-<div class="graph-view" bind:this={containerEl}>
-  <!-- 3d-force-graph container: ALWAYS mounted so WebGL context survives tab switches.
+  <div class="graph-view" bind:this={containerEl}>
+    <!-- 3d-force-graph container: ALWAYS mounted so WebGL context survives tab switches.
        Hidden until data is available via CSS visibility. -->
-  <div
-    bind:this={graphContainerEl}
-    class="graph-3d-container"
-    style:visibility={currentData && currentData.nodes.length > 0 && !currentError && webglSupported ? 'visible' : 'hidden'}
-  ></div>
+    <div
+      bind:this={graphContainerEl}
+      class="graph-3d-container"
+      style:visibility={currentData &&
+      currentData.nodes.length > 0 &&
+      !currentError &&
+      webglSupported
+        ? 'visible'
+        : 'hidden'}
+    ></div>
 
-  {#if currentLoading && !graph}
-    <!-- Only show full loading overlay on first load (no graph yet).
+    {#if currentLoading && !graph}
+      <!-- Only show full loading overlay on first load (no graph yet).
          Tab switches keep the graph visible while new data loads. -->
-    <div class="graph-empty">
-      <span class="material-symbols-outlined spinning">progress_activity</span>
-      <p>Loading graph data…</p>
-    </div>
-  {:else if currentError}
-    <div class="graph-empty">
-      <span class="material-symbols-outlined error-icon">error</span>
-      <p>{currentError}</p>
-      <button class="retry-btn" onclick={handleRetry}>Retry</button>
-    </div>
-  {:else if !webglSupported}
-    <div class="graph-empty">
-      <span class="material-symbols-outlined error-icon">warning</span>
-      <p>WebGL is not supported</p>
-      <p class="graph-empty-hint">
-        3D graph visualization requires WebGL support. Please use a browser or environment with
-        WebGL enabled.
-      </p>
-    </div>
-  {:else if !currentData || currentData.nodes.length === 0}
-    <div class="graph-empty">
-      <span class="material-symbols-outlined">hub</span>
-      <p>No files indexed. Run ingest to build the graph.</p>
-    </div>
-  {/if}
-
-  <!-- Proximity node labels (document mode only, distance-based) -->
-  {#if visibleLabels.length > 0}
-    <div class="proximity-labels">
-      {#each visibleLabels as lbl (lbl.id)}
-        <span class="proximity-label" style="left: {lbl.x}px; top: {lbl.y}px">{lbl.label}</span>
-      {/each}
-    </div>
-  {/if}
-
-  {#if currentData && currentData.nodes.length > 0 && !currentError && webglSupported}
-    <!-- View mode dropdown (top-left): what the nodes are colored/grouped by -->
-    <button
-      bind:this={viewModeBtnEl}
-      class="graph-view-mode-trigger"
-      onclick={() => (viewModeMenuOpen = !viewModeMenuOpen)}
-      aria-haspopup="menu"
-      aria-expanded={viewModeMenuOpen}
-      title="Select graph view"
-    >
-      <span class="material-symbols-outlined view-mode-icon">{currentViewMode.icon}</span>
-      <span class="view-mode-label">{currentViewMode.label}</span>
-      <span class="material-symbols-outlined view-mode-caret">arrow_drop_down</span>
-    </button>
-    {#if viewModeMenuOpen && viewModeBtnEl}
-      <PopoverMenu
-        anchorEl={viewModeBtnEl}
-        items={viewModeItems}
-        onselect={selectViewMode}
-        ondismiss={() => (viewModeMenuOpen = false)}
-        ariaLabel="Graph view mode"
-      />
+      <div class="graph-empty">
+        <span class="material-symbols-outlined spinning">progress_activity</span>
+        <p>Loading graph data…</p>
+      </div>
+    {:else if currentError}
+      <div class="graph-empty">
+        <span class="material-symbols-outlined error-icon">error</span>
+        <p>{currentError}</p>
+        <button class="retry-btn" onclick={handleRetry}>Retry</button>
+      </div>
+    {:else if !webglSupported}
+      <div class="graph-empty">
+        <span class="material-symbols-outlined error-icon">warning</span>
+        <p>WebGL is not supported</p>
+        <p class="graph-empty-hint">
+          3D graph visualization requires WebGL support. Please use a browser or environment with
+          WebGL enabled.
+        </p>
+      </div>
+    {:else if !currentData || currentData.nodes.length === 0}
+      <div class="graph-empty">
+        <span class="material-symbols-outlined">hub</span>
+        <p>No files indexed. Run ingest to build the graph.</p>
+      </div>
     {/if}
 
-    <!-- Level tab switcher + pop-out button -->
-    <div class="graph-level-switcher" role="tablist">
-      <button
-        class="level-tab"
-        class:active={currentLevel === 'document'}
-        onclick={() => setGraphLevel('document')}>Documents</button
-      >
-      <button
-        class="level-tab"
-        class:active={currentLevel === 'chunk'}
-        onclick={() => setGraphLevel('chunk')}>Chunks</button
-      >
-      {#if !workspace.isPopup}
-        <button
-          class="level-tab graph-popout-btn"
-          title="Pop out graph"
-          onclick={() => {
-            const collection = get(activeCollection)
-            const colId = get(activeCollectionId)
-            window.api.openPopup({
-              kind: 'graph',
-              collectionId: colId ?? undefined,
-              collectionPath: collection?.path,
-              graphLevel: currentLevel,
-              graphColoringMode: currentColoringMode,
-            })
-          }}
-        >
-          <span class="material-symbols-outlined" style="font-size: 16px;">picture_in_picture_alt</span>
-        </button>
-      {/if}
-    </div>
+    <!-- Proximity node labels (document mode only, distance-based) -->
+    {#if visibleLabels.length > 0}
+      <div class="proximity-labels">
+        {#each visibleLabels as lbl (lbl.id)}
+          <span class="proximity-label" style="left: {lbl.x}px; top: {lbl.y}px">{lbl.label}</span>
+        {/each}
+      </div>
+    {/if}
 
-    <!-- Graph search overlay -->
-    {#if graphSearchVisible}
-      <div
-        class="graph-search-overlay"
-        style="left: {searchPanelX}px; bottom: {searchPanelY}px;"
+    {#if currentData && currentData.nodes.length > 0 && !currentError && webglSupported}
+      <!-- View mode dropdown (top-left): what the nodes are colored/grouped by -->
+      <button
+        bind:this={viewModeBtnEl}
+        class="graph-view-mode-trigger"
+        onclick={() => (viewModeMenuOpen = !viewModeMenuOpen)}
+        aria-haspopup="menu"
+        aria-expanded={viewModeMenuOpen}
+        title="Select graph view"
       >
-        <span
-          role="separator"
-          aria-label="Drag to reposition search overlay"
-          class="graph-search-drag-handle"
-          class:grabbing={isDraggingSearch}
-          onpointerdown={(e) => {
-            isDraggingSearch = true
-            ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
-          }}
-          onpointermove={(e) => {
-            if (!isDraggingSearch || !containerEl) return
-            const rect = containerEl.getBoundingClientRect()
-            searchPanelX = Math.max(0, Math.min(e.clientX - rect.left - 12, rect.width - 280))
-            searchPanelY = Math.max(0, Math.min(rect.bottom - e.clientY - 12, rect.height - 48))
-          }}
-          onpointerup={(e) => {
-            isDraggingSearch = false
-            ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
-          }}
-        >
-          <span class="material-symbols-outlined" style="font-size: 14px; opacity: 0.4;">drag_indicator</span>
-        </span>
-        <span class="material-symbols-outlined" style="font-size: 16px; opacity: 0.5;">search</span>
-        <input
-          type="text"
-          class="graph-search-input"
-          placeholder="Search graph…"
-          value={graphSearchQuery}
-          oninput={(e) => onGraphSearchInput((e.currentTarget as HTMLInputElement).value)}
-          onkeydown={(e) => {
-            if (e.key !== 'Escape' && !((e.metaKey || e.ctrlKey) && e.key === 'f')) {
-              e.stopPropagation()
-            }
-          }}
+        <span class="material-symbols-outlined view-mode-icon">{currentViewMode.icon}</span>
+        <span class="view-mode-label">{currentViewMode.label}</span>
+        <span class="material-symbols-outlined view-mode-caret">arrow_drop_down</span>
+      </button>
+      {#if viewModeMenuOpen && viewModeBtnEl}
+        <PopoverMenu
+          anchorEl={viewModeBtnEl}
+          items={viewModeItems}
+          onselect={selectViewMode}
+          ondismiss={() => (viewModeMenuOpen = false)}
+          ariaLabel="Graph view mode"
         />
-        {#if graphSearchQuery.length > 0}
-          <button class="graph-search-clear" onclick={clearGraphSearch} title="Clear search">×</button>
-        {/if}
-        {#if graphSearchLoading}
-          <span class="material-symbols-outlined spinning" style="font-size: 16px; opacity: 0.5;">progress_activity</span>
-        {/if}
-        {#if graphSearchError}
-          <span class="material-symbols-outlined" style="font-size: 16px; color: var(--color-error, #ef4444);" title={graphSearchError}>error</span>
-        {/if}
-        {#if graphSearchQuery.length >= 2 && !graphSearchLoading && !graphSearchError}
-          <span class="graph-search-count">
-            {graphSearchResultCount > 0 ? `${graphSearchResultCount} file${graphSearchResultCount === 1 ? '' : 's'}` : 'No matches'}
-          </span>
-        {/if}
-      </div>
-    {/if}
+      {/if}
 
-    <!-- Path filter badge -->
-    {#if currentPathFilter}
-      <div class="graph-path-badge">
-        <span class="material-symbols-outlined path-badge-icon">folder</span>
-        <span class="path-badge-text">{currentPathFilter}</span>
+      <!-- Level tab switcher + pop-out button -->
+      <div class="graph-level-switcher" role="tablist">
         <button
-          class="path-badge-close"
-          onclick={() => setGraphPathFilter(null)}
-          title="Clear path filter">×</button
+          class="level-tab"
+          class:active={currentLevel === 'document'}
+          onclick={() => setGraphLevel('document')}>Documents</button
         >
-      </div>
-    {/if}
-
-    <!-- Folder highlight badge -->
-    {#if currentHighlightedFolder}
-      <div class="graph-folder-badge" class:has-path-filter={!!currentPathFilter}>
-        <span class="material-symbols-outlined folder-badge-icon">folder_open</span>
-        <span class="folder-badge-text">{currentHighlightedFolder}</span>
         <button
-          class="folder-badge-close"
-          onclick={() => setGraphHighlightedFolder(null)}
-          title="Clear folder highlight">×</button
+          class="level-tab"
+          class:active={currentLevel === 'chunk'}
+          onclick={() => setGraphLevel('chunk')}>Chunks</button
         >
-      </div>
-    {/if}
-
-    <!-- Cluster/topic enclosure labels (screen-projected from 3D centroids) -->
-    {#if (currentColoringMode === 'cluster' || currentColoringMode === 'custom-cluster') && clusterLabels.length > 0}
-      {#each clusterLabels as label}
-        {#if label.visible}
-          <div
-            class="cluster-label"
-            style="left: {label.screenX}px; top: {label.screenY}px; color: {paletteTextColor(
-              currentColoringMode === 'custom-cluster'
-                ? currentCustomClusterPalette
-                : currentClusterPalette,
-              label.id,
-              getBackgroundColor()
-            )}"
-          >
-            {label.label}
-          </div>
-        {/if}
-      {/each}
-    {/if}
-
-    {#if currentData.edges.length === 0 && currentLevel !== 'chunk'}
-      <div class="graph-notice">No link connections found.</div>
-    {/if}
-
-    {#if nodeCount > 2000}
-      <div class="graph-notice warning">
-        Very large graph ({nodeCount} nodes). Visual quality reduced for performance.
-      </div>
-    {:else if nodeCount > 500}
-      <div class="graph-notice warning">
-        Large graph ({nodeCount} nodes). Some effects disabled for performance.
-      </div>
-    {/if}
-
-    <!-- Recenter camera button -->
-    <button
-      class="graph-recenter-btn"
-      onclick={recenterCamera}
-      title="Recenter camera (fit all nodes)"
-    >
-      <span class="material-symbols-outlined">center_focus_strong</span>
-    </button>
-
-    <!-- Node tooltip (populated by hover handler in subtask 2-2) -->
-    {#if hoveredNode}
-      <div class="graph-tooltip" style="left: {tooltipX + 12}px; top: {tooltipY - 30}px">
-        <div class="tooltip-path">{hoveredNode.path}</div>
-        {#if isChunkMode() && hoveredNode.label}
-          <div class="tooltip-heading">{hoveredNode.label}</div>
-        {/if}
-        {#if currentColoringMode === 'custom-cluster'}
-          {#if hoveredNode.custom_cluster_ids && hoveredNode.custom_cluster_ids.length > 0}
-            {#each hoveredNode.custom_cluster_ids as topicId, i}
-              <div class="tooltip-cluster">
-                {topicName(topicId)} · {Math.round(
-                  (hoveredNode.custom_cluster_scores?.[i] ?? 0) * 100
-                )}%
-              </div>
-            {/each}
-          {:else if hoveredNode.chunk_index == null}
-            <div class="tooltip-cluster">Unassigned</div>
-          {/if}
-        {:else if hoveredNode.cluster_id != null && currentData}
-          {@const cluster = currentData.clusters.find((c) => c.id === hoveredNode!.cluster_id)}
-          {#if cluster}
-            <div class="tooltip-cluster">{cluster.label}</div>
-          {/if}
-        {/if}
-      </div>
-    {/if}
-
-    <!-- Edge tooltip (populated by hover handler in subtask 2-2) -->
-    {#if hoveredEdge && !hoveredNode}
-      {@const edgeSrc =
-        hoveredEdge.source && typeof hoveredEdge.source === 'object'
-          ? (hoveredEdge.source as ForceNode)
-          : null}
-      {@const edgeTgt =
-        hoveredEdge.target && typeof hoveredEdge.target === 'object'
-          ? (hoveredEdge.target as ForceNode)
-          : null}
-      <div
-        class="graph-tooltip edge-tooltip"
-        style="left: {tooltipX + 12}px; top: {tooltipY - 30}px"
-      >
-        {#if hoveredEdge.relationship_type}
-          <div class="edge-tooltip-type">
-            <span
-              class="edge-tooltip-dot"
-              style="background: {hoveredEdge.edge_cluster_id != null
-                ? edgeClusterColor(hoveredEdge.edge_cluster_id, currentEdgePalette)
-                : 'rgba(255,255,255,0.5)'}"
-            ></span>
-            {hoveredEdge.relationship_type}
-          </div>
-        {/if}
-        {#if edgeSrc && edgeTgt}
-          <div class="edge-tooltip-nodes">{edgeSrc.path} → {edgeTgt.path}</div>
-        {/if}
-        {#if hoveredEdge.strength != null}
-          <div class="edge-tooltip-strength">
-            <span class="edge-tooltip-strength-label">Strength</span>
-            <div class="edge-tooltip-bar">
-              <div
-                class="edge-tooltip-bar-fill"
-                style="width: {Math.round((hoveredEdge.strength ?? 0) * 100)}%"
-              ></div>
-            </div>
-            <span class="edge-tooltip-strength-value"
-              >{Math.round((hoveredEdge.strength ?? 0) * 100)}%</span
-            >
-          </div>
-        {/if}
-        {#if hoveredEdge.context_text}
-          <div class="edge-tooltip-context">
-            {hoveredEdge.context_text.length > 120
-              ? hoveredEdge.context_text.slice(0, 120) + '…'
-              : hoveredEdge.context_text}
-          </div>
-        {/if}
-      </div>
-    {/if}
-
-    <!-- Context menu -->
-    {#if contextMenuNode}
-      <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
-      <div
-        class="context-menu-backdrop"
-        onclick={() => (contextMenuNode = null)}
-        oncontextmenu={(e) => {
-          e.preventDefault()
-          contextMenuNode = null
-        }}
-      ></div>
-      <div class="context-menu" style="left: {contextMenuX}px; top: {contextMenuY}px">
-        <div class="context-menu-header">{contextMenuNode.path.split('/').pop()}</div>
-        <button class="context-menu-item" onclick={handleContextMenuOpen}>
-          <span class="material-symbols-outlined">open_in_new</span>
-          Open in tab
-        </button>
-        <button class="context-menu-item" onclick={handleContextMenuPreview}>
-          <span class="material-symbols-outlined">preview</span>
-          Preview
-        </button>
-        <button class="context-menu-item" onclick={handleContextMenuSelect}>
-          <span class="material-symbols-outlined">radio_button_checked</span>
-          Select node
-        </button>
-      </div>
-    {/if}
-
-    <!-- Legend: display-only key for the active view mode (mode switching lives in the top-left dropdown) -->
-    {#if (currentColoringMode === 'cluster' && getClusters().length > 0) || (currentColoringMode === 'custom-cluster' && getCustomClusters().length > 0) || (currentColoringMode === 'folder' && folderColorMap.size > 0)}
-      <div class="graph-legend">
-        <div class="legend-header">
-          <span class="legend-title"
-            >{currentColoringMode === 'cluster' ? 'Clusters' : currentColoringMode === 'custom-cluster' ? 'Topics' : 'Folders'}</span
-          >
+        {#if !workspace.isPopup}
           <button
-            class="legend-toggle"
-            onclick={toggleLegend}
-            title={legendVisible ? 'Hide legend' : 'Show legend'}
+            class="level-tab graph-popout-btn"
+            title="Pop out graph"
+            onclick={() => {
+              const collection = get(activeCollection)
+              const colId = get(activeCollectionId)
+              window.api.openPopup({
+                kind: 'graph',
+                collectionId: colId ?? undefined,
+                collectionPath: collection?.path,
+                graphLevel: currentLevel,
+                graphColoringMode: currentColoringMode
+              })
+            }}
           >
-            <span class="material-symbols-outlined"
-              >{legendVisible ? 'expand_less' : 'expand_more'}</span
+            <span class="material-symbols-outlined" style="font-size: 16px;"
+              >picture_in_picture_alt</span
             >
           </button>
-        </div>
-        {#if legendVisible}
-          <div class="legend-items">
-            {#if currentColoringMode === 'cluster'}
-              {#each getClusters() as cluster}
-                <div class="legend-item">
-                  <span class="legend-dot" style="background: {cluster.color}"></span>
-                  <span class="legend-label">{cluster.label}</span>
-                  <span class="legend-count">{cluster.member_count}</span>
-                </div>
-              {/each}
-            {:else if currentColoringMode === 'custom-cluster'}
-              {#each getCustomClusters() as cluster}
-                <button
-                  class="legend-item legend-item-clickable"
-                  class:legend-item-active={highlightedTopicId === cluster.id}
-                  onclick={() => toggleTopicHighlight(cluster.id)}
-                  title={highlightedTopicId === cluster.id
-                    ? `Clear ${cluster.label} highlight`
-                    : `Highlight all members of ${cluster.label}`}
-                >
-                  <span class="legend-dot" style="background: {cluster.color}"></span>
-                  <span class="legend-label">{cluster.label}</span>
-                  <span class="legend-count">{cluster.member_count}</span>
-                </button>
-              {/each}
-              {#if getUnassignedCount() > 0}
-                <div class="legend-item legend-item-unassigned">
-                  <span class="legend-dot" style="background: {getDefaultNodeColor()}"></span>
-                  <span class="legend-label">Unassigned</span>
-                  <span class="legend-count">{getUnassignedCount()}</span>
-                </div>
-              {/if}
-              {#if highlightedTopicId != null}
-                <button
-                  class="legend-clear-filter"
-                  onclick={clearTopicHighlight}
-                  title="Clear topic highlight"
-                  style="margin-top: 4px; width: 100%;"
-                >
-                  <span class="material-symbols-outlined" style="font-size: 14px;"
-                    >filter_alt_off</span
-                  >
-                  <span style="font-size: 10px;">Clear</span>
-                </button>
-              {/if}
-            {:else if currentColoringMode === 'folder'}
-              {#each getFolderLegendItems() as item}
-                <button
-                  class="legend-item legend-item-clickable"
-                  class:legend-item-active={currentHighlightedFolder === item.folder}
-                  onclick={() => setGraphHighlightedFolder(item.folder)}
-                  title={currentHighlightedFolder === item.folder
-                    ? `Clear ${item.folder} highlight`
-                    : `Highlight ${item.folder}`}
-                >
-                  <span class="legend-dot" style="background: {item.color}"></span>
-                  <span class="legend-label">{item.folder}</span>
-                  <span class="legend-count">{item.count}</span>
-                </button>
-              {/each}
-              {#if currentHighlightedFolder}
-                <button
-                  class="legend-clear-filter"
-                  onclick={() => setGraphHighlightedFolder(null)}
-                  title="Clear folder highlight"
-                  style="margin-top: 4px; width: 100%;"
-                >
-                  <span class="material-symbols-outlined" style="font-size: 14px;"
-                    >filter_alt_off</span
-                  >
-                  <span style="font-size: 10px;">Clear</span>
-                </button>
-              {/if}
-            {/if}
-            {#if getEdgeClusters().length > 0}
-              <div class="legend-separator"></div>
-              <div class="legend-section-title">
-                <span>Edge Types</span>
-                {#if currentEdgeFilter.size > 0}
-                  <button
-                    class="legend-clear-filter"
-                    onclick={clearEdgeFilter}
-                    title="Show all edges"
-                  >
-                    <span class="material-symbols-outlined">filter_alt_off</span>
-                  </button>
-                {/if}
-              </div>
-              {#each getEdgeClusters() as ec}
-                <button
-                  class="legend-item legend-item-clickable"
-                  class:legend-item-muted={isEdgeClusterFiltered(ec.id)}
-                  onclick={() => toggleEdgeClusterFilter(ec.id)}
-                  title={isEdgeClusterFiltered(ec.id)
-                    ? `Show ${ec.label} edges`
-                    : `Hide ${ec.label} edges`}
-                >
-                  <span class="legend-line" style="background: {ec.color}"></span>
-                  <span class="legend-label">{ec.label}</span>
-                  <span class="legend-count">{ec.count}</span>
-                </button>
-              {/each}
-            {/if}
-          </div>
         {/if}
       </div>
+
+      <!-- Graph search overlay -->
+      {#if graphSearchVisible}
+        <div class="graph-search-overlay" style="left: {searchPanelX}px; bottom: {searchPanelY}px;">
+          <span
+            role="separator"
+            aria-label="Drag to reposition search overlay"
+            class="graph-search-drag-handle"
+            class:grabbing={isDraggingSearch}
+            onpointerdown={(e) => {
+              isDraggingSearch = true
+              ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+            }}
+            onpointermove={(e) => {
+              if (!isDraggingSearch || !containerEl) return
+              const rect = containerEl.getBoundingClientRect()
+              searchPanelX = Math.max(0, Math.min(e.clientX - rect.left - 12, rect.width - 280))
+              searchPanelY = Math.max(0, Math.min(rect.bottom - e.clientY - 12, rect.height - 48))
+            }}
+            onpointerup={(e) => {
+              isDraggingSearch = false
+              ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
+            }}
+          >
+            <span class="material-symbols-outlined" style="font-size: 14px; opacity: 0.4;"
+              >drag_indicator</span
+            >
+          </span>
+          <span class="material-symbols-outlined" style="font-size: 16px; opacity: 0.5;"
+            >search</span
+          >
+          <input
+            type="text"
+            class="graph-search-input"
+            placeholder="Search graph…"
+            value={graphSearchQuery}
+            oninput={(e) => onGraphSearchInput((e.currentTarget as HTMLInputElement).value)}
+            onkeydown={(e) => {
+              if (e.key !== 'Escape' && !((e.metaKey || e.ctrlKey) && e.key === 'f')) {
+                e.stopPropagation()
+              }
+            }}
+          />
+          {#if graphSearchQuery.length > 0}
+            <button class="graph-search-clear" onclick={clearGraphSearch} title="Clear search"
+              >×</button
+            >
+          {/if}
+          {#if graphSearchLoading}
+            <span class="material-symbols-outlined spinning" style="font-size: 16px; opacity: 0.5;"
+              >progress_activity</span
+            >
+          {/if}
+          {#if graphSearchError}
+            <span
+              class="material-symbols-outlined"
+              style="font-size: 16px; color: var(--color-error, #ef4444);"
+              title={graphSearchError}>error</span
+            >
+          {/if}
+          {#if graphSearchQuery.length >= 2 && !graphSearchLoading && !graphSearchError}
+            <span class="graph-search-count">
+              {graphSearchResultCount > 0
+                ? `${graphSearchResultCount} file${graphSearchResultCount === 1 ? '' : 's'}`
+                : 'No matches'}
+            </span>
+          {/if}
+        </div>
+      {/if}
+
+      <!-- Path filter badge -->
+      {#if currentPathFilter}
+        <div class="graph-path-badge">
+          <span class="material-symbols-outlined path-badge-icon">folder</span>
+          <span class="path-badge-text">{currentPathFilter}</span>
+          <button
+            class="path-badge-close"
+            onclick={() => setGraphPathFilter(null)}
+            title="Clear path filter">×</button
+          >
+        </div>
+      {/if}
+
+      <!-- Folder highlight badge -->
+      {#if currentHighlightedFolder}
+        <div class="graph-folder-badge" class:has-path-filter={!!currentPathFilter}>
+          <span class="material-symbols-outlined folder-badge-icon">folder_open</span>
+          <span class="folder-badge-text">{currentHighlightedFolder}</span>
+          <button
+            class="folder-badge-close"
+            onclick={() => setGraphHighlightedFolder(null)}
+            title="Clear folder highlight">×</button
+          >
+        </div>
+      {/if}
+
+      <!-- Cluster/topic enclosure labels (screen-projected from 3D centroids) -->
+      {#if (currentColoringMode === 'cluster' || currentColoringMode === 'custom-cluster') && clusterLabels.length > 0}
+        {#each clusterLabels as label}
+          {#if label.visible}
+            <div
+              class="cluster-label"
+              style="left: {label.screenX}px; top: {label.screenY}px; color: {paletteTextColor(
+                currentColoringMode === 'custom-cluster'
+                  ? currentCustomClusterPalette
+                  : currentClusterPalette,
+                label.id,
+                getBackgroundColor()
+              )}"
+            >
+              {label.label}
+            </div>
+          {/if}
+        {/each}
+      {/if}
+
+      {#if currentData.edges.length === 0 && currentLevel !== 'chunk'}
+        <div class="graph-notice">No link connections found.</div>
+      {/if}
+
+      {#if nodeCount > 2000}
+        <div class="graph-notice warning">
+          Very large graph ({nodeCount} nodes). Visual quality reduced for performance.
+        </div>
+      {:else if nodeCount > 500}
+        <div class="graph-notice warning">
+          Large graph ({nodeCount} nodes). Some effects disabled for performance.
+        </div>
+      {/if}
+
+      <!-- Recenter camera button -->
+      <button
+        class="graph-recenter-btn"
+        onclick={recenterCamera}
+        title="Recenter camera (fit all nodes)"
+      >
+        <span class="material-symbols-outlined">center_focus_strong</span>
+      </button>
+
+      <!-- Node tooltip (populated by hover handler in subtask 2-2) -->
+      {#if hoveredNode}
+        <div class="graph-tooltip" style="left: {tooltipX + 12}px; top: {tooltipY - 30}px">
+          <div class="tooltip-path">{hoveredNode.path}</div>
+          {#if isChunkMode() && hoveredNode.label}
+            <div class="tooltip-heading">{hoveredNode.label}</div>
+          {/if}
+          {#if currentColoringMode === 'custom-cluster'}
+            {#if hoveredNode.custom_cluster_ids && hoveredNode.custom_cluster_ids.length > 0}
+              {#each hoveredNode.custom_cluster_ids as topicId, i}
+                <div class="tooltip-cluster">
+                  {topicName(topicId)} · {Math.round(
+                    (hoveredNode.custom_cluster_scores?.[i] ?? 0) * 100
+                  )}%
+                </div>
+              {/each}
+            {:else if hoveredNode.chunk_index == null}
+              <div class="tooltip-cluster">Unassigned</div>
+            {/if}
+          {:else if hoveredNode.cluster_id != null && currentData}
+            {@const cluster = currentData.clusters.find((c) => c.id === hoveredNode!.cluster_id)}
+            {#if cluster}
+              <div class="tooltip-cluster">{cluster.label}</div>
+            {/if}
+          {/if}
+        </div>
+      {/if}
+
+      <!-- Edge tooltip (populated by hover handler in subtask 2-2) -->
+      {#if hoveredEdge && !hoveredNode}
+        {@const edgeSrc =
+          hoveredEdge.source && typeof hoveredEdge.source === 'object'
+            ? (hoveredEdge.source as ForceNode)
+            : null}
+        {@const edgeTgt =
+          hoveredEdge.target && typeof hoveredEdge.target === 'object'
+            ? (hoveredEdge.target as ForceNode)
+            : null}
+        <div
+          class="graph-tooltip edge-tooltip"
+          style="left: {tooltipX + 12}px; top: {tooltipY - 30}px"
+        >
+          {#if hoveredEdge.relationship_type}
+            <div class="edge-tooltip-type">
+              <span
+                class="edge-tooltip-dot"
+                style="background: {hoveredEdge.edge_cluster_id != null
+                  ? edgeClusterColor(hoveredEdge.edge_cluster_id, currentEdgePalette)
+                  : 'rgba(255,255,255,0.5)'}"
+              ></span>
+              {hoveredEdge.relationship_type}
+            </div>
+          {/if}
+          {#if edgeSrc && edgeTgt}
+            <div class="edge-tooltip-nodes">{edgeSrc.path} → {edgeTgt.path}</div>
+          {/if}
+          {#if hoveredEdge.strength != null}
+            <div class="edge-tooltip-strength">
+              <span class="edge-tooltip-strength-label">Strength</span>
+              <div class="edge-tooltip-bar">
+                <div
+                  class="edge-tooltip-bar-fill"
+                  style="width: {Math.round((hoveredEdge.strength ?? 0) * 100)}%"
+                ></div>
+              </div>
+              <span class="edge-tooltip-strength-value"
+                >{Math.round((hoveredEdge.strength ?? 0) * 100)}%</span
+              >
+            </div>
+          {/if}
+          {#if hoveredEdge.context_text}
+            <div class="edge-tooltip-context">
+              {hoveredEdge.context_text.length > 120
+                ? hoveredEdge.context_text.slice(0, 120) + '…'
+                : hoveredEdge.context_text}
+            </div>
+          {/if}
+        </div>
+      {/if}
+
+      <!-- Context menu -->
+      {#if contextMenuNode}
+        <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
+        <div
+          class="context-menu-backdrop"
+          onclick={() => (contextMenuNode = null)}
+          oncontextmenu={(e) => {
+            e.preventDefault()
+            contextMenuNode = null
+          }}
+        ></div>
+        <div class="context-menu" style="left: {contextMenuX}px; top: {contextMenuY}px">
+          <div class="context-menu-header">{contextMenuNode.path.split('/').pop()}</div>
+          <button class="context-menu-item" onclick={handleContextMenuOpen}>
+            <span class="material-symbols-outlined">open_in_new</span>
+            Open in tab
+          </button>
+          <button class="context-menu-item" onclick={handleContextMenuPreview}>
+            <span class="material-symbols-outlined">preview</span>
+            Preview
+          </button>
+          <button class="context-menu-item" onclick={handleContextMenuSelect}>
+            <span class="material-symbols-outlined">radio_button_checked</span>
+            Select node
+          </button>
+        </div>
+      {/if}
+
+      <!-- Legend: display-only key for the active view mode (mode switching lives in the top-left dropdown) -->
+      {#if (currentColoringMode === 'cluster' && getClusters().length > 0) || (currentColoringMode === 'custom-cluster' && getCustomClusters().length > 0) || (currentColoringMode === 'folder' && folderColorMap.size > 0)}
+        <div class="graph-legend">
+          <div class="legend-header">
+            <span class="legend-title"
+              >{currentColoringMode === 'cluster'
+                ? 'Clusters'
+                : currentColoringMode === 'custom-cluster'
+                  ? 'Topics'
+                  : 'Folders'}</span
+            >
+            <button
+              class="legend-toggle"
+              onclick={toggleLegend}
+              title={legendVisible ? 'Hide legend' : 'Show legend'}
+            >
+              <span class="material-symbols-outlined"
+                >{legendVisible ? 'expand_less' : 'expand_more'}</span
+              >
+            </button>
+          </div>
+          {#if legendVisible}
+            <div class="legend-items">
+              {#if currentColoringMode === 'cluster'}
+                {#each getClusters() as cluster}
+                  <div class="legend-item">
+                    <span class="legend-dot" style="background: {cluster.color}"></span>
+                    <span class="legend-label">{cluster.label}</span>
+                    <span class="legend-count">{cluster.member_count}</span>
+                  </div>
+                {/each}
+              {:else if currentColoringMode === 'custom-cluster'}
+                {#each getCustomClusters() as cluster}
+                  <button
+                    class="legend-item legend-item-clickable"
+                    class:legend-item-active={highlightedTopicId === cluster.id}
+                    onclick={() => toggleTopicHighlight(cluster.id)}
+                    title={highlightedTopicId === cluster.id
+                      ? `Clear ${cluster.label} highlight`
+                      : `Highlight all members of ${cluster.label}`}
+                  >
+                    <span class="legend-dot" style="background: {cluster.color}"></span>
+                    <span class="legend-label">{cluster.label}</span>
+                    <span class="legend-count">{cluster.member_count}</span>
+                  </button>
+                {/each}
+                {#if getUnassignedCount() > 0}
+                  <div class="legend-item legend-item-unassigned">
+                    <span class="legend-dot" style="background: {getDefaultNodeColor()}"></span>
+                    <span class="legend-label">Unassigned</span>
+                    <span class="legend-count">{getUnassignedCount()}</span>
+                  </div>
+                {/if}
+                {#if highlightedTopicId != null}
+                  <button
+                    class="legend-clear-filter"
+                    onclick={clearTopicHighlight}
+                    title="Clear topic highlight"
+                    style="margin-top: 4px; width: 100%;"
+                  >
+                    <span class="material-symbols-outlined" style="font-size: 14px;"
+                      >filter_alt_off</span
+                    >
+                    <span style="font-size: 10px;">Clear</span>
+                  </button>
+                {/if}
+              {:else if currentColoringMode === 'folder'}
+                {#each getFolderLegendItems() as item}
+                  <button
+                    class="legend-item legend-item-clickable"
+                    class:legend-item-active={currentHighlightedFolder === item.folder}
+                    onclick={() => setGraphHighlightedFolder(item.folder)}
+                    title={currentHighlightedFolder === item.folder
+                      ? `Clear ${item.folder} highlight`
+                      : `Highlight ${item.folder}`}
+                  >
+                    <span class="legend-dot" style="background: {item.color}"></span>
+                    <span class="legend-label">{item.folder}</span>
+                    <span class="legend-count">{item.count}</span>
+                  </button>
+                {/each}
+                {#if currentHighlightedFolder}
+                  <button
+                    class="legend-clear-filter"
+                    onclick={() => setGraphHighlightedFolder(null)}
+                    title="Clear folder highlight"
+                    style="margin-top: 4px; width: 100%;"
+                  >
+                    <span class="material-symbols-outlined" style="font-size: 14px;"
+                      >filter_alt_off</span
+                    >
+                    <span style="font-size: 10px;">Clear</span>
+                  </button>
+                {/if}
+              {/if}
+              {#if getEdgeClusters().length > 0}
+                <div class="legend-separator"></div>
+                <div class="legend-section-title">
+                  <span>Edge Types</span>
+                  {#if currentEdgeFilter.size > 0}
+                    <button
+                      class="legend-clear-filter"
+                      onclick={clearEdgeFilter}
+                      title="Show all edges"
+                    >
+                      <span class="material-symbols-outlined">filter_alt_off</span>
+                    </button>
+                  {/if}
+                </div>
+                {#each getEdgeClusters() as ec}
+                  <button
+                    class="legend-item legend-item-clickable"
+                    class:legend-item-muted={isEdgeClusterFiltered(ec.id)}
+                    onclick={() => toggleEdgeClusterFilter(ec.id)}
+                    title={isEdgeClusterFiltered(ec.id)
+                      ? `Show ${ec.label} edges`
+                      : `Hide ${ec.label} edges`}
+                  >
+                    <span class="legend-line" style="background: {ec.color}"></span>
+                    <span class="legend-label">{ec.label}</span>
+                    <span class="legend-count">{ec.count}</span>
+                  </button>
+                {/each}
+              {/if}
+            </div>
+          {/if}
+        </div>
+      {/if}
     {/if}
+  </div>
+  {#if currentOpenedNode}
+    <GraphPreview />
   {/if}
-</div>
-{#if currentOpenedNode}
-  <GraphPreview />
-{/if}
 </div>
 
 <style>
@@ -3291,8 +3346,13 @@
     font-size: 12px;
     color: var(--color-text-muted, rgba(228, 228, 231, 0.7));
     white-space: nowrap;
-    text-shadow: 0 0 4px rgba(0, 0, 0, 0.9), 0 0 8px rgba(0, 0, 0, 0.6);
-    transition: left 60ms linear, top 60ms linear, opacity 200ms ease;
+    text-shadow:
+      0 0 4px rgba(0, 0, 0, 0.9),
+      0 0 8px rgba(0, 0, 0, 0.6);
+    transition:
+      left 60ms linear,
+      top 60ms linear,
+      opacity 200ms ease;
   }
 
   .graph-3d-container {
@@ -3365,7 +3425,9 @@
       0 0 6px rgba(0, 0, 0, 0.9),
       0 0 12px rgba(0, 0, 0, 0.6);
     opacity: 0.85;
-    transition: left 60ms linear, top 60ms linear;
+    transition:
+      left 60ms linear,
+      top 60ms linear;
     z-index: 5;
   }
 
@@ -4025,7 +4087,9 @@
     border-radius: var(--radius-md, 0.375rem);
     color: var(--color-text-dim, #71717a);
     cursor: pointer;
-    transition: color var(--transition-fast, 150ms ease), background var(--transition-fast, 150ms ease);
+    transition:
+      color var(--transition-fast, 150ms ease),
+      background var(--transition-fast, 150ms ease);
   }
 
   .graph-recenter-btn:hover {
@@ -4038,8 +4102,12 @@
   }
 
   @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   .spinning {

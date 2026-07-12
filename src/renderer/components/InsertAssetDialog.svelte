@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { activeCollection } from '../stores/collections'
   import { assetTree } from '../stores/files'
   import { get } from 'svelte/store'
   import type { AssetFileNode, MimeCategory } from '../types/cli'
@@ -31,7 +30,7 @@
         name: node.name,
         path: node.path,
         mimeCategory: node.mimeCategory,
-        fileSize: node.fileSize,
+        fileSize: node.fileSize
       })
     }
     for (const child of node.children) {
@@ -49,16 +48,23 @@
   let filteredAssets = $derived.by(() => {
     if (!searchQuery.trim()) return allAssets
     const q = searchQuery.toLowerCase()
-    return allAssets.filter((a) => a.name.toLowerCase().includes(q) || a.path.toLowerCase().includes(q))
+    return allAssets.filter(
+      (a) => a.name.toLowerCase().includes(q) || a.path.toLowerCase().includes(q)
+    )
   })
 
   function mimeIcon(cat: MimeCategory): string {
     switch (cat) {
-      case 'image': return 'image'
-      case 'pdf': return 'picture_as_pdf'
-      case 'video': return 'videocam'
-      case 'audio': return 'audiotrack'
-      default: return 'attach_file'
+      case 'image':
+        return 'image'
+      case 'pdf':
+        return 'picture_as_pdf'
+      case 'video':
+        return 'videocam'
+      case 'audio':
+        return 'audiotrack'
+      default:
+        return 'attach_file'
     }
   }
 
@@ -67,7 +73,12 @@
     fromParts.pop()
     const toParts = toFile.split('/')
     let common = 0
-    while (common < fromParts.length && common < toParts.length && fromParts[common] === toParts[common]) common++
+    while (
+      common < fromParts.length &&
+      common < toParts.length &&
+      fromParts[common] === toParts[common]
+    )
+      common++
     const ups = fromParts.length - common
     const rest = toParts.slice(common)
     return ups > 0 ? `${Array(ups).fill('..').join('/')}/${rest.join('/')}` : rest.join('/')
@@ -79,7 +90,9 @@
     const relPath = computeRelativePath(currentFilePath, asset.path)
     const imageExts = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico'])
     const ext = asset.name.split('.').pop()?.toLowerCase() ?? ''
-    const syntax = imageExts.has(ext) ? `![${asset.name}](${relPath})` : `[${asset.name}](${relPath})`
+    const syntax = imageExts.has(ext)
+      ? `![${asset.name}](${relPath})`
+      : `[${asset.name}](${relPath})`
 
     oninsert?.(syntax)
     visible = false
@@ -141,7 +154,8 @@
         {:else}
           {#each filteredAssets as asset (asset.path)}
             <button class="asset-item" onclick={() => handleSelect(asset)}>
-              <span class="material-symbols-outlined item-icon">{mimeIcon(asset.mimeCategory)}</span>
+              <span class="material-symbols-outlined item-icon">{mimeIcon(asset.mimeCategory)}</span
+              >
               <div class="item-info">
                 <span class="item-name">{asset.name}</span>
                 <span class="item-path">{asset.path}</span>
@@ -190,7 +204,7 @@
 
   .dialog-header .material-symbols-outlined {
     font-size: 20px;
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
   }
 
   .dialog-header h3 {

@@ -1361,7 +1361,17 @@ describe('Topics IPC handlers', () => {
       await handler(fakeEvent, '/vault', 'Old', { name: 'New', seeds: ['a', 'b'] })
       expect(mockExecCommand).toHaveBeenCalledWith(
         'clusters',
-        ['update', 'Old', '--seeds', 'a,b', '--description', '', '--threshold=-1', '--rename', 'New'],
+        [
+          'update',
+          'Old',
+          '--seeds',
+          'a,b',
+          '--description',
+          '',
+          '--threshold=-1',
+          '--rename',
+          'New'
+        ],
         '/vault'
       )
     })
@@ -1375,7 +1385,16 @@ describe('Topics IPC handlers', () => {
         threshold: 0.5
       })
       const args = mockExecCommand.mock.calls[0][1] as string[]
-      expect(args).toEqual(['update', 'AI', '--seeds', 'nets', '--description', 'ML', '--threshold', '0.5'])
+      expect(args).toEqual([
+        'update',
+        'AI',
+        '--seeds',
+        'nets',
+        '--description',
+        'ML',
+        '--threshold',
+        '0.5'
+      ])
       expect(args).not.toContain('--rename')
     })
   })

@@ -101,10 +101,7 @@ describe('buildSearchScoreMap', () => {
   })
 
   it('handles multiple files', () => {
-    const map = buildSearchScoreMap([
-      makeResult('a.md', 0.8),
-      makeResult('b.md', 0.6)
-    ])
+    const map = buildSearchScoreMap([makeResult('a.md', 0.8), makeResult('b.md', 0.6)])
     expect(map.size).toBe(2)
     expect(map.get('a.md')).toBe(0.8)
     expect(map.get('b.md')).toBe(0.6)

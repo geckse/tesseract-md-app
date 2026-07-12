@@ -36,14 +36,6 @@
     localStorage.setItem(FM_STORAGE_KEY, String(frontmatterOpen))
   }
 
-  // Extract tags array
-  let tags = $derived.by(() => {
-    if (!currentFrontmatter) return []
-    const tagValue = currentFrontmatter['tags'] ?? currentFrontmatter['Tags']
-    if (Array.isArray(tagValue)) return tagValue.map(String)
-    return []
-  })
-
   /** Pick a badge variant based on common status values. */
   function statusVariant(value: string): 'primary' | 'success' | 'warning' | 'info' | 'default' {
     const lower = value.toLowerCase()
@@ -110,21 +102,25 @@
     }
 
     // Ctrl/Cmd + scroll to zoom
-    wrapper.addEventListener('wheel', (e) => {
-      if (!e.ctrlKey && !e.metaKey) return
-      e.preventDefault()
-      const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1
-      const next = Math.min(5, Math.max(0.2, scale * factor))
-      if (next === scale) return
-      const rect = wrapper.getBoundingClientRect()
-      const cx = e.clientX - rect.left
-      const cy = e.clientY - rect.top
-      const ratio = next / scale
-      tx = cx - ratio * (cx - tx)
-      ty = cy - ratio * (cy - ty)
-      scale = next
-      apply()
-    }, { passive: false })
+    wrapper.addEventListener(
+      'wheel',
+      (e) => {
+        if (!e.ctrlKey && !e.metaKey) return
+        e.preventDefault()
+        const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1
+        const next = Math.min(5, Math.max(0.2, scale * factor))
+        if (next === scale) return
+        const rect = wrapper.getBoundingClientRect()
+        const cx = e.clientX - rect.left
+        const cy = e.clientY - rect.top
+        const ratio = next / scale
+        tx = cx - ratio * (cx - tx)
+        ty = cy - ratio * (cy - ty)
+        scale = next
+        apply()
+      },
+      { passive: false }
+    )
 
     // Drag to pan
     let panning = false
@@ -165,6 +161,7 @@
   }
 </script>
 
+<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 <div class="preview-container" bind:this={previewContainer} onclick={handleLinkClick}>
   <!-- Frontmatter accordion -->
   {#if currentFrontmatter && frontmatterEntries.length > 0}
@@ -203,6 +200,7 @@
 
   <!-- Rendered markdown -->
   <div class="markdown-body">
+    <!-- eslint-disable-next-line svelte/no-at-html-tags -->
     {@html renderedHtml}
   </div>
 </div>

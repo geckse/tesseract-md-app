@@ -2,7 +2,7 @@
   import {
     PRESET_COLORS,
     resolveThemeAwareAccent,
-    type ThemeAwareAccent,
+    type ThemeAwareAccent
   } from '../../lib/color-utils'
 
   interface ColorPickerProps {
@@ -18,7 +18,7 @@
     defaultColor = '#00E5FF',
     onchange,
     showReset = false,
-    showInheritedHint = false,
+    showInheritedHint = false
   }: ColorPickerProps = $props()
 
   let open = $state(false)
@@ -104,7 +104,7 @@
       </div>
 
       <div class="custom-section">
-        <label class="custom-label">Custom</label>
+        <span class="custom-label">Custom</span>
         <div class="custom-row">
           <input
             type="color"
@@ -128,7 +128,8 @@
         <div class="theme-preview-label">Theme colors</div>
         <div class="theme-preview-row">
           <div class="theme-swatch-group">
-            <span class="theme-swatch dark-swatch" style="background-color: {accent.darkColor}"></span>
+            <span class="theme-swatch dark-swatch" style="background-color: {accent.darkColor}"
+            ></span>
             <span class="theme-swatch-label">Dark</span>
             {#if accent.darkAdjusted}
               <span class="theme-swatch-adjusted">{accent.darkColor}</span>
@@ -137,7 +138,8 @@
             {/if}
           </div>
           <div class="theme-swatch-group">
-            <span class="theme-swatch light-swatch" style="background-color: {accent.lightColor}"></span>
+            <span class="theme-swatch light-swatch" style="background-color: {accent.lightColor}"
+            ></span>
             <span class="theme-swatch-label">Light</span>
             {#if accent.lightAdjusted}
               <span class="theme-swatch-adjusted">{accent.lightColor}</span>
@@ -232,7 +234,9 @@
 
   .preset-swatch.active {
     border-color: var(--color-text-white, #ffffff);
-    box-shadow: 0 0 0 2px var(--color-surface, #161617), 0 0 0 4px var(--color-text-white, #ffffff);
+    box-shadow:
+      0 0 0 2px var(--color-surface, #161617),
+      0 0 0 4px var(--color-text-white, #ffffff);
   }
 
   .custom-section {
@@ -288,7 +292,7 @@
   }
 
   .hex-input:focus {
-    border-color: var(--color-primary, #00E5FF);
+    border-color: var(--color-primary, #00e5ff);
   }
 
   .theme-preview {

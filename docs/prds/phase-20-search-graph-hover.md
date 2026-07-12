@@ -62,12 +62,12 @@ No new types needed. The store holds a plain file path string (same format as `s
 
 The `draw()` function in GraphView uses a priority chain where higher-priority highlights suppress lower ones. Insert the new hover highlight at priority 2:
 
-| Priority | Mode | Trigger | Behavior |
-|----------|------|---------|----------|
-| 1 (highest) | Selection | Click node in graph | Highlight node + neighbors, colored directional edges |
-| **2** | **Hover highlight** | **Hover search result** | **Cyan glow on file nodes, dim others** |
-| 3 | File highlight | Select file in editor/tree | Cyan glow on file nodes, dim others |
-| 4 (lowest) | Folder highlight | Click folder in file tree | Cyan glow on folder's nodes, dim others |
+| Priority    | Mode                | Trigger                    | Behavior                                              |
+| ----------- | ------------------- | -------------------------- | ----------------------------------------------------- |
+| 1 (highest) | Selection           | Click node in graph        | Highlight node + neighbors, colored directional edges |
+| **2**       | **Hover highlight** | **Hover search result**    | **Cyan glow on file nodes, dim others**               |
+| 3           | File highlight      | Select file in editor/tree | Cyan glow on file nodes, dim others                   |
+| 4 (lowest)  | Folder highlight    | Click folder in file tree  | Cyan glow on folder's nodes, dim others               |
 
 Hover takes priority over file highlight because it's an active user gesture — the user is pointing at something specific and wants to see it, temporarily overriding the passive "currently open file" glow.
 
@@ -110,7 +110,8 @@ No migration needed. The new store defaults to `null` (no highlight), so existin
 5. **Integrate hover highlight into draw() priority chain** — In `app/src/renderer/components/GraphView.svelte`, in the `draw()` function:
    - After computing `hasSelection`, compute hover highlight using existing `getFileHighlight()`:
      ```typescript
-     const { fileNodeIds: hoverNodeIds, fileEdges: hoverEdges } = getFileHighlight(currentHoveredFilePath)
+     const { fileNodeIds: hoverNodeIds, fileEdges: hoverEdges } =
+       getFileHighlight(currentHoveredFilePath)
      const hasHoverHighlight = !hasSelection && hoverNodeIds.size > 0
      ```
    - Adjust existing file highlight to defer to hover:
@@ -119,7 +120,8 @@ No migration needed. The new store defaults to `null` (no highlight), so existin
      ```
    - Adjust folder highlight to defer to both:
      ```typescript
-     const hasFolderHighlight = !hasSelection && !hasHoverHighlight && !hasFileHighlight && folderNodeIds.size > 0
+     const hasFolderHighlight =
+       !hasSelection && !hasHoverHighlight && !hasFileHighlight && folderNodeIds.size > 0
      ```
    - Skip hover-highlighted edges from the dim pass (same pattern as file edges).
    - Draw hover-highlighted edges with cyan color (same as file highlight edges).

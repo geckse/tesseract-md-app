@@ -226,4 +226,56 @@ describe('TableView', () => {
     expect(editingRow.querySelector('.title-cell')!.textContent).toContain('a')
     expect((editingRow as HTMLElement).style.top).toBe('72px')
   })
+
+  it('renders the add-row affordance after the last row inside the scrolling grid', async () => {
+    const tabId = workspace.openTableTab('docs')
+    mockApi.collection.mockResolvedValue(fixture)
+    await tableStore.load(tabId, 'c1', '/root')
+
+    const { container } = render(TableView, { props: { tabId } })
+
+    const addRow = container.querySelector('.table-inner > .add-row.row')!
+    expect(addRow).toBeTruthy()
+    const rows = container.querySelector('.rows')!
+    expect(rows.compareDocumentPosition(addRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('the empty state offers an Add row CTA wired to tableStore.addRow', async () => {
+    const tabId = workspace.openTableTab('docs')
+    mockApi.collection.mockResolvedValue({ ...fixture, columns: [], rows: [], total_rows: 0 })
+    await tableStore.load(tabId, 'c1', '/root')
+
+    const addRow = vi.spyOn(tableStore, 'addRow').mockResolvedValue({ ok: true })
+    const { container } = render(TableView, { props: { tabId } })
+
+    const cta = container.querySelector('.table-state .add-row')!
+    expect(cta).toBeTruthy()
+    await fireEvent.click(cta)
+
+    const input = container.querySelector<HTMLInputElement>('.table-state .add-input')!
+    await fireEvent.input(input, { target: { value: 'first-doc' } })
+    await fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(addRow).toHaveBeenCalledWith(tabId, 'first-doc')
+  })
+
+  it('Enter on the focused add-row button never opens the selected row (grid shortcut)', async () => {
+    const tabId = workspace.openTableTab('docs')
+    mockApi.collection.mockResolvedValue(fixture)
+    await tableStore.load(tabId, 'c1', '/root')
+
+    const openFile = vi.spyOn(workspace, 'openFile').mockImplementation(() => {})
+    const { container } = render(TableView, { props: { tabId } })
+    const grid = container.querySelector('.table-view')!
+
+    await fireEvent.keyDown(grid, { key: 'ArrowDown' }) // selects row 0
+    const button = container.querySelector<HTMLButtonElement>('.table-inner > .add-row.row')!
+    button.focus()
+    await fireEvent.keyDown(button, { key: 'Enter' }) // bubbles toward the grid handler
+
+    expect(openFile).not.toHaveBeenCalled()
+    // Plain activation still works.
+    await fireEvent.click(button)
+    expect(container.querySelector('.add-input')).toBeTruthy()
+  })
 })

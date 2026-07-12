@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 const { notarize } = require('@electron/notarize')
 
 exports.default = async function notarizing(context) {

@@ -46,9 +46,7 @@ export async function validateCollectionPath(path: string): Promise<ValidationRe
   }
 
   // Check for existing .markdownvdb config (directory or legacy file)
-  const hasConfig =
-    existsSync(`${path}/.markdownvdb`) ||
-    existsSync(`${path}/.markdownvdb/.config`)
+  const hasConfig = existsSync(`${path}/.markdownvdb`) || existsSync(`${path}/.markdownvdb/.config`)
 
   return { valid: true, hasConfig, name }
 }
@@ -108,7 +106,8 @@ export async function promptInitCollection(name: string): Promise<boolean> {
     cancelId: 0,
     title: 'Initialize Collection',
     message: `"${name}" is not yet initialized as a collection.`,
-    detail: 'Would you like to initialize it? This will create a .markdownvdb configuration directory.'
+    detail:
+      'Would you like to initialize it? This will create a .markdownvdb configuration directory.'
   })
 
   return result.response === 1

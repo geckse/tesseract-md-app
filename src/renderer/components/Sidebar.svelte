@@ -2,7 +2,6 @@
   import {
     collections,
     activeCollectionId,
-    activeCollection,
     collectionStatus,
     collectionsLoading,
     addCollection,
@@ -24,7 +23,7 @@
     onfileselect?: (detail: { folderId: string; fileId: string; forceNewTab?: boolean }) => void
   }
 
-  let { onnavigate, onfileselect }: SidebarProps = $props()
+  let { onfileselect }: SidebarProps = $props()
 
   let contextMenuCollection: Collection | null = $state(null)
   let contextMenuPosition = $state({ x: 0, y: 0 })
@@ -34,10 +33,6 @@
   let currentActiveCollection: Collection | null = $derived(
     currentCollections.find((c) => c.id === currentActiveCollectionId) ?? null
   )
-
-  function handleNavClick(id: string) {
-    onnavigate?.({ id })
-  }
 
   async function handleAddCollection(): Promise<Collection | null> {
     const collection = await addCollection()
@@ -156,8 +151,7 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_keys -->
-<!-- svelte-ignore a11y_no_static_element_interactions -->
+<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
 <aside
   class="sidebar"
   style:width="{sidebarWidth}px"

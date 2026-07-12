@@ -47,7 +47,7 @@ const EXTENSION_MAP: Record<string, MimeCategory> = {
   '.mp3': 'audio',
   '.wav': 'audio',
   '.ogg': 'audio',
-  '.flac': 'audio',
+  '.flac': 'audio'
 }
 
 /** Directories that are always skipped. */
@@ -64,7 +64,7 @@ export const ALWAYS_SKIP_DIRS = new Set([
   '.svelte-kit',
   '__pycache__',
   '.venv',
-  'venv',
+  'venv'
 ])
 
 /** Maximum directory depth to scan. */
@@ -148,13 +148,19 @@ async function scanDirectory(
     }
 
     if (entry.isDirectory()) {
-      const subChildren = await scanDirectory(fullPath, collectionRoot, isIgnored, depth + 1, fileCount)
+      const subChildren = await scanDirectory(
+        fullPath,
+        collectionRoot,
+        isIgnored,
+        depth + 1,
+        fileCount
+      )
       if (subChildren.length > 0) {
         children.push({
           name,
           path: relPath,
           is_dir: true,
-          children: subChildren,
+          children: subChildren
         })
       }
     } else if (entry.isFile()) {
@@ -179,7 +185,7 @@ async function scanDirectory(
         is_dir: false,
         children: [],
         fileSize,
-        mimeCategory,
+        mimeCategory
       })
     }
   }
@@ -211,12 +217,12 @@ export async function scanAssets(collectionPath: string): Promise<AssetScanResul
     name: '',
     path: '',
     is_dir: true,
-    children,
+    children
   }
 
   return {
     root,
     totalAssets: fileCount.value,
-    scanDurationMs: Math.round(performance.now() - start),
+    scanDurationMs: Math.round(performance.now() - start)
   }
 }

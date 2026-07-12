@@ -423,13 +423,13 @@ describe('DocumentCache', () => {
     it('handles alternating set and get operations', () => {
       const smallCache = new DocumentCache(3)
 
-      smallCache.set('a.md', createDoc('a'))  // [a]
-      smallCache.get('a.md')                   // [a]
-      smallCache.set('b.md', createDoc('b'))  // [a, b]
-      smallCache.get('a.md')                   // [b, a] - a moved to end
-      smallCache.set('c.md', createDoc('c'))  // [b, a, c]
-      smallCache.get('b.md')                   // [a, c, b] - b moved to end
-      smallCache.set('d.md', createDoc('d'))  // [c, b, d] - a evicted
+      smallCache.set('a.md', createDoc('a')) // [a]
+      smallCache.get('a.md') // [a]
+      smallCache.set('b.md', createDoc('b')) // [a, b]
+      smallCache.get('a.md') // [b, a] - a moved to end
+      smallCache.set('c.md', createDoc('c')) // [b, a, c]
+      smallCache.get('b.md') // [a, c, b] - b moved to end
+      smallCache.set('d.md', createDoc('d')) // [c, b, d] - a evicted
 
       // After operations, 'a' is least recently used and gets evicted
       expect(smallCache.has('a.md')).toBe(false) // Evicted

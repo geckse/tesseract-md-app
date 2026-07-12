@@ -1,22 +1,22 @@
 <script lang="ts">
-  import Kbd from './ui/Kbd.svelte';
-  import { getShortcutDisplay } from '../lib/shortcuts';
+  import Kbd from './ui/Kbd.svelte'
+  import { getShortcutDisplay } from '../lib/shortcuts'
 
   interface KeyboardShortcutsProps {
-    open: boolean;
-    onclose: () => void;
+    open: boolean
+    onclose: () => void
   }
 
-  let { open, onclose }: KeyboardShortcutsProps = $props();
+  let { open, onclose }: KeyboardShortcutsProps = $props()
 
   interface ShortcutEntry {
-    label: string;
-    keys: string;
+    label: string
+    keys: string
   }
 
   interface ShortcutCategory {
-    name: string;
-    shortcuts: ShortcutEntry[];
+    name: string
+    shortcuts: ShortcutEntry[]
   }
 
   const categories: ShortcutCategory[] = [
@@ -28,34 +28,32 @@
         { label: 'Graph View', keys: getShortcutDisplay('G', true) },
         { label: 'Close File', keys: getShortcutDisplay('W', true) },
         { label: 'Cycle Focus Forward', keys: 'Tab' },
-        { label: 'Cycle Focus Backward', keys: 'Shift+Tab' },
-      ],
+        { label: 'Cycle Focus Backward', keys: 'Shift+Tab' }
+      ]
     },
     {
       name: 'Editing',
       shortcuts: [
         { label: 'New Note (popup window)', keys: getShortcutDisplay('N', true) },
         { label: 'Toggle Mode', keys: getShortcutDisplay('E', true) },
-        { label: 'Save', keys: getShortcutDisplay('S', true) },
-      ],
+        { label: 'Save', keys: getShortcutDisplay('S', true) }
+      ]
     },
     {
       name: 'Panels',
-      shortcuts: [
-        { label: 'Toggle Properties', keys: getShortcutDisplay('B', true, true) },
-      ],
-    },
-  ];
+      shortcuts: [{ label: 'Toggle Properties', keys: getShortcutDisplay('B', true, true) }]
+    }
+  ]
 
   function handleBackdropClick(e: MouseEvent) {
     if (e.target === e.currentTarget) {
-      onclose();
+      onclose()
     }
   }
 
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape' && open) {
-      onclose();
+      onclose()
     }
   }
 </script>

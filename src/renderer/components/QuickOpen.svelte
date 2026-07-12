@@ -5,7 +5,7 @@
   import { workspace } from '../stores/workspace.svelte'
   import { recordNavigation } from '../stores/navigation'
   import { fuzzyFilter } from '../lib/fuzzy-match'
-  import type { FileTreeNode, SearchResultFile } from '../types/cli'
+  import type { FileTreeNode } from '../types/cli'
 
   interface QuickOpenResult {
     path: string
@@ -37,7 +37,7 @@
       path: f.path,
       label: f.path,
       state: f.state,
-      matchIndices: [],
+      matchIndices: []
     }))
   )
 
@@ -50,15 +50,13 @@
         path: item.path,
         label: item.path,
         state: item.state,
-        matchIndices: match.indices,
+        matchIndices: match.indices
       }))
   })
 
   // Display results: search results if available, fuzzy as fallback, default if no query
   let displayResults = $derived<QuickOpenResult[]>(
-    query.trim()
-      ? (searchResults.length > 0 ? searchResults : fuzzyResults)
-      : defaultResults
+    query.trim() ? (searchResults.length > 0 ? searchResults : fuzzyResults) : defaultResults
   )
 
   async function runCliSearch(searchQuery: string): Promise<void> {
@@ -72,16 +70,16 @@
     searchLoading = true
 
     try {
-      let result;
+      let result
       try {
         result = await window.api.search(currentCollection.path, searchQuery, {
           mode: 'hybrid',
-          limit: 20,
+          limit: 20
         })
       } catch {
         result = await window.api.search(currentCollection.path, searchQuery, {
           mode: 'lexical',
-          limit: 20,
+          limit: 20
         })
       }
 
@@ -97,7 +95,7 @@
             path: r.file.path,
             label: r.file.path,
             state: null,
-            matchIndices: findMatchIndices(r.file.path, searchQuery),
+            matchIndices: findMatchIndices(r.file.path, searchQuery)
           })
         }
       }
@@ -231,7 +229,6 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="modal-backdrop" onclick={handleBackdropClick}>
     <div class="modal-content" role="dialog" aria-modal="true" aria-label="Quick Open">
-
       <div class="search-box">
         <span class="material-symbols-outlined search-icon">search</span>
         <input
@@ -246,7 +243,9 @@
         {#if query}
           <button
             class="clear-btn"
-            onclick={() => { query = '' }}
+            onclick={() => {
+              query = ''
+            }}
             aria-label="Clear search"
           >
             <span class="material-symbols-outlined">close</span>
@@ -269,10 +268,13 @@
                 class="result-item"
                 class:selected={index === selectedIndex}
                 onclick={() => handleSelect(result)}
-                onmouseenter={() => { selectedIndex = index }}
+                onmouseenter={() => {
+                  selectedIndex = index
+                }}
               >
                 <span class="material-symbols-outlined file-icon">description</span>
                 <span class="file-path">
+                  <!-- eslint-disable-next-line svelte/no-at-html-tags -->
                   {@html highlightMatches(result.label, result.matchIndices)}
                 </span>
                 {#if result.state}
@@ -291,7 +293,6 @@
           <span class="hint"><kbd>Esc</kbd> Close</span>
         </div>
       </div>
-
     </div>
   </div>
 {/if}
@@ -364,7 +365,9 @@
     border-radius: 4px;
     cursor: pointer;
     color: var(--color-text-dim, #71717a);
-    transition: background 0.15s ease, color 0.15s ease;
+    transition:
+      background 0.15s ease,
+      color 0.15s ease;
   }
 
   .clear-btn:hover {
@@ -448,7 +451,7 @@
 
   .file-path :global(mark) {
     background: transparent;
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
     font-weight: 600;
   }
 
@@ -473,7 +476,7 @@
 
   .state-new {
     background: var(--color-primary-dim, rgba(0, 229, 255, 0.15));
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
   }
 
   .state-deleted {

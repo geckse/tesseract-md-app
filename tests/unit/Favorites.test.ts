@@ -15,12 +15,12 @@ const mockApi = {
   doctor: vi.fn(),
   readFile: vi.fn(),
   saveWindowSession: vi.fn().mockResolvedValue(undefined),
-  detachTab: vi.fn().mockResolvedValue(undefined),
+  detachTab: vi.fn().mockResolvedValue(undefined)
 }
 
 Object.defineProperty(globalThis, 'window', {
   value: { api: mockApi },
-  writable: true,
+  writable: true
 })
 
 // Mock syncFileStoresFromTab to avoid side effects during tests
@@ -28,7 +28,7 @@ vi.mock('../../src/renderer/stores/files', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/renderer/stores/files')>()
   return {
     ...actual,
-    syncFileStoresFromTab: vi.fn(),
+    syncFileStoresFromTab: vi.fn()
   }
 })
 
@@ -46,18 +46,18 @@ const sampleFavorites: FavoriteEntry[] = [
   {
     collectionId: '1',
     filePath: 'guide/intro.md',
-    addedAt: Date.now() - 1000,
+    addedAt: Date.now() - 1000
   },
   {
     collectionId: '1',
     filePath: 'docs/readme.md',
-    addedAt: Date.now() - 2000,
+    addedAt: Date.now() - 2000
   },
   {
     collectionId: '2',
     filePath: 'notes/meeting.md',
-    addedAt: Date.now() - 3000,
-  },
+    addedAt: Date.now() - 3000
+  }
 ]
 
 function resetStores() {
@@ -162,8 +162,8 @@ describe('Favorites component', () => {
       {
         collectionId: '999', // Non-existent collection
         filePath: 'orphan.md',
-        addedAt: Date.now(),
-      },
+        addedAt: Date.now()
+      }
     ])
     favoritesLoading.set(false)
     collections.set([testCollection1])
@@ -179,8 +179,8 @@ describe('Favorites component', () => {
       {
         collectionId: '1',
         filePath: 'deeply/nested/folder/structure/file.md',
-        addedAt: Date.now(),
-      },
+        addedAt: Date.now()
+      }
     ])
     favoritesLoading.set(false)
     collections.set([testCollection1])
@@ -195,8 +195,8 @@ describe('Favorites component', () => {
       {
         collectionId: '1',
         filePath: 'root-file.md',
-        addedAt: Date.now(),
-      },
+        addedAt: Date.now()
+      }
     ])
     favoritesLoading.set(false)
     collections.set([testCollection1])

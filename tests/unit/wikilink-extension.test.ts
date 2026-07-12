@@ -6,7 +6,7 @@ describe('parseWikilinkText', () => {
     expect(parseWikilinkText('[[My Page]]')).toEqual({
       target: 'My Page',
       anchor: null,
-      display: null,
+      display: null
     })
   })
 
@@ -14,7 +14,7 @@ describe('parseWikilinkText', () => {
     expect(parseWikilinkText('[[My Page#section]]')).toEqual({
       target: 'My Page',
       anchor: 'section',
-      display: null,
+      display: null
     })
   })
 
@@ -22,7 +22,7 @@ describe('parseWikilinkText', () => {
     expect(parseWikilinkText('[[My Page|click here]]')).toEqual({
       target: 'My Page',
       anchor: null,
-      display: 'click here',
+      display: 'click here'
     })
   })
 
@@ -30,7 +30,7 @@ describe('parseWikilinkText', () => {
     expect(parseWikilinkText('[[My Page#section|click here]]')).toEqual({
       target: 'My Page',
       anchor: 'section',
-      display: 'click here',
+      display: 'click here'
     })
   })
 
@@ -39,7 +39,7 @@ describe('parseWikilinkText', () => {
     expect(parseWikilinkText('[[Page#]]')).toEqual({
       target: 'Page',
       anchor: null,
-      display: null,
+      display: null
     })
   })
 })
@@ -64,9 +64,9 @@ describe('serializeWikilink', () => {
   })
 
   it('serializes target with anchor and display', () => {
-    expect(
-      serializeWikilink({ target: 'My Page', anchor: 'section', display: 'click here' })
-    ).toBe('[[My Page#section|click here]]')
+    expect(serializeWikilink({ target: 'My Page', anchor: 'section', display: 'click here' })).toBe(
+      '[[My Page#section|click here]]'
+    )
   })
 })
 

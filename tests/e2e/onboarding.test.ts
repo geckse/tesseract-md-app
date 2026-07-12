@@ -4,19 +4,6 @@ import { resolve } from 'path'
 const appPath = resolve(__dirname, '../../out/main/index.js')
 
 /**
- * Reset onboarding state by clearing the electron-store value.
- * Uses electronApp.evaluate to run code in the main process.
- */
-async function resetOnboarding(electronApp: ElectronApplication): Promise<void> {
-  await electronApp.evaluate(async ({ ipcMain }) => {
-    // Access the store module from the main process
-    const store = require('electron-store')
-    const s = new store()
-    s.set('onboardingComplete', false)
-  })
-}
-
-/**
  * Launch app with a fresh onboarding state by using a custom userData path
  * so we get a clean electron-store.
  */

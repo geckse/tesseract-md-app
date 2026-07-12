@@ -26,9 +26,7 @@ test.describe('Keyboard Navigation', () => {
       await window.waitForTimeout(300)
 
       const searchInput = window.locator('.search-input')
-      const isFocused = await searchInput.evaluate(
-        (el) => document.activeElement === el
-      )
+      const isFocused = await searchInput.evaluate((el) => document.activeElement === el)
       expect(isFocused).toBe(true)
     }
 
@@ -57,7 +55,9 @@ test.describe('Keyboard Navigation', () => {
       await window.waitForTimeout(300)
 
       // Check that quick open modal is visible
-      const quickOpenModal = window.locator('.quick-open-modal, [role="dialog"][aria-label*="Quick"]')
+      const quickOpenModal = window.locator(
+        '.quick-open-modal, [role="dialog"][aria-label*="Quick"]'
+      )
       const isVisible = await quickOpenModal.isVisible().catch(() => false)
 
       if (isVisible) {
@@ -129,7 +129,9 @@ test.describe('Keyboard Navigation', () => {
         await window.waitForTimeout(500)
 
         // Get initial properties panel state
-        const propertiesPanel = window.locator('.properties-panel, .properties-region, [role="complementary"]')
+        const propertiesPanel = window.locator(
+          '.properties-panel, .properties-region, [role="complementary"]'
+        )
         const initialVisible = await propertiesPanel.isVisible().catch(() => false)
 
         // Toggle properties panel with Cmd+Shift+B
@@ -183,7 +185,9 @@ test.describe('Keyboard Navigation', () => {
         await window.waitForTimeout(200)
 
         // First result should be highlighted
-        const highlighted = window.locator('.result-card.highlighted, .result-card[data-highlighted="true"]')
+        const highlighted = window.locator(
+          '.result-card.highlighted, .result-card[data-highlighted="true"]'
+        )
         const highlightedCount = await highlighted.count()
         expect(highlightedCount).toBeGreaterThanOrEqual(1)
 
@@ -193,7 +197,9 @@ test.describe('Keyboard Navigation', () => {
           await window.waitForTimeout(200)
 
           // Should still have one highlighted result
-          const highlightedAfter = await window.locator('.result-card.highlighted, .result-card[data-highlighted="true"]').count()
+          const highlightedAfter = await window
+            .locator('.result-card.highlighted, .result-card[data-highlighted="true"]')
+            .count()
           expect(highlightedAfter).toBeGreaterThanOrEqual(1)
         }
 
@@ -201,7 +207,9 @@ test.describe('Keyboard Navigation', () => {
         await window.keyboard.press('ArrowUp')
         await window.waitForTimeout(200)
 
-        const highlightedFinal = await window.locator('.result-card.highlighted, .result-card[data-highlighted="true"]').count()
+        const highlightedFinal = await window
+          .locator('.result-card.highlighted, .result-card[data-highlighted="true"]')
+          .count()
         expect(highlightedFinal).toBeGreaterThanOrEqual(1)
       }
     }
@@ -321,14 +329,14 @@ test.describe('Keyboard Navigation', () => {
 
         // Focus the document body first
         await window.evaluate(() => {
-          (document.body as HTMLElement).focus()
+          ;(document.body as HTMLElement).focus()
         })
 
         // Press Tab to cycle to first region (sidebar)
         await window.keyboard.press('Tab')
         await window.waitForTimeout(200)
 
-        let focusedRegion = await window.evaluate(() => {
+        const focusedRegion = await window.evaluate(() => {
           const active = document.activeElement as HTMLElement
           if (!active) return null
 
@@ -339,7 +347,8 @@ test.describe('Keyboard Navigation', () => {
 
           if (sidebar && (active === sidebar || sidebar.contains(active))) return 'sidebar'
           if (editor && (active === editor || editor.contains(active))) return 'editor'
-          if (properties && (active === properties || properties.contains(active))) return 'properties'
+          if (properties && (active === properties || properties.contains(active)))
+            return 'properties'
 
           return null
         })
@@ -361,7 +370,8 @@ test.describe('Keyboard Navigation', () => {
 
           if (sidebar && (active === sidebar || sidebar.contains(active))) return 'sidebar'
           if (editor && (active === editor || editor.contains(active))) return 'editor'
-          if (properties && (active === properties || properties.contains(active))) return 'properties'
+          if (properties && (active === properties || properties.contains(active)))
+            return 'properties'
 
           return null
         })
@@ -400,7 +410,7 @@ test.describe('Keyboard Navigation', () => {
 
         // Focus the document body first
         await window.evaluate(() => {
-          (document.body as HTMLElement).focus()
+          ;(document.body as HTMLElement).focus()
         })
 
         // Press Tab to focus first region
@@ -417,7 +427,8 @@ test.describe('Keyboard Navigation', () => {
 
           if (sidebar && (active === sidebar || sidebar.contains(active))) return 'sidebar'
           if (editor && (active === editor || editor.contains(active))) return 'editor'
-          if (properties && (active === properties || properties.contains(active))) return 'properties'
+          if (properties && (active === properties || properties.contains(active)))
+            return 'properties'
 
           return null
         })
@@ -436,7 +447,8 @@ test.describe('Keyboard Navigation', () => {
 
           if (sidebar && (active === sidebar || sidebar.contains(active))) return 'sidebar'
           if (editor && (active === editor || editor.contains(active))) return 'editor'
-          if (properties && (active === properties || properties.contains(active))) return 'properties'
+          if (properties && (active === properties || properties.contains(active)))
+            return 'properties'
 
           return null
         })
@@ -471,9 +483,7 @@ test.describe('Keyboard Navigation', () => {
       await window.waitForTimeout(300)
 
       const searchInput = window.locator('.search-input')
-      let isFocused = await searchInput.evaluate(
-        (el) => document.activeElement === el
-      )
+      const isFocused = await searchInput.evaluate((el) => document.activeElement === el)
       expect(isFocused).toBe(true)
 
       // Close search with Escape
@@ -498,7 +508,9 @@ test.describe('Keyboard Navigation', () => {
       await window.keyboard.press('Meta+p')
       await window.waitForTimeout(300)
 
-      const quickOpenModal = window.locator('.quick-open-modal, [role="dialog"][aria-label*="Quick"]')
+      const quickOpenModal = window.locator(
+        '.quick-open-modal, [role="dialog"][aria-label*="Quick"]'
+      )
       const quickOpenVisible = await quickOpenModal.isVisible().catch(() => false)
 
       if (quickOpenVisible) {

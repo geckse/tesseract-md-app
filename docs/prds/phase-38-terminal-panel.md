@@ -34,7 +34,7 @@ Today the app is a Markdown editor + viewer over the `mdvdb` CLI, but users who 
 - **No scrollback persistence** — scrollback and in-flight commands are lost on app relaunch.
 - **No terminal-specific theming UI** — the terminal uses the app's existing theme tokens; no separate color pickers.
 - **No shell profile manager** — one global shell override only. Per-terminal profile selection is a future phase.
-- **No auto-cd on collection switch** — existing terminals keep their cwd when collections change. Only *new* terminals start in the new collection root.
+- **No auto-cd on collection switch** — existing terminals keep their cwd when collections change. Only _new_ terminals start in the new collection root.
 
 ## User Experience
 
@@ -56,13 +56,13 @@ Today the app is a Markdown editor + viewer over the `mdvdb` CLI, but users who 
 
 ### Keyboard shortcuts
 
-| Shortcut | Action |
-|---|---|
-| `` Ctrl+` `` / `` Cmd+` `` | Toggle bottom panel |
-| `` Ctrl+Shift+` `` / `` Cmd+Shift+` `` | New terminal in bottom panel |
-| `Ctrl+Shift+T` (inside panel) | Cycle active terminal |
-| `Cmd+W` (terminal focused) | Close active terminal |
-| `Ctrl+L` (inside terminal) | Passes through to shell (do not intercept) |
+| Shortcut                               | Action                                     |
+| -------------------------------------- | ------------------------------------------ |
+| `` Ctrl+` `` / `` Cmd+` ``             | Toggle bottom panel                        |
+| `` Ctrl+Shift+` `` / `` Cmd+Shift+` `` | New terminal in bottom panel               |
+| `Ctrl+Shift+T` (inside panel)          | Cycle active terminal                      |
+| `Cmd+W` (terminal focused)             | Close active terminal                      |
+| `Ctrl+L` (inside terminal)             | Passes through to shell (do not intercept) |
 
 Global editor shortcuts (`Cmd+S`, `Cmd+P`, etc.) must NOT fire when a terminal has focus — terminals swallow all keystrokes.
 
@@ -77,14 +77,14 @@ Global editor shortcuts (`Cmd+S`, `Cmd+P`, etc.) must NOT fire when a terminal h
 
 ### Technology
 
-| Concern | Choice | Why |
-|---|---|---|
-| PTY host | `node-pty` in the Electron main process | Industry-standard PTY bridge, supports macOS/Linux/Windows ConPTY. |
-| Emulator UI | `@xterm/xterm` | The de-facto terminal emulator used by VS Code; mature, fast, accessible. |
-| Sizing | `@xterm/addon-fit` | Computes cols/rows from container size. |
-| Links | `@xterm/addon-web-links` | Clickable `http(s)://` links. |
-| WebGL (optional) | `@xterm/addon-webgl` | Faster rendering when GPU available; canvas fallback automatic. |
-| Search (optional, phase-2 follow-up) | `@xterm/addon-search` | In-terminal find-in-scrollback. |
+| Concern                              | Choice                                  | Why                                                                       |
+| ------------------------------------ | --------------------------------------- | ------------------------------------------------------------------------- |
+| PTY host                             | `node-pty` in the Electron main process | Industry-standard PTY bridge, supports macOS/Linux/Windows ConPTY.        |
+| Emulator UI                          | `@xterm/xterm`                          | The de-facto terminal emulator used by VS Code; mature, fast, accessible. |
+| Sizing                               | `@xterm/addon-fit`                      | Computes cols/rows from container size.                                   |
+| Links                                | `@xterm/addon-web-links`                | Clickable `http(s)://` links.                                             |
+| WebGL (optional)                     | `@xterm/addon-webgl`                    | Faster rendering when GPU available; canvas fallback automatic.           |
+| Search (optional, phase-2 follow-up) | `@xterm/addon-search`                   | In-terminal find-in-scrollback.                                           |
 
 xterm.js runs in the renderer. PTY I/O is streamed over IPC from the main process.
 
@@ -123,20 +123,20 @@ Workspace store (existing)
 
 ```ts
 export interface TerminalMeta {
-  id: string              // UUID, matches PTY id in main
-  title: string           // user-editable label, defaults to shell name
-  shell: string           // resolved binary path (for display)
-  cwd: string             // initial cwd (may drift, renderer doesn't track live cwd)
-  createdAt: number       // epoch ms, for ordering
+  id: string // UUID, matches PTY id in main
+  title: string // user-editable label, defaults to shell name
+  shell: string // resolved binary path (for display)
+  cwd: string // initial cwd (may drift, renderer doesn't track live cwd)
+  createdAt: number // epoch ms, for ordering
   status: 'running' | 'exited'
   exitCode: number | null
-  location: 'panel' | 'tab'  // which renderer hosts the xterm instance
+  location: 'panel' | 'tab' // which renderer hosts the xterm instance
 }
 
 export interface BottomPanelState {
   open: boolean
-  height: number          // px
-  tabOrder: string[]      // terminal ids in panel
+  height: number // px
+  tabOrder: string[] // terminal ids in panel
   activeId: string | null
 }
 ```
@@ -147,9 +147,9 @@ The store is the single source of truth for which terminals exist and where they
 
 ```ts
 export interface TerminalTab {
-  id: string            // tab id
+  id: string // tab id
   kind: 'terminal'
-  terminalId: string    // foreign key into terminal store
+  terminalId: string // foreign key into terminal store
   title: string
 }
 
@@ -160,22 +160,23 @@ export type TabState = DocumentTab | GraphTab | AssetTab | TerminalTab
 
 All channels live on the existing `window.api` bridge via `contextBridge`.
 
-| Channel | Args | Returns | Purpose |
-|---|---|---|---|
-| `terminal:create` | `{ id, cwd, shell?, args?, env?, cols, rows }` | `{ pid, shell }` | Spawn PTY. `id` is generated by the renderer. |
-| `terminal:write` | `{ id, data }` | `void` | Write stdin data (UTF-8). |
-| `terminal:resize` | `{ id, cols, rows }` | `void` | Resize PTY. |
-| `terminal:dispose` | `{ id }` | `void` | Kill PTY and free resources. |
-| `terminal:list` | — | `{ id, pid, shell, status }[]` | Enumerate live PTYs (for relaunch reconciliation). |
+| Channel            | Args                                           | Returns                        | Purpose                                            |
+| ------------------ | ---------------------------------------------- | ------------------------------ | -------------------------------------------------- |
+| `terminal:create`  | `{ id, cwd, shell?, args?, env?, cols, rows }` | `{ pid, shell }`               | Spawn PTY. `id` is generated by the renderer.      |
+| `terminal:write`   | `{ id, data }`                                 | `void`                         | Write stdin data (UTF-8).                          |
+| `terminal:resize`  | `{ id, cols, rows }`                           | `void`                         | Resize PTY.                                        |
+| `terminal:dispose` | `{ id }`                                       | `void`                         | Kill PTY and free resources.                       |
+| `terminal:list`    | —                                              | `{ id, pid, shell, status }[]` | Enumerate live PTYs (for relaunch reconciliation). |
 
 Main → renderer events (`webContents.send`, listened in preload, re-emitted on `window.api.onTerminal*`):
 
-| Event | Payload |
-|---|---|
-| `terminal:data` | `{ id, data }` — stdout/stderr chunk |
+| Event           | Payload                                 |
+| --------------- | --------------------------------------- |
+| `terminal:data` | `{ id, data }` — stdout/stderr chunk    |
 | `terminal:exit` | `{ id, code, signal }` — PTY has exited |
 
 Errors use the existing `{ error: true, type, message }` serialization pattern from `src/main/errors.ts`. New error classes:
+
 - `TerminalSpawnError` — shell binary not found, permission denied, etc.
 - `TerminalNotFoundError` — write/resize/dispose on unknown id.
 
@@ -204,7 +205,7 @@ Env merging: inherit `process.env`, then merge any `terminal.envOverrides` from 
 ### Collection binding
 
 - On `create`, if no `cwd` arg is provided, the renderer passes `activeCollection?.path ?? os.homedir()`.
-- The `MDVDB_COLLECTION_ROOT` env var captures the *initial* collection. Users who `cd` elsewhere inside the terminal won't see it change — documented behavior.
+- The `MDVDB_COLLECTION_ROOT` env var captures the _initial_ collection. Users who `cd` elsewhere inside the terminal won't see it change — documented behavior.
 - On collection switch: **do nothing** to existing PTYs. Only newly created terminals pick up the new root.
 - Add a visible chip to each terminal tab's tooltip: `cwd: ~/notes/work` so users know which collection a given terminal was spawned for.
 
@@ -220,6 +221,7 @@ Env merging: inherit `process.env`, then merge any `terminal.envOverrides` from 
 This PRD documents intent; the follow-up implementation PR will touch:
 
 **New files**
+
 - `app/src/main/pty.ts` — `PtyManager`, shell resolution helpers.
 - `app/src/main/pty-handlers.ts` — IPC handlers for `terminal:*` channels.
 - `app/src/renderer/components/BottomPanel.svelte` — panel container + resize handle.
@@ -231,6 +233,7 @@ This PRD documents intent; the follow-up implementation PR will touch:
 - `app/tests/e2e/terminal.spec.ts` — smoke test that the panel opens, a terminal appears, `echo` works.
 
 **Modified files**
+
 - `app/src/renderer/App.svelte` — insert `<BottomPanel />` between the tab-pane-region and `<StatusBar />` (around lines 588–602).
 - `app/src/renderer/stores/workspace.svelte.ts` — add `TerminalTab`, widen `TabState`, handle serialization in `PersistedTab` mapping at lines 1060–1064.
 - `app/src/renderer/components/TabPane.svelte` — lines 158–181, add `{:else if tab.kind === 'terminal'}` branch rendering `<Terminal />`.

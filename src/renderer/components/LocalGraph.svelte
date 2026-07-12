@@ -1,184 +1,184 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
-  import { get } from 'svelte/store';
-  import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide } from 'd3-force';
-  import type { Simulation } from 'd3-force';
-  import type { LinksOutput, BacklinksOutput } from '../types/cli';
-  import { activeCollection } from '../stores/collections';
-  import { buildLocalGraph, buildLocalGraphFromNeighborhood } from '../utils/local-graph';
-  import type { LocalNode, LocalEdge, LocalGraphData } from '../utils/local-graph';
+  import { onDestroy } from 'svelte'
+  import { get } from 'svelte/store'
+  import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide } from 'd3-force'
+  import type { Simulation } from 'd3-force'
+  import type { LinksOutput, BacklinksOutput } from '../types/cli'
+  import { activeCollection } from '../stores/collections'
+  import { buildLocalGraph, buildLocalGraphFromNeighborhood } from '../utils/local-graph'
+  import type { LocalNode, LocalEdge, LocalGraphData } from '../utils/local-graph'
 
   interface LocalGraphProps {
-    centerPath: string | null;
-    linksInfo: LinksOutput | null;
-    backlinksInfo: BacklinksOutput | null;
-    onfileselect?: (detail: { path: string }) => void;
-    onexpand?: () => void;
+    centerPath: string | null
+    linksInfo: LinksOutput | null
+    backlinksInfo: BacklinksOutput | null
+    onfileselect?: (detail: { path: string }) => void
+    onexpand?: () => void
   }
 
-  let { centerPath, linksInfo, backlinksInfo, onfileselect, onexpand }: LocalGraphProps = $props();
+  let { centerPath, linksInfo, backlinksInfo, onfileselect, onexpand }: LocalGraphProps = $props()
 
-  const WIDTH = 250;
-  const HEIGHT = 200;
-  const CENTER_RADIUS = 8;
-  const MIN_RADIUS = 2.5;
-  const MAX_RADIUS = 8;
-  const MIN_ZOOM = 0.3;
-  const MAX_ZOOM = 3;
-  const ZOOM_STEP = 0.25;
-  const MIN_SPREAD = 30;
-  const MAX_SPREAD = 150;
-  const SPREAD_STEP = 15;
+  const WIDTH = 250
+  const HEIGHT = 200
+  const CENTER_RADIUS = 8
+  const MIN_RADIUS = 2.5
+  const MAX_RADIUS = 8
+  const MIN_ZOOM = 0.3
+  const MAX_ZOOM = 3
+  const ZOOM_STEP = 0.25
+  const MIN_SPREAD = 30
+  const MAX_SPREAD = 150
+  const SPREAD_STEP = 15
 
-  let simNodes: LocalNode[] = $state([]);
-  let simEdges: LocalEdge[] = $state([]);
-  let degreeMap: Map<string, number> = $state(new Map());
-  let hoveredPath: string | null = $state(null);
-  let simulation: Simulation<LocalNode, LocalEdge> | null = null;
+  let simNodes: LocalNode[] = $state([])
+  let simEdges: LocalEdge[] = $state([])
+  let degreeMap: Map<string, number> = $state(new Map())
+  let hoveredPath: string | null = $state(null)
+  let simulation: Simulation<LocalNode, LocalEdge> | null = null
 
   // Zoom & pan state
-  let zoom: number = $state(1);
-  let panX: number = $state(0);
-  let panY: number = $state(0);
-  let isPanning: boolean = $state(false);
-  let panStartX = 0;
-  let panStartY = 0;
-  let panStartPanX = 0;
-  let panStartPanY = 0;
-  let svgEl: SVGSVGElement | undefined = $state(undefined);
+  let zoom: number = $state(1)
+  let panX: number = $state(0)
+  let panY: number = $state(0)
+  let isPanning: boolean = $state(false)
+  let panStartX = 0
+  let panStartY = 0
+  let panStartPanX = 0
+  let panStartPanY = 0
+  let svgEl: SVGSVGElement | undefined = $state(undefined)
 
   // Node drag state
-  let draggedNodePath: string | null = $state(null);
-  let didDragNode = false;
+  let draggedNodePath: string | null = $state(null)
+  let didDragNode = false
 
   // Context menu state
-  let contextMenuPath: string | null = $state(null);
-  let contextMenuX = $state(0);
-  let contextMenuY = $state(0);
+  let contextMenuPath: string | null = $state(null)
+  let contextMenuX = $state(0)
+  let contextMenuY = $state(0)
 
   // Spread (link distance) state
-  let spread: number = $state(60);
-  let lastGraphData: LocalGraphData | null = null;
+  let spread: number = $state(60)
+  let lastGraphData: LocalGraphData | null = null
 
   // Derived viewBox based on zoom & pan
   let viewBox = $derived(() => {
-    const w = WIDTH / zoom;
-    const h = HEIGHT / zoom;
-    const x = (WIDTH - w) / 2 - panX / zoom;
-    const y = (HEIGHT - h) / 2 - panY / zoom;
-    return `${x} ${y} ${w} ${h}`;
-  });
+    const w = WIDTH / zoom
+    const h = HEIGHT / zoom
+    const x = (WIDTH - w) / 2 - panX / zoom
+    const y = (HEIGHT - h) / 2 - panY / zoom
+    return `${x} ${y} ${w} ${h}`
+  })
 
   function zoomIn() {
-    zoom = Math.min(MAX_ZOOM, zoom + ZOOM_STEP);
+    zoom = Math.min(MAX_ZOOM, zoom + ZOOM_STEP)
   }
 
   function zoomOut() {
-    zoom = Math.max(MIN_ZOOM, zoom - ZOOM_STEP);
+    zoom = Math.max(MIN_ZOOM, zoom - ZOOM_STEP)
   }
 
   function handleWheel(e: WheelEvent) {
-    if (!e.ctrlKey && !e.metaKey) return;
-    e.preventDefault();
-    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
-    zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom * factor));
+    if (!e.ctrlKey && !e.metaKey) return
+    e.preventDefault()
+    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15
+    zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom * factor))
   }
 
   function spreadOut() {
-    spread = Math.min(MAX_SPREAD, spread + SPREAD_STEP);
-    if (lastGraphData) runSimulation(lastGraphData);
+    spread = Math.min(MAX_SPREAD, spread + SPREAD_STEP)
+    if (lastGraphData) runSimulation(lastGraphData)
   }
 
   function spreadIn() {
-    spread = Math.max(MIN_SPREAD, spread - SPREAD_STEP);
-    if (lastGraphData) runSimulation(lastGraphData);
+    spread = Math.max(MIN_SPREAD, spread - SPREAD_STEP)
+    if (lastGraphData) runSimulation(lastGraphData)
   }
 
   function handlePointerDown(e: PointerEvent) {
     // Only pan on background drag (not node clicks)
-    const target = e.target as Element;
-    if (target.closest('.graph-node')) return;
-    isPanning = true;
-    panStartX = e.clientX;
-    panStartY = e.clientY;
-    panStartPanX = panX;
-    panStartPanY = panY;
-    (e.currentTarget as Element)?.setPointerCapture(e.pointerId);
-    e.preventDefault();
+    const target = e.target as Element
+    if (target.closest('.graph-node')) return
+    isPanning = true
+    panStartX = e.clientX
+    panStartY = e.clientY
+    panStartPanX = panX
+    panStartPanY = panY
+    ;(e.currentTarget as Element)?.setPointerCapture(e.pointerId)
+    e.preventDefault()
   }
 
   function handlePointerMove(e: PointerEvent) {
-    if (!isPanning) return;
-    panX = panStartPanX + (e.clientX - panStartX);
-    panY = panStartPanY + (e.clientY - panStartY);
+    if (!isPanning) return
+    panX = panStartPanX + (e.clientX - panStartX)
+    panY = panStartPanY + (e.clientY - panStartY)
   }
 
   function handlePointerUp() {
-    isPanning = false;
+    isPanning = false
   }
 
   function getFileName(path: string): string {
-    const parts = path.split('/');
-    const name = parts[parts.length - 1];
-    return name.length > 15 ? name.slice(0, 12) + '…' : name;
+    const parts = path.split('/')
+    const name = parts[parts.length - 1]
+    return name.length > 15 ? name.slice(0, 12) + '…' : name
   }
 
   function getNodeRadius(node: LocalNode): number {
-    if (node.isCenter) return CENTER_RADIUS;
-    const degree = degreeMap.get(node.path) ?? 0;
-    const maxDeg = Math.max(1, ...degreeMap.values());
-    const ratio = degree / maxDeg;
-    return MIN_RADIUS + ratio * ratio * (MAX_RADIUS - MIN_RADIUS);
+    if (node.isCenter) return CENTER_RADIUS
+    const degree = degreeMap.get(node.path) ?? 0
+    const maxDeg = Math.max(1, ...degreeMap.values())
+    const ratio = degree / maxDeg
+    return MIN_RADIUS + ratio * ratio * (MAX_RADIUS - MIN_RADIUS)
   }
 
   /** Map edge strength (0–1) to stroke-width. Default strength assumed 0.5. */
   function getEdgeStrokeWidth(edge: LocalEdge, isHovered: boolean, isDepth2: boolean): number {
-    if (isHovered) return 1.5;
-    if (isDepth2) return 0.3;
-    const s = edge.strength ?? 0.5;
+    if (isHovered) return 1.5
+    if (isDepth2) return 0.3
+    const s = edge.strength ?? 0.5
     // Scale from 0.4 (weakest) to 1.4 (strongest)
-    return 0.4 + s * 1.0;
+    return 0.4 + s * 1.0
   }
 
   /** Weak edges (strength < 0.3) get dashed rendering. */
   function getEdgeDashArray(edge: LocalEdge, isDepth2: boolean): string | undefined {
-    if (isDepth2) return undefined;
-    const s = edge.strength ?? 0.5;
-    return s < 0.3 ? '2,2' : undefined;
+    if (isDepth2) return undefined
+    const s = edge.strength ?? 0.5
+    return s < 0.3 ? '2,2' : undefined
   }
 
   /** Build tooltip text from edge semantic fields. */
   function getEdgeTooltip(edge: LocalEdge): string {
-    const parts: string[] = [];
-    if (edge.relationship_type) parts.push(edge.relationship_type);
-    if (edge.strength != null) parts.push(`strength: ${Math.round(edge.strength * 100)}%`);
-    if (edge.context_text) parts.push(edge.context_text);
-    if (edge.bidirectional) parts.push('(bidirectional)');
-    return parts.length > 0 ? parts.join(' — ') : '';
+    const parts: string[] = []
+    if (edge.relationship_type) parts.push(edge.relationship_type)
+    if (edge.strength != null) parts.push(`strength: ${Math.round(edge.strength * 100)}%`)
+    if (edge.context_text) parts.push(edge.context_text)
+    if (edge.bidirectional) parts.push('(bidirectional)')
+    return parts.length > 0 ? parts.join(' — ') : ''
   }
 
   function runSimulation(graph: LocalGraphData) {
-    if (simulation) simulation.stop();
-    lastGraphData = graph;
+    if (simulation) simulation.stop()
+    lastGraphData = graph
 
     if (graph.nodes.length === 0) {
-      simNodes = [];
-      simEdges = [];
-      degreeMap = new Map();
-      return;
+      simNodes = []
+      simEdges = []
+      degreeMap = new Map()
+      return
     }
 
     // Compute degree map for data-driven node sizing
-    const dm = new Map<string, number>();
+    const dm = new Map<string, number>()
     for (const e of graph.edges) {
-      const src = typeof e.source === 'string' ? e.source : e.source.path;
-      const tgt = typeof e.target === 'string' ? e.target : e.target.path;
-      dm.set(src, (dm.get(src) ?? 0) + 1);
-      dm.set(tgt, (dm.get(tgt) ?? 0) + 1);
+      const src = typeof e.source === 'string' ? e.source : e.source.path
+      const tgt = typeof e.target === 'string' ? e.target : e.target.path
+      dm.set(src, (dm.get(src) ?? 0) + 1)
+      dm.set(tgt, (dm.get(tgt) ?? 0) + 1)
     }
-    degreeMap = dm;
+    degreeMap = dm
 
-    const nodes = graph.nodes;
+    const nodes = graph.nodes
 
     simulation = forceSimulation<LocalNode>(nodes)
       .force(
@@ -186,128 +186,133 @@
         forceLink<LocalNode, LocalEdge>(graph.edges)
           .id((d) => d.path)
           .distance(spread)
-          .strength(0.5),
+          .strength(0.5)
       )
       .force('charge', forceManyBody<LocalNode>().strength(-80).distanceMax(150))
       .force('center', forceCenter(WIDTH / 2, HEIGHT / 2))
-      .force('collide', forceCollide<LocalNode>().radius((d) => (getNodeRadius(d as LocalNode) + 2)))
+      .force(
+        'collide',
+        forceCollide<LocalNode>().radius((d) => getNodeRadius(d as LocalNode) + 2)
+      )
       .alphaDecay(0.05)
-      .velocityDecay(0.4);
+      .velocityDecay(0.4)
 
     // Warm-up ticks
-    simulation.tick(100);
-    simulation.stop();
+    simulation.tick(100)
+    simulation.stop()
 
     // Capture resolved edges and trigger reactivity
-    simEdges = graph.edges as LocalEdge[];
-    simNodes = [...nodes];
+    simEdges = graph.edges as LocalEdge[]
+    simNodes = [...nodes]
   }
 
   // Reset zoom/pan when file changes
   $effect(() => {
-    centerPath;
-    zoom = 1;
-    panX = 0;
-    panY = 0;
-    spread = 60;
-  });
+    void centerPath
+    zoom = 1
+    panX = 0
+    panY = 0
+    spread = 60
+  })
 
   // Rebuild graph when inputs change — use single neighborhood API call for depth-2
   $effect(() => {
     if (!centerPath) {
-      runSimulation({ nodes: [], edges: [] });
-      return;
+      runSimulation({ nodes: [], edges: [] })
+      return
     }
 
-    const collection = get(activeCollection);
-    const cp = centerPath;
-    const li = linksInfo;
-    const bi = backlinksInfo;
+    const collection = get(activeCollection)
+    const cp = centerPath
+    const li = linksInfo
+    const bi = backlinksInfo
 
     if (!collection) {
-      runSimulation(buildLocalGraph(cp, li, bi));
-      return;
+      runSimulation(buildLocalGraph(cp, li, bi))
+      return
     }
 
     // Try single neighborhood call (depth 2) — show neighbors of neighbors
-    window.api.neighborhood(collection.path, cp, 2).then((result) => {
-      runSimulation(buildLocalGraphFromNeighborhood(cp, result));
-    }).catch(() => {
-      // Fallback: use existing 1-hop data from props
-      runSimulation(buildLocalGraph(cp, li, bi));
-    });
-  });
+    window.api
+      .neighborhood(collection.path, cp, 2)
+      .then((result) => {
+        runSimulation(buildLocalGraphFromNeighborhood(cp, result))
+      })
+      .catch(() => {
+        // Fallback: use existing 1-hop data from props
+        runSimulation(buildLocalGraph(cp, li, bi))
+      })
+  })
 
   onDestroy(() => {
-    if (simulation) simulation.stop();
-  });
+    if (simulation) simulation.stop()
+  })
 
   function handleNodePointerDown(path: string, e: PointerEvent) {
-    if (e.button !== 0) return; // Only handle primary (left) button
-    draggedNodePath = path;
-    didDragNode = false;
-    (e.currentTarget as Element)?.setPointerCapture(e.pointerId);
-    e.stopPropagation();
+    if (e.button !== 0) return // Only handle primary (left) button
+    draggedNodePath = path
+    didDragNode = false
+    ;(e.currentTarget as Element)?.setPointerCapture(e.pointerId)
+    e.stopPropagation()
   }
 
-  function handleNodePointerMove(e: PointerEvent) {
-    if (!draggedNodePath) return;
-    didDragNode = true;
+  function handleNodePointerMove(_e: PointerEvent) {
+    if (!draggedNodePath) return
+    didDragNode = true
   }
 
   function handleNodePointerUp() {
     if (draggedNodePath && !didDragNode) {
-      onfileselect?.({ path: draggedNodePath });
+      onfileselect?.({ path: draggedNodePath })
     }
-    draggedNodePath = null;
-    didDragNode = false;
+    draggedNodePath = null
+    didDragNode = false
   }
 
   function handleNodeContextMenu(path: string, e: MouseEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    contextMenuPath = path;
-    contextMenuX = e.clientX;
-    contextMenuY = e.clientY;
+    e.preventDefault()
+    e.stopPropagation()
+    contextMenuPath = path
+    contextMenuX = e.clientX
+    contextMenuY = e.clientY
   }
 
   function handleContextMenuOpen() {
     if (contextMenuPath) {
-      onfileselect?.({ path: contextMenuPath });
+      onfileselect?.({ path: contextMenuPath })
     }
-    contextMenuPath = null;
+    contextMenuPath = null
   }
 
   function getNodeX(node: LocalNode): number {
-    return Math.max(CENTER_RADIUS, Math.min(WIDTH - CENTER_RADIUS, node.x ?? WIDTH / 2));
+    return Math.max(CENTER_RADIUS, Math.min(WIDTH - CENTER_RADIUS, node.x ?? WIDTH / 2))
   }
 
   function getNodeY(node: LocalNode): number {
-    return Math.max(CENTER_RADIUS, Math.min(HEIGHT - CENTER_RADIUS, node.y ?? HEIGHT / 2));
+    return Math.max(CENTER_RADIUS, Math.min(HEIGHT - CENTER_RADIUS, node.y ?? HEIGHT / 2))
   }
 
   function getEdgeSource(edge: LocalEdge): LocalNode {
-    return edge.source as LocalNode;
+    return edge.source as LocalNode
   }
 
   function getEdgeTarget(edge: LocalEdge): LocalNode {
-    return edge.target as LocalNode;
+    return edge.target as LocalNode
   }
 
   // Sort edges: depth2 first, then default/outgoing, then incoming last (on top)
   let sortedEdges = $derived(
     [...simEdges].sort((a, b) => {
-      const aIn = (getEdgeTarget(a)).isCenter ? 1 : 0;
-      const bIn = (getEdgeTarget(b)).isCenter ? 1 : 0;
-      if (aIn !== bIn) return aIn - bIn; // incoming last
-      const aD2 = (getEdgeSource(a)).depth === 2 || (getEdgeTarget(a)).depth === 2 ? -1 : 0;
-      const bD2 = (getEdgeSource(b)).depth === 2 || (getEdgeTarget(b)).depth === 2 ? -1 : 0;
-      return aD2 - bD2; // depth2 first
-    }),
-  );
+      const aIn = getEdgeTarget(a).isCenter ? 1 : 0
+      const bIn = getEdgeTarget(b).isCenter ? 1 : 0
+      if (aIn !== bIn) return aIn - bIn // incoming last
+      const aD2 = getEdgeSource(a).depth === 2 || getEdgeTarget(a).depth === 2 ? -1 : 0
+      const bD2 = getEdgeSource(b).depth === 2 || getEdgeTarget(b).depth === 2 ? -1 : 0
+      return aD2 - bD2 // depth2 first
+    })
+  )
 
-  let hasLinks = $derived(simNodes.length > 1);
-
+  let hasLinks = $derived(simNodes.length > 1)
 </script>
 
 <div class="local-graph">
@@ -352,16 +357,37 @@
       >
         <!-- Arrow markers (only shown on hover) -->
         <defs>
-          <marker id="arrow-hover-out" viewBox="0 0 10 10" refX="10" refY="5"
-            markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <marker
+            id="arrow-hover-out"
+            viewBox="0 0 10 10"
+            refX="10"
+            refY="5"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto-start-reverse"
+          >
             <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--color-primary, #00E5FF)" />
           </marker>
-          <marker id="arrow-hover-in" viewBox="0 0 10 10" refX="10" refY="5"
-            markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <marker
+            id="arrow-hover-in"
+            viewBox="0 0 10 10"
+            refX="10"
+            refY="5"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto-start-reverse"
+          >
             <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--color-edge-in, #FF6B6B)" />
           </marker>
-          <marker id="arrow-hover-bidi" viewBox="0 0 10 10" refX="10" refY="5"
-            markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <marker
+            id="arrow-hover-bidi"
+            viewBox="0 0 10 10"
+            refX="10"
+            refY="5"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto-start-reverse"
+          >
             <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--color-edge-bidi, #51CF66)" />
           </marker>
         </defs>
@@ -370,8 +396,7 @@
         {#each sortedEdges as edge}
           {@const src = getEdgeSource(edge)}
           {@const tgt = getEdgeTarget(edge)}
-          {@const isHovered =
-            hoveredPath === src.path || hoveredPath === tgt.path}
+          {@const isHovered = hoveredPath === src.path || hoveredPath === tgt.path}
           {@const isDepth2Edge = src.depth === 2 || tgt.depth === 2}
           {@const isCenterOut = src.isCenter}
           {@const isCenterIn = tgt.isCenter}
@@ -399,7 +424,13 @@
             y2={ty}
             style:stroke-width={edgeStrokeWidth}
             stroke-dasharray={edgeDashArray}
-            marker-end={isHovered ? (isBidi ? 'url(#arrow-hover-bidi)' : isCenterIn ? 'url(#arrow-hover-in)' : 'url(#arrow-hover-out)') : ''}
+            marker-end={isHovered
+              ? isBidi
+                ? 'url(#arrow-hover-bidi)'
+                : isCenterIn
+                  ? 'url(#arrow-hover-in)'
+                  : 'url(#arrow-hover-out)'
+              : ''}
             marker-start={isHovered && isBidi ? 'url(#arrow-hover-bidi)' : ''}
           >
             {#if edgeTooltip}<title>{edgeTooltip}</title>{/if}
@@ -426,15 +457,16 @@
             onpointerdown={(e: PointerEvent) => handleNodePointerDown(node.path, e)}
             onpointermove={handleNodePointerMove}
             onpointerup={handleNodePointerUp}
-            onpointercancel={() => { draggedNodePath = null; didDragNode = false; }}
+            onpointercancel={() => {
+              draggedNodePath = null
+              didDragNode = false
+            }}
             oncontextmenu={(e: MouseEvent) => handleNodeContextMenu(node.path, e)}
-            onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') onfileselect?.({ path: node.path }); }}
+            onkeydown={(e: KeyboardEvent) => {
+              if (e.key === 'Enter' || e.key === ' ') onfileselect?.({ path: node.path })
+            }}
           >
-            <circle
-              cx={nx}
-              cy={ny}
-              r={radius}
-            />
+            <circle cx={nx} cy={ny} r={radius} />
             {#if node.isCenter || isHovered}
               {@const labelText = getFileName(node.path)}
               {@const labelY = ny - (radius + 5)}
@@ -486,8 +518,15 @@
 
   <!-- Context menu -->
   {#if contextMenuPath}
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="context-menu-backdrop" onclick={() => (contextMenuPath = null)} oncontextmenu={(e) => { e.preventDefault(); contextMenuPath = null; }}></div>
+    <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
+    <div
+      class="context-menu-backdrop"
+      onclick={() => (contextMenuPath = null)}
+      oncontextmenu={(e) => {
+        e.preventDefault()
+        contextMenuPath = null
+      }}
+    ></div>
     <div class="context-menu" style="left: {contextMenuX}px; top: {contextMenuY}px">
       <div class="context-menu-header">{contextMenuPath.split('/').pop()}</div>
       <button class="context-menu-item" onclick={handleContextMenuOpen}>
@@ -528,7 +567,9 @@
     display: flex;
     align-items: center;
     border-radius: 4px;
-    transition: color 0.15s, background 0.15s;
+    transition:
+      color 0.15s,
+      background 0.15s;
   }
 
   .expand-button:hover {
@@ -601,7 +642,9 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: color 0.15s, background 0.15s;
+    transition:
+      color 0.15s,
+      background 0.15s;
   }
 
   .control-btn:hover {
@@ -618,12 +661,12 @@
   }
 
   .graph-edge.edge-out {
-    stroke: var(--color-primary, #00E5FF);
+    stroke: var(--color-primary, #00e5ff);
     opacity: 0.6;
   }
 
   .graph-edge.edge-in {
-    stroke: var(--color-edge-in, #FF6B6B);
+    stroke: var(--color-edge-in, #ff6b6b);
     opacity: 0.6;
   }
 
@@ -632,27 +675,27 @@
   }
 
   .graph-edge.edge-hovered {
-    stroke: var(--color-primary, #00E5FF);
+    stroke: var(--color-primary, #00e5ff);
     opacity: 1;
   }
 
   .graph-edge.edge-hovered-out {
-    stroke: var(--color-primary, #00E5FF);
+    stroke: var(--color-primary, #00e5ff);
     opacity: 1;
   }
 
   .graph-edge.edge-hovered-in {
-    stroke: var(--color-edge-in, #FF6B6B);
+    stroke: var(--color-edge-in, #ff6b6b);
     opacity: 1;
   }
 
   .graph-edge.edge-bidi {
-    stroke: var(--color-edge-bidi, #51CF66);
+    stroke: var(--color-edge-bidi, #51cf66);
     opacity: 0.6;
   }
 
   .graph-edge.edge-hovered-bidi {
-    stroke: var(--color-edge-bidi, #51CF66);
+    stroke: var(--color-edge-bidi, #51cf66);
     opacity: 1;
   }
 
@@ -661,7 +704,7 @@
   }
 
   .graph-node.center-node circle {
-    fill: var(--color-primary, #00E5FF);
+    fill: var(--color-primary, #00e5ff);
   }
 
   .graph-node.neighbor-node circle {
@@ -673,7 +716,7 @@
   }
 
   .graph-node.node-hovered circle {
-    stroke: var(--color-primary, #00E5FF);
+    stroke: var(--color-primary, #00e5ff);
     stroke-width: 1.5;
   }
 
@@ -694,8 +737,12 @@
   }
 
   @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   .spinning {

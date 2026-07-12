@@ -81,21 +81,21 @@ The current graph view has two fundamental issues:
 
 ### File Changes
 
-| File | Action | Scope |
-|------|--------|-------|
-| `app/src/renderer/components/GraphView.svelte` | **Rewrite** | Replace Canvas 2D + d3-force with Cosmos.gl + overlay canvas + HTML overlays |
-| `app/src/renderer/lib/cosmos-bridge.ts` | **New** | Typed wrapper: data conversion (GraphData → Float32Arrays), color computation, edge filtering |
-| `app/src/renderer/stores/graph.ts` | **Modify** | Minor: may need to store Cosmos instance ref for imperative updates |
-| `app/src/renderer/lib/convex-hull.ts` | **Keep** | Reused for hull overlay canvas |
-| `app/src/renderer/lib/edge-utils.ts` | **Keep** | Reused for edge color computation, hit-testing |
-| `app/src/renderer/components/GraphPreview.svelte` | **Keep** | Side panel unchanged |
-| `app/src/renderer/components/LocalGraph.svelte` | **Keep** | Sidebar widget stays SVG + d3-force (small graphs) |
-| `app/src/renderer/types/cli.ts` | **Keep** | Data types unchanged |
+| File                                              | Action      | Scope                                                                                         |
+| ------------------------------------------------- | ----------- | --------------------------------------------------------------------------------------------- |
+| `app/src/renderer/components/GraphView.svelte`    | **Rewrite** | Replace Canvas 2D + d3-force with Cosmos.gl + overlay canvas + HTML overlays                  |
+| `app/src/renderer/lib/cosmos-bridge.ts`           | **New**     | Typed wrapper: data conversion (GraphData → Float32Arrays), color computation, edge filtering |
+| `app/src/renderer/stores/graph.ts`                | **Modify**  | Minor: may need to store Cosmos instance ref for imperative updates                           |
+| `app/src/renderer/lib/convex-hull.ts`             | **Keep**    | Reused for hull overlay canvas                                                                |
+| `app/src/renderer/lib/edge-utils.ts`              | **Keep**    | Reused for edge color computation, hit-testing                                                |
+| `app/src/renderer/components/GraphPreview.svelte` | **Keep**    | Side panel unchanged                                                                          |
+| `app/src/renderer/components/LocalGraph.svelte`   | **Keep**    | Sidebar widget stays SVG + d3-force (small graphs)                                            |
+| `app/src/renderer/types/cli.ts`                   | **Keep**    | Data types unchanged                                                                          |
 
 ### 1. Cosmos.gl Initialization
 
 ```typescript
-import { Graph } from '@cosmos.gl/graph';
+import { Graph } from '@cosmos.gl/graph'
 
 // In onMount:
 const graph = new Graph(containerEl, {
@@ -118,9 +118,9 @@ const graph = new Graph(containerEl, {
 
   // Events
   onClick: handleNodeClick,
-  onPointMouseOver: handleNodeHover,
+  onPointMouseOver: handleNodeHover
   // ... more callbacks
-});
+})
 ```
 
 ### 2. Data Bridge (`cosmos-bridge.ts`)
@@ -156,6 +156,7 @@ A Canvas 2D element sized identically to the Cosmos container, positioned behind
 **Sync**: When Cosmos zoom/pan changes, read current transform via Cosmos's zoom/position API and apply to hull canvas via `ctx.setTransform()`.
 
 **Hull computation**: On simulation settle or periodic interval:
+
 1. Read node positions via `getTrackedNodePositionsMap()` or `getSampledNodePositionsMap()`
 2. Group by `cluster_id`
 3. Compute convex hulls using `convexHull()` from our existing lib
@@ -167,27 +168,32 @@ A Canvas 2D element sized identically to the Cosmos container, positioned behind
 ### 4. Interaction Porting
 
 **Node click (select/open)**:
+
 - Cosmos `onClick(pointIndex)` → look up `indexNodeMap.get(pointIndex)` → get GraphNode
 - If same node already selected: `openGraphNode(node)` (show side panel)
 - If different node: `selectGraphNode(node)` (highlight only)
 - If null/background: `selectGraphNode(null)` (deselect)
 
 **Node hover**:
+
 - Cosmos `onPointMouseOver(pointIndex)` → position HTML tooltip at cursor
 - Show path, cluster label, heading (chunk mode)
 - On mouse out: hide tooltip
 
 **Edge click** (replaces edge hover):
+
 - On canvas click where no node is hit: run `pointToSegmentDist()` against all edges using current node positions
 - If edge found within hit radius: show edge info tooltip (relationship type, strength, context)
 - Dismiss on next click or Escape
 
 **Right-click context menu**:
+
 - `contextmenu` event listener on container div
 - Use Cosmos click detection or manual hit-test to find node
 - Show HTML context menu (same items: "Open in side panel", "Select node")
 
 **Keyboard (Escape)**:
+
 - `keydown` listener on container div
 - Clear selection, close context menu, close edge tooltip
 
@@ -198,6 +204,7 @@ A Canvas 2D element sized identically to the Cosmos container, positioned behind
 ### 5. Coloring Modes
 
 On mode switch (`graphColoringMode` store change):
+
 1. Recompute color Float32Array based on mode:
    - **Cluster**: 12-color palette by `cluster_id`
    - **Folder**: Folder color map by top-level directory
@@ -208,6 +215,7 @@ On mode switch (`graphColoringMode` store change):
 ### 6. Selection Visual State
 
 When a node is selected:
+
 1. Compute "neighbor" set from edge data
 2. Recompute node colors: full opacity for selected + neighbors, dimmed (low alpha) for others
 3. Recompute edge colors: directional coloring for selected edges, dimmed for others
@@ -217,6 +225,7 @@ When a node is selected:
 ### 7. Document / Chunk Mode Switch
 
 On level change:
+
 1. Fetch new graph data from CLI (`mdvdb graph --json --level chunk`)
 2. Destroy current Cosmos instance
 3. Rebuild all typed arrays from new data
@@ -228,6 +237,7 @@ On level change:
 ### 8. Edge Filtering
 
 When `graphEdgeFilter` store changes:
+
 1. Rebuild link arrays excluding filtered edge clusters
 2. Rebuild link color/width arrays
 3. Call `graph.setLinks()` + `graph.setLinkColors()` + `graph.setLinkWidths()`
@@ -235,6 +245,7 @@ When `graphEdgeFilter` store changes:
 ### 9. Resize Handling
 
 `ResizeObserver` on container:
+
 1. Resize hull overlay canvas (width/height + DPR)
 2. Cosmos may auto-resize or need `graph.resize()` call
 3. Redraw hulls
@@ -244,6 +255,7 @@ When `graphEdgeFilter` store changes:
 ## Migration Strategy
 
 ### Phase A: Core Rendering (MVP)
+
 1. Install `@cosmos.gl/graph`
 2. Create `cosmos-bridge.ts` with data conversion
 3. Rewrite GraphView.svelte: Cosmos init, node/edge rendering, pan/zoom/drag
@@ -253,6 +265,7 @@ When `graphEdgeFilter` store changes:
 7. **Milestone**: Graph renders with GPU, nodes clickable, colors work
 
 ### Phase B: Overlays & Interactions
+
 8. Add hull overlay canvas with synced pan/zoom
 9. Port hull rendering (convex-hull.ts reuse)
 10. Port node hover tooltips (HTML overlay)
@@ -263,6 +276,7 @@ When `graphEdgeFilter` store changes:
 15. **Milestone**: Full feature parity minus minor visual differences
 
 ### Phase C: Polish
+
 16. Port selection dimming (recompute colors for non-neighbors)
 17. Port edge semantic styling (strength → width, cluster → color)
 18. Port edge filtering (array rebuild on filter change)

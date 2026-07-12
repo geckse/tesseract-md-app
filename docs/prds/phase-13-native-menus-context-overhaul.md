@@ -35,18 +35,21 @@ No new persistent data. Recents data is already stored in `electron-store` by th
 **New module: `app/src/main/menu.ts`**
 
 ```typescript
-export function buildAppMenu(mainWindow: BrowserWindow): void    // Build and set the native app menu
-export function refreshRecentMenu(): void                         // Rebuild menu when recents change
+export function buildAppMenu(mainWindow: BrowserWindow): void // Build and set the native app menu
+export function refreshRecentMenu(): void // Rebuild menu when recents change
 ```
 
 **New IPC handlers:**
+
 - `shell:open-path` — opens a file in the system default editor (with collection-path security validation)
 - `clipboard:write-text` — writes text to system clipboard
 
 **New IPC push channel (main → renderer):**
+
 - `menu:open-recent` — sent when user clicks a recent file in the native File menu, with `{ collectionId, filePath }`
 
 **Updated preload `window.api`:**
+
 ```typescript
 interface MdvdbApi {
   // ... existing methods ...
@@ -90,6 +93,7 @@ Window  (role: windowMenu — Minimize/Zoom/Bring All to Front)
 ```
 
 **Enriched File Context Menu** (right-click file in tree):
+
 ```
 Reveal in Finder
 Open in Default Editor
@@ -103,6 +107,7 @@ Reindex File
 ```
 
 **Enriched Directory Context Menu** (right-click directory in tree):
+
 ```
 Reveal in Finder
 ---
@@ -111,6 +116,7 @@ Copy Relative Path
 ```
 
 **Enriched Collection Context Menu** (right-click collection in sidebar):
+
 ```
 Reveal in Finder
 ---

@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
-  import { fade } from 'svelte/transition';
+  import { onDestroy } from 'svelte'
+  import { fade } from 'svelte/transition'
   import {
     searchQuery,
     searchResults,
@@ -10,109 +10,116 @@
     searchError,
     highlightedIndex,
     setSearchMode,
-    executeSearch,
-  } from '../stores/search';
-  import { activeCollection } from '../stores/collections';
-  import { setGraphHoveredFilePath } from '../stores/graph';
-  import type { SearchResult, SearchMode, GraphContextItem } from '../types/cli';
-  import { calculateVirtualListState, throttleScroll } from '../lib/virtual-list';
+    executeSearch
+  } from '../stores/search'
+  import { activeCollection } from '../stores/collections'
+  import { setGraphHoveredFilePath } from '../stores/graph'
+  import type { SearchResult, SearchMode, GraphContextItem } from '../types/cli'
+  import { calculateVirtualListState, throttleScroll } from '../lib/virtual-list'
 
   interface SearchResultsProps {
-    onresultclick?: (result: SearchResult) => void;
-    oncloserequest?: () => void;
+    onresultclick?: (result: SearchResult) => void
+    oncloserequest?: () => void
   }
 
-  let { onresultclick, oncloserequest }: SearchResultsProps = $props();
+  let { onresultclick, oncloserequest }: SearchResultsProps = $props()
 
-  let currentQuery = $state('');
-  const unsub1 = searchQuery.subscribe((v) => (currentQuery = v));
+  let currentQuery = $state('')
+  const unsub1 = searchQuery.subscribe((v) => (currentQuery = v))
 
-  let currentResults: import('../types/cli').SearchOutput | null = $state(null);
-  const unsub2 = searchResults.subscribe((v) => (currentResults = v));
+  let currentResults: import('../types/cli').SearchOutput | null = $state(null)
+  const unsub2 = searchResults.subscribe((v) => (currentResults = v))
 
-  let currentLoading = $state(false);
-  const unsub3 = searchLoading.subscribe((v) => (currentLoading = v));
+  let currentLoading = $state(false)
+  const unsub3 = searchLoading.subscribe((v) => (currentLoading = v))
 
-  let currentMode: SearchMode = $state('hybrid');
-  const unsub4 = searchMode.subscribe((v) => (currentMode = v));
+  let currentMode: SearchMode = $state('hybrid')
+  const unsub4 = searchMode.subscribe((v) => (currentMode = v))
 
-  let currentError: string | null = $state(null);
-  const unsub5 = searchError.subscribe((v) => (currentError = v));
+  let currentError: string | null = $state(null)
+  const unsub5 = searchError.subscribe((v) => (currentError = v))
 
-  let currentHighlighted = $state(-1);
-  const unsub6 = highlightedIndex.subscribe((v) => (currentHighlighted = v));
+  let currentHighlighted = $state(-1)
+  const unsub6 = highlightedIndex.subscribe((v) => (currentHighlighted = v))
 
-  let currentCollection: import('../../preload/api').Collection | null = $state(null);
-  const unsub7 = activeCollection.subscribe((v) => (currentCollection = v));
+  let currentCollection: import('../../preload/api').Collection | null = $state(null)
+  const unsub7 = activeCollection.subscribe((v) => (currentCollection = v))
 
-  let expandEnabled = $state(false);
-  const unsub8 = searchExpandEnabled.subscribe((v) => (expandEnabled = v));
+  let expandEnabled = $state(false)
+  const unsub8 = searchExpandEnabled.subscribe((v) => (expandEnabled = v))
 
   onDestroy(() => {
-    unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6(); unsub7(); unsub8();
-    setGraphHoveredFilePath(null);
-  });
+    unsub1()
+    unsub2()
+    unsub3()
+    unsub4()
+    unsub5()
+    unsub6()
+    unsub7()
+    unsub8()
+    setGraphHoveredFilePath(null)
+  })
 
-  let results = $derived(currentResults?.results ?? []);
-  let graphContext = $derived(currentResults?.graph_context ?? []);
-  let totalResults = $derived(currentResults?.total_results ?? 0);
-  let hasQuery = $derived(currentQuery.length >= 2);
-  let hasResults = $derived(results.length > 0);
+  let results = $derived(currentResults?.results ?? [])
+  let graphContext = $derived(currentResults?.graph_context ?? [])
+  let totalResults = $derived(currentResults?.total_results ?? 0)
+  let hasQuery = $derived(currentQuery.length >= 2)
+  let hasResults = $derived(results.length > 0)
 
-  const modes: SearchMode[] = ['hybrid', 'semantic', 'lexical'];
+  const modes: SearchMode[] = ['hybrid', 'semantic', 'lexical']
 
   // Virtual list configuration
-  const VIRTUAL_LIST_THRESHOLD = 20;
-  const ITEM_HEIGHT = 100; // Approximate height of each result card in pixels
-  const CONTAINER_HEIGHT = 600; // Approximate max-height of results list (60vh)
+  const VIRTUAL_LIST_THRESHOLD = 20
+  const ITEM_HEIGHT = 100 // Approximate height of each result card in pixels
+  const CONTAINER_HEIGHT = 600 // Approximate max-height of results list (60vh)
 
-  let scrollTop = $state(0);
-  let useVirtualList = $derived(results.length > VIRTUAL_LIST_THRESHOLD);
+  let scrollTop = $state(0)
+  let useVirtualList = $derived(results.length > VIRTUAL_LIST_THRESHOLD)
   let virtualState = $derived(
     useVirtualList
       ? calculateVirtualListState(scrollTop, CONTAINER_HEIGHT, {
           itemHeight: ITEM_HEIGHT,
           totalItems: results.length,
-          buffer: 5,
+          buffer: 5
         })
       : null
-  );
+  )
   let visibleResults = $derived(
     virtualState ? results.slice(virtualState.start, virtualState.end) : results
-  );
+  )
 
   const handleScroll = throttleScroll((scrollTopValue: number) => {
-    scrollTop = scrollTopValue;
-  });
+    scrollTop = scrollTopValue
+  })
 
   function handleModeClick(mode: SearchMode) {
-    setSearchMode(mode);
+    setSearchMode(mode)
   }
 
   function handleResultClick(result: SearchResult) {
-    onresultclick?.(result);
+    onresultclick?.(result)
   }
 
   function handleExpandToggle() {
-    searchExpandEnabled.update((v) => !v);
+    searchExpandEnabled.update((v) => !v)
     // Re-run search with new expand setting
-    const query = currentQuery;
+    const query = currentQuery
     if (query.length >= 2) {
-      executeSearch(query);
+      executeSearch(query)
     }
   }
 
   function handleGraphContextClick(item: GraphContextItem) {
-    onresultclick?.({ score: 0, chunk: item.chunk, file: item.file });
+    onresultclick?.({ score: 0, chunk: item.chunk, file: item.file })
   }
 
   function getFileName(path: string): string {
-    return path.split('/').pop() ?? path;
+    return path.split('/').pop() ?? path
   }
 
   function handleOverlayClick(event: MouseEvent) {
     if (event.target === event.currentTarget) {
-      oncloserequest?.();
+      oncloserequest?.()
     }
   }
 </script>
@@ -153,7 +160,9 @@
           onclick={handleExpandToggle}
           title="Include related documents from link graph"
         >
-          <span class="material-symbols-outlined" style="font-size: 12px; vertical-align: middle;">hub</span>
+          <span class="material-symbols-outlined" style="font-size: 12px; vertical-align: middle;"
+            >hub</span
+          >
           graph
         </button>
       </div>
@@ -174,7 +183,9 @@
       {:else if hasQuery && !hasResults}
         <div class="state-message">No results for "{currentQuery}"</div>
       {:else if !hasQuery}
-        <div class="state-message">Type to search across {currentCollection?.name ?? 'collection'}</div>
+        <div class="state-message">
+          Type to search across {currentCollection?.name ?? 'collection'}
+        </div>
       {:else if useVirtualList && virtualState}
         <!-- Virtual list for >20 results -->
         <div class="virtual-container" style="height: {virtualState.totalHeight}px;">
@@ -244,7 +255,9 @@
             >
               <div class="result-path">
                 {item.file.path}
-                <span class="hop-badge">{item.hop_distance} hop{item.hop_distance > 1 ? 's' : ''}</span>
+                <span class="hop-badge"
+                  >{item.hop_distance} hop{item.hop_distance > 1 ? 's' : ''}</span
+                >
                 <span class="linked-from">via {getFileName(item.linked_from)}</span>
               </div>
               {#if item.chunk.heading_hierarchy.length > 0}
@@ -307,7 +320,7 @@
   }
 
   .mode-pill.active {
-    background: var(--color-primary, #00E5FF);
+    background: var(--color-primary, #00e5ff);
     color: var(--color-bg, #0f0f10);
     font-weight: var(--weight-medium, 500);
   }
@@ -346,13 +359,15 @@
     width: 16px;
     height: 16px;
     border: 2px solid var(--color-border, #27272a);
-    border-top-color: var(--color-primary, #00E5FF);
+    border-top-color: var(--color-primary, #00e5ff);
     border-radius: 50%;
     animation: spin 0.6s linear infinite;
   }
 
   @keyframes spin {
-    to { transform: rotate(360deg); }
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   .result-card {
@@ -368,7 +383,7 @@
 
   .result-card.highlighted {
     background: var(--color-surface-dark, #0a0a0a);
-    border-left-color: var(--color-primary, #00E5FF);
+    border-left-color: var(--color-primary, #00e5ff);
   }
 
   .result-path {
@@ -380,7 +395,7 @@
 
   .result-heading {
     font-size: var(--text-sm, 12px);
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
     margin-bottom: 4px;
     font-weight: var(--weight-medium, 500);
   }
@@ -396,7 +411,7 @@
 
   .score-bar-fill {
     height: 100%;
-    background: var(--color-primary, #00E5FF);
+    background: var(--color-primary, #00e5ff);
     border-radius: var(--radius-full, 9999px);
     transition: width var(--transition-fast, 150ms ease);
   }

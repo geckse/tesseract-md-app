@@ -65,7 +65,7 @@ export const DARK_TOKENS: ThemeTokens = {
   'overlay-hover': 'rgba(255, 255, 255, 0.06)',
   'overlay-active': 'rgba(255, 255, 255, 0.10)',
   'overlay-border': 'rgba(255, 255, 255, 0.08)',
-  'overlay-scrim': 'rgba(0, 0, 0, 0.5)',
+  'overlay-scrim': 'rgba(0, 0, 0, 0.5)'
 }
 
 export const LIGHT_TOKENS: ThemeTokens = {
@@ -95,7 +95,7 @@ export const LIGHT_TOKENS: ThemeTokens = {
   'overlay-hover': 'rgba(0, 0, 0, 0.04)',
   'overlay-active': 'rgba(0, 0, 0, 0.06)',
   'overlay-border': 'rgba(0, 0, 0, 0.08)',
-  'overlay-scrim': 'rgba(0, 0, 0, 0.3)',
+  'overlay-scrim': 'rgba(0, 0, 0, 0.3)'
 }
 
 /** All token keys */

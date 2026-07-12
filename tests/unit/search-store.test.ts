@@ -9,7 +9,7 @@ const mockApi = {
   addCollection: vi.fn(),
   removeCollection: vi.fn(),
   setActiveCollection: vi.fn(),
-  status: vi.fn(),
+  status: vi.fn()
 }
 
 // Mock localStorage
@@ -18,17 +18,17 @@ const mockLocalStorage = {
   getItem: vi.fn((key: string) => localStorageMap.get(key) ?? null),
   setItem: vi.fn((key: string, value: string) => localStorageMap.set(key, value)),
   removeItem: vi.fn((key: string) => localStorageMap.delete(key)),
-  clear: vi.fn(() => localStorageMap.clear()),
+  clear: vi.fn(() => localStorageMap.clear())
 }
 
 Object.defineProperty(globalThis, 'window', {
   value: { api: mockApi, localStorage: mockLocalStorage },
-  writable: true,
+  writable: true
 })
 
 Object.defineProperty(globalThis, 'localStorage', {
   value: mockLocalStorage,
-  writable: true,
+  writable: true
 })
 
 import {
@@ -42,7 +42,7 @@ import {
   restoreSearchMode,
   setSearchMode,
   executeSearch,
-  clearSearch,
+  clearSearch
 } from '../../src/renderer/stores/search'
 
 import { collections, activeCollectionId } from '../../src/renderer/stores/collections'
@@ -59,7 +59,13 @@ function resetStores() {
   activeCollectionId.set(null)
 }
 
-function activateCollection(col: { id: string; name: string; path: string; addedAt: number; lastOpenedAt: number }) {
+function activateCollection(col: {
+  id: string
+  name: string
+  path: string
+  addedAt: number
+  lastOpenedAt: number
+}) {
   collections.set([col])
   activeCollectionId.set(col.id)
 }
@@ -188,12 +194,12 @@ describe('search store', () => {
       activateCollection(collection)
 
       let resolveFirst: (v: unknown) => void
-      const firstPromise = new Promise((r) => { resolveFirst = r })
+      const firstPromise = new Promise((r) => {
+        resolveFirst = r
+      })
       const secondResult = { results: [{ path: 'b.md' }], query: 'second', total_results: 1 }
 
-      mockApi.search
-        .mockReturnValueOnce(firstPromise)
-        .mockResolvedValueOnce(secondResult)
+      mockApi.search.mockReturnValueOnce(firstPromise).mockResolvedValueOnce(secondResult)
 
       // First search
       executeSearch('first')

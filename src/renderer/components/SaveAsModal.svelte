@@ -15,11 +15,7 @@
     onsaved?: (filePath: string) => void
   }
 
-  let {
-    tabId,
-    onclose,
-    onsaved,
-  }: SaveAsModalProps = $props()
+  let { tabId, onclose, onsaved }: SaveAsModalProps = $props()
 
   let filename = $state('')
   let selectedDir = $state('')
@@ -152,6 +148,7 @@
     role="dialog"
     aria-modal="true"
     aria-label="Save new file"
+    tabindex="-1"
     onkeydown={handleKeydown}
   >
     <div class="modal-header">
@@ -189,11 +186,7 @@
 
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick={onclose} disabled={saving}>Cancel</button>
-      <button
-        class="btn btn-primary"
-        onclick={handleSave}
-        disabled={saving || !filename.trim()}
-      >
+      <button class="btn btn-primary" onclick={handleSave} disabled={saving || !filename.trim()}>
         {saving ? 'Saving...' : 'Save'}
       </button>
     </div>
@@ -270,7 +263,7 @@
 
   .field-input:focus,
   .field-select:focus {
-    border-color: var(--color-primary, #00E5FF);
+    border-color: var(--color-primary, #00e5ff);
   }
 
   .field-select {
@@ -333,9 +326,9 @@
   }
 
   .btn-primary {
-    background: var(--color-primary, #00E5FF);
+    background: var(--color-primary, #00e5ff);
     color: #000;
-    border-color: var(--color-primary, #00E5FF);
+    border-color: var(--color-primary, #00e5ff);
   }
 
   .btn-primary:hover:not(:disabled) {

@@ -35,11 +35,11 @@ Users need to find content across their markdown collections by meaning, not jus
 No persistent data. New renderer stores:
 
 ```typescript
-searchQuery: Writable<string>                    // Current search text
-searchResults: Writable<SearchOutput | null>      // CLI response
-searchLoading: Writable<boolean>                  // True while CLI is running
-searchMode: Writable<'hybrid' | 'semantic' | 'lexical'>  // Persisted per-collection
-searchOpen: Writable<boolean>                     // Whether results panel is visible
+searchQuery: Writable<string> // Current search text
+searchResults: Writable<SearchOutput | null> // CLI response
+searchLoading: Writable<boolean> // True while CLI is running
+searchMode: Writable<'hybrid' | 'semantic' | 'lexical'> // Persisted per-collection
+searchOpen: Writable<boolean> // Whether results panel is visible
 ```
 
 ### Interface Changes
@@ -47,12 +47,13 @@ searchOpen: Writable<boolean>                     // Whether results panel is vi
 No new IPC channels. Uses existing `window.api.search(root, query, options)` from Phase 2.
 
 **SearchOptions type:**
+
 ```typescript
 interface SearchOptions {
-  limit?: number              // Default 10
+  limit?: number // Default 10
   mode?: 'hybrid' | 'semantic' | 'lexical'
   minScore?: number
-  filter?: string             // Raw filter string (e.g., "status=published")
+  filter?: string // Raw filter string (e.g., "status=published")
   decay?: boolean
   boostLinks?: boolean
 }
@@ -61,6 +62,7 @@ interface SearchOptions {
 ### New Commands / API / UI
 
 **Search input** (in Header):
+
 - Replaces the placeholder input from Phase 1
 - Styled per mockup: `bg-surface-darker border border-border-dark rounded-md py-1.5 pl-9 pr-12 font-mono text-xs`
 - Left: search icon (`material-symbols: search`)
@@ -70,6 +72,7 @@ interface SearchOptions {
 - Placeholder: "Search database..."
 
 **Results panel:**
+
 - Drops down below the header, overlaying the editor content
 - `bg-surface-darker border border-border-dark rounded-b-md shadow-lg`
 - Max height: `max-h-[60vh]`, scrollable
@@ -84,6 +87,7 @@ interface SearchOptions {
 - Results count: `"N results"` badge in header
 
 **Keyboard interactions:**
+
 - `Cmd+K` / `Ctrl+K`: focus search input (global shortcut)
 - `Escape`: close results panel, blur search
 - `Enter` (with results): open first result
@@ -136,11 +140,11 @@ N/A — new component.
 8. **Handle collection switching** — When active collection changes, clear search query and results.
 
 9. **Write unit tests** — `tests/unit/Search.test.ts`:
-    - Verify debounce: typing fast only triggers one search call.
-    - Verify minimum 2 char threshold.
-    - Verify search mode is passed correctly to the API call.
-    - Verify keyboard shortcuts (Escape closes, Enter navigates).
-    - `tests/unit/SearchResults.test.ts`: render with mock results, verify cards, score bars, click handlers.
+   - Verify debounce: typing fast only triggers one search call.
+   - Verify minimum 2 char threshold.
+   - Verify search mode is passed correctly to the API call.
+   - Verify keyboard shortcuts (Escape closes, Enter navigates).
+   - `tests/unit/SearchResults.test.ts`: render with mock results, verify cards, score bars, click handlers.
 
 10. **Write E2E tests** — `tests/e2e/search.test.ts`:
     - Open a collection that has been ingested.

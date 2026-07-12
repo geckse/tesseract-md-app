@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { workspace } from '../../stores/workspace.svelte'
+  import { syncFileStoresFromTab } from '../../stores/files'
+
   interface Props {
     filePath: string
     collectionPath: string
@@ -34,6 +37,23 @@
 
   let displayName = $derived(getFileName(filePath))
 
+  /** Folder segments of the path, each with its cumulative path for navigation. */
+  let breadcrumbSegments = $derived.by(() => {
+    const dir = getDir(filePath)
+    if (!dir) return []
+    const parts = dir.split('/').filter(Boolean)
+    return parts.map((name, i) => ({
+      name,
+      path: parts.slice(0, i + 1).join('/')
+    }))
+  })
+
+  /** Open a breadcrumb folder as a database/table tab (same as opening it from the sidebar). */
+  function openFolder(folderPath: string) {
+    workspace.openTableTab(folderPath)
+    syncFileStoresFromTab()
+  }
+
   function startEdit() {
     editValue = displayName
     isEditing = true
@@ -54,6 +74,7 @@
       error = 'Name cannot contain path separators'
       return
     }
+    // eslint-disable-next-line no-control-regex
     const invalidChars = /[<>:"|?*\x00-\x1f]/
     if (invalidChars.test(trimmed)) {
       error = 'Name contains invalid characters'
@@ -90,14 +111,36 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter') { e.preventDefault(); confirmRename() }
-    if (e.key === 'Escape') { e.preventDefault(); cancelEdit() }
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      confirmRename()
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      cancelEdit()
+    }
   }
 </script>
 
 <div class="fne">
   <span class="material-symbols-outlined fne-icon">description</span>
+  {#if breadcrumbSegments.length > 0}
+    <nav class="fne-breadcrumb" aria-label="Folder path">
+      {#each breadcrumbSegments as segment (segment.path)}
+        <button
+          class="fne-crumb"
+          type="button"
+          title="Open {segment.path} as table"
+          onclick={() => openFolder(segment.path)}
+        >
+          {segment.name}
+        </button>
+        <span class="fne-crumb-sep" aria-hidden="true">/</span>
+      {/each}
+    </nav>
+  {/if}
   {#if isEditing}
+    <!-- svelte-ignore a11y_autofocus -->
     <input
       class="fne-input"
       type="text"
@@ -132,6 +175,42 @@
     color: var(--color-text-dim, #71717a);
     flex-shrink: 0;
   }
+  .fne-breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+    flex-shrink: 1;
+    overflow: hidden;
+  }
+  .fne-crumb {
+    font-family: var(--font-display, 'Space Grotesk'), sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--color-text-dim, #71717a);
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    padding: 2px 4px;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition:
+      color 150ms ease,
+      background 150ms ease;
+  }
+  .fne-crumb:hover {
+    color: var(--color-text, #e4e4e7);
+    background: var(--color-surface, #161617);
+  }
+  .fne-crumb-sep {
+    font-size: 13px;
+    color: var(--color-text-dim, #71717a);
+    opacity: 0.6;
+    user-select: none;
+    flex-shrink: 0;
+  }
   .fne-name {
     font-family: var(--font-display, 'Space Grotesk'), sans-serif;
     font-size: 20px;
@@ -152,7 +231,7 @@
     font-weight: 600;
     color: var(--color-text, #e4e4e7);
     background: transparent;
-    border: 1px solid var(--color-primary, #00E5FF);
+    border: 1px solid var(--color-primary, #00e5ff);
     border-radius: 4px;
     padding: 2px 4px;
     outline: none;
@@ -171,6 +250,11 @@
     padding: 0 0 0 28px;
   }
   @media (prefers-reduced-motion: reduce) {
-    .fne-name { transition: none; }
+    .fne-name {
+      transition: none;
+    }
+    .fne-crumb {
+      transition: none;
+    }
   }
 </style>

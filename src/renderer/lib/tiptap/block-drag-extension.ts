@@ -68,7 +68,7 @@ export const BlockDragExtension = Extension.create({
           e.dataTransfer.setDragImage(
             currentBlockDom,
             e.clientX - blockRect.left,
-            e.clientY - blockRect.top,
+            e.clientY - blockRect.top
           )
         }
       })
@@ -179,7 +179,7 @@ export const BlockDragExtension = Extension.create({
             destroy() {
               wrapper?.remove()
               wrapper = null
-            },
+            }
           }
         },
         props: {
@@ -235,7 +235,11 @@ export const BlockDragExtension = Extension.create({
                 const filename = mdvdbPath.replace(/^.*\//, '').replace(/\.[^.]+$/, '')
                 const wikilinkType = view.state.schema.nodes.wikilink
                 if (wikilinkType) {
-                  const node = wikilinkType.create({ target: filename, anchor: null, display: null })
+                  const node = wikilinkType.create({
+                    target: filename,
+                    anchor: null,
+                    display: null
+                  })
                   const tr = view.state.tr.insert(dropPos.pos, node)
                   view.dispatch(tr)
                 }
@@ -297,10 +301,10 @@ export const BlockDragExtension = Extension.create({
               view.dispatch(tr)
               view.focus()
               return true
-            },
-          },
-        },
-      }),
+            }
+          }
+        }
+      })
     ]
-  },
+  }
 })

@@ -37,7 +37,7 @@
         svg: 'image/svg+xml',
         webp: 'image/webp',
         bmp: 'image/bmp',
-        ico: 'image/x-icon',
+        ico: 'image/x-icon'
       }
       const mime = mimeMap[ext] ?? 'image/png'
       dataUrl = `data:${mime};base64,${base64}`
@@ -79,7 +79,7 @@
   }
 
   $effect(() => {
-    filePath // track dependency
+    void filePath // track dependency
     loadImage()
   })
 </script>
@@ -116,10 +116,20 @@
       <span class="size">{formatSize(fileSize)}</span>
     {/if}
     <div class="spacer"></div>
-    <button class="zoom-btn" onclick={fitToView} title="Fit to view" class:active={fitMode === 'fit'}>
+    <button
+      class="zoom-btn"
+      onclick={fitToView}
+      title="Fit to view"
+      class:active={fitMode === 'fit'}
+    >
       <span class="material-symbols-outlined">fit_screen</span>
     </button>
-    <button class="zoom-btn" onclick={actualSize} title="Actual size" class:active={fitMode === 'actual' && zoom === 1}>
+    <button
+      class="zoom-btn"
+      onclick={actualSize}
+      title="Actual size"
+      class:active={fitMode === 'actual' && zoom === 1}
+    >
       <span class="material-symbols-outlined">crop_original</span>
     </button>
     {#if fitMode === 'actual'}
@@ -157,7 +167,8 @@
     transition: transform 0.1s ease;
   }
 
-  .loading, .error {
+  .loading,
+  .error {
     flex: 1;
     display: flex;
     align-items: center;
@@ -176,7 +187,9 @@
   }
 
   @keyframes spin {
-    to { transform: rotate(360deg); }
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   .info-bar {
@@ -196,7 +209,9 @@
     font-family: var(--font-mono, 'JetBrains Mono', monospace);
   }
 
-  .spacer { flex: 1; }
+  .spacer {
+    flex: 1;
+  }
 
   .zoom-btn {
     display: flex;
@@ -216,8 +231,8 @@
   }
 
   .zoom-btn.active {
-    color: var(--color-primary, #00E5FF);
-    border-color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
+    border-color: var(--color-primary, #00e5ff);
   }
 
   .zoom-btn .material-symbols-outlined {
@@ -231,7 +246,11 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .spinning { animation: none; }
-    .image-container img { transition: none; }
+    .spinning {
+      animation: none;
+    }
+    .image-container img {
+      transition: none;
+    }
   }
 </style>

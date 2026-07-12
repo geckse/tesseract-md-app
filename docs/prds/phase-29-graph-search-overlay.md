@@ -110,6 +110,7 @@ When graph data reloads (level switch, path filter change), the search re-runs a
 ### `GraphView.svelte`
 
 **New state variables:**
+
 - `graphSearchVisible: boolean` — overlay visibility
 - `graphSearchQuery: string` — current input value
 - `graphSearchLoading: boolean` — API request in progress
@@ -121,6 +122,7 @@ When graph data reloads (level switch, path filter change), the search re-runs a
 - `isDraggingSearch: boolean` — dragging state
 
 **New functions:**
+
 - `onGraphSearchInput(query)` — debounced input handler
 - `executeGraphSearch(query)` — calls `window.api.search()`, builds score maps, applies dimming
 - `clearGraphSearch()` — resets all search state, restores normal rendering
@@ -129,10 +131,12 @@ When graph data reloads (level switch, path filter change), the search re-runs a
 - Drag handlers: `onDragHandlePointerDown/Move/Up`
 
 **New imports:**
+
 - `activeCollection` from `../stores/collections`
 - `get` from `svelte/store` (if not already imported)
 
 **Modified functions:**
+
 - `applySelectionDimming()` — add guard at top: skip if graph search is active
 - `handleKeyDown()` — add `Cmd+F` / `/` / Escape-for-search handling
 

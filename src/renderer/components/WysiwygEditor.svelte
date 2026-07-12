@@ -1,35 +1,49 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
-  import { get } from 'svelte/store';
-  import { createWysiwygEditor, type WysiwygEditor as WysiwygEditorInstance } from '../lib/tiptap/editor-factory';
-  import { splitFrontmatter, joinFrontmatter } from '../lib/tiptap/markdown-bridge';
-  import '../lib/tiptap/wysiwyg-theme.css';
-  import 'highlight.js/styles/github-dark.css';
-  import { activeCollection } from '../stores/collections';
-  import { workspace, type DocumentTab } from '../stores/workspace.svelte';
-  import { isDirty, wordCount, tokenCount, countWords, countTokens, saveRequested, discardRequested, editorMode, syncEditorStoresFromTab, type EditorMode } from '../stores/editor';
-  import { propertiesFileContent } from '../stores/properties';
-  import ConflictNotification from './ConflictNotification.svelte';
-  import DocumentHeader from './wysiwyg/DocumentHeader.svelte';
-  import { dismissConflict } from '../stores/conflict';
-  import { requestSaveAs } from '../stores/save-as';
-  import { schema, fetchSchema } from '../stores/schema';
-  import type { Schema } from '../types/cli';
-  import BubbleMenu from './wysiwyg/BubbleMenu.svelte';
-  import EditorContextMenu from './wysiwyg/EditorContextMenu.svelte';
-  import LinkModal from './wysiwyg/LinkModal.svelte';
+  import { onMount, onDestroy } from 'svelte'
+  import { get } from 'svelte/store'
+  import {
+    createWysiwygEditor,
+    type WysiwygEditor as WysiwygEditorInstance
+  } from '../lib/tiptap/editor-factory'
+  import { splitFrontmatter, joinFrontmatter } from '../lib/tiptap/markdown-bridge'
+  import '../lib/tiptap/wysiwyg-theme.css'
+  import 'highlight.js/styles/github-dark.css'
+  import { activeCollection } from '../stores/collections'
+  import { workspace, type DocumentTab } from '../stores/workspace.svelte'
+  import {
+    isDirty,
+    wordCount,
+    tokenCount,
+    countWords,
+    countTokens,
+    saveRequested,
+    discardRequested,
+    editorMode,
+    syncEditorStoresFromTab,
+    type EditorMode
+  } from '../stores/editor'
+  import { propertiesFileContent } from '../stores/properties'
+  import ConflictNotification from './ConflictNotification.svelte'
+  import DocumentHeader from './wysiwyg/DocumentHeader.svelte'
+  import { dismissConflict } from '../stores/conflict'
+  import { requestSaveAs } from '../stores/save-as'
+  import { schema, fetchSchema } from '../stores/schema'
+  import type { Schema } from '../types/cli'
+  import BubbleMenu from './wysiwyg/BubbleMenu.svelte'
+  import EditorContextMenu from './wysiwyg/EditorContextMenu.svelte'
+  import LinkModal from './wysiwyg/LinkModal.svelte'
 
   // ── Props ─────────────────────────────────────────────────────────────
   interface WysiwygEditorProps {
     tabId?: string
   }
-  let { tabId }: WysiwygEditorProps = $props();
+  let { tabId }: WysiwygEditorProps = $props()
 
   // ── Constants ─────────────────────────────────────────────────────────
   /** Maximum number of live TipTap editor instances to keep in the pool. */
-  const MAX_POOL_SIZE = 10;
+  const MAX_POOL_SIZE = 10
   /** Large file handling (>1MB). */
-  const LARGE_FILE_THRESHOLD = 1024 * 1024;
+  const LARGE_FILE_THRESHOLD = 1024 * 1024
 
   // ── Instance Pool ─────────────────────────────────────────────────────
   /**
@@ -61,195 +75,195 @@
     frontmatter: string | null
   }
 
-  const pool = new Map<string, PoolEntry>();
-  const serializedPool = new Map<string, SerializedEntry>();
+  const pool = new Map<string, PoolEntry>()
+  const serializedPool = new Map<string, SerializedEntry>()
   /** LRU access order — most recently accessed tab ID is last. */
-  const accessOrder: string[] = [];
+  const accessOrder: string[] = []
 
   // ── Component State ───────────────────────────────────────────────────
-  let editorHost: HTMLDivElement | undefined = $state(undefined);
-  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  let largeFileWarning = $state(false);
-  let composingRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  let editorHost: HTMLDivElement | undefined = $state(undefined)
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null
+  let largeFileWarning = $state(false)
+  let composingRetryTimer: ReturnType<typeof setTimeout> | null = null
 
   // Frontmatter for the currently active tab (reactive for FrontmatterEditor)
-  let currentFrontmatter: string | null = $state(null);
+  let currentFrontmatter: string | null = $state(null)
 
   // ── Store Subscriptions ───────────────────────────────────────────────
-  let currentActiveCollection: import('../../preload/api').Collection | null = $state(null);
-  const unsubCollection = activeCollection.subscribe((v) => (currentActiveCollection = v));
+  let currentActiveCollection: import('../../preload/api').Collection | null = $state(null)
+  const unsubCollection = activeCollection.subscribe((v) => (currentActiveCollection = v))
 
   // Schema for frontmatter awareness
-  let currentSchema = $state<Schema | null>(null);
-  const unsubSchema = schema.subscribe((v) => (currentSchema = v));
+  let currentSchema = $state<Schema | null>(null)
+  const unsubSchema = schema.subscribe((v) => (currentSchema = v))
 
   // Fetch schema when the active document tab or collection changes
   $effect(() => {
     if (currentActiveCollection && activeDocTab) {
-      const filePath = activeDocTab.filePath;
-      const lastSlash = filePath.lastIndexOf('/');
-      const pathPrefix = lastSlash > 0 ? filePath.substring(0, lastSlash) : undefined;
-      fetchSchema(currentActiveCollection.path, pathPrefix);
+      const filePath = activeDocTab.filePath
+      const lastSlash = filePath.lastIndexOf('/')
+      const pathPrefix = lastSlash > 0 ? filePath.substring(0, lastSlash) : undefined
+      fetchSchema(currentActiveCollection.path, pathPrefix)
     }
-  });
+  })
 
-  let saveCounter = $state(0);
-  let lastSaveCounter = 0;
-  const unsubSave = saveRequested.subscribe((v) => (saveCounter = v));
+  let saveCounter = $state(0)
+  let lastSaveCounter = 0
+  const unsubSave = saveRequested.subscribe((v) => (saveCounter = v))
   $effect(() => {
     if (saveCounter > 0 && saveCounter !== lastSaveCounter) {
-      lastSaveCounter = saveCounter;
-      handleSave();
+      lastSaveCounter = saveCounter
+      handleSave()
     }
-  });
+  })
 
-  let discardCounter = $state(0);
-  let lastDiscardCounter = 0;
-  const unsubDiscard = discardRequested.subscribe((v) => (discardCounter = v));
+  let discardCounter = $state(0)
+  let lastDiscardCounter = 0
+  const unsubDiscard = discardRequested.subscribe((v) => (discardCounter = v))
   $effect(() => {
     if (discardCounter > 0 && discardCounter !== lastDiscardCounter) {
-      lastDiscardCounter = discardCounter;
-      handleDiscard();
+      lastDiscardCounter = discardCounter
+      handleDiscard()
     }
-  });
+  })
 
   // Focus editor when switching to wysiwyg mode
-  let currentEditorMode = $state<EditorMode>('wysiwyg');
-  const unsubEditorMode = editorMode.subscribe((v) => (currentEditorMode = v));
+  let currentEditorMode = $state<EditorMode>('wysiwyg')
+  const unsubEditorMode = editorMode.subscribe((v) => (currentEditorMode = v))
   $effect(() => {
     if (currentEditorMode === 'wysiwyg' && activeTabId) {
-      const entry = pool.get(activeTabId);
+      const entry = pool.get(activeTabId)
       if (entry) {
-        requestAnimationFrame(() => entry.editor.editor.commands.focus());
+        requestAnimationFrame(() => entry.editor.editor.commands.focus())
       }
     }
-  });
+  })
 
   // ── Derived Tab State ─────────────────────────────────────────────────
   /**
    * Resolve the active tab ID: use the explicit tabId prop if provided,
    * otherwise fall back to the workspace's focused document tab.
    */
-  const activeTabId = $derived(tabId ?? workspace.focusedDocumentTab?.id ?? null);
+  const activeTabId = $derived(tabId ?? workspace.focusedDocumentTab?.id ?? null)
   const activeDocTab = $derived.by(() => {
-    if (!activeTabId) return null;
-    const tab = workspace.tabs[activeTabId];
-    return tab?.kind === 'document' ? tab as DocumentTab : null;
-  });
+    if (!activeTabId) return null
+    const tab = workspace.tabs[activeTabId]
+    return tab?.kind === 'document' ? (tab as DocumentTab) : null
+  })
 
   /** The TipTap Editor instance for the active tab (for BubbleMenu/ContextMenu). */
-  let activeEditor = $state<import('@tiptap/core').Editor | null>(null);
+  let activeEditor = $state<import('@tiptap/core').Editor | null>(null)
 
   // ── Link Modal ─────────────────────────────────────────────────────────
-  let linkModalOpen = $state(false);
-  let linkModalInitialQuery = $state('');
+  let linkModalOpen = $state(false)
+  let linkModalInitialQuery = $state('')
 
   function handleOpenLinkModal(e: Event) {
-    const detail = (e as CustomEvent).detail;
-    linkModalInitialQuery = detail?.initialQuery ?? '';
-    linkModalOpen = true;
+    const detail = (e as CustomEvent).detail
+    linkModalInitialQuery = detail?.initialQuery ?? ''
+    linkModalOpen = true
   }
 
   function closeLinkModal() {
-    linkModalOpen = false;
-    linkModalInitialQuery = '';
+    linkModalOpen = false
+    linkModalInitialQuery = ''
   }
 
   // ── Context Menu (driven by custom DOM event from table-ui-extension) ──
-  let contextMenuOpen = $state(false);
-  let contextMenuX = $state(0);
-  let contextMenuY = $state(0);
+  let contextMenuOpen = $state(false)
+  let contextMenuX = $state(0)
+  let contextMenuY = $state(0)
 
   function handleEditorContextMenu(e: Event) {
-    const detail = (e as CustomEvent).detail;
-    contextMenuX = detail.x;
-    contextMenuY = detail.y;
-    contextMenuOpen = true;
+    const detail = (e as CustomEvent).detail
+    contextMenuX = detail.x
+    contextMenuY = detail.y
+    contextMenuOpen = true
     // Close any open link bubble
-    document.querySelector('.link-bubble-popup')?.remove();
+    document.querySelector('.link-bubble-popup')?.remove()
   }
 
   function closeContextMenu() {
-    contextMenuOpen = false;
+    contextMenuOpen = false
   }
 
   // ── Pool Management ───────────────────────────────────────────────────
 
   /** Touch a tab ID in the LRU access order (move to end). */
   function touchAccess(id: string): void {
-    const idx = accessOrder.indexOf(id);
-    if (idx >= 0) accessOrder.splice(idx, 1);
-    accessOrder.push(id);
+    const idx = accessOrder.indexOf(id)
+    if (idx >= 0) accessOrder.splice(idx, 1)
+    accessOrder.push(id)
   }
 
   /** Evict the least recently used pool entries beyond MAX_POOL_SIZE. */
   function evictIfNeeded(): void {
     while (pool.size > MAX_POOL_SIZE) {
       // Find the oldest entry in accessOrder that is NOT the active tab
-      let evictId: string | null = null;
+      let evictId: string | null = null
       for (const id of accessOrder) {
         if (id !== activeTabId && pool.has(id)) {
-          evictId = id;
-          break;
+          evictId = id
+          break
         }
       }
-      if (!evictId) break;
+      if (!evictId) break
 
-      const entry = pool.get(evictId)!;
+      const entry = pool.get(evictId)!
       // Serialize the editor state (undo history is lost, but content is preserved)
       serializedPool.set(evictId, {
         editorJSON: entry.editor.editor.getJSON(),
         scrollTop: entry.container.querySelector('.ProseMirror')?.scrollTop ?? 0,
         lastSavedContent: entry.lastSavedContent,
-        frontmatter: entry.frontmatter,
-      });
+        frontmatter: entry.frontmatter
+      })
 
       // Destroy the live editor and remove its container
-      entry.editor.destroy();
-      entry.container.remove();
-      pool.delete(evictId);
+      entry.editor.destroy()
+      entry.container.remove()
+      pool.delete(evictId)
 
       // Remove from access order
-      const idx = accessOrder.indexOf(evictId);
-      if (idx >= 0) accessOrder.splice(idx, 1);
+      const idx = accessOrder.indexOf(evictId)
+      if (idx >= 0) accessOrder.splice(idx, 1)
     }
   }
 
   // ── Editor Factory ────────────────────────────────────────────────────
 
   /** Guard flag: true while an editor is being created, to suppress spurious dirty marking. */
-  let initializing = false;
+  let initializing = false
 
   /**
    * Get the full markdown content for a pool entry by joining its
    * frontmatter with the editor body.
    */
   function getFullContentForEntry(entry: PoolEntry): string {
-    const body = entry.editor.getMarkdown();
-    return joinFrontmatter(entry.frontmatter, body);
+    const body = entry.editor.getMarkdown()
+    return joinFrontmatter(entry.frontmatter, body)
   }
 
   /**
    * Handle TipTap content updates for the active tab — debounced sync to stores.
    */
   function handleEditorUpdate() {
-    if (initializing) return;
-    if (!activeTabId) return;
-    const entry = pool.get(activeTabId);
-    if (!entry) return;
+    if (initializing) return
+    if (!activeTabId) return
+    const entry = pool.get(activeTabId)
+    if (!entry) return
 
-    const fullContent = getFullContentForEntry(entry);
+    const fullContent = getFullContentForEntry(entry)
     // Sync content to tab immediately so mode switches pick up latest edits
-    const tab = activeDocTab;
-    if (tab) tab.content = fullContent;
-    isDirty.set(fullContent !== entry.lastSavedContent);
-    wordCount.set(countWords(fullContent));
-    tokenCount.set(countTokens(fullContent));
+    const tab = activeDocTab
+    if (tab) tab.content = fullContent
+    isDirty.set(fullContent !== entry.lastSavedContent)
+    wordCount.set(countWords(fullContent))
+    tokenCount.set(countTokens(fullContent))
 
-    if (debounceTimer) clearTimeout(debounceTimer);
+    if (debounceTimer) clearTimeout(debounceTimer)
     debounceTimer = setTimeout(() => {
-      propertiesFileContent.set(fullContent);
-    }, 200);
+      propertiesFileContent.set(fullContent)
+    }, 200)
   }
 
   /**
@@ -259,84 +273,84 @@
    */
   function getOrCreateEntry(id: string, content: string): PoolEntry {
     // Check if already in the live pool
-    const existing = pool.get(id);
+    const existing = pool.get(id)
     if (existing) {
-      touchAccess(id);
-      return existing;
+      touchAccess(id)
+      return existing
     }
 
     // Create a container div for this editor instance
-    const container = document.createElement('div');
-    container.className = 'wysiwyg-instance';
-    container.style.display = 'none';
-    container.style.flex = '1';
-    container.style.minHeight = '0';
-    container.style.flexDirection = 'column';
-    container.style.overflow = 'auto';
-    container.style.position = 'relative';
+    const container = document.createElement('div')
+    container.className = 'wysiwyg-instance'
+    container.style.display = 'none'
+    container.style.flex = '1'
+    container.style.minHeight = '0'
+    container.style.flexDirection = 'column'
+    container.style.overflow = 'auto'
+    container.style.position = 'relative'
     // Attach context menu and link modal handlers to the container
-    container.addEventListener('editor-contextmenu', handleEditorContextMenu);
-    container.addEventListener('open-link-modal', handleOpenLinkModal);
+    container.addEventListener('editor-contextmenu', handleEditorContextMenu)
+    container.addEventListener('open-link-modal', handleOpenLinkModal)
 
-    let editor: WysiwygEditorInstance;
-    let scrollTop = 0;
-    let lastSavedContent = content;
-    let frontmatter: string | null = null;
+    let editor: WysiwygEditorInstance
+    let scrollTop = 0
+    let lastSavedContent = content
+    let frontmatter: string | null = null
 
     // Suppress spurious dirty marking during editor creation
-    initializing = true;
+    initializing = true
     try {
+      // Check for serialized state (evicted editor)
+      const serialized = serializedPool.get(id)
+      if (serialized) {
+        serializedPool.delete(id)
+        scrollTop = serialized.scrollTop
+        lastSavedContent = serialized.lastSavedContent
+        frontmatter = serialized.frontmatter
 
-    // Check for serialized state (evicted editor)
-    const serialized = serializedPool.get(id);
-    if (serialized) {
-      serializedPool.delete(id);
-      scrollTop = serialized.scrollTop;
-      lastSavedContent = serialized.lastSavedContent;
-      frontmatter = serialized.frontmatter;
+        // Reconstruct editor from serialized JSON
+        // Note: we create with empty content then set JSON to restore structure
+        editor = createWysiwygEditor(container, '', {
+          onUpdate: () => handleEditorUpdate(),
+          collectionPath: currentActiveCollection?.path ?? '',
+          collectionId: currentActiveCollection?.id ?? '',
+          currentFilePath: activeDocTab?.filePath ?? ''
+        })
+        editor.editor.commands.setContent(serialized.editorJSON)
+      } else {
+        // Fresh editor — split frontmatter from content
+        const split = splitFrontmatter(content)
+        frontmatter = split.frontmatter
 
-      // Reconstruct editor from serialized JSON
-      // Note: we create with empty content then set JSON to restore structure
-      editor = createWysiwygEditor(container, '', {
-        onUpdate: () => handleEditorUpdate(),
-        collectionPath: currentActiveCollection?.path ?? '',
-        collectionId: currentActiveCollection?.id ?? '',
-        currentFilePath: activeDocTab?.filePath ?? '',
-      });
-      editor.editor.commands.setContent(serialized.editorJSON);
-    } else {
-      // Fresh editor — split frontmatter from content
-      const split = splitFrontmatter(content);
-      frontmatter = split.frontmatter;
-
-      editor = createWysiwygEditor(container, split.body, {
-        onUpdate: () => handleEditorUpdate(),
-        collectionPath: currentActiveCollection?.path ?? '',
-        collectionId: currentActiveCollection?.id ?? '',
-        currentFilePath: activeDocTab?.filePath ?? '',
-      });
+        editor = createWysiwygEditor(container, split.body, {
+          onUpdate: () => handleEditorUpdate(),
+          collectionPath: currentActiveCollection?.path ?? '',
+          collectionId: currentActiveCollection?.id ?? '',
+          currentFilePath: activeDocTab?.filePath ?? ''
+        })
+      }
+    } finally {
+      initializing = false
     }
-
-    } finally { initializing = false; }
 
     const entry: PoolEntry = {
       editor,
       container,
       scrollTop,
       lastSavedContent,
-      frontmatter,
-    };
+      frontmatter
+    }
 
-    pool.set(id, entry);
-    touchAccess(id);
-    evictIfNeeded();
+    pool.set(id, entry)
+    touchAccess(id)
+    evictIfNeeded()
 
-    return entry;
+    return entry
   }
 
   // ── Show / Hide ───────────────────────────────────────────────────────
 
-  let previousActiveTabId: string | null = null;
+  let previousActiveTabId: string | null = null
 
   /**
    * Main reactive effect: whenever the active tab changes, show its editor
@@ -344,100 +358,100 @@
    * preserve undo history per tab (tiptap#5708).
    */
   $effect(() => {
-    const currentTabId = activeTabId;
-    const tab = activeDocTab;
+    const currentTabId = activeTabId
+    const tab = activeDocTab
 
     if (!editorHost || !currentTabId || !tab) {
       // No active document tab — hide all
-      hideEntry(previousActiveTabId);
-      previousActiveTabId = null;
-      currentFrontmatter = null;
-      activeEditor = null;
-      return;
+      hideEntry(previousActiveTabId)
+      previousActiveTabId = null
+      currentFrontmatter = null
+      activeEditor = null
+      return
     }
 
     // Content still loading — wait
     if (tab.contentLoading || tab.content === null) {
-      return;
+      return
     }
 
-    const isSwitching = previousActiveTabId !== currentTabId;
+    const isSwitching = previousActiveTabId !== currentTabId
 
     if (isSwitching) {
       // Save scroll position of previous tab and hide it
-      hideEntry(previousActiveTabId);
+      hideEntry(previousActiveTabId)
     }
 
     // Large file check: >1MB forces Source/Preview mode
-    const contentSize = new Blob([tab.content].filter(Boolean)).size;
+    const contentSize = new Blob([tab.content].filter(Boolean)).size
     if (contentSize > LARGE_FILE_THRESHOLD) {
-      largeFileWarning = true;
-      editorMode.set('editor');
-      previousActiveTabId = currentTabId;
-      return;
+      largeFileWarning = true
+      editorMode.set('editor')
+      previousActiveTabId = currentTabId
+      return
     }
 
-    largeFileWarning = false;
+    largeFileWarning = false
 
     // Get or create the editor for this tab
-    const entry = getOrCreateEntry(currentTabId, tab.content);
+    const entry = getOrCreateEntry(currentTabId, tab.content)
 
     // Ensure the container is in the host DOM
     if (!editorHost.contains(entry.container)) {
-      editorHost.appendChild(entry.container);
+      editorHost.appendChild(entry.container)
     }
 
     // Update reactive editor reference for BubbleMenu/ContextMenu
-    activeEditor = entry.editor.editor;
+    activeEditor = entry.editor.editor
 
     if (isSwitching) {
       // Show this editor
-      entry.container.style.display = 'flex';
+      entry.container.style.display = 'flex'
 
       // Restore scroll position on next frame
       requestAnimationFrame(() => {
-        const pm = entry.container.querySelector('.ProseMirror');
-        if (pm) pm.scrollTop = entry.scrollTop;
-      });
+        const pm = entry.container.querySelector('.ProseMirror')
+        if (pm) pm.scrollTop = entry.scrollTop
+      })
 
       // Sync frontmatter state for FrontmatterEditor
-      currentFrontmatter = entry.frontmatter;
+      currentFrontmatter = entry.frontmatter
 
       // Use savedContent (disk state) for dirty tracking across mode switches
-      entry.lastSavedContent = tab.savedContent ?? tab.content!;
+      entry.lastSavedContent = tab.savedContent ?? tab.content!
 
       // Reconcile hidden pool entries whose tab content moved on while hidden
       // (external live-applies, cross-window saves, serialized restores)
-      const fullContent = getFullContentForEntry(entry);
+      const fullContent = getFullContentForEntry(entry)
       if (!tab.isDirty && fullContent !== tab.content) {
-        applyExternalContent(entry, tab.content!, tab);
+        applyExternalContent(entry, tab.content!, tab)
       } else {
-        isDirty.set(fullContent !== entry.lastSavedContent);
-        wordCount.set(countWords(fullContent));
-        tokenCount.set(countTokens(fullContent));
+        isDirty.set(fullContent !== entry.lastSavedContent)
+        wordCount.set(countWords(fullContent))
+        tokenCount.set(countTokens(fullContent))
       }
 
-      previousActiveTabId = currentTabId;
+      previousActiveTabId = currentTabId
     } else {
       // Same tab — content changed from outside the editor (external live
       // apply, conflict resolution, or cross-window sync)
-      const currentBody = entry.editor.getMarkdown();
-      const currentFullContent = joinFrontmatter(entry.frontmatter, currentBody);
+      const currentBody = entry.editor.getMarkdown()
+      const currentFullContent = joinFrontmatter(entry.frontmatter, currentBody)
       if (tab.content !== entry.lastSavedContent && tab.content !== currentFullContent) {
-        applyExternalContent(entry, tab.content, tab);
+        applyExternalContent(entry, tab.content, tab)
       }
     }
-  });
+  })
 
   function hideEntry(id: string | null): void {
-    if (!id) return;
-    const entry = pool.get(id);
-    if (!entry) return;
+    if (!id) return
+    const entry = pool.get(id)
+    if (!entry) return
 
     // Save scroll position before hiding
-    const pm = entry.container.querySelector('.ProseMirror');
-    if (pm) entry.scrollTop = pm.scrollTop;
-    entry.container.style.display = 'none';
+    const pm = entry.container.querySelector('.ProseMirror')
+    if (pm) entry.scrollTop = pm.scrollTop
+    entry.container.style.display = 'none'
   }
 
   /**
@@ -448,71 +462,71 @@
    * because live apply only ever fires on tabs with no unsaved work.
    */
   function applyExternalContent(entry: PoolEntry, content: string, tab: DocumentTab): void {
-    const currentFull = joinFrontmatter(entry.frontmatter, entry.editor.getMarkdown());
+    const currentFull = joinFrontmatter(entry.frontmatter, entry.editor.getMarkdown())
     if (currentFull === content) {
-      entry.lastSavedContent = tab.savedContent ?? content;
-      return;
+      entry.lastSavedContent = tab.savedContent ?? content
+      return
     }
 
     // Never replace content mid-IME-composition — retry after it ends
     if (entry.editor.editor.view.composing) {
-      scheduleComposingRetry(entry, tab);
-      return;
+      scheduleComposingRetry(entry, tab)
+      return
     }
 
-    const { frontmatter, body } = splitFrontmatter(content);
-    const selection = entry.editor.editor.state.selection.from;
-    const pm = entry.container.querySelector('.ProseMirror');
-    const scrollTop = pm?.scrollTop ?? 0;
+    const { frontmatter, body } = splitFrontmatter(content)
+    const selection = entry.editor.editor.state.selection.from
+    const pm = entry.container.querySelector('.ProseMirror')
+    const scrollTop = pm?.scrollTop ?? 0
 
-    entry.frontmatter = frontmatter;
-    entry.lastSavedContent = tab.savedContent ?? content;
+    entry.frontmatter = frontmatter
+    entry.lastSavedContent = tab.savedContent ?? content
     if (activeTabId && pool.get(activeTabId) === entry) {
-      currentFrontmatter = frontmatter;
+      currentFrontmatter = frontmatter
     }
 
-    initializing = true;
+    initializing = true
     try {
-      entry.editor.setMarkdownContent(body);
+      entry.editor.setMarkdownContent(body)
     } finally {
-      initializing = false;
+      initializing = false
     }
 
     // Best-effort cursor restore (clamped, without stealing focus) + scroll
     try {
-      const size = entry.editor.editor.state.doc.content.size;
-      entry.editor.editor.commands.setTextSelection(Math.min(selection, size));
+      const size = entry.editor.editor.state.doc.content.size
+      entry.editor.editor.commands.setTextSelection(Math.min(selection, size))
     } catch {
       // Selection restore is best-effort only
     }
     requestAnimationFrame(() => {
-      const pmAfter = entry.container.querySelector('.ProseMirror');
-      if (pmAfter) pmAfter.scrollTop = scrollTop;
-    });
+      const pmAfter = entry.container.querySelector('.ProseMirror')
+      if (pmAfter) pmAfter.scrollTop = scrollTop
+    })
 
     // Write tab fields directly (not the focused-tab store shims) — with
     // split panes this component may not host the focused tab.
-    tab.content = content;
-    tab.isDirty = content !== entry.lastSavedContent;
-    tab.wordCount = countWords(content);
-    tab.tokenCount = countTokens(content);
-    syncEditorStoresFromTab();
+    tab.content = content
+    tab.isDirty = content !== entry.lastSavedContent
+    tab.wordCount = countWords(content)
+    tab.tokenCount = countTokens(content)
+    syncEditorStoresFromTab()
   }
 
   /** Re-apply the tab's latest content once the IME composition ends. */
   function scheduleComposingRetry(entry: PoolEntry, tab: DocumentTab): void {
     const retry = () => {
-      entry.editor.editor.view.dom.removeEventListener('compositionend', retry);
+      entry.editor.editor.view.dom.removeEventListener('compositionend', retry)
       if (composingRetryTimer) {
-        clearTimeout(composingRetryTimer);
-        composingRetryTimer = null;
+        clearTimeout(composingRetryTimer)
+        composingRetryTimer = null
       }
       if (tab.content !== null && !tab.isDirty) {
-        applyExternalContent(entry, tab.content, tab);
+        applyExternalContent(entry, tab.content, tab)
       }
-    };
-    entry.editor.editor.view.dom.addEventListener('compositionend', retry, { once: true });
-    composingRetryTimer = setTimeout(retry, 300);
+    }
+    entry.editor.editor.view.dom.addEventListener('compositionend', retry, { once: true })
+    composingRetryTimer = setTimeout(retry, 300)
   }
 
   // ── Frontmatter Handling ─────────────────────────────────────────────
@@ -522,14 +536,14 @@
    * Updates the per-tab frontmatter in the pool entry.
    */
   function handleFrontmatterUpdate(newYaml: string | null) {
-    currentFrontmatter = newYaml;
+    currentFrontmatter = newYaml
 
     // Persist frontmatter to the pool entry
     if (activeTabId) {
-      const entry = pool.get(activeTabId);
+      const entry = pool.get(activeTabId)
       if (entry) {
-        entry.frontmatter = newYaml;
-        handleEditorUpdate();
+        entry.frontmatter = newYaml
+        handleEditorUpdate()
       }
     }
   }
@@ -537,111 +551,123 @@
   // ── File Rename ────────────────────────────────────────────────────────
 
   function handleFileRenamed(newPath: string) {
-    if (!activeDocTab) return;
+    if (!activeDocTab) return
     // Update the tab's filePath and title. The tree patches itself from the
     // rename's vault event — no full reload needed.
-    activeDocTab.filePath = newPath;
-    activeDocTab.title = newPath.split('/').pop() ?? newPath;
+    activeDocTab.filePath = newPath
+    activeDocTab.title = newPath.split('/').pop() ?? newPath
   }
 
   // ── Save ──────────────────────────────────────────────────────────────
 
   function handleSave(): boolean {
-    if (!activeTabId || !currentActiveCollection) return true;
-    const entry = pool.get(activeTabId);
-    if (!entry) return true;
+    if (!activeTabId || !currentActiveCollection) return true
+    const entry = pool.get(activeTabId)
+    if (!entry) return true
 
-    const tab = activeDocTab;
-    if (!tab) return true;
+    const tab = activeDocTab
+    if (!tab) return true
 
     // Skip save if already clean (e.g., SaveAsModal already handled it)
-    if (!tab.isDirty && !tab.isUntitled) return true;
+    if (!tab.isDirty && !tab.isUntitled) return true
 
     // Untitled files need a "Save As" dialog to pick a filename
     if (tab.isUntitled) {
-      const content = getFullContentForEntry(entry);
-      tab.content = content;
-      requestSaveAs(activeTabId);
-      return true;
+      const content = getFullContentForEntry(entry)
+      tab.content = content
+      requestSaveAs(activeTabId)
+      return true
     }
 
-    const content = getFullContentForEntry(entry);
-    const fullPath = `${currentActiveCollection.path}/${tab.filePath}`;
+    const content = getFullContentForEntry(entry)
+    const fullPath = `${currentActiveCollection.path}/${tab.filePath}`
 
-    entry.lastSavedContent = content;
-    tab.content = content;
-    tab.savedContent = content;
-    isDirty.set(false);
+    entry.lastSavedContent = content
+    tab.content = content
+    tab.savedContent = content
+    isDirty.set(false)
 
-    const savedPath = tab.filePath;
-    window.api.writeFile(fullPath, content).then(() => {
-      dismissConflict(savedPath);
-    }).catch((err) => {
-      console.error('Save failed:', err);
-    });
-    return true;
+    const savedPath = tab.filePath
+    window.api
+      .writeFile(fullPath, content)
+      .then(() => {
+        dismissConflict(savedPath)
+      })
+      .catch((err) => {
+        console.error('Save failed:', err)
+      })
+    return true
   }
 
   // ── Discard ───────────────────────────────────────────────────────────
 
   function handleDiscard(): void {
-    if (!activeTabId) return;
-    const entry = pool.get(activeTabId);
-    const tab = activeDocTab;
-    if (!entry || !tab) return;
+    if (!activeTabId) return
+    const entry = pool.get(activeTabId)
+    const tab = activeDocTab
+    if (!entry || !tab) return
 
     // Reload last saved content into the editor
-    applyExternalContent(entry, entry.lastSavedContent, tab);
+    applyExternalContent(entry, entry.lastSavedContent, tab)
   }
 
   // ── Large File Warning ────────────────────────────────────────────────
 
   function dismissLargeFileWarning() {
-    largeFileWarning = false;
+    largeFileWarning = false
   }
 
   // ── Lifecycle ─────────────────────────────────────────────────────────
 
   onMount(() => {
     // The main $effect handles initial creation
-  });
+  })
 
   onDestroy(() => {
-    if (debounceTimer) clearTimeout(debounceTimer);
-    if (composingRetryTimer) clearTimeout(composingRetryTimer);
+    if (debounceTimer) clearTimeout(debounceTimer)
+    if (composingRetryTimer) clearTimeout(composingRetryTimer)
 
     // Sync all pool entries' content to workspace tabs before destroying
     for (const [id, entry] of pool) {
-      const tab = workspace.tabs[id];
+      const tab = workspace.tabs[id]
       if (tab && tab.kind === 'document') {
-        tab.content = getFullContentForEntry(entry);
+        tab.content = getFullContentForEntry(entry)
       }
     }
 
     // Destroy all pooled TipTap editors
     for (const [, entry] of pool) {
-      entry.editor.destroy();
-      entry.container.remove();
+      entry.editor.destroy()
+      entry.container.remove()
     }
-    pool.clear();
-    serializedPool.clear();
-    accessOrder.length = 0;
+    pool.clear()
+    serializedPool.clear()
+    accessOrder.length = 0
 
-    isDirty.set(false);
-    wordCount.set(0);
-    tokenCount.set(0);
+    isDirty.set(false)
+    wordCount.set(0)
+    tokenCount.set(0)
 
-    unsubCollection();
-    unsubSchema();
-    unsubSave();
-    unsubDiscard();
-    unsubEditorMode();
-  });
+    unsubCollection()
+    unsubSchema()
+    unsubSave()
+    unsubDiscard()
+    unsubEditorMode()
+  })
 
   // ── Drag-and-drop (internal tree + external OS) ──────────────────────
 
   const ASSET_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico'])
-  const ASSET_EXTS = new Set([...ASSET_IMAGE_EXTS, 'pdf', 'mp4', 'webm', 'mov', 'mp3', 'wav', 'ogg'])
+  const ASSET_EXTS = new Set([
+    ...ASSET_IMAGE_EXTS,
+    'pdf',
+    'mp4',
+    'webm',
+    'mov',
+    'mp3',
+    'wav',
+    'ogg'
+  ])
 
   function getRelativePath(fromFile: string, toFile: string): string {
     const fromParts = fromFile.split('/')
@@ -650,7 +676,11 @@
 
     // Find common prefix length
     let common = 0
-    while (common < fromParts.length && common < toParts.length && fromParts[common] === toParts[common]) {
+    while (
+      common < fromParts.length &&
+      common < toParts.length &&
+      fromParts[common] === toParts[common]
+    ) {
       common++
     }
 
@@ -671,7 +701,7 @@
     e.preventDefault()
     if (!e.dataTransfer) return
 
-    const currentEditor = currentEntry?.editor
+    const currentEditor = activeEditor
     if (!currentEditor) return
 
     const currentFile = activeDocTab?.filePath
@@ -779,7 +809,7 @@
 
     e.preventDefault()
 
-    const currentEditor = currentEntry?.editor
+    const currentEditor = activeEditor
     if (!currentEditor) return
     const currentFile = activeDocTab?.filePath
     if (!currentFile) return
@@ -824,9 +854,16 @@
         <span class="material-symbols-outlined warning-icon">warning</span>
         <div class="warning-content">
           <p class="warning-title">Large file detected</p>
-          <p class="warning-message">This file is larger than 1MB. WYSIWYG mode is unavailable — switched to Source mode for better performance.</p>
+          <p class="warning-message">
+            This file is larger than 1MB. WYSIWYG mode is unavailable — switched to Source mode for
+            better performance.
+          </p>
         </div>
-        <button class="warning-dismiss" onclick={dismissLargeFileWarning} aria-label="Dismiss warning">
+        <button
+          class="warning-dismiss"
+          onclick={dismissLargeFileWarning}
+          aria-label="Dismiss warning"
+        >
           <span class="material-symbols-outlined">close</span>
         </button>
       </div>
@@ -853,7 +890,11 @@
       <BubbleMenu editor={activeEditor} />
     {/if}
     {#if linkModalOpen && activeEditor}
-      <LinkModal editor={activeEditor} initialQuery={linkModalInitialQuery} onclose={closeLinkModal} />
+      <LinkModal
+        editor={activeEditor}
+        initialQuery={linkModalInitialQuery}
+        onclose={closeLinkModal}
+      />
     {/if}
     {#if contextMenuOpen && activeEditor}
       <EditorContextMenu
@@ -887,7 +928,7 @@
     overflow-y: auto;
     position: relative;
     scrollbar-width: thin;
-    scrollbar-color: var(--overlay-active, rgba(255, 255, 255, 0.10)) transparent;
+    scrollbar-color: var(--overlay-active, rgba(255, 255, 255, 0.1)) transparent;
   }
 
   .wysiwyg-scroll::-webkit-scrollbar {
@@ -897,11 +938,11 @@
     background: transparent;
   }
   .wysiwyg-scroll::-webkit-scrollbar-thumb {
-    background: var(--overlay-active, rgba(255, 255, 255, 0.10));
+    background: var(--overlay-active, rgba(255, 255, 255, 0.1));
     border-radius: 3px;
   }
   .wysiwyg-scroll::-webkit-scrollbar-thumb:hover {
-    background: var(--overlay-active, rgba(255, 255, 255, 0.20));
+    background: var(--overlay-active, rgba(255, 255, 255, 0.2));
   }
 
   .wysiwyg-content {

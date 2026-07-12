@@ -8,13 +8,11 @@
     ingestModalOpen,
     ingestPreviewResult,
     ingestPreviewLoading,
-    ingestState,
     closeIngestModal,
     cancelIngest,
-    rebuildIndex,
+    rebuildIndex
   } from '../stores/ingest'
   import type { IngestResult, IngestPreview } from '../types/cli'
-  import type { IngestState } from '../stores/ingest'
 
   let currentRunning = $state(false)
   let currentIsReindex = $state(false)
@@ -24,7 +22,6 @@
   let currentOpen = $state(false)
   let currentPreview: IngestPreview | null = $state(null)
   let currentPreviewLoading = $state(false)
-  let currentState: IngestState = $state('idle')
 
   ingestRunning.subscribe((v) => (currentRunning = v))
   ingestIsReindex.subscribe((v) => (currentIsReindex = v))
@@ -34,11 +31,8 @@
   ingestModalOpen.subscribe((v) => (currentOpen = v))
   ingestPreviewResult.subscribe((v) => (currentPreview = v))
   ingestPreviewLoading.subscribe((v) => (currentPreviewLoading = v))
-  ingestState.subscribe((v) => (currentState = v))
 
-  let hasErrors = $derived(
-    currentResult !== null && currentResult.errors.length > 0
-  )
+  let hasErrors = $derived(currentResult !== null && currentResult.errors.length > 0)
 
   let isCorrupted = $derived(
     currentError !== null && currentError.toLowerCase().includes('index corrupted')
@@ -73,10 +67,14 @@
 
   function statusBadgeClass(status: string): string {
     switch (status) {
-      case 'New': return 'badge-new'
-      case 'Changed': return 'badge-changed'
-      case 'Unchanged': return 'badge-unchanged'
-      default: return ''
+      case 'New':
+        return 'badge-new'
+      case 'Changed':
+        return 'badge-changed'
+      case 'Unchanged':
+        return 'badge-unchanged'
+      default:
+        return ''
     }
   }
 </script>
@@ -88,7 +86,6 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="modal-backdrop" onclick={handleBackdropClick}>
     <div class="modal-content" role="dialog" aria-modal="true" aria-label="Ingest Results">
-
       {#if currentPreviewLoading}
         <div class="modal-header">
           <span class="material-symbols-outlined modal-icon spinning">sync</span>
@@ -100,7 +97,6 @@
             <div class="progress-bar-indeterminate"></div>
           </div>
         </div>
-
       {:else if currentPreview && !currentRunning && !currentResult && !currentError}
         <div class="modal-header">
           <span class="material-symbols-outlined modal-icon preview-icon">preview</span>
@@ -149,7 +145,11 @@
                   {#each currentPreview.files as file}
                     <tr>
                       <td class="file-path-cell" title={file.path}>{file.path}</td>
-                      <td><span class="status-badge {statusBadgeClass(file.status)}">{file.status}</span></td>
+                      <td
+                        ><span class="status-badge {statusBadgeClass(file.status)}"
+                          >{file.status}</span
+                        ></td
+                      >
                       <td class="num-cell">{file.chunks}</td>
                       <td class="num-cell">{file.estimated_tokens.toLocaleString()}</td>
                     </tr>
@@ -162,7 +162,6 @@
         <div class="modal-footer">
           <button class="modal-btn modal-btn-primary" onclick={closeIngestModal}>Close</button>
         </div>
-
       {:else if currentRunning}
         <div class="modal-header">
           <span class="material-symbols-outlined modal-icon spinning">sync</span>
@@ -181,20 +180,21 @@
         <div class="modal-footer">
           <button class="modal-btn modal-btn-cancel" onclick={handleCancel}>Cancel</button>
         </div>
-
       {:else if currentError && isCorrupted}
         <div class="modal-header">
           <span class="material-symbols-outlined modal-icon warning-icon">warning</span>
           <h2 class="modal-title">Index Corrupted</h2>
         </div>
         <div class="modal-body">
-          <p class="corrupted-description">The index file is incompatible or corrupted. This can happen after an update. Rebuilding will delete the old index and re-ingest all files.</p>
+          <p class="corrupted-description">
+            The index file is incompatible or corrupted. This can happen after an update. Rebuilding
+            will delete the old index and re-ingest all files.
+          </p>
         </div>
         <div class="modal-footer">
           <button class="modal-btn modal-btn-cancel" onclick={closeIngestModal}>Cancel</button>
           <button class="modal-btn modal-btn-rebuild" onclick={handleRebuild}>Rebuild Index</button>
         </div>
-
       {:else if currentError}
         <div class="modal-header">
           <span class="material-symbols-outlined modal-icon error-icon">error</span>
@@ -204,13 +204,16 @@
           <div class="error-box">
             <p class="error-message">{currentError}</p>
           </div>
-          <p class="rebuild-hint">If the issue persists, try deleting the index and re-indexing from scratch.</p>
+          <p class="rebuild-hint">
+            If the issue persists, try deleting the index and re-indexing from scratch.
+          </p>
         </div>
         <div class="modal-footer">
           <button class="modal-btn modal-btn-cancel" onclick={closeIngestModal}>Close</button>
-          <button class="modal-btn modal-btn-rebuild" onclick={handleRebuild}>Delete Index & Rebuild</button>
+          <button class="modal-btn modal-btn-rebuild" onclick={handleRebuild}
+            >Delete Index & Rebuild</button
+          >
         </div>
-
       {:else if currentResult}
         <div class="modal-header">
           <span
@@ -280,7 +283,6 @@
           <button class="modal-btn modal-btn-primary" onclick={closeIngestModal}>Done</button>
         </div>
       {/if}
-
     </div>
   </div>
 {/if}
@@ -322,10 +324,18 @@
     font-size: 28px;
   }
 
-  .success-icon { color: #22c55e; }
-  .warning-icon { color: #eab308; }
-  .error-icon { color: #ef4444; }
-  .preview-icon { color: var(--color-primary, #00E5FF); }
+  .success-icon {
+    color: #22c55e;
+  }
+  .warning-icon {
+    color: #eab308;
+  }
+  .error-icon {
+    color: #ef4444;
+  }
+  .preview-icon {
+    color: var(--color-primary, #00e5ff);
+  }
 
   .modal-title {
     font-size: 16px;
@@ -346,7 +356,7 @@
 
   .elapsed {
     font-family: 'JetBrains Mono', monospace;
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
   }
 
   .modal-hint {
@@ -365,14 +375,18 @@
   .progress-bar-indeterminate {
     height: 100%;
     width: 40%;
-    background: var(--color-primary, #00E5FF);
+    background: var(--color-primary, #00e5ff);
     border-radius: 2px;
     animation: indeterminate 1.5s ease-in-out infinite;
   }
 
   @keyframes indeterminate {
-    0% { transform: translateX(-100%); }
-    100% { transform: translateX(350%); }
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(350%);
+    }
   }
 
   .spinning {
@@ -380,8 +394,12 @@
   }
 
   @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   .stats-grid {
@@ -398,7 +416,9 @@
     border-bottom: 1px solid rgba(39, 39, 42, 0.5);
   }
 
-  .stat-row:last-child { border-bottom: none; }
+  .stat-row:last-child {
+    border-bottom: none;
+  }
 
   .stat-label {
     font-size: 12px;
@@ -412,8 +432,12 @@
     font-weight: 500;
   }
 
-  .stat-row-error { border-bottom-color: rgba(239, 68, 68, 0.2); }
-  .stat-value-error { color: #ef4444; }
+  .stat-row-error {
+    border-bottom-color: rgba(239, 68, 68, 0.2);
+  }
+  .stat-value-error {
+    color: #ef4444;
+  }
 
   .errors-section {
     margin-top: 16px;
@@ -497,12 +521,12 @@
   }
 
   .modal-btn-primary {
-    background: var(--color-primary, #00E5FF);
+    background: var(--color-primary, #00e5ff);
     color: var(--color-surface-dark, #0a0a0a);
   }
 
   .modal-btn-primary:hover {
-    background: var(--color-primary-dark, #00B8CC);
+    background: var(--color-primary-dark, #00b8cc);
   }
 
   .modal-btn-cancel {

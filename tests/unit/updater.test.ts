@@ -139,7 +139,12 @@ describe('AppUpdater', () => {
       const updater = new AppUpdater()
 
       // Simulate downloading state via download-progress event
-      mockAutoUpdater.emit('download-progress', { percent: 50, bytesPerSecond: 1000, transferred: 500, total: 1000 })
+      mockAutoUpdater.emit('download-progress', {
+        percent: 50,
+        bytesPerSecond: 1000,
+        transferred: 500,
+        total: 1000
+      })
       expect(updater.getState()).toBe('downloading')
 
       await updater.checkForUpdates()
@@ -167,8 +172,14 @@ describe('AppUpdater', () => {
       mockAutoUpdater.emit('update-available', { version: '2.0.0', releaseNotes: 'New stuff' })
 
       expect(updater.getState()).toBe('available')
-      expect(mockBroadcast).toHaveBeenCalledWith('updater:event', { type: 'available', data: { state: 'available' } })
-      expect(mockBroadcast).toHaveBeenCalledWith('updater:event', { type: 'available', data: { version: '2.0.0', releaseNotes: 'New stuff' } })
+      expect(mockBroadcast).toHaveBeenCalledWith('updater:event', {
+        type: 'available',
+        data: { state: 'available' }
+      })
+      expect(mockBroadcast).toHaveBeenCalledWith('updater:event', {
+        type: 'available',
+        data: { version: '2.0.0', releaseNotes: 'New stuff' }
+      })
     })
 
     it('forwards update-not-available', () => {
@@ -181,7 +192,10 @@ describe('AppUpdater', () => {
       mockAutoUpdater.emit('update-not-available', { version: '1.0.0' })
 
       expect(updater.getState()).toBe('not-available')
-      expect(mockBroadcast).toHaveBeenCalledWith('updater:event', { type: 'not-available', data: {} })
+      expect(mockBroadcast).toHaveBeenCalledWith('updater:event', {
+        type: 'not-available',
+        data: {}
+      })
     })
 
     it('forwards download-progress', () => {
@@ -191,7 +205,12 @@ describe('AppUpdater', () => {
       const updater = new AppUpdater()
       updater.setWindowManager(mockWm as never)
 
-      mockAutoUpdater.emit('download-progress', { percent: 42, bytesPerSecond: 1024, transferred: 420, total: 1000 })
+      mockAutoUpdater.emit('download-progress', {
+        percent: 42,
+        bytesPerSecond: 1024,
+        transferred: 420,
+        total: 1000
+      })
 
       expect(updater.getState()).toBe('downloading')
       expect(mockBroadcast).toHaveBeenCalledWith('updater:event', {
@@ -210,7 +229,10 @@ describe('AppUpdater', () => {
       mockAutoUpdater.emit('update-downloaded', { version: '2.0.0' })
 
       expect(updater.getState()).toBe('downloaded')
-      expect(mockBroadcast).toHaveBeenCalledWith('updater:event', { type: 'downloaded', data: { version: '2.0.0' } })
+      expect(mockBroadcast).toHaveBeenCalledWith('updater:event', {
+        type: 'downloaded',
+        data: { version: '2.0.0' }
+      })
     })
 
     it('forwards error events', () => {
@@ -223,7 +245,10 @@ describe('AppUpdater', () => {
       mockAutoUpdater.emit('error', new Error('Update failed'))
 
       expect(updater.getState()).toBe('error')
-      expect(mockBroadcast).toHaveBeenCalledWith('updater:event', { type: 'error', data: { error: 'Update failed' } })
+      expect(mockBroadcast).toHaveBeenCalledWith('updater:event', {
+        type: 'error',
+        data: { error: 'Update failed' }
+      })
     })
 
     it('does not send when no windowManager set', () => {
@@ -248,7 +273,8 @@ describe('AppUpdater', () => {
       expect(updater.getState()).toBe('not-available')
       // Should not have sent an 'available' type event (only state-changed to not-available)
       const availableCalls = mockBroadcast.mock.calls.filter(
-        (c: unknown[]) => c[0] === 'updater:event' && (c[1] as { type: string }).type === 'available'
+        (c: unknown[]) =>
+          c[0] === 'updater:event' && (c[1] as { type: string }).type === 'available'
       )
       expect(availableCalls).toHaveLength(0)
     })

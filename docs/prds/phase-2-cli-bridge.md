@@ -101,6 +101,7 @@ interface MdvdbApi {
 **TypeScript types file: `app/src/renderer/types/cli.ts`**
 
 All interfaces derived from the Rust `Serialize` structs. Reference:
+
 - `src/main.rs` — command argument structs and output wrappers
 - `src/lib.rs` — public re-exports and `MarkdownVdb` methods
 - `src/search.rs` — `SearchResult`, `SearchResultChunk`, `SearchResultFile`, `SearchMode`
@@ -111,6 +112,7 @@ All interfaces derived from the Rust `Serialize` structs. Reference:
 - `src/clustering.rs` — `ClusterInfo`
 
 Key types to define:
+
 ```typescript
 interface SearchOutput {
   results: SearchResult[]

@@ -66,9 +66,7 @@ test.describe('App Launch', () => {
     // CLI indicator should show either "mdvdb v..." (found) or "CLI not found"
     const cliText = await cliIndicator.textContent()
     expect(cliText).toBeTruthy()
-    expect(
-      cliText!.includes('mdvdb') || cliText!.includes('CLI not found')
-    ).toBe(true)
+    expect(cliText!.includes('mdvdb') || cliText!.includes('CLI not found')).toBe(true)
 
     // Should have the status dot
     const cliDot = window.locator('.cli-dot')

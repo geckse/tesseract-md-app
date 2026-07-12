@@ -141,8 +141,8 @@
     await navigator.clipboard.write([
       new ClipboardItem({
         'text/html': new Blob([html], { type: 'text/html' }),
-        'text/plain': new Blob([html], { type: 'text/plain' }),
-      }),
+        'text/plain': new Blob([html], { type: 'text/plain' })
+      })
     ])
     copyFeedback = 'Copied!'
     copyDropdownOpen = false
@@ -184,8 +184,8 @@
     await navigator.clipboard.write([
       new ClipboardItem({
         'text/html': new Blob([html], { type: 'text/html' }),
-        'text/plain': new Blob([tsv], { type: 'text/plain' }),
-      }),
+        'text/plain': new Blob([tsv], { type: 'text/plain' })
+      })
     ])
     copyFeedback = 'Copied!'
     copyDropdownOpen = false
@@ -194,12 +194,7 @@
 </script>
 
 {#if tableEl}
-  <div
-    class="table-toolbar"
-    bind:this={toolbarEl}
-    role="toolbar"
-    aria-label="Table options"
-  >
+  <div class="table-toolbar" bind:this={toolbarEl} role="toolbar" aria-label="Table options">
     <button
       class="toolbar-btn"
       onclick={run('addRowAfter')}
@@ -258,7 +253,10 @@
       </button>
       <button
         class="toolbar-btn copy-chevron"
-        onclick={(e) => { e.stopPropagation(); copyDropdownOpen = !copyDropdownOpen; }}
+        onclick={(e) => {
+          e.stopPropagation()
+          copyDropdownOpen = !copyDropdownOpen
+        }}
         aria-haspopup="true"
         aria-expanded={copyDropdownOpen}
         title="Copy options"
@@ -268,15 +266,36 @@
       </button>
       {#if copyDropdownOpen}
         <div class="copy-dropdown" role="menu">
-          <button class="copy-dropdown-item" role="menuitem" onmousedown={(e) => { e.preventDefault(); copyAsMarkdown(); }}>
+          <button
+            class="copy-dropdown-item"
+            role="menuitem"
+            onmousedown={(e) => {
+              e.preventDefault()
+              copyAsMarkdown()
+            }}
+          >
             <span class="material-symbols-outlined item-icon">markdown</span>
             Copy as Markdown
           </button>
-          <button class="copy-dropdown-item" role="menuitem" onmousedown={(e) => { e.preventDefault(); copyAsHtml(); }}>
+          <button
+            class="copy-dropdown-item"
+            role="menuitem"
+            onmousedown={(e) => {
+              e.preventDefault()
+              copyAsHtml()
+            }}
+          >
             <span class="material-symbols-outlined item-icon">code</span>
             Copy as HTML
           </button>
-          <button class="copy-dropdown-item" role="menuitem" onmousedown={(e) => { e.preventDefault(); copyForSpreadsheet(); }}>
+          <button
+            class="copy-dropdown-item"
+            role="menuitem"
+            onmousedown={(e) => {
+              e.preventDefault()
+              copyForSpreadsheet()
+            }}
+          >
             <span class="material-symbols-outlined item-icon">table_chart</span>
             Copy for Excel
           </button>
@@ -315,8 +334,9 @@
     background: transparent;
     color: var(--color-text, #e4e4e7);
     cursor: pointer;
-    transition: background-color var(--transition-fast, 150ms ease),
-                color var(--transition-fast, 150ms ease);
+    transition:
+      background-color var(--transition-fast, 150ms ease),
+      color var(--transition-fast, 150ms ease);
   }
 
   .toolbar-btn :global(.material-symbols-outlined) {
@@ -329,7 +349,7 @@
 
   .toolbar-btn.active {
     background: var(--color-primary-dim, rgba(0, 229, 255, 0.1));
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
   }
 
   .toolbar-btn.destructive:hover {
@@ -338,7 +358,7 @@
   }
 
   .toolbar-btn:focus-visible {
-    outline: 2px solid var(--color-primary, #00E5FF);
+    outline: 2px solid var(--color-primary, #00e5ff);
     outline-offset: 1px;
   }
 

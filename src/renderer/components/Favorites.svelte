@@ -19,9 +19,7 @@
 
   // Filter out favorites from collections that no longer exist
   const validFavorites = $derived(
-    currentFavorites.filter((fav) =>
-      currentCollections.some((col) => col.id === fav.collectionId)
-    )
+    currentFavorites.filter((fav) => currentCollections.some((col) => col.id === fav.collectionId))
   )
 
   // Helper to get collection name by ID
@@ -58,10 +56,7 @@
 
     <nav class="nav-list">
       {#each validFavorites as favorite (favorite.collectionId + ':' + favorite.filePath)}
-        <button
-          class="nav-item favorite-item"
-          onclick={() => handleFavoriteClick(favorite)}
-        >
+        <button class="nav-item favorite-item" onclick={() => handleFavoriteClick(favorite)}>
           <span class="material-symbols-outlined nav-icon">description</span>
           <div class="favorite-info">
             <span class="nav-label">{getFileName(favorite.filePath)}</span>
@@ -134,7 +129,7 @@
   }
 
   .nav-item:hover .nav-icon {
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
   }
 
   .nav-icon {

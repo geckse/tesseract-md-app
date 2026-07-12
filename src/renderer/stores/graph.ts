@@ -1,6 +1,12 @@
 import { writable, derived, get } from 'svelte/store'
 import type { Writable } from 'svelte/store'
-import type { GraphData, GraphLevel, GraphNode, NeighborhoodResult, NeighborhoodNode } from '../types/cli'
+import type {
+  GraphData,
+  GraphLevel,
+  GraphNode,
+  NeighborhoodResult,
+  NeighborhoodNode
+} from '../types/cli'
 import { activeCollection } from './collections'
 import { workspace, saveDefaultGraphColoringMode } from './workspace.svelte'
 import type { GraphTab, GraphColoringMode } from './workspace.svelte'
@@ -79,7 +85,7 @@ export const graphLevel: Writable<GraphLevel> = {
       graphTab.graphLevel = newValue
     }
     _graphSync.update((n) => n + 1)
-  },
+  }
 }
 
 // ─── graphColoringMode: derived from focused pane's graph tab ───────
@@ -111,7 +117,7 @@ export const graphColoringMode: Writable<GraphColoringMode> = {
     }
     saveDefaultGraphColoringMode(newValue)
     _graphSync.update((n) => n + 1)
-  },
+  }
 }
 
 // ─── graphPathFilter: derived from focused pane's graph tab ─────────
@@ -139,7 +145,7 @@ export const graphPathFilter: Writable<string | null> = {
       graphTab.graphPathFilter = newValue
     }
     _graphSync.update((n) => n + 1)
-  },
+  }
 }
 
 // ─── Shared transient state (not per-tab) ───────────────────────────
@@ -279,9 +285,7 @@ export function toggleGraphView(): void {
     // Switch away from the graph tab — activate the first document tab, or null
     const pane = workspace.focusedPane
     if (pane) {
-      const docTabId = pane.tabOrder.find(
-        (id) => workspace.tabs[id]?.kind === 'document'
-      )
+      const docTabId = pane.tabOrder.find((id) => workspace.tabs[id]?.kind === 'document')
       if (docTabId) {
         workspace.switchTab(docTabId, pane.id)
       } else {
@@ -383,23 +387,40 @@ export function toggleSemanticEdges(): void {
 }
 
 /** Open graph view with neighborhood data converted to GraphData. */
-export function openGraphWithNeighborhood(filePath: string, neighborhood: NeighborhoodResult): void {
+export function openGraphWithNeighborhood(
+  filePath: string,
+  neighborhood: NeighborhoodResult
+): void {
   const nodes = new Map<string, GraphNode>()
   const edges: GraphData['edges'] = []
 
   // Add center node
-  nodes.set(filePath, { id: filePath, path: filePath, label: null, cluster_id: null, custom_cluster_id: null, chunk_index: null })
+  nodes.set(filePath, {
+    id: filePath,
+    path: filePath,
+    label: null,
+    cluster_id: null,
+    custom_cluster_id: null,
+    chunk_index: null
+  })
 
   // Walk neighborhood tree and collect nodes + edges
   function walk(items: NeighborhoodNode[], parentPath: string, direction: 'out' | 'in'): void {
     for (const item of items) {
       if (!nodes.has(item.path)) {
-        nodes.set(item.path, { id: item.path, path: item.path, label: null, cluster_id: null, custom_cluster_id: null, chunk_index: null })
+        nodes.set(item.path, {
+          id: item.path,
+          path: item.path,
+          label: null,
+          cluster_id: null,
+          custom_cluster_id: null,
+          chunk_index: null
+        })
       }
       const src = direction === 'out' ? parentPath : item.path
       const tgt = direction === 'out' ? item.path : parentPath
       // Avoid duplicate edges
-      if (!edges.some(e => e.source === src && e.target === tgt)) {
+      if (!edges.some((e) => e.source === src && e.target === tgt)) {
         edges.push({ source: src, target: tgt, weight: null })
       }
       walk(item.children, item.path, direction)
@@ -413,14 +434,21 @@ export function openGraphWithNeighborhood(filePath: string, neighborhood: Neighb
     nodes: [...nodes.values()],
     edges,
     clusters: [],
-    level: 'document',
+    level: 'document'
   }
 
   loadGeneration++
   graphLoadMode.set('replace')
   graphDataSource.set('adhoc')
   graphData.set(data)
-  const nodeData: GraphNode = { id: filePath, path: filePath, label: null, cluster_id: null, custom_cluster_id: null, chunk_index: null }
+  const nodeData: GraphNode = {
+    id: filePath,
+    path: filePath,
+    label: null,
+    cluster_id: null,
+    custom_cluster_id: null,
+    chunk_index: null
+  }
   graphSelectedNode.set(nodeData)
   graphOpenedNode.set(nodeData)
 

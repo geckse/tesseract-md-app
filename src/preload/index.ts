@@ -229,7 +229,8 @@ const api: MdvdbApi = {
   getAutoShowDiff: () => invoke('store:get-auto-show-diff'),
   setAutoShowDiff: (value) => invoke('store:set-auto-show-diff', value),
   getWatcherEnabled: (collectionId) => invoke('store:get-watcher-enabled', collectionId),
-  setWatcherEnabled: (collectionId, enabled) => invoke('store:set-watcher-enabled', collectionId, enabled),
+  setWatcherEnabled: (collectionId, enabled) =>
+    invoke('store:set-watcher-enabled', collectionId, enabled),
 
   // Zoom
   getZoomLevel: () => invoke('store:get-zoom-level'),

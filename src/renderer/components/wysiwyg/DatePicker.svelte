@@ -20,12 +20,39 @@
   const todayDay = today.getDate()
 
   // Parse initial value
+  // svelte-ignore state_referenced_locally
   const parsed = value ? new Date(value + 'T00:00:00') : null
   let viewYear = $state(parsed && !isNaN(parsed.getTime()) ? parsed.getFullYear() : todayYear)
   let viewMonth = $state(parsed && !isNaN(parsed.getTime()) ? parsed.getMonth() : todayMonth)
 
-  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
-  const monthShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  const monthNames = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December'
+  ]
+  const monthShort = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec'
+  ]
   const dayNames = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
 
   interface CalendarDay {
@@ -68,7 +95,9 @@
     return years
   })
 
-  function pad(n: number): string { return n.toString().padStart(2, '0') }
+  function pad(n: number): string {
+    return n.toString().padStart(2, '0')
+  }
 
   function isSelected(cell: CalendarDay): boolean {
     if (!value) return false
@@ -84,13 +113,17 @@
   }
 
   function prevMonth() {
-    if (viewMonth === 0) { viewMonth = 11; viewYear-- }
-    else viewMonth--
+    if (viewMonth === 0) {
+      viewMonth = 11
+      viewYear--
+    } else viewMonth--
   }
 
   function nextMonth() {
-    if (viewMonth === 11) { viewMonth = 0; viewYear++ }
-    else viewMonth++
+    if (viewMonth === 11) {
+      viewMonth = 0
+      viewYear++
+    } else viewMonth++
   }
 
   function selectMonth(m: number) {
@@ -104,7 +137,11 @@
   }
 
   function handleKeyDown(e: KeyboardEvent) {
-    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onClose() }
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      e.stopPropagation()
+      onClose()
+    }
   }
 
   function positionPopover() {
@@ -113,7 +150,10 @@
       placement: 'bottom-start',
       middleware: [offset(4), flip(), shift({ padding: 8 })]
     }).then(({ x, y }) => {
-      if (menuEl) { menuEl.style.left = `${x}px`; menuEl.style.top = `${y}px` }
+      if (menuEl) {
+        menuEl.style.left = `${x}px`
+        menuEl.style.top = `${y}px`
+      }
     })
   }
 
@@ -126,7 +166,10 @@
     document.removeEventListener('keydown', handleKeyDown, true)
   })
 
-  $effect(() => { void anchorEl; positionPopover() })
+  $effect(() => {
+    void anchorEl
+    positionPopover()
+  })
 </script>
 
 <div class="dp" bind:this={menuEl} role="dialog" aria-label="Date picker">
@@ -136,7 +179,8 @@
         <span class="material-symbols-outlined">chevron_left</span>
       </button>
       <button class="dp-title" onclick={() => (viewMode = 'months')}>
-        {monthNames[viewMonth]} {viewYear}
+        {monthNames[viewMonth]}
+        {viewYear}
       </button>
       <button class="dp-nav" onclick={nextMonth} aria-label="Next month">
         <span class="material-symbols-outlined">chevron_right</span>
@@ -154,7 +198,10 @@
           class:outside={!cell.isCurrentMonth}
           class:selected={isSelected(cell)}
           class:today={isToday(cell)}
-          onmousedown={(e) => { e.preventDefault(); selectDay(cell) }}
+          onmousedown={(e) => {
+            e.preventDefault()
+            selectDay(cell)
+          }}
         >
           {cell.day}
         </button>
@@ -177,7 +224,10 @@
         <button
           class="dp-month"
           class:selected={viewMonth === i && viewYear === (parsed?.getFullYear() ?? -1)}
-          onmousedown={(e) => { e.preventDefault(); selectMonth(i) }}
+          onmousedown={(e) => {
+            e.preventDefault()
+            selectMonth(i)
+          }}
         >
           {m}
         </button>
@@ -200,7 +250,10 @@
         <button
           class="dp-month"
           class:selected={y === viewYear}
-          onmousedown={(e) => { e.preventDefault(); selectYear(y) }}
+          onmousedown={(e) => {
+            e.preventDefault()
+            selectYear(y)
+          }}
         >
           {y}
         </button>
@@ -238,8 +291,12 @@
     align-items: center;
     transition: color 150ms ease;
   }
-  .dp-nav:hover { color: var(--color-text, #e4e4e7); }
-  .dp-nav .material-symbols-outlined { font-size: 18px; }
+  .dp-nav:hover {
+    color: var(--color-text, #e4e4e7);
+  }
+  .dp-nav .material-symbols-outlined {
+    font-size: 18px;
+  }
   .dp-title {
     background: none;
     border: none;
@@ -252,7 +309,9 @@
     border-radius: 4px;
     transition: background 150ms ease;
   }
-  .dp-title:hover { background: var(--color-border, #27272a); }
+  .dp-title:hover {
+    background: var(--color-border, #27272a);
+  }
   .dp-weekdays {
     display: grid;
     grid-template-columns: repeat(7, 1fr);
@@ -283,10 +342,15 @@
     cursor: pointer;
     transition: background 150ms ease;
   }
-  .dp-day:hover { background: var(--color-border, #27272a); }
-  .dp-day.outside { color: var(--color-text-dim, #71717a); opacity: 0.4; }
+  .dp-day:hover {
+    background: var(--color-border, #27272a);
+  }
+  .dp-day.outside {
+    color: var(--color-text-dim, #71717a);
+    opacity: 0.4;
+  }
   .dp-day.selected {
-    background: var(--color-primary, #00E5FF);
+    background: var(--color-primary, #00e5ff);
     color: var(--color-surface-dark, #0a0a0a);
     font-weight: 600;
   }
@@ -309,13 +373,20 @@
     cursor: pointer;
     transition: background 150ms ease;
   }
-  .dp-month:hover { background: var(--color-border, #27272a); }
+  .dp-month:hover {
+    background: var(--color-border, #27272a);
+  }
   .dp-month.selected {
-    background: var(--color-primary, #00E5FF);
+    background: var(--color-primary, #00e5ff);
     color: var(--color-surface-dark, #0a0a0a);
     font-weight: 600;
   }
   @media (prefers-reduced-motion: reduce) {
-    .dp-nav, .dp-title, .dp-day, .dp-month { transition: none; }
+    .dp-nav,
+    .dp-title,
+    .dp-day,
+    .dp-month {
+      transition: none;
+    }
   }
 </style>

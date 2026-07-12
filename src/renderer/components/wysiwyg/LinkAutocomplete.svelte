@@ -1,58 +1,62 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
-  import { computePosition, flip, shift, offset } from '@floating-ui/dom';
-  import type { LinkSuggestionItem } from '../../lib/tiptap/link-autocomplete-extension';
-  import { linkAutocompleteState as state } from '../../lib/tiptap/link-autocomplete-state.svelte';
-  import type { SearchResultFile } from '../../types/cli';
+  import { onMount, onDestroy } from 'svelte'
+  import { computePosition, flip, shift, offset } from '@floating-ui/dom'
+  import type { LinkSuggestionItem } from '../../lib/tiptap/link-autocomplete-extension'
+  import { linkAutocompleteState as acState } from '../../lib/tiptap/link-autocomplete-state.svelte'
+  import type { SearchResultFile } from '../../types/cli'
 
-  let menuEl: HTMLDivElement | undefined = $state(undefined);
-  let selectedIndex = $state(0);
-  let items: LinkSuggestionItem[] = $state([]);
-  let loading = $state(false);
-  let headingMode = $state(false);
-  let selectedFile = $state('');
-  let allHeadings: LinkSuggestionItem[] = [];
-  let resultSource: 'recent' | 'search' | 'heading' = $state('recent');
+  let menuEl: HTMLDivElement | undefined = $state(undefined)
+  let selectedIndex = $state(0)
+  let items: LinkSuggestionItem[] = $state([])
+  let loading = $state(false)
+  let headingMode = $state(false)
+  let selectedFile = $state('')
+  let allHeadings: LinkSuggestionItem[] = []
+  let resultSource: 'recent' | 'search' | 'heading' = $state('recent')
 
-  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  let searchGeneration = 0;
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null
+  let searchGeneration = 0
 
   /**
    * Extract a human-readable title from a file's metadata.
    */
   function extractTitle(file: SearchResultFile): string {
-    if (file.frontmatter && typeof file.frontmatter === 'object' && !Array.isArray(file.frontmatter)) {
-      const title = (file.frontmatter as Record<string, unknown>).title;
-      if (typeof title === 'string' && title.trim()) return title.trim();
+    if (
+      file.frontmatter &&
+      typeof file.frontmatter === 'object' &&
+      !Array.isArray(file.frontmatter)
+    ) {
+      const title = (file.frontmatter as Record<string, unknown>).title
+      if (typeof title === 'string' && title.trim()) return title.trim()
     }
-    const filename = file.path.split('/').pop() ?? file.path;
-    return filename.replace(/\.md$/i, '').replace(/[-_]/g, ' ');
+    const filename = file.path.split('/').pop() ?? file.path
+    return filename.replace(/\.md$/i, '').replace(/[-_]/g, ' ')
   }
 
   /**
    * Extract a friendly name from a file path (for recents where we don't have frontmatter).
    */
   function fileNameToTitle(filePath: string): string {
-    const filename = filePath.split('/').pop() ?? filePath;
-    return filename.replace(/\.md$/i, '').replace(/[-_]/g, ' ');
+    const filename = filePath.split('/').pop() ?? filePath
+    return filename.replace(/\.md$/i, '').replace(/[-_]/g, ' ')
   }
 
   function handleKeyDown(event: Event) {
-    const e = event as KeyboardEvent;
+    const e = event as KeyboardEvent
     if (e.key === 'ArrowDown') {
-      e.preventDefault();
+      e.preventDefault()
       if (items.length > 0) {
-        selectedIndex = (selectedIndex + 1) % items.length;
+        selectedIndex = (selectedIndex + 1) % items.length
       }
     } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
+      e.preventDefault()
       if (items.length > 0) {
-        selectedIndex = (selectedIndex - 1 + items.length) % items.length;
+        selectedIndex = (selectedIndex - 1 + items.length) % items.length
       }
     } else if (e.key === 'Enter' || e.key === 'Tab') {
-      e.preventDefault();
+      e.preventDefault()
       if (items[selectedIndex]) {
-        selectItem(selectedIndex);
+        selectItem(selectedIndex)
       }
     }
   }
@@ -62,89 +66,87 @@
   }
 
   function positionMenu() {
-    if (!menuEl || !state.clientRect) return;
-    const rect = state.clientRect();
-    if (!rect) return;
+    if (!menuEl || !acState.clientRect) return
+    const rect = acState.clientRect()
+    if (!rect) return
 
     const virtualEl = {
-      getBoundingClientRect: () => rect,
-    };
+      getBoundingClientRect: () => rect
+    }
 
     computePosition(virtualEl as Element, menuEl, {
       placement: 'bottom-start',
-      middleware: [offset(8), flip(), shift({ padding: 8 })],
+      middleware: [offset(8), flip(), shift({ padding: 8 })]
     }).then(({ x, y }) => {
       if (menuEl) {
-        menuEl.style.left = `${x}px`;
-        menuEl.style.top = `${y}px`;
+        menuEl.style.left = `${x}px`
+        menuEl.style.top = `${y}px`
       }
-    });
+    })
   }
 
   /**
    * Load recently opened files as default suggestions.
    */
   async function loadRecentFiles(): Promise<void> {
-    if (!state.collectionPath) {
-      items = [];
-      return;
+    if (!acState.collectionPath) {
+      items = []
+      return
     }
 
-    const generation = ++searchGeneration;
-    loading = true;
+    const generation = ++searchGeneration
+    loading = true
 
     try {
-      const recents = await window.api.listRecents();
+      const recents = await window.api.listRecents()
 
-      if (generation !== searchGeneration) return;
+      if (generation !== searchGeneration) return
 
       // Filter to current collection
-      const filtered = recents
-        .filter((r) => r.collectionId === state.collectionId)
-        .slice(0, 8);
+      const filtered = recents.filter((r) => r.collectionId === acState.collectionId).slice(0, 8)
 
       if (filtered.length > 0) {
         items = filtered.map((r) => ({
           path: r.filePath,
           label: fileNameToTitle(r.filePath),
-          subtitle: r.filePath,
-        }));
-        resultSource = 'recent';
+          subtitle: r.filePath
+        }))
+        resultSource = 'recent'
       } else {
         // Fallback: show files from the tree
         try {
-          const tree = await window.api.tree(state.collectionPath);
-          if (generation !== searchGeneration) return;
+          const tree = await window.api.tree(acState.collectionPath)
+          if (generation !== searchGeneration) return
 
-          const flatFiles: LinkSuggestionItem[] = [];
+          const flatFiles: LinkSuggestionItem[] = []
           function flatten(node: typeof tree.root) {
             if (!node.is_dir && node.path) {
               flatFiles.push({
                 path: node.path,
                 label: fileNameToTitle(node.path),
-                subtitle: node.path,
-              });
+                subtitle: node.path
+              })
             }
             if (node.children) {
               for (const child of node.children) {
-                if (flatFiles.length >= 10) return;
-                flatten(child);
+                if (flatFiles.length >= 10) return
+                flatten(child)
               }
             }
           }
-          flatten(tree.root);
-          items = flatFiles;
-          resultSource = 'recent';
+          flatten(tree.root)
+          items = flatFiles
+          resultSource = 'recent'
         } catch {
-          items = [];
+          items = []
         }
       }
     } catch {
-      if (generation !== searchGeneration) return;
-      items = [];
+      if (generation !== searchGeneration) return
+      items = []
     } finally {
       if (generation === searchGeneration) {
-        loading = false;
+        loading = false
       }
     }
   }
@@ -153,189 +155,187 @@
    * Search files via CLI with hybrid mode (falls back to lexical).
    */
   async function searchFiles(searchQuery: string): Promise<void> {
-    if (!state.collectionPath || searchQuery.length < 1) {
-      items = [];
-      loading = false;
-      return;
+    if (!acState.collectionPath || searchQuery.length < 1) {
+      items = []
+      loading = false
+      return
     }
 
-    const generation = ++searchGeneration;
-    loading = true;
+    const generation = ++searchGeneration
+    loading = true
 
     try {
-      let result;
+      let result
       try {
-        result = await window.api.search(state.collectionPath, searchQuery, {
+        result = await window.api.search(acState.collectionPath, searchQuery, {
           mode: 'hybrid',
-          limit: 10,
-        });
+          limit: 10
+        })
       } catch {
         // Fallback: hybrid requires embeddings; lexical always works
-        result = await window.api.search(state.collectionPath, searchQuery, {
+        result = await window.api.search(acState.collectionPath, searchQuery, {
           mode: 'lexical',
-          limit: 10,
-        });
+          limit: 10
+        })
       }
 
       // Ignore stale results
-      if (generation !== searchGeneration) return;
+      if (generation !== searchGeneration) return
 
       // Deduplicate by file path
-      const seen = new Set<string>();
-      const deduped: LinkSuggestionItem[] = [];
+      const seen = new Set<string>()
+      const deduped: LinkSuggestionItem[] = []
       for (const r of result.results) {
         if (!seen.has(r.file.path)) {
-          seen.add(r.file.path);
+          seen.add(r.file.path)
           deduped.push({
             path: r.file.path,
             label: extractTitle(r.file),
-            subtitle: r.file.path,
-          });
+            subtitle: r.file.path
+          })
         }
       }
 
-      items = deduped;
-      resultSource = 'search';
+      items = deduped
+      resultSource = 'search'
     } catch {
-      if (generation !== searchGeneration) return;
-      items = [];
+      if (generation !== searchGeneration) return
+      items = []
     } finally {
       if (generation === searchGeneration) {
-        loading = false;
+        loading = false
       }
     }
   }
 
   function parseHeadingsFromContent(content: string): string[] {
-    const headings: string[] = [];
-    const lines = content.split('\n');
+    const headings: string[] = []
+    const lines = content.split('\n')
     for (const line of lines) {
-      const match = line.match(/^#{1,6}\s+(.+)/);
+      const match = line.match(/^#{1,6}\s+(.+)/)
       if (match) {
-        headings.push(match[1].trim());
+        headings.push(match[1].trim())
       }
     }
-    return headings;
+    return headings
   }
 
   async function switchToHeadingMode(filePath: string): Promise<void> {
-    selectedFile = filePath;
-    headingMode = true;
-    loading = true;
-    selectedIndex = 0;
-    resultSource = 'heading';
+    selectedFile = filePath
+    headingMode = true
+    loading = true
+    selectedIndex = 0
+    resultSource = 'heading'
 
     try {
-      const fullPath = state.collectionPath + '/' + filePath;
-      const content = await window.api.readFile(fullPath);
-      const headings = parseHeadingsFromContent(content);
+      const fullPath = acState.collectionPath + '/' + filePath
+      const content = await window.api.readFile(fullPath)
+      const headings = parseHeadingsFromContent(content)
 
       allHeadings = headings.map((h) => ({
         path: filePath,
         anchor: h,
-        label: `# ${h}`,
-      }));
-      items = allHeadings;
+        label: `# ${h}`
+      }))
+      items = allHeadings
     } catch {
-      items = [];
+      items = []
     } finally {
-      loading = false;
+      loading = false
     }
   }
 
   function selectItem(index: number) {
-    const item = items[index];
-    if (!item || !state.command) return;
-    state.command(item);
+    const item = items[index]
+    if (!item || !acState.command) return
+    acState.command(item)
   }
 
   onMount(() => {
-    positionMenu();
-    const parent = menuEl?.parentElement;
+    positionMenu()
+    const parent = menuEl?.parentElement
     if (parent) {
-      parent.addEventListener('keydown', handleKeyDown);
-      parent.addEventListener('link-dismiss', handleDismiss);
+      parent.addEventListener('keydown', handleKeyDown)
+      parent.addEventListener('link-dismiss', handleDismiss)
     }
-  });
+  })
 
   onDestroy(() => {
     if (debounceTimer !== null) {
-      clearTimeout(debounceTimer);
+      clearTimeout(debounceTimer)
     }
-    searchGeneration++;
-    const parent = menuEl?.parentElement;
+    searchGeneration++
+    const parent = menuEl?.parentElement
     if (parent) {
-      parent.removeEventListener('keydown', handleKeyDown);
-      parent.removeEventListener('link-dismiss', handleDismiss);
+      parent.removeEventListener('keydown', handleKeyDown)
+      parent.removeEventListener('link-dismiss', handleDismiss)
     }
-  });
+  })
 
   // Re-position when clientRect changes
   $effect(() => {
-    void state.clientRect;
-    positionMenu();
-  });
+    void acState.clientRect
+    positionMenu()
+  })
 
   // Scroll selected item into view
   $effect(() => {
-    void selectedIndex;
-    const el = menuEl?.querySelector('.link-item.selected');
-    el?.scrollIntoView({ block: 'nearest' });
-  });
+    void selectedIndex
+    const el = menuEl?.querySelector('.link-item.selected')
+    el?.scrollIntoView({ block: 'nearest' })
+  })
 
   // React to query changes with debounced search
   $effect(() => {
-    const q = state.query;
+    const q = acState.query
 
     if (debounceTimer !== null) {
-      clearTimeout(debounceTimer);
-      debounceTimer = null;
+      clearTimeout(debounceTimer)
+      debounceTimer = null
     }
 
     // Check if '#' is in the query — switch to heading browsing
-    const hashIndex = q.indexOf('#');
+    const hashIndex = q.indexOf('#')
     if (hashIndex > 0 && !headingMode) {
-      const filePart = q.slice(0, hashIndex).toLowerCase().replace(/\.md$/i, '');
+      const filePart = q.slice(0, hashIndex).toLowerCase().replace(/\.md$/i, '')
       const match = items.find((i) => {
-        const normalized = i.path.toLowerCase().replace(/\.md$/i, '');
-        const nameOnly = normalized.split('/').pop() ?? '';
-        return normalized === filePart ||
-               nameOnly === filePart ||
-               normalized.endsWith('/' + filePart);
-      });
+        const normalized = i.path.toLowerCase().replace(/\.md$/i, '')
+        const nameOnly = normalized.split('/').pop() ?? ''
+        return (
+          normalized === filePart || nameOnly === filePart || normalized.endsWith('/' + filePart)
+        )
+      })
       if (match) {
-        switchToHeadingMode(match.path);
-        return;
+        switchToHeadingMode(match.path)
+        return
       }
     }
 
     if (headingMode) {
       // Filter headings by text after #
-      const headingQuery = q.slice(q.indexOf('#') + 1).toLowerCase();
+      const headingQuery = q.slice(q.indexOf('#') + 1).toLowerCase()
       if (headingQuery) {
-        items = allHeadings.filter((i) =>
-          i.label.toLowerCase().includes(headingQuery)
-        );
+        items = allHeadings.filter((i) => i.label.toLowerCase().includes(headingQuery))
       } else {
-        items = allHeadings;
+        items = allHeadings
       }
-      selectedIndex = 0;
-      return;
+      selectedIndex = 0
+      return
     }
 
     // Empty query: show recent files
     if (q.length < 1) {
-      loadRecentFiles();
-      return;
+      loadRecentFiles()
+      return
     }
 
-    loading = true;
-    selectedIndex = 0;
+    loading = true
+    selectedIndex = 0
     debounceTimer = setTimeout(() => {
-      debounceTimer = null;
-      searchFiles(q);
-    }, 150);
-  });
+      debounceTimer = null
+      searchFiles(q)
+    }, 150)
+  })
 </script>
 
 <div
@@ -350,9 +350,9 @@
   {#if loading}
     <div class="link-empty">Searching...</div>
   {:else if items.length === 0}
-    <div class="link-empty">{state.query.length < 1 ? 'No recent files' : 'No results'}</div>
+    <div class="link-empty">{acState.query.length < 1 ? 'No recent files' : 'No results'}</div>
   {:else}
-    {#if resultSource === 'recent' && state.query.length < 1}
+    {#if resultSource === 'recent' && acState.query.length < 1}
       <div class="link-section-header">Recent</div>
     {:else if resultSource === 'heading'}
       <div class="link-section-header">Headings in {fileNameToTitle(selectedFile)}</div>
@@ -364,7 +364,9 @@
         role="option"
         aria-selected={index === selectedIndex}
         onclick={() => selectItem(index)}
-        onmouseenter={() => { selectedIndex = index; }}
+        onmouseenter={() => {
+          selectedIndex = index
+        }}
       >
         <span class="link-icon material-symbols-outlined">
           {headingMode ? 'tag' : 'description'}

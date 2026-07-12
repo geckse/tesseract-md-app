@@ -23,11 +23,8 @@ export function convexHull(points: [number, number][]): [number, number][] {
   const sorted = points.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1])
 
   // Cross product of vectors OA and OB where O is origin
-  const cross = (
-    o: [number, number],
-    a: [number, number],
-    b: [number, number]
-  ): number => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+  const cross = (o: [number, number], a: [number, number], b: [number, number]): number =>
+    (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
 
   // Build lower hull
   const lower: [number, number][] = []
@@ -102,7 +99,7 @@ export function centroid(points: [number, number][]): { x: number; y: number } {
 
   return {
     x: sumX / points.length,
-    y: sumY / points.length,
+    y: sumY / points.length
   }
 }
 

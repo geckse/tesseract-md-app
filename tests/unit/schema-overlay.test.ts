@@ -85,16 +85,16 @@ describe('upsertOverlayField', () => {
   })
 
   it('rejects field types the CLI does not accept', async () => {
-    await expect(
-      upsertOverlayField(root, 'docs', 'a', { fieldType: 'url' })
-    ).rejects.toThrow(/Invalid overlay field_type/)
+    await expect(upsertOverlayField(root, 'docs', 'a', { fieldType: 'url' })).rejects.toThrow(
+      /Invalid overlay field_type/
+    )
   })
 
   it('refuses to clobber a malformed overlay', async () => {
     await writeFile(join(root, OVERLAY_FILENAME), 'not: [valid: yaml: !!', 'utf-8')
-    await expect(
-      upsertOverlayField(root, 'docs', 'a', { fieldType: 'string' })
-    ).rejects.toThrow(MalformedOverlayError)
+    await expect(upsertOverlayField(root, 'docs', 'a', { fieldType: 'string' })).rejects.toThrow(
+      MalformedOverlayError
+    )
     // Untouched on disk.
     expect(await readOverlay()).toBe('not: [valid: yaml: !!')
   })

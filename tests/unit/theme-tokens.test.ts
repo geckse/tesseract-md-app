@@ -1,9 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import {
-  DARK_TOKENS,
-  LIGHT_TOKENS,
-  TOKEN_KEYS,
-} from '../../src/renderer/lib/theme-tokens'
+import { DARK_TOKENS, LIGHT_TOKENS, TOKEN_KEYS } from '../../src/renderer/lib/theme-tokens'
 
 describe('DARK_TOKENS', () => {
   it('has all required token keys', () => {

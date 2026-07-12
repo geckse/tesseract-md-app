@@ -39,8 +39,8 @@ Previous phases focused on functionality. This phase addresses the experience ga
 interface AppStore {
   // ... existing fields ...
   windowBounds: { x: number; y: number; width: number; height: number }
-  sidebarWidth: number           // Default 256, resizable
-  metadataPanelWidth: number     // Default 288, resizable
+  sidebarWidth: number // Default 256, resizable
+  metadataPanelWidth: number // Default 288, resizable
 }
 ```
 
@@ -52,37 +52,38 @@ No new IPC channels. This phase modifies existing components and adds new UI uti
 
 **Animations:**
 
-| Transition | Duration | Easing | Trigger |
-|---|---|---|---|
-| Sidebar collapse/expand | 200ms | ease-out | Toggle sidebar |
-| Metadata panel slide | 200ms | ease-out | Toggle panel |
-| File tree node expand | 150ms | ease-out | Click directory |
-| Search results appear | 150ms | fade-in | Results load |
-| Tab/panel switch | 100ms | ease-in-out | Content change |
-| Status indicator pulse | 2s | infinite | Watcher active |
-| Hover states | 150ms | ease | Mouse enter/leave |
-| Focus ring | 100ms | ease | Focus change |
-| Toast notifications | 300ms slide-in, 200ms fade-out | ease-out | Events |
+| Transition              | Duration                       | Easing      | Trigger           |
+| ----------------------- | ------------------------------ | ----------- | ----------------- |
+| Sidebar collapse/expand | 200ms                          | ease-out    | Toggle sidebar    |
+| Metadata panel slide    | 200ms                          | ease-out    | Toggle panel      |
+| File tree node expand   | 150ms                          | ease-out    | Click directory   |
+| Search results appear   | 150ms                          | fade-in     | Results load      |
+| Tab/panel switch        | 100ms                          | ease-in-out | Content change    |
+| Status indicator pulse  | 2s                             | infinite    | Watcher active    |
+| Hover states            | 150ms                          | ease        | Mouse enter/leave |
+| Focus ring              | 100ms                          | ease        | Focus change      |
+| Toast notifications     | 300ms slide-in, 200ms fade-out | ease-out    | Events            |
 
 **Keyboard shortcuts:**
 
-| Shortcut | Action |
-|---|---|
-| `Cmd+K` | Open search (existing, Phase 6) |
-| `Cmd+S` | Save file (existing, Phase 5) |
-| `Cmd+P` | Quick file open (fuzzy finder) |
-| `Cmd+B` | Toggle sidebar |
-| `Cmd+Shift+B` | Toggle metadata panel |
-| `Cmd+1..9` | Switch to collection 1-9 |
-| `Cmd+W` | Close current file (deselect) |
-| `Cmd+,` | Open settings |
-| `Escape` | Close modal/search/popover, deselect |
-| `Arrow Up/Down` | Navigate file tree (when sidebar focused) |
-| `Enter` | Open selected tree node / expand directory |
-| `Arrow Left/Right` | Collapse/expand directory in tree |
+| Shortcut            | Action                                                               |
+| ------------------- | -------------------------------------------------------------------- |
+| `Cmd+K`             | Open search (existing, Phase 6)                                      |
+| `Cmd+S`             | Save file (existing, Phase 5)                                        |
+| `Cmd+P`             | Quick file open (fuzzy finder)                                       |
+| `Cmd+B`             | Toggle sidebar                                                       |
+| `Cmd+Shift+B`       | Toggle metadata panel                                                |
+| `Cmd+1..9`          | Switch to collection 1-9                                             |
+| `Cmd+W`             | Close current file (deselect)                                        |
+| `Cmd+,`             | Open settings                                                        |
+| `Escape`            | Close modal/search/popover, deselect                                 |
+| `Arrow Up/Down`     | Navigate file tree (when sidebar focused)                            |
+| `Enter`             | Open selected tree node / expand directory                           |
+| `Arrow Left/Right`  | Collapse/expand directory in tree                                    |
 | `Tab` / `Shift+Tab` | Move focus between major regions (sidebar → editor → metadata panel) |
 
 **Quick file open (`Cmd+P`):**
+
 - Modal overlay similar to VS Code's quick open
 - Text input with fuzzy matching on file paths
 - Results list: file path with matched characters highlighted
@@ -90,6 +91,7 @@ No new IPC channels. This phase modifies existing components and adds new UI uti
 - Searches across all files in the active collection (uses `fileTree` store data, no CLI call)
 
 **Accessibility:**
+
 - All interactive elements: `role`, `aria-label`, `aria-expanded` (for collapsibles), `aria-selected` (for lists)
 - Focus ring: `ring-2 ring-primary ring-offset-2 ring-offset-background-dark` (visible focus indicator)
 - `aria-live="polite"` regions for: search result count changes, watcher events, ingest progress
@@ -98,6 +100,7 @@ No new IPC channels. This phase modifies existing components and adds new UI uti
 - Skip link: hidden "Skip to main content" link that becomes visible on Tab focus
 
 **Performance optimizations:**
+
 - **File tree virtualization**: For collections with 500+ visible nodes, use a virtual list that only renders nodes within the viewport. Libraries: `svelte-virtual-list` or custom implementation with `IntersectionObserver`.
 - **Editor document cache**: Keep the last 5 file contents in a Map. When switching files, check cache first. Avoids re-reading from disk and re-initializing CodeMirror.
 - **Search result virtual list**: If >20 results, virtualize the results panel.
@@ -106,6 +109,7 @@ No new IPC channels. This phase modifies existing components and adds new UI uti
 - **Tree diff updates**: When refreshing the file tree, diff against the previous tree and only update changed nodes. Avoids full re-render.
 
 **Edge case handling:**
+
 - **Large files (>1MB)**: Warn the user before loading. Disable live frontmatter/outline parsing (too slow). Fall back to basic CodeMirror without decorations.
 - **CLI timeout**: Show "The operation is taking longer than expected" with a cancel button.
 - **CLI not found after installation**: Re-detect CLI and show a clear error message in the status bar.
@@ -114,12 +118,14 @@ No new IPC channels. This phase modifies existing components and adds new UI uti
 - **Network errors during ingest**: Show the error from the CLI (e.g., "Failed to connect to OpenAI API") with a "Retry" button.
 
 **Resizable panels:**
+
 - Sidebar: drag handle on right edge (cursor: `col-resize`)
 - Metadata panel: drag handle on left edge
 - Min/max widths: sidebar 180-400px, metadata panel 200-500px
 - Panel widths persisted in electron-store
 
 **Window management:**
+
 - Save window bounds (x, y, width, height) on move/resize (debounced 500ms)
 - Restore on app launch
 - Minimum window size: 900x600

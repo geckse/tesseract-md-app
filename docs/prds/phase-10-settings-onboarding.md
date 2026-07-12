@@ -36,10 +36,10 @@ End users downloading the desktop app may not have the `mdvdb` CLI installed. Th
 ```typescript
 interface AppStore {
   // ... existing fields ...
-  cliPath: string | null              // Detected or installed CLI path
-  cliVersion: string | null           // Cached CLI version
-  onboardingComplete: boolean         // Whether first-run wizard was completed
-  editorFontSize: number              // User preference (default 17)
+  cliPath: string | null // Detected or installed CLI path
+  cliVersion: string | null // Cached CLI version
+  onboardingComplete: boolean // Whether first-run wizard was completed
+  editorFontSize: number // User preference (default 17)
 }
 ```
 
@@ -69,6 +69,7 @@ getInstallPath(): string    // /usr/local/bin (macOS/Linux), %LOCALAPPDATA%\mdvd
 ```
 
 **New IPC channels:**
+
 - `'cli:detect'` → detect CLI on PATH
 - `'cli:install'` → download and install CLI (with progress callback)
 - `'cli:check-update'` → check if newer version available
@@ -78,6 +79,7 @@ getInstallPath(): string    // /usr/local/bin (macOS/Linux), %LOCALAPPDATA%\mdvd
 - `'settings:set-collection-config'` → write to `.markdownvdb/.config`
 
 **Updated preload `window.api`:**
+
 ```typescript
 interface MdvdbApi {
   // ... existing methods ...
@@ -176,14 +178,15 @@ Step 3: First Collection
 
 **Keyboard shortcuts modal:**
 
-| Shortcut | Action |
-|---|---|
-| `Cmd+K` | Search |
-| `Cmd+S` | Save file |
-| `Cmd+B` | Toggle sidebar |
+| Shortcut      | Action                |
+| ------------- | --------------------- |
+| `Cmd+K`       | Search                |
+| `Cmd+S`       | Save file             |
+| `Cmd+B`       | Toggle sidebar        |
 | `Cmd+Shift+B` | Toggle metadata panel |
 
 **Settings scope:**
+
 - **User-level settings** (written to `~/.mdvdb/config`): API key, embedding provider/model/dimensions, search defaults. These apply to all collections that don't override them.
 - **Collection settings** (written to `.markdownvdb/.config`): per-collection overrides. Shown with "(collection override)" label.
 - **App settings** (written to electron-store): editor font size, window bounds. Not mdvdb config — app-specific only.

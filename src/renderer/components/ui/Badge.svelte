@@ -1,15 +1,12 @@
 <script lang="ts">
-  import type { Snippet } from 'svelte';
+  import type { Snippet } from 'svelte'
 
   interface BadgeProps {
-    variant?: 'default' | 'success' | 'warning' | 'info' | 'primary';
-    children: Snippet;
+    variant?: 'default' | 'success' | 'warning' | 'info' | 'primary'
+    children: Snippet
   }
 
-  let {
-    variant = 'default',
-    children,
-  }: BadgeProps = $props();
+  let { variant = 'default', children }: BadgeProps = $props()
 </script>
 
 <span class="badge badge-{variant}">
@@ -58,7 +55,7 @@
 
   .badge-primary {
     background: var(--color-primary-dim, rgba(0, 229, 255, 0.1));
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
     border: 1px solid var(--color-primary-glow, rgba(0, 229, 255, 0.2));
   }
 </style>

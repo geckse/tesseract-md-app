@@ -75,7 +75,7 @@ export function getTerminalTheme(): XtermTheme {
       brightBlue: '#218bff',
       brightMagenta: '#a475f9',
       brightCyan: '#3192aa',
-      brightWhite: foreground,
+      brightWhite: foreground
     }
   }
 
@@ -101,6 +101,6 @@ export function getTerminalTheme(): XtermTheme {
     brightBlue: '#93c5fd',
     brightMagenta: '#d8b4fe',
     brightCyan: '#67e8f9',
-    brightWhite: '#ffffff',
+    brightWhite: '#ffffff'
   }
 }

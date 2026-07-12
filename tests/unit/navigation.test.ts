@@ -8,7 +8,7 @@ import {
   goForward,
   setNavigating,
   clearNavigation,
-  syncNavigationStoresFromTab,
+  syncNavigationStoresFromTab
 } from '@renderer/stores/navigation'
 import { workspace } from '@renderer/stores/workspace.svelte'
 

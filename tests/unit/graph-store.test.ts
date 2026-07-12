@@ -10,12 +10,12 @@ const mockApi = {
   removeCollection: vi.fn(),
   setActiveCollection: vi.fn(),
   status: vi.fn(),
-  graphData: vi.fn(),
+  graphData: vi.fn()
 }
 
 Object.defineProperty(globalThis, 'window', {
   value: { api: mockApi },
-  writable: true,
+  writable: true
 })
 
 import {
@@ -40,7 +40,7 @@ import {
   toggleEdgeClusterFilter,
   clearEdgeFilter,
   toggleSemanticEdges,
-  syncGraphStoresFromTab,
+  syncGraphStoresFromTab
 } from '../../src/renderer/stores/graph'
 
 import { workspace } from '../../src/renderer/stores/workspace.svelte'
@@ -68,7 +68,13 @@ function resetStores() {
   syncGraphStoresFromTab()
 }
 
-function activateCollection(col: { id: string; name: string; path: string; addedAt: number; lastOpenedAt: number }) {
+function activateCollection(col: {
+  id: string
+  name: string
+  path: string
+  addedAt: number
+  lastOpenedAt: number
+}) {
   collections.set([col])
   activeCollectionId.set(col.id)
 }
@@ -78,10 +84,10 @@ const collection = { id: 'col1', name: 'Test', path: '/test', addedAt: 1, lastOp
 const sampleGraphData = {
   nodes: [
     { path: 'a.md', cluster_id: 0 },
-    { path: 'b.md', cluster_id: 1 },
+    { path: 'b.md', cluster_id: 1 }
   ],
   edges: [{ source: 'a.md', target: 'b.md' }],
-  clusters: [{ id: 0, label: 'Cluster 0', keywords: ['test'] }],
+  clusters: [{ id: 0, label: 'Cluster 0', keywords: ['test'] }]
 }
 
 /**
@@ -137,11 +143,11 @@ describe('graph store', () => {
       activateCollection(collection)
 
       let resolveFirst: (v: unknown) => void
-      const firstPromise = new Promise((r) => { resolveFirst = r })
+      const firstPromise = new Promise((r) => {
+        resolveFirst = r
+      })
 
-      mockApi.graphData
-        .mockReturnValueOnce(firstPromise)
-        .mockResolvedValueOnce(sampleGraphData)
+      mockApi.graphData.mockReturnValueOnce(firstPromise).mockResolvedValueOnce(sampleGraphData)
 
       // Start first load
       const firstLoad = loadGraphData()

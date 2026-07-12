@@ -7,7 +7,17 @@
   import PopoverMenu, { type PopoverMenuItem } from '../ui/PopoverMenu.svelte'
   import PropertySettingsPopover from '../PropertySettingsPopover.svelte'
 
-  export type DetectedType = 'text' | 'number' | 'boolean' | 'date' | 'datetime' | 'url' | 'email' | 'select' | 'tags' | 'complex'
+  export type DetectedType =
+    | 'text'
+    | 'number'
+    | 'boolean'
+    | 'date'
+    | 'datetime'
+    | 'url'
+    | 'email'
+    | 'select'
+    | 'tags'
+    | 'complex'
 
   interface Props {
     rowKey: string
@@ -76,7 +86,7 @@
     email: 'mail',
     select: 'arrow_drop_down_circle',
     tags: 'sell',
-    complex: 'data_object',
+    complex: 'data_object'
   }
 
   let showDatePicker = $state(false)
@@ -125,7 +135,10 @@
   }
 
   function handleTagKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter') { e.preventDefault(); addTag(newTagInput) }
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      addTag(newTagInput)
+    }
   }
 
   function getStatusColor(v: string): string | null {
@@ -150,10 +163,14 @@
       aria-haspopup="listbox"
       aria-expanded={showTypePicker}
     >
-      <span class="material-symbols-outlined pr-type-icon">{fieldType === 'boolean' ? booleanIcon : typeIcons[fieldType]}</span>
+      <span class="material-symbols-outlined pr-type-icon"
+        >{fieldType === 'boolean' ? booleanIcon : typeIcons[fieldType]}</span
+      >
     </button>
   {:else}
-    <span class="material-symbols-outlined pr-type-icon">{fieldType === 'boolean' ? booleanIcon : typeIcons[fieldType]}</span>
+    <span class="material-symbols-outlined pr-type-icon"
+      >{fieldType === 'boolean' ? booleanIcon : typeIcons[fieldType]}</span
+    >
   {/if}
 
   <div class="pr-key-cell">
@@ -181,7 +198,6 @@
       >
         <span class="pr-toggle-knob"></span>
       </button>
-
     {:else if fieldType === 'number'}
       <input
         class="pr-val"
@@ -190,7 +206,6 @@
         aria-label="{rowKey} value"
         oninput={(e) => onValueChange(Number((e.target as HTMLInputElement).value))}
       />
-
     {:else if fieldType === 'date'}
       <div class="pr-date-wrap">
         <input
@@ -214,11 +229,13 @@
         <DatePicker
           value={String(value ?? '')}
           anchorEl={dateAnchor}
-          onSelect={(d) => { onValueChange(d); showDatePicker = false }}
+          onSelect={(d) => {
+            onValueChange(d)
+            showDatePicker = false
+          }}
           onClose={() => (showDatePicker = false)}
         />
       {/if}
-
     {:else if fieldType === 'datetime'}
       <div class="pr-date-wrap">
         <input
@@ -242,11 +259,13 @@
         <DateTimePicker
           value={String(value ?? '')}
           anchorEl={dateAnchor}
-          onSelect={(dt) => { onValueChange(dt); showDateTimePicker = false }}
+          onSelect={(dt) => {
+            onValueChange(dt)
+            showDateTimePicker = false
+          }}
           onClose={() => (showDateTimePicker = false)}
         />
       {/if}
-
     {:else if fieldType === 'url'}
       <div class="pr-date-wrap">
         <input
@@ -258,12 +277,15 @@
           oninput={(e) => onValueChange((e.target as HTMLInputElement).value)}
         />
         {#if typeof value === 'string' && value.startsWith('http')}
-          <button class="pr-icon-btn" onclick={() => window.api.openPath(String(value))} aria-label="Open URL">
+          <button
+            class="pr-icon-btn"
+            onclick={() => window.api.openPath(String(value))}
+            aria-label="Open URL"
+          >
             <span class="material-symbols-outlined">open_in_new</span>
           </button>
         {/if}
       </div>
-
     {:else if fieldType === 'email'}
       <div class="pr-date-wrap">
         <input
@@ -275,12 +297,15 @@
           oninput={(e) => onValueChange((e.target as HTMLInputElement).value)}
         />
         {#if typeof value === 'string' && value.includes('@')}
-          <button class="pr-icon-btn" onclick={() => window.api.openPath(`mailto:${value}`)} aria-label="Send email">
+          <button
+            class="pr-icon-btn"
+            onclick={() => window.api.openPath(`mailto:${value}`)}
+            aria-label="Send email"
+          >
             <span class="material-symbols-outlined">mail</span>
           </button>
         {/if}
       </div>
-
     {:else if fieldType === 'select'}
       {@const allowedValues = schemaField?.allowed_values ?? []}
       {@const currentVal = String(value ?? '')}
@@ -296,13 +321,14 @@
           <option value={opt} selected={opt === currentVal}>{opt}</option>
         {/each}
       </select>
-
     {:else if fieldType === 'tags'}
       <div class="pr-tags">
-        {#each (Array.isArray(value) ? value : []) as tag, i}
+        {#each Array.isArray(value) ? value : [] as tag, i}
           <span class="pr-tag">
             {String(tag)}
-            <button class="pr-tag-remove" onclick={() => removeTag(i)} aria-label="Remove tag">&times;</button>
+            <button class="pr-tag-remove" onclick={() => removeTag(i)} aria-label="Remove tag"
+              >&times;</button
+            >
           </span>
         {/each}
         <input
@@ -315,12 +341,22 @@
           oninput={(e) => {
             const val = (e.target as HTMLInputElement).value
             tagAcFilter = val
-            if (!showTagAc) { showTagAc = true; tagAcAnchor = e.target as HTMLElement }
+            if (!showTagAc) {
+              showTagAc = true
+              tagAcAnchor = e.target as HTMLElement
+            }
           }}
-          onfocus={(e) => { showTagAc = true; tagAcAnchor = e.target as HTMLElement; tagAcFilter = newTagInput }}
+          onfocus={(e) => {
+            showTagAc = true
+            tagAcAnchor = e.target as HTMLElement
+            tagAcFilter = newTagInput
+          }}
           onblur={(e: FocusEvent) => {
             const related = e.relatedTarget as HTMLElement | null
-            if (!related?.closest?.('.autocomplete-dropdown')) { showTagAc = false; addTag(newTagInput) }
+            if (!related?.closest?.('.autocomplete-dropdown')) {
+              showTagAc = false
+              addTag(newTagInput)
+            }
           }}
         />
       </div>
@@ -329,23 +365,28 @@
         {#if tagSuggestions.length > 0}
           <AutocompleteDropdown
             suggestions={tagSuggestions}
-            onSelect={(s) => { addTag(s); showTagAc = false }}
+            onSelect={(s) => {
+              addTag(s)
+              showTagAc = false
+            }}
             anchorEl={tagAcAnchor}
             onDismiss={() => (showTagAc = false)}
           />
         {/if}
       {/if}
-
     {:else if fieldType === 'complex'}
       <textarea
         class="pr-val pr-textarea"
         value={JSON.stringify(value, null, 2)}
         aria-label="{rowKey} value"
         oninput={(e) => {
-          try { onValueChange(JSON.parse((e.target as HTMLTextAreaElement).value)) } catch { /* keep raw */ }
+          try {
+            onValueChange(JSON.parse((e.target as HTMLTextAreaElement).value))
+          } catch {
+            /* keep raw */
+          }
         }}
       ></textarea>
-
     {:else}
       {@const statusColor = typeof value === 'string' ? getStatusColor(value) : null}
       <input
@@ -362,7 +403,11 @@
           valueAcFilter = val
           if (!showValueAc) showValueAc = true
         }}
-        onfocus={(e) => { showValueAc = true; valueAcAnchor = e.target as HTMLElement; valueAcFilter = String(value ?? '') }}
+        onfocus={(e) => {
+          showValueAc = true
+          valueAcAnchor = e.target as HTMLElement
+          valueAcFilter = String(value ?? '')
+        }}
         onblur={(e: FocusEvent) => {
           const related = e.relatedTarget as HTMLElement | null
           if (!related?.closest?.('.autocomplete-dropdown')) showValueAc = false
@@ -373,7 +418,10 @@
         {#if samples.length > 0}
           <AutocompleteDropdown
             suggestions={samples}
-            onSelect={(s) => { onValueChange(s); showValueAc = false }}
+            onSelect={(s) => {
+              onValueChange(s)
+              showValueAc = false
+            }}
             anchorEl={valueAcAnchor}
             onDismiss={() => (showValueAc = false)}
           />
@@ -443,7 +491,9 @@
     transition: background 150ms ease;
     position: relative;
   }
-  .pr:hover { background: var(--overlay-hover, rgba(255, 255, 255, 0.03)); }
+  .pr:hover {
+    background: var(--overlay-hover, rgba(255, 255, 255, 0.03));
+  }
 
   .pr-type-icon {
     font-size: 16px;
@@ -453,7 +503,9 @@
     text-align: center;
     transition: color 150ms ease;
   }
-  .pr:hover .pr-type-icon { color: var(--color-primary, #00E5FF); }
+  .pr:hover .pr-type-icon {
+    color: var(--color-primary, #00e5ff);
+  }
 
   .pr-type-btn {
     background: none;
@@ -468,22 +520,41 @@
     flex-shrink: 0;
     transition: background 150ms ease;
   }
-  .pr-type-btn:hover { background: var(--overlay-hover, rgba(255, 255, 255, 0.06)); }
+  .pr-type-btn:hover {
+    background: var(--overlay-hover, rgba(255, 255, 255, 0.06));
+  }
   .pr-type-btn:focus-visible {
-    outline: 1px solid var(--color-primary, #00E5FF);
+    outline: 1px solid var(--color-primary, #00e5ff);
     outline-offset: 1px;
   }
-  .pr-type-btn .pr-type-icon { width: 24px; }
+  .pr-type-btn .pr-type-icon {
+    width: 24px;
+  }
 
   .pr-more {
-    background: none; border: none; color: var(--color-text-dim, #71717a);
-    cursor: pointer; padding: 3px; border-radius: 4px;
-    display: flex; align-items: center; justify-content: center;
-    opacity: 0; transition: all 150ms ease; flex-shrink: 0;
+    background: none;
+    border: none;
+    color: var(--color-text-dim, #71717a);
+    cursor: pointer;
+    padding: 3px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: all 150ms ease;
+    flex-shrink: 0;
   }
-  .pr:hover .pr-more, .pr-more:focus-visible { opacity: 1; }
-  .pr-more:hover { color: var(--color-primary, #00E5FF); }
-  .pr-more .material-symbols-outlined { font-size: 14px; }
+  .pr:hover .pr-more,
+  .pr-more:focus-visible {
+    opacity: 1;
+  }
+  .pr-more:hover {
+    color: var(--color-primary, #00e5ff);
+  }
+  .pr-more .material-symbols-outlined {
+    font-size: 14px;
+  }
 
   .pr-key-cell {
     display: flex;
@@ -493,7 +564,7 @@
     flex-shrink: 0;
   }
   .pr-required {
-    color: var(--color-primary, #00E5FF);
+    color: var(--color-primary, #00e5ff);
     font-size: 12px;
     font-weight: 700;
     line-height: 1;
@@ -511,9 +582,12 @@
     text-transform: uppercase;
     letter-spacing: 0.05em;
     padding: 3px 6px;
-    transition: border-color 150ms ease, color 150ms ease;
+    transition:
+      border-color 150ms ease,
+      color 150ms ease;
   }
-  .pr-key:hover, .pr-key:focus {
+  .pr-key:hover,
+  .pr-key:focus {
     border-color: var(--color-border, #27272a);
     color: var(--color-text, #a1a1aa);
     outline: none;
@@ -539,7 +613,8 @@
     text-align: left;
     transition: border-color 150ms ease;
   }
-  .pr-val:hover, .pr-val:focus {
+  .pr-val:hover,
+  .pr-val:focus {
     border-color: var(--color-border, #27272a);
     outline: none;
   }
@@ -561,7 +636,10 @@
     padding-right: 22px;
     cursor: pointer;
   }
-  .pr-select:hover, .pr-select:focus { border-color: var(--color-border-hover, #3f3f46); }
+  .pr-select:hover,
+  .pr-select:focus {
+    border-color: var(--color-border-hover, #3f3f46);
+  }
 
   .pr-textarea {
     min-height: 60px;
@@ -575,7 +653,9 @@
     gap: 4px;
     width: 100%;
   }
-  .pr-date-wrap .pr-val { flex: 1; }
+  .pr-date-wrap .pr-val {
+    flex: 1;
+  }
 
   .pr-icon-btn {
     background: none;
@@ -589,59 +669,136 @@
     transition: color 150ms ease;
     flex-shrink: 0;
   }
-  .pr-icon-btn:hover { color: var(--color-primary, #00E5FF); }
-  .pr-icon-btn .material-symbols-outlined { font-size: 16px; }
+  .pr-icon-btn:hover {
+    color: var(--color-primary, #00e5ff);
+  }
+  .pr-icon-btn .material-symbols-outlined {
+    font-size: 16px;
+  }
 
   /* Toggle */
   .pr-toggle {
-    width: 32px; height: 18px; border-radius: 9999px; background: var(--color-border, #27272a);
-    border: none; cursor: pointer; position: relative; padding: 0; margin: 2px 0;
+    width: 32px;
+    height: 18px;
+    border-radius: 9999px;
+    background: var(--color-border, #27272a);
+    border: none;
+    cursor: pointer;
+    position: relative;
+    padding: 0;
+    margin: 2px 0;
     transition: background 150ms ease;
   }
-  .pr-toggle-on { background: var(--color-primary, #00E5FF); }
-  .pr-toggle-knob {
-    display: block; width: 14px; height: 14px; border-radius: 50%; background: #ffffff;
-    position: absolute; top: 2px; left: 2px; transition: transform 150ms ease;
+  .pr-toggle-on {
+    background: var(--color-primary, #00e5ff);
   }
-  .pr-toggle-on .pr-toggle-knob { transform: translateX(14px); }
+  .pr-toggle-knob {
+    display: block;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #ffffff;
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    transition: transform 150ms ease;
+  }
+  .pr-toggle-on .pr-toggle-knob {
+    transform: translateX(14px);
+  }
 
   /* Tags */
   .pr-tags {
-    display: flex; flex-wrap: wrap; gap: 4px; align-items: center; justify-content: flex-start; padding: 1px 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 1px 0;
   }
   .pr-tag {
-    display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px;
-    border-radius: 9999px; border: 1px solid var(--color-primary-glow, rgba(0, 229, 255, 0.25));
-    background: transparent; color: var(--color-primary, #00E5FF);
-    font-size: 10px; font-family: var(--font-mono, 'JetBrains Mono'), monospace;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    border: 1px solid var(--color-primary-glow, rgba(0, 229, 255, 0.25));
+    background: transparent;
+    color: var(--color-primary, #00e5ff);
+    font-size: 10px;
+    font-family: var(--font-mono, 'JetBrains Mono'), monospace;
     transition: border-color 150ms ease;
   }
-  .pr-tag:hover { border-color: var(--color-primary-glow, rgba(0, 229, 255, 0.5)); }
+  .pr-tag:hover {
+    border-color: var(--color-primary-glow, rgba(0, 229, 255, 0.5));
+  }
   .pr-tag-remove {
-    background: none; border: none; color: var(--color-primary, #00E5FF);
-    cursor: pointer; padding: 0; font-size: 12px; line-height: 1; opacity: 0.5;
+    background: none;
+    border: none;
+    color: var(--color-primary, #00e5ff);
+    cursor: pointer;
+    padding: 0;
+    font-size: 12px;
+    line-height: 1;
+    opacity: 0.5;
     transition: opacity 150ms ease;
   }
-  .pr-tag-remove:hover { opacity: 1; }
-  .pr-tag-input {
-    background: transparent; border: none; color: var(--color-text, #e4e4e7);
-    font-size: 10px; font-family: var(--font-mono, 'JetBrains Mono'), monospace;
-    padding: 2px 4px; width: 50px; outline: none; text-align: left;
+  .pr-tag-remove:hover {
+    opacity: 1;
   }
-  .pr-tag-input::placeholder { color: var(--color-text-faint, #52525b); }
+  .pr-tag-input {
+    background: transparent;
+    border: none;
+    color: var(--color-text, #e4e4e7);
+    font-size: 10px;
+    font-family: var(--font-mono, 'JetBrains Mono'), monospace;
+    padding: 2px 4px;
+    width: 50px;
+    outline: none;
+    text-align: left;
+  }
+  .pr-tag-input::placeholder {
+    color: var(--color-text-faint, #52525b);
+  }
 
   .pr-remove {
-    background: none; border: none; color: var(--color-text-dim, #71717a);
-    cursor: pointer; padding: 3px; border-radius: 4px;
-    display: flex; align-items: center; justify-content: center;
-    opacity: 0; transition: all 150ms ease; flex-shrink: 0;
+    background: none;
+    border: none;
+    color: var(--color-text-dim, #71717a);
+    cursor: pointer;
+    padding: 3px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: all 150ms ease;
+    flex-shrink: 0;
   }
-  .pr:hover .pr-remove { opacity: 1; }
-  .pr-remove:hover { color: var(--color-error, #ef4444); }
-  .pr-remove .material-symbols-outlined { font-size: 14px; }
+  .pr:hover .pr-remove {
+    opacity: 1;
+  }
+  .pr-remove:hover {
+    color: var(--color-error, #ef4444);
+  }
+  .pr-remove .material-symbols-outlined {
+    font-size: 14px;
+  }
 
   @media (prefers-reduced-motion: reduce) {
-    .pr, .pr-type-icon, .pr-key, .pr-val, .pr-toggle, .pr-toggle-knob,
-    .pr-tag, .pr-tag-remove, .pr-remove, .pr-icon-btn, .pr-type-btn, .pr-more { transition: none; }
+    .pr,
+    .pr-type-icon,
+    .pr-key,
+    .pr-val,
+    .pr-toggle,
+    .pr-toggle-knob,
+    .pr-tag,
+    .pr-tag-remove,
+    .pr-remove,
+    .pr-icon-btn,
+    .pr-type-btn,
+    .pr-more {
+      transition: none;
+    }
   }
 </style>

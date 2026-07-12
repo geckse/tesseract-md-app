@@ -28,7 +28,7 @@ Adopt the Phase 30 CLI contract in the app: custom clusters become **topics** (m
 
 - Rendering the Leiden hierarchy (`parent_id`/`parent_clusters`) — types tolerate the fields; a grouped legend is a pure-frontend follow-up.
 - Writing YAML from Node — the CLI bridge remains the only config writer (single source of validation and merge semantics).
-- Migrating the *other* Settings keys (embedding, chunking, search) off the dead dotenv path — same bug, separate follow-up; this phase migrates only topics, granularity, and the new clustering keys it touches.
+- Migrating the _other_ Settings keys (embedding, chunking, search) off the dead dotenv path — same bug, separate follow-up; this phase migrates only topics, granularity, and the new clustering keys it touches.
 - Multi-color/halo rendering for multi-label nodes — primary-topic coloring + legend highlight is the whole affordance.
 - Drag-and-drop assignment, per-topic custom colors (harmonic palette auto-assigns), user-level topics (per-collection only).
 
@@ -66,14 +66,14 @@ Auto-cluster ids are now **stable but non-contiguous** — treat as opaque (pale
 
 ### IPC / Preload (`src/main/ipc-handlers.ts`, `src/preload/index.ts`, `api.d.ts`)
 
-| Channel | CLI invocation | Notes |
-|---|---|---|
-| `cli:clusters-add` | `clusters add <name> [--seeds s1,s2] [--description d] [--threshold t]` | flags omitted when unset |
-| `cli:clusters-update` | `clusters update <name> [--seeds …] --description <d or "">` + (`--threshold t` \| `--threshold=-1`) + `--rename` iff name changed | always sends description/threshold so clearing works; `=-1` equals-form because clap rejects a bare `-1` value |
-| `cli:clusters-remove` | `clusters remove <name>` | |
-| `cli:clusters-unassigned` | `clusters unassigned` → `TopicUnassigned` | |
-| `cli:config-set` | `config set <key> <value>` | generic YAML write (floor, algorithm, granularity) |
-| `cli:clusters-list` | `clusters list` (duplicate `--json` removed — `execCommand` injects it) | → `TopicDef[]` |
+| Channel                   | CLI invocation                                                                                                                     | Notes                                                                                                          |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `cli:clusters-add`        | `clusters add <name> [--seeds s1,s2] [--description d] [--threshold t]`                                                            | flags omitted when unset                                                                                       |
+| `cli:clusters-update`     | `clusters update <name> [--seeds …] --description <d or "">` + (`--threshold t` \| `--threshold=-1`) + `--rename` iff name changed | always sends description/threshold so clearing works; `=-1` equals-form because clap rejects a bare `-1` value |
+| `cli:clusters-remove`     | `clusters remove <name>`                                                                                                           |                                                                                                                |
+| `cli:clusters-unassigned` | `clusters unassigned` → `TopicUnassigned`                                                                                          |                                                                                                                |
+| `cli:config-set`          | `config set <key> <value>`                                                                                                         | generic YAML write (floor, algorithm, granularity)                                                             |
+| `cli:clusters-list`       | `clusters list` (duplicate `--json` removed — `execCommand` injects it)                                                            | → `TopicDef[]`                                                                                                 |
 
 Preload surface: `addTopic(root, def)`, `updateTopic(root, name, def)`, `removeTopic(root, name)`, `topicUnassigned(root)`, `setConfigValue(root, key, value)` alongside the existing `clusters/customClusters/clusterDefinitions`.
 
@@ -83,7 +83,7 @@ Writable stores `topicDefs`, `topicSummaries`, `topicUnassigned`, `topicsNeedIng
 
 - `loadTopics(root)` — three independent sub-loads (defs / summaries / unassigned) that fail independently (summaries need an index; defs don't).
 - `addTopic` / `updateTopic(root, currentName, def)` / `removeTopic` — immediate CLI write → `loadTopics` → `topicsNeedIngest = true`. Errors propagate to the caller (shown as `topicsError` in Settings) without flagging re-ingest.
-- `migrateLegacyDotenvTopics(root, raw)` — `parseCustomClusters(raw)` (the legacy parser survives *only* for this), `addTopic` each (skip CLI rejects, keep migrating), delete the dotenv key via `deleteCollectionConfig`, sync the in-memory `collectionConfig` mirror, reload; returns imported count; flags re-ingest iff > 0.
+- `migrateLegacyDotenvTopics(root, raw)` — `parseCustomClusters(raw)` (the legacy parser survives _only_ for this), `addTopic` each (skip CLI rejects, keep migrating), delete the dotenv key via `deleteCollectionConfig`, sync the in-memory `collectionConfig` mirror, reload; returns imported count; flags re-ingest iff > 0.
 - `resetTopicsState()` on collection switch.
 
 `encodeCustomClusters` is deleted — the app never writes the dotenv format again.
@@ -100,6 +100,7 @@ Writable stores `topicDefs`, `topicSummaries`, `topicUnassigned`, `topicsNeedIng
   ```
 
   `BuildGraph3DOptions` gains `customClusterPalette: HarmonicPalette`.
+
 - **`src/renderer/components/GraphView.svelte`** — `getNodeColor` delegates to `nodeColorForMode` (deleting the drifted duplicate — the actual bug), plus the topic-highlight dimming layer: when `highlightedTopicId != null` in custom-cluster mode, non-members (`!node.custom_cluster_ids?.includes(id)`) render the default color. `toGraphNode` and the delta-patched node path carry the three fields. `updateClusterSpheres` accepts `'custom-cluster'` (group by primary id, `customClusterPalette`, skip null — Unassigned gets no hull); the mode-switch subscription and tick/engine-stop/drag-end/feedData call sites use the two-mode check. Legend topic rows are clickable (highlight members, clear-filter chip, mirroring the folder-highlight pattern); a synthetic non-clickable **Unassigned** row shows the client-side count. Hover tooltip in custom-cluster mode lists each membership as `{topicName} · NN%` or `Unassigned`.
 - **`src/renderer/components/GraphPreview.svelte`** — "Topics" section for the opened node: badge per membership with score percentage.
 - **`src/renderer/stores/graph.ts`** — ad-hoc node literals gain `custom_cluster_id: null` (fixes latent type errors); `cycleColoringMode`'s `hasCustomClusters` check keeps working (serde still omits the empty array).
@@ -109,7 +110,7 @@ Writable stores `topicDefs`, `topicSummaries`, `topicUnassigned`, `topicsNeedIng
 - Section renamed **Topics**; the dotenv staging path (`MDVDB_CUSTOM_CLUSTERS` `$effect` + stage handlers) is deleted in favor of `topics.ts` store calls keyed on the target collection.
 - Topic cards: name, threshold chip, description (2-line clamp), seeds, `N docs · avg NN%` from summaries.
 - Rows/controls beneath the list: Unassigned count; **Similarity Floor** slider → `setConfigValue('clustering.topics.min_similarity')`; **Clustering Algorithm** select (leiden default / kmeans) → `setConfigValue('clustering.algorithm')`; the existing granularity slider migrated to `setConfigValue('clustering.granularity')` (same dead-dotenv bug, same section).
-- Banners (reuse `.field-notice`): *legacy import* (shown when the dotenv key holds a value and CLI defs are empty → `migrateLegacyDotenvTopics`) and *re-ingest needed* (shown while `topicsNeedIngest`, with a `Re-ingest now` button calling `runIngest()` when the target is the active collection).
+- Banners (reuse `.field-notice`): _legacy import_ (shown when the dotenv key holds a value and CLI defs are empty → `migrateLegacyDotenvTopics`) and _re-ingest needed_ (shown while `topicsNeedIngest`, with a `Re-ingest now` button calling `runIngest()` when the target is the active collection).
 - Modal (filename kept, retitled "Topic"): description textarea ("Optional — a sentence describing this topic improves matching accuracy"), threshold checkbox + 0.05–0.95 slider (unchecked → `null`), validation = name required / no `:` `|` / no duplicates / seeds-or-description required / threshold bounds; emits a `TopicDef`.
 
 Deliberate UX divergence: topic edits apply **immediately** (the CLI writes `config.yaml` on the spot) rather than through the staged draft/save system — matching CLI behavior; the re-ingest banner covers the "when does it take effect" question.
@@ -131,7 +132,7 @@ Deliberate UX divergence: topic edits apply **immediately** (the CLI writes `con
 - [ ] `tests/unit/CustomClusterModal.test.ts` (new): renders description/threshold controls; emits `TopicDef` with `threshold: null` when unchecked and the numeric value when set; rejects empty definitions, `:`/`|` names, duplicates; prefills on edit.
 - [ ] `tests/integration/cli-bridge.test.ts`: full topics round-trip green against a real `mdvdb` binary; the no-binary guard suite still passes when the binary is absent.
 - [ ] Full unit suite: **zero new failures** vs the pre-existing baseline (compare per-file failure counts against a HEAD worktree, not just totals).
-- [ ] `tsc --noEmit` (web + node): zero new errors vs a HEAD-worktree baseline (this phase should *reduce* the count — the missing `custom_cluster_id` node literals were pre-existing errors).
+- [ ] `tsc --noEmit` (web + node): zero new errors vs a HEAD-worktree baseline (this phase should _reduce_ the count — the missing `custom_cluster_id` node literals were pre-existing errors).
 - [ ] Manual: custom-cluster mode node colors match the legend swatches; legend topic click dims non-members; Settings topic add writes `config.yaml` (not `.markdownvdb/.config`) and raises the re-ingest banner; floor slider round-trips through `mdvdb config` output.
 
 ## Anti-Patterns to Avoid

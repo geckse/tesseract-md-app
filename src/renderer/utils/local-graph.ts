@@ -1,5 +1,10 @@
 import type { SimulationNodeDatum, SimulationLinkDatum } from 'd3-force'
-import type { LinksOutput, BacklinksOutput, NeighborhoodResult, NeighborhoodNode } from '../types/cli'
+import type {
+  LinksOutput,
+  BacklinksOutput,
+  NeighborhoodResult,
+  NeighborhoodNode
+} from '../types/cli'
 
 export interface LocalNode extends SimulationNodeDatum {
   path: string
@@ -43,7 +48,7 @@ export function buildLocalGraph(
   center: string | null,
   links: LinksOutput | null,
   backlinks: BacklinksOutput | null,
-  neighborLinksMap?: Map<string, NeighborLinks>,
+  neighborLinksMap?: Map<string, NeighborLinks>
 ): LocalGraphData {
   if (!center) return { nodes: [], edges: [] }
 
@@ -55,7 +60,7 @@ export function buildLocalGraph(
     isCenter: true,
     depth: 0,
     x: WIDTH / 2,
-    y: HEIGHT / 2,
+    y: HEIGHT / 2
   })
 
   const edges: LocalEdge[] = []
@@ -67,9 +72,7 @@ export function buildLocalGraph(
     if (edgeSet.has(key)) return
     if (edgeSet.has(reverseKey)) {
       // Mark existing reverse edge as bidirectional
-      const existing = edges.find(
-        (e) => e.source === target && e.target === source,
-      )
+      const existing = edges.find((e) => e.source === target && e.target === source)
       if (existing) existing.bidirectional = true
       return
     }
@@ -84,7 +87,7 @@ export function buildLocalGraph(
       isCenter: false,
       depth,
       x: WIDTH / 2 + (Math.random() - 0.5) * 100,
-      y: HEIGHT / 2 + (Math.random() - 0.5) * 100,
+      y: HEIGHT / 2 + (Math.random() - 0.5) * 100
     })
   }
 
@@ -156,7 +159,7 @@ export function buildLocalGraph(
  */
 export function buildLocalGraphFromNeighborhood(
   center: string,
-  result: NeighborhoodResult,
+  result: NeighborhoodResult
 ): LocalGraphData {
   const nodeMap = new Map<string, LocalNode>()
   const edges: LocalEdge[] = []
@@ -167,7 +170,7 @@ export function buildLocalGraphFromNeighborhood(
     isCenter: true,
     depth: 0,
     x: WIDTH / 2,
-    y: HEIGHT / 2,
+    y: HEIGHT / 2
   })
 
   function addNode(path: string, depth: number) {
@@ -177,7 +180,7 @@ export function buildLocalGraphFromNeighborhood(
       isCenter: false,
       depth,
       x: WIDTH / 2 + (Math.random() - 0.5) * 100,
-      y: HEIGHT / 2 + (Math.random() - 0.5) * 100,
+      y: HEIGHT / 2 + (Math.random() - 0.5) * 100
     })
   }
 
@@ -186,9 +189,7 @@ export function buildLocalGraphFromNeighborhood(
     const reverseKey = `${target}->${source}`
     if (edgeSet.has(key)) return
     if (edgeSet.has(reverseKey)) {
-      const existing = edges.find(
-        (e) => e.source === target && e.target === source,
-      )
+      const existing = edges.find((e) => e.source === target && e.target === source)
       if (existing) existing.bidirectional = true
       return
     }

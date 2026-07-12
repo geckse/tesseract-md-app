@@ -113,13 +113,7 @@ export function calculateVirtualListState(
   const { itemHeight, totalItems, buffer = 10 } = config
 
   // Calculate visible range
-  const range = calculateVisibleRange(
-    scrollTop,
-    containerHeight,
-    itemHeight,
-    totalItems,
-    buffer
-  )
+  const range = calculateVisibleRange(scrollTop, containerHeight, itemHeight, totalItems, buffer)
 
   // Calculate total height of the virtual container
   const totalHeight = totalItems * itemHeight
@@ -130,7 +124,7 @@ export function calculateVirtualListState(
   return {
     ...range,
     totalHeight,
-    offsetY,
+    offsetY
   }
 }
 
@@ -154,13 +148,13 @@ export function calculateVirtualListState(
 export function getItemStyle(
   index: number,
   itemHeight: number,
-  startIndex: number
+  _startIndex: number
 ): { transform: string } {
   // Calculate the absolute position from the top
   const absoluteY = index * itemHeight
 
   return {
-    transform: `translateY(${absoluteY}px)`,
+    transform: `translateY(${absoluteY}px)`
   }
 }
 
@@ -179,9 +173,7 @@ export function getItemStyle(
  * })
  * ```
  */
-export function throttleScroll(
-  callback: (scrollTop: number) => void
-): (event: Event) => void {
+export function throttleScroll(callback: (scrollTop: number) => void): (event: Event) => void {
   let frameId: number | null = null
 
   return (event: Event) => {

@@ -34,7 +34,7 @@ if (typeof Element.prototype.animate === 'undefined') {
       oncancel: null,
       addEventListener: () => {},
       removeEventListener: () => {},
-      dispatchEvent: () => true,
+      dispatchEvent: () => true
     } as unknown as Animation
   }
 }

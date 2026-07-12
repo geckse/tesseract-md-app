@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // Attach a mock api to jsdom's window before importing the module under test
 const mockApi = {
-  openPopup: vi.fn().mockResolvedValue(undefined),
+  openPopup: vi.fn().mockResolvedValue(undefined)
 }
 Object.defineProperty(window, 'api', { value: mockApi, writable: true })
 
@@ -16,7 +16,7 @@ const collection = {
   name: 'Vault',
   path: '/vaults/main',
   addedAt: 1,
-  lastOpenedAt: 1,
+  lastOpenedAt: 1
 }
 
 beforeEach(() => {
@@ -45,7 +45,7 @@ describe('openNewNotePopup', () => {
       isUntitled: true,
       editorMode: 'wysiwyg',
       collectionId: 'col-1',
-      collectionPath: '/vaults/main',
+      collectionPath: '/vaults/main'
     })
   })
 
