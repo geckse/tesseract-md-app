@@ -53,7 +53,7 @@ const ASSET_EXT_MAP: Record<string, MimeCategory> = {
 }
 
 /** Detect if a file path is an asset by extension. Returns MimeCategory or null. */
-function detectAssetMime(filePath: string): MimeCategory | null {
+export function detectAssetMime(filePath: string): MimeCategory | null {
   const ext = filePath.split('.').pop()?.toLowerCase() ?? ''
   return ASSET_EXT_MAP[ext] ?? null
 }

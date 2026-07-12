@@ -1,6 +1,48 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { shortcutManager, detectPlatform, getShortcutDisplay } from '@renderer/lib/shortcuts'
+import {
+  shortcutManager,
+  detectPlatform,
+  getShortcutDisplay,
+  isEditableTarget
+} from '@renderer/lib/shortcuts'
 import type { Shortcut } from '@renderer/lib/shortcuts'
+
+describe('isEditableTarget', () => {
+  function elementFor(html: string, selector: string): Element {
+    const host = document.createElement('div')
+    host.innerHTML = html
+    document.body.appendChild(host)
+    return host.querySelector(selector)!
+  }
+
+  afterEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  it('is true for form fields and contenteditable', () => {
+    expect(isEditableTarget(elementFor('<input />', 'input'))).toBe(true)
+    expect(isEditableTarget(elementFor('<textarea></textarea>', 'textarea'))).toBe(true)
+    expect(isEditableTarget(elementFor('<select></select>', 'select'))).toBe(true)
+    expect(
+      isEditableTarget(elementFor('<div contenteditable="true"><span>x</span></div>', 'span'))
+    ).toBe(true)
+  })
+
+  it('is true inside CodeMirror and ProseMirror hosts', () => {
+    expect(
+      isEditableTarget(
+        elementFor('<div class="cm-editor"><div class="cm-line">x</div></div>', '.cm-line')
+      )
+    ).toBe(true)
+    expect(isEditableTarget(elementFor('<div class="ProseMirror"><p>x</p></div>', 'p'))).toBe(true)
+  })
+
+  it('is false for plain elements and null', () => {
+    expect(isEditableTarget(elementFor('<div><button>x</button></div>', 'button'))).toBe(false)
+    expect(isEditableTarget(elementFor('<div>x</div>', 'div'))).toBe(false)
+    expect(isEditableTarget(null)).toBe(false)
+  })
+})
 
 describe('detectPlatform', () => {
   const originalNavigator = global.navigator

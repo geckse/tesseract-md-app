@@ -4,15 +4,18 @@
     activeCollectionId,
     collectionStatus,
     collectionsLoading,
-    addCollection,
+    addAndActivateCollection,
     removeCollection,
-    setActiveCollection
+    setActiveCollection,
+    openDoctorModal
   } from '../stores/collections'
   import { loadFileTree, loadAssetTree, syncFileStoresFromTab } from '../stores/files'
   import { workspace } from '../stores/workspace.svelte'
   import { runIngest } from '../stores/ingest'
   import { settingsOpen } from '../stores/ui'
-  import { settingsTarget } from '../stores/settings'
+  import { settingsTarget, activeSection } from '../stores/settings'
+  import { watcherState, toggleWatcher } from '../stores/watcher'
+  import { terminalStore } from '../stores/terminal.svelte'
   import FileTree from './FileTree.svelte'
   import Favorites from './Favorites.svelte'
   import ResizeHandle from './ResizeHandle.svelte'
@@ -28,6 +31,19 @@
   let contextMenuCollection: Collection | null = $state(null)
   let contextMenuPosition = $state({ x: 0, y: 0 })
   let dropdownOpen = $state(false)
+  let settingsSubmenuOpen = $state(false)
+
+  /** Settings sections offered in the collection context menu. */
+  const settingsSections = [
+    { section: 'embedding', label: 'Embedding Provider', icon: 'memory' },
+    { section: 'search', label: 'Search Defaults', icon: 'search' },
+    { section: 'chunking', label: 'Chunking', icon: 'splitscreen' },
+    { section: 'clusters', label: 'Topics', icon: 'category' },
+    { section: 'appearance', label: 'Appearance', icon: 'palette' }
+  ]
+
+  let currentWatcherState = $state<'stopped' | 'starting' | 'running' | 'error'>('stopped')
+  watcherState.subscribe((v) => (currentWatcherState = v))
 
   // Derived active collection for the dropdown display
   let currentActiveCollection: Collection | null = $derived(
@@ -35,9 +51,8 @@
   )
 
   async function handleAddCollection(): Promise<Collection | null> {
-    const collection = await addCollection()
+    const collection = await addAndActivateCollection()
     if (collection) {
-      await setActiveCollection(collection.id)
       await Promise.all([loadFileTree(), loadAssetTree()])
     }
     return collection
@@ -52,6 +67,7 @@
     event.preventDefault()
     contextMenuCollection = collection
     contextMenuPosition = { x: event.clientX, y: event.clientY }
+    settingsSubmenuOpen = false
   }
 
   async function handleRemoveCollection() {
@@ -62,6 +78,7 @@
 
   function closeContextMenu() {
     contextMenuCollection = null
+    settingsSubmenuOpen = false
   }
 
   function toggleDropdown() {
@@ -102,12 +119,32 @@
     await window.api.writeToClipboard(path)
   }
 
-  function handleCollectionSettings() {
+  /** Open settings for the context-menu collection at a specific section. */
+  function handleCollectionSettingsSection(section: string) {
     if (!contextMenuCollection) return
     const id = contextMenuCollection.id
     closeContextMenu()
     settingsTarget.set(id)
+    activeSection.set(section)
     settingsOpen.set(true)
+  }
+
+  /** Make the context-menu collection active (loading its trees) if it isn't. */
+  async function ensureContextCollectionActive(): Promise<void> {
+    if (!contextMenuCollection) return
+    if (contextMenuCollection.id !== currentActiveCollectionId) {
+      await handleCollectionClick(contextMenuCollection)
+    }
+  }
+
+  async function handleSyncCollection() {
+    if (!contextMenuCollection) return
+    const target = contextMenuCollection
+    closeContextMenu()
+    if (target.id !== currentActiveCollectionId) {
+      await handleCollectionClick(target)
+    }
+    void runIngest(false)
   }
 
   async function handleReindexCollection() {
@@ -117,6 +154,25 @@
     // Switch to this collection and reindex
     await setActiveCollection(id)
     runIngest(true)
+  }
+
+  async function handleRunDoctor() {
+    if (!contextMenuCollection) return
+    await ensureContextCollectionActive()
+    closeContextMenu()
+    openDoctorModal()
+  }
+
+  function handleWatcherToggle() {
+    closeContextMenu()
+    void toggleWatcher()
+  }
+
+  function handleOpenInTerminal() {
+    if (!contextMenuCollection) return
+    const target = contextMenuCollection
+    closeContextMenu()
+    void terminalStore.createTerminal({ cwd: target.path, title: target.name })
   }
 
   function formatStats(status: typeof currentCollectionStatus): string {
@@ -287,21 +343,63 @@
         <span class="material-symbols-outlined">folder_open</span>
         {isMac ? 'Reveal in Finder' : 'Reveal in File Explorer'}
       </button>
-      <div class="context-menu-separator"></div>
       <button class="context-menu-item" onclick={handleCopyCollectionPath}>
         <span class="material-symbols-outlined">content_copy</span>
         Copy Path
       </button>
-      <div class="context-menu-separator"></div>
-      <button class="context-menu-item" onclick={handleCollectionSettings}>
-        <span class="material-symbols-outlined">settings</span>
-        Settings
+      <button class="context-menu-item" onclick={handleOpenInTerminal}>
+        <span class="material-symbols-outlined">terminal</span>
+        Open in Terminal
       </button>
       <div class="context-menu-separator"></div>
+      <button class="context-menu-item" onclick={handleSyncCollection}>
+        <span class="material-symbols-outlined">sync</span>
+        Sync (Incremental)
+      </button>
       <button class="context-menu-item" onclick={handleReindexCollection}>
         <span class="material-symbols-outlined">restart_alt</span>
         Reindex Collection
       </button>
+      {#if contextMenuCollection.id === currentActiveCollectionId}
+        <button class="context-menu-item" onclick={handleWatcherToggle}>
+          <span class="material-symbols-outlined">
+            {currentWatcherState === 'running' ? 'visibility_off' : 'visibility'}
+          </span>
+          {currentWatcherState === 'running' ? 'Stop Watching' : 'Watch for Changes'}
+        </button>
+      {/if}
+      <button class="context-menu-item" onclick={handleRunDoctor}>
+        <span class="material-symbols-outlined">troubleshoot</span>
+        Run Doctor…
+      </button>
+      <div class="context-menu-separator"></div>
+      <div
+        class="submenu-wrapper"
+        onmouseenter={() => (settingsSubmenuOpen = true)}
+        onmouseleave={() => (settingsSubmenuOpen = false)}
+      >
+        <button
+          class="context-menu-item submenu-parent"
+          onclick={() => (settingsSubmenuOpen = !settingsSubmenuOpen)}
+        >
+          <span class="material-symbols-outlined">settings</span>
+          Settings
+          <span class="material-symbols-outlined submenu-arrow">chevron_right</span>
+        </button>
+        {#if settingsSubmenuOpen}
+          <div class="context-submenu">
+            {#each settingsSections as entry (entry.section)}
+              <button
+                class="context-menu-item"
+                onclick={() => handleCollectionSettingsSection(entry.section)}
+              >
+                <span class="material-symbols-outlined">{entry.icon}</span>
+                {entry.label}
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
       <div class="context-menu-separator"></div>
       <button class="context-menu-item danger" onclick={handleRemoveCollection}>
         <span class="material-symbols-outlined">delete</span>
@@ -645,6 +743,28 @@
     height: 1px;
     background: var(--color-border, #27272a);
     margin: 4px 0;
+  }
+
+  .submenu-wrapper {
+    position: relative;
+  }
+
+  .submenu-parent .submenu-arrow {
+    margin-left: auto;
+    font-size: 16px;
+  }
+
+  .context-submenu {
+    position: absolute;
+    left: calc(100% - 4px);
+    top: -4px;
+    background: var(--color-surface, #161617);
+    border: 1px solid var(--color-border, #27272a);
+    border-radius: 8px;
+    padding: 4px;
+    min-width: 180px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    z-index: 102;
   }
 
   .sidebar-footer {

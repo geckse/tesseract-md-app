@@ -116,26 +116,37 @@ vi.mock('../../src/main/watcher', () => ({
 }))
 
 // Mock menu module
-const mockRefreshRecentMenu = vi.fn()
+const mockRefreshAppMenu = vi.fn()
 vi.mock('../../src/main/menu', () => ({
-  refreshRecentMenu: (...args: unknown[]) => mockRefreshRecentMenu(...args)
+  refreshAppMenu: (...args: unknown[]) => mockRefreshAppMenu(...args)
 }))
 
-// Mock updater module
-vi.mock('../../src/main/updater', () => ({
-  AppUpdater: vi.fn().mockImplementation(() => ({
-    setWindowManager: vi.fn(),
-    start: vi.fn(),
-    stop: vi.fn(),
-    checkForUpdates: vi.fn(),
-    downloadUpdate: vi.fn(),
-    quitAndInstall: vi.fn(),
-    skipVersion: vi.fn(),
-    clearSkippedVersion: vi.fn(),
-    getState: vi.fn().mockReturnValue('idle'),
-    destroy: vi.fn()
-  }))
-}))
+// Mock updater module (the AppUpdater singleton lives here since phase 43)
+const makeMockUpdater = (): Record<string, ReturnType<typeof vi.fn>> => ({
+  setWindowManager: vi.fn(),
+  start: vi.fn(),
+  stop: vi.fn(),
+  checkForUpdates: vi.fn(),
+  downloadUpdate: vi.fn(),
+  quitAndInstall: vi.fn(),
+  skipVersion: vi.fn(),
+  clearSkippedVersion: vi.fn(),
+  getState: vi.fn().mockReturnValue('idle'),
+  destroy: vi.fn()
+})
+vi.mock('../../src/main/updater', () => {
+  let singleton: Record<string, ReturnType<typeof vi.fn>> | null = null
+  return {
+    AppUpdater: vi.fn().mockImplementation(() => makeMockUpdater()),
+    getAppUpdater: vi.fn(() => {
+      if (!singleton) singleton = makeMockUpdater()
+      return singleton
+    }),
+    destroyAppUpdater: vi.fn(() => {
+      singleton = null
+    })
+  }
+})
 
 // Mock electron-updater
 vi.mock('electron-updater', () => ({
@@ -238,7 +249,7 @@ beforeEach(() => {
   mockWatcherOnError.mockReset()
   mockWatcherOnStateChange.mockReset()
   mockWatcherRemoveAllListeners.mockReset()
-  mockRefreshRecentMenu.mockReset()
+  mockRefreshAppMenu.mockReset()
   mockShellOpenPath.mockReset()
   mockClipboardWriteText.mockReset()
   mockFromWebContents.mockReset()
@@ -330,7 +341,10 @@ describe('registerIpcHandlers', () => {
     expect(channels).toContain('schema:preview-property-op')
     expect(channels).toContain('schema:apply-property-op')
     expect(channels).toContain('schema:update-overlay-field')
-    expect(channels).toHaveLength(121)
+    // Export via native save dialog (phase 43)
+    expect(channels).toContain('export:save')
+    expect(channels).toContain('export:pdf')
+    expect(channels).toHaveLength(123)
   })
 })
 

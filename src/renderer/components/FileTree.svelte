@@ -17,11 +17,13 @@
     createNewFile,
     createNewDirectory,
     removeTreeNode,
-    removeAssetNode
+    removeAssetNode,
+    insertFileNode,
+    insertAssetNode
   } from '../stores/files'
   import { activeCollection, activeCollectionId } from '../stores/collections'
   import { runIngest, ingestRunning } from '../stores/ingest'
-  import { favorites, toggleFavorite } from '../stores/favorites'
+  import { favorites, toggleFavorite, retargetFavoritesOnRename } from '../stores/favorites'
   import { setGraphPathFilter, setGraphHighlightedFolder, graphViewActive } from '../stores/graph'
   import { get } from 'svelte/store'
   import type { Collection } from '../../preload/api'
@@ -450,6 +452,136 @@
     startNewFolder(dirPath)
   }
 
+  // ── Rename (inline, phase 43) ─────────────────────────────────────────
+
+  let renamingPath = $state<string | null>(null)
+  let renameInitial = $state('')
+  let renameIsDir = $state(false)
+  let renameError = $state<string | null>(null)
+
+  function handleContextMenuRename() {
+    if (!contextMenuPath) return
+    const path = contextMenuPath
+    const isDir = contextMenuIsDir
+    closeContextMenu()
+    const baseName = path.split('/').pop() ?? path
+    renamingPath = path
+    renameIsDir = isDir
+    // Files edit the name without extension (re-appended on commit, like FileNameEditor)
+    renameInitial = isDir ? baseName : baseName.replace(/\.[^.]+$/, '')
+    renameError = null
+  }
+
+  function cancelRename() {
+    renamingPath = null
+    renameError = null
+  }
+
+  async function commitRename(value: string) {
+    if (!renamingPath || !currentActiveCollection) {
+      cancelRename()
+      return
+    }
+    const oldPath = renamingPath
+    const isDir = renameIsDir
+    const trimmed = value.trim()
+
+    if (!trimmed || trimmed === renameInitial) {
+      cancelRename()
+      return
+    }
+    if (trimmed.includes('/') || trimmed.includes('\\')) {
+      renameError = 'Name cannot contain path separators'
+      return
+    }
+    // eslint-disable-next-line no-control-regex
+    const invalidChars = /[<>:"|?*\x00-\x1f]/
+    if (invalidChars.test(trimmed)) {
+      renameError = 'Name contains invalid characters'
+      return
+    }
+
+    const dir = oldPath.split('/').slice(0, -1).join('/')
+    const oldName = oldPath.split('/').pop() ?? oldPath
+    const extMatch = isDir ? null : oldName.match(/\.[^.]+$/)
+    const ext = extMatch ? extMatch[0] : ''
+    const newName = `${trimmed}${ext}`
+    const newPath = dir ? `${dir}/${newName}` : newName
+
+    try {
+      await window.api.renameFile(
+        `${currentActiveCollection.path}/${oldPath}`,
+        `${currentActiveCollection.path}/${newPath}`
+      )
+      // Tree + open tabs update via the handler's synthesized vault event;
+      // favorites are app-state and need explicit retargeting.
+      if (currentActiveCollectionId) {
+        await retargetFavoritesOnRename(currentActiveCollectionId, oldPath, newPath, isDir)
+      }
+      cancelRename()
+    } catch (err) {
+      renameError = err instanceof Error ? err.message : String(err)
+    }
+  }
+
+  // ── Duplicate (files only, phase 43) ──────────────────────────────────
+
+  /** Compute "name copy.ext", "name copy 2.ext", … avoiding existing tree entries. */
+  function nextCopyPath(path: string): string {
+    const dir = path.split('/').slice(0, -1).join('/')
+    const name = path.split('/').pop() ?? path
+    const extMatch = name.match(/\.[^.]+$/)
+    const ext = extMatch ? extMatch[0] : ''
+    const stem = ext ? name.slice(0, -ext.length) : name
+
+    const existing = new Set<string>()
+    const collect = (node: UnifiedTreeNode): void => {
+      existing.add(node.path)
+      for (const child of node.children) collect(child)
+    }
+    if (currentUnifiedTree) collect(currentUnifiedTree)
+
+    for (let i = 1; ; i++) {
+      const suffix = i === 1 ? ' copy' : ` copy ${i}`
+      const candidate = dir ? `${dir}/${stem}${suffix}${ext}` : `${stem}${suffix}${ext}`
+      if (!existing.has(candidate)) return candidate
+    }
+  }
+
+  async function handleDuplicate() {
+    if (!contextMenuPath || !currentActiveCollection || contextMenuIsDir) return
+    const srcPath = contextMenuPath
+    const isAsset = contextMenuIsAsset
+    const mime = contextMenuMimeCategory
+    closeContextMenu()
+
+    const destPath = nextCopyPath(srcPath)
+    try {
+      // Belt and braces: fs.copyFile overwrites, so probe the destination first
+      // (the tree check above covers indexed files; this covers untracked ones).
+      const info = await window.api
+        .fileInfo(`${currentActiveCollection.path}/${destPath}`)
+        .catch(() => null)
+      if (info) {
+        window.alert(`Cannot duplicate: "${destPath}" already exists.`)
+        return
+      }
+      await window.api.copyFile(
+        `${currentActiveCollection.path}/${srcPath}`,
+        `${currentActiveCollection.path}/${destPath}`
+      )
+      // copyFile registers an own-write (no vault event) — patch the tree manually
+      if (isAsset) {
+        insertAssetNode(destPath, (mime as MimeCategory) ?? 'other')
+      } else {
+        insertFileNode(destPath, 'new')
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      window.alert(`Failed to duplicate "${srcPath}": ${msg}`)
+    }
+  }
+
   async function handleCopyMarkdownRef() {
     if (!contextMenuPath) return
     const name = contextMenuPath.split('/').pop() ?? contextMenuPath
@@ -726,6 +858,11 @@
               noRecursiveRender={true}
               {currentSelectedFilePath}
               {currentExpandedPaths}
+              {renamingPath}
+              {renameInitial}
+              {renameError}
+              onrenamecommit={commitRename}
+              onrenamecancel={cancelRename}
             />
           </div>
         {/each}
@@ -827,6 +964,16 @@
         </button>
       {/if}
       <div class="context-menu-separator"></div>
+      <button class="context-menu-item" onclick={handleContextMenuRename}>
+        <span class="material-symbols-outlined">edit</span>
+        Rename
+      </button>
+      {#if !contextMenuIsDir}
+        <button class="context-menu-item" onclick={handleDuplicate}>
+          <span class="material-symbols-outlined">file_copy</span>
+          Duplicate
+        </button>
+      {/if}
       <button class="context-menu-item context-menu-item-danger" onclick={handleDelete}>
         <span class="material-symbols-outlined">delete</span>
         Delete

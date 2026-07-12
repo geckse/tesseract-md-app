@@ -59,19 +59,14 @@
   import type { GraphColoringMode } from '../stores/graph'
   import type { GraphLevel } from '../types/cli'
   import type { GraphNode, GraphData } from '../types/cli'
-  import { selectedFilePath, syncFileStoresFromTab } from '../stores/files'
+  import { selectedFilePath } from '../stores/files'
+  import { openResolvedPathOtherPane } from '../lib/link-navigation'
   import { activeCollection, activeCollectionId } from '../stores/collections'
   import { get } from 'svelte/store'
   import { workspace } from '../stores/workspace.svelte'
   import GraphPreview from './GraphPreview.svelte'
   import PopoverMenu, { type PopoverMenuItem } from './ui/PopoverMenu.svelte'
-  import {
-    edgeClusterColor,
-    isEdgeVisible,
-    edgeLinkColor,
-    edgeLinkWidth,
-    isFrontmatterEdge
-  } from '../lib/edge-utils'
+  import { edgeClusterColor, isEdgeVisible, edgeLinkColor, edgeLinkWidth } from '../lib/edge-utils'
   import { diffGraphData, shouldPatch, isEmptyDelta, type GraphDelta } from '../lib/graph-delta'
   import { paletteColor, paletteTextColor, type HarmonicPalette } from '../lib/harmonic-palette'
   import {
@@ -2435,8 +2430,9 @@
 
   function handleContextMenuOpen() {
     if (!contextMenuNode) return
-    workspace.openTabFromGraph(contextMenuNode.path)
-    syncFileStoresFromTab()
+    // Popup-aware: a popped-out graph has no panes to open into — this
+    // routes the document to a fresh popup window instead.
+    openResolvedPathOtherPane(contextMenuNode.path)
     contextMenuNode = null
   }
 
@@ -2592,9 +2588,9 @@
       .linkColor((link: ForceLink) => link.color)
       // Link width: 0 = ThreeJS Line (constant 1px hairline, very fast)
       .linkWidth(0)
-      // Frontmatter relation edges render short-dashed (phase 42). Dash only
-      // works on hairline (width 0) Line links — which is what we use.
-      .linkLineDash((link: ForceLink) => (isFrontmatterEdge(link) ? [2, 1] : null))
+      // Frontmatter relation edges (phase 42) are distinguished by color only:
+      // FRONTMATTER_EDGE_COLOR applied in buildGraph3DData. linkLineDash is a
+      // 2D force-graph API — it does not exist on 3d-force-graph.
       // Directional arrows: visible in document mode, hidden in chunk mode (symmetric similarity)
       .linkDirectionalArrowLength((_link: ForceLink) => (isChunkMode() ? 0 : 6))
       .linkDirectionalArrowRelPos(1)
@@ -2641,9 +2637,9 @@
     graph.onNodeClick((node: ForceNode, _event: MouseEvent) => {
       const graphNode = toGraphNode(node)
       if (currentSelected && currentSelected.id === node.id) {
-        // Second click on same node: open as document tab
-        workspace.openTabFromGraph(node.path)
-        syncFileStoresFromTab()
+        // Second click on same node: open as document tab (or a fresh popup
+        // window when this graph is popped out — no panes to open into here)
+        openResolvedPathOtherPane(node.path)
       } else {
         // First click: select and show inline preview
         selectGraphNode(graphNode)

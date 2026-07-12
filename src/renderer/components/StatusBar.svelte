@@ -8,6 +8,8 @@
   import { workspace, type AssetTab } from '../stores/workspace.svelte'
   import WatcherToggle from './WatcherToggle.svelte'
   import { terminalStore } from '../stores/terminal.svelte'
+  import { collectionDoctorResult, openDoctorModal } from '../stores/collections'
+  import type { DoctorResult } from '../types/cli'
   import mdvdbIcon from '../../../resources/mdvdb.png'
   import type { MimeCategory } from '../types/cli'
 
@@ -25,6 +27,10 @@
 
   let currentIsDirty = $state(false)
   isDirty.subscribe((v) => (currentIsDirty = v))
+
+  let doctorResult = $state<DoctorResult | null>(null)
+  collectionDoctorResult.subscribe((v) => (doctorResult = v))
+  const hasDoctorFailures = $derived(doctorResult?.checks.some((c) => c.status === 'Fail') ?? false)
 
   let currentWordCount = $state(0)
   wordCountStore.subscribe((v) => (currentWordCount = v))
@@ -141,6 +147,17 @@
       {/if}
     </button>
     <WatcherToggle />
+    {#if hasDoctorFailures}
+      <button
+        type="button"
+        class="status-item interactive doctor-warning"
+        title="Doctor found issues — click for details"
+        aria-label="Doctor found issues"
+        onclick={openDoctorModal}
+      >
+        <span class="material-symbols-outlined status-icon">warning</span>
+      </button>
+    {/if}
     <span
       class="status-item cli-indicator"
       class:cli-found={cliFound}
@@ -245,6 +262,16 @@
     padding: 0 6px;
     height: 22px;
     border-radius: 4px;
+  }
+
+  .doctor-warning {
+    background: transparent;
+    border: none;
+    font: inherit;
+    padding: 0 6px;
+    height: 22px;
+    border-radius: 4px;
+    color: var(--color-warning, #f59e0b);
   }
 
   .terminal-toggle.active {

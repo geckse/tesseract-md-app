@@ -62,6 +62,32 @@ export async function toggleFavorite(collectionId: string, filePath: string): Pr
   await loadFavorites()
 }
 
+/**
+ * Rewrite favorites that point at a renamed file or directory.
+ * For directories, every favorite under the old path prefix is retargeted.
+ */
+export async function retargetFavoritesOnRename(
+  collectionId: string,
+  oldPath: string,
+  newPath: string,
+  isDir: boolean
+): Promise<void> {
+  const matches = get(favorites).filter((f) => {
+    if (f.collectionId !== collectionId) return false
+    if (f.filePath === oldPath) return true
+    return isDir && f.filePath.startsWith(oldPath + '/')
+  })
+  if (matches.length === 0) return
+
+  for (const fav of matches) {
+    const rewritten =
+      fav.filePath === oldPath ? newPath : newPath + fav.filePath.slice(oldPath.length)
+    await window.api.removeFavorite(collectionId, fav.filePath)
+    await window.api.addFavorite(collectionId, rewritten)
+  }
+  await loadFavorites()
+}
+
 /** Track a file as recently opened (main process updates native menu automatically). */
 export async function trackRecent(collectionId: string, filePath: string): Promise<void> {
   await window.api.addRecent(collectionId, filePath)

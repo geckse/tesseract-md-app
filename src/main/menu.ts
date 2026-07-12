@@ -1,164 +1,114 @@
 /**
- * Native application menu builder for macOS / Windows / Linux.
+ * Native application menu orchestrator (phase 43).
  *
- * Provides a standard menu bar with File > Open Recent, Edit (undo/redo/clipboard),
- * View (dev tools), and Window menus.
+ * Owns the Menu lifecycle and the main→renderer command transport:
+ *  - buildAppMenu(windowManager): build + set the menu once at startup
+ *  - refreshAppMenu(): microtask-coalesced full rebuild (recents change,
+ *    collection switch/add/remove, watcher toggle)
+ *  - menu item clicks → sendMenuCommand → `menu:command` {id, payload} to
+ *    the focused non-popup window (primary-window fallback; never
+ *    broadcast — a broadcast `file.save` would save every window's tab)
  *
- * Uses WindowManager for multi-window support — recent file clicks target the
- * focused window, falling back to broadcast if no window is focused.
+ * The template itself is a pure function in menu-template.ts, fed by a
+ * store snapshot from menu-state.ts.
  */
 
-import { Menu, BrowserWindow, app, type MenuItemConstructorOptions } from 'electron'
-import { initStore, getCollections } from './store'
-import type { RecentEntry, Collection } from './store'
+import { Menu, BrowserWindow, app, shell } from 'electron'
+import { initStore } from './store'
+import { getMenuState } from './menu-state'
+import { buildTemplate, type MenuActions } from './menu-template'
+import { getAppUpdater } from './updater'
 import type { WindowManager } from './window-manager'
-import path from 'node:path'
 
 /** Reference to the WindowManager for sending IPC events to windows. */
 let windowManagerRef: WindowManager | null = null
 
-/** Whether the app is in development mode. */
-const isDev = !app.isPackaged
+/** Coalesce bursts of refresh calls (e.g. collection switch + recents) into one rebuild. */
+let refreshQueued = false
+
+/**
+ * Send a menu command to the focused window, skipping popup windows
+ * (they render PopupShell and never register the command dispatcher).
+ * Falls back to the primary window when nothing suitable has focus.
+ */
+function sendMenuCommand(id: string, payload?: unknown): void {
+  if (!windowManagerRef) return
+
+  const focused = BrowserWindow.getFocusedWindow()
+  let target: BrowserWindow | undefined
+  if (focused && !focused.isDestroyed() && !windowManagerRef.isPopup(focused.webContents.id)) {
+    target = focused
+  } else {
+    const primaryId = windowManagerRef.getPrimaryWindowId()
+    if (primaryId !== null) {
+      target = windowManagerRef.getWindow(primaryId)
+    }
+  }
+
+  target?.webContents.send('menu:command', { id, payload })
+}
+
+/** Show the native about panel (macOS app menu + win/linux Help). */
+function showAbout(): void {
+  app.setAboutPanelOptions({
+    applicationName: app.name,
+    applicationVersion: app.getVersion(),
+    copyright: `© ${new Date().getFullYear()} ${app.name}`
+  })
+  app.showAboutPanel()
+}
+
+const menuActions: MenuActions = {
+  sendCommand: sendMenuCommand,
+  openRecent: (payload) => {
+    // Send to the focused window, or broadcast to all if none focused
+    const focusedWindow = BrowserWindow.getFocusedWindow()
+    if (focusedWindow && !focusedWindow.isDestroyed()) {
+      focusedWindow.webContents.send('menu:open-recent', payload)
+    } else if (windowManagerRef) {
+      windowManagerRef.broadcastToAll('menu:open-recent', payload)
+    }
+  },
+  clearRecents: () => {
+    initStore().set('recentFiles', [])
+    refreshAppMenu()
+  },
+  newWindow: () => {
+    windowManagerRef?.createWindow()
+  },
+  checkForUpdates: () => {
+    void getAppUpdater().checkForUpdates()
+  },
+  showAbout,
+  openExternal: (url) => {
+    void shell.openExternal(url)
+  }
+}
 
 /**
  * Build and set the application menu.
- * Call once after the first window is created, and again via refreshRecentMenu().
+ * Call once after the first window is created; later changes go through
+ * refreshAppMenu().
  */
 export function buildAppMenu(windowManager: WindowManager): void {
   windowManagerRef = windowManager
-  const menu = Menu.buildFromTemplate(buildTemplate())
+  const menu = Menu.buildFromTemplate(buildTemplate(getMenuState(), menuActions))
   Menu.setApplicationMenu(menu)
 }
 
 /**
- * Rebuild the application menu to reflect updated recent files.
- * Call after recents:add, recents:clear, or collections:remove.
+ * Rebuild the application menu to reflect updated state (recents, active
+ * collection, watcher flag). Safe to call in bursts — rebuilds once per
+ * microtask tick.
  */
-export function refreshRecentMenu(): void {
+export function refreshAppMenu(): void {
   if (!windowManagerRef || windowManagerRef.getAllWindows().length === 0) return
-  const menu = Menu.buildFromTemplate(buildTemplate())
-  Menu.setApplicationMenu(menu)
-}
-
-/**
- * Build the full menu template.
- */
-function buildTemplate(): MenuItemConstructorOptions[] {
-  const template: MenuItemConstructorOptions[] = []
-
-  // macOS app menu
-  if (process.platform === 'darwin') {
-    template.push({
-      label: app.name,
-      submenu: [
-        {
-          label: `About ${app.name}`,
-          click: () => {
-            app.setAboutPanelOptions({
-              applicationName: app.name,
-              applicationVersion: app.getVersion(),
-              copyright: `© ${new Date().getFullYear()} ${app.name}`
-            })
-            app.showAboutPanel()
-          }
-        },
-        { type: 'separator' },
-        { role: 'hide' },
-        { role: 'hideOthers' },
-        { role: 'unhide' },
-        { type: 'separator' },
-        { role: 'quit' }
-      ]
-    })
-  }
-
-  // File menu
-  template.push({
-    label: 'File',
-    submenu: [
-      {
-        label: 'Open Recent',
-        submenu: buildRecentSubmenu()
-      },
-      { type: 'separator' },
-      process.platform === 'darwin' ? { role: 'close' } : { role: 'quit' }
-    ]
+  if (refreshQueued) return
+  refreshQueued = true
+  queueMicrotask(() => {
+    refreshQueued = false
+    if (!windowManagerRef || windowManagerRef.getAllWindows().length === 0) return
+    const menu = Menu.buildFromTemplate(buildTemplate(getMenuState(), menuActions))
+    Menu.setApplicationMenu(menu)
   })
-
-  // Edit menu (free undo/redo/clipboard)
-  template.push({ role: 'editMenu' })
-
-  // View menu
-  const viewSubmenu: MenuItemConstructorOptions[] = []
-  if (isDev) {
-    viewSubmenu.push(
-      { role: 'reload' },
-      { role: 'forceReload' },
-      { role: 'toggleDevTools' },
-      { type: 'separator' }
-    )
-  }
-  viewSubmenu.push({ role: 'togglefullscreen' })
-  template.push({ label: 'View', submenu: viewSubmenu })
-
-  // Window menu
-  template.push({ role: 'windowMenu' })
-
-  return template
-}
-
-/**
- * Build the "Open Recent" submenu from electron-store recents.
- */
-function buildRecentSubmenu(): MenuItemConstructorOptions[] {
-  const store = initStore()
-  const recents: RecentEntry[] = store.get('recentFiles', [])
-  const collections: Collection[] = getCollections()
-
-  const collectionMap = new Map<string, Collection>()
-  for (const c of collections) {
-    collectionMap.set(c.id, c)
-  }
-
-  const items: MenuItemConstructorOptions[] = []
-
-  for (const recent of recents.slice(0, 15)) {
-    const collection = collectionMap.get(recent.collectionId)
-    if (!collection) continue
-
-    const fileName = path.basename(recent.filePath)
-    const collectionName = collection.name
-
-    items.push({
-      label: `${fileName} — ${collectionName}`,
-      click: () => {
-        const payload = {
-          collectionId: recent.collectionId,
-          filePath: recent.filePath
-        }
-        // Send to the focused window, or broadcast to all if none focused
-        const focusedWindow = BrowserWindow.getFocusedWindow()
-        if (focusedWindow && !focusedWindow.isDestroyed()) {
-          focusedWindow.webContents.send('menu:open-recent', payload)
-        } else if (windowManagerRef) {
-          windowManagerRef.broadcastToAll('menu:open-recent', payload)
-        }
-      }
-    })
-  }
-
-  if (items.length > 0) {
-    items.push({ type: 'separator' })
-  }
-
-  items.push({
-    label: 'Clear Recent Files',
-    enabled: items.length > 1, // > 1 because separator counts
-    click: () => {
-      store.set('recentFiles', [])
-      refreshRecentMenu()
-    }
-  })
-
-  return items
 }

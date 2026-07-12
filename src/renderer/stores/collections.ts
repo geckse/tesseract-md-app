@@ -21,6 +21,12 @@ export const collectionStatus = writable<IndexStatus | null>(null)
 /** Doctor diagnostic result for the active collection. */
 export const collectionDoctorResult = writable<DoctorResult | null>(null)
 
+/** Whether the doctor modal is open. */
+export const doctorModalOpen = writable<boolean>(false)
+
+/** Whether a doctor run is currently in flight. */
+export const doctorRunning = writable<boolean>(false)
+
 /** Whether collections are currently loading. */
 export const collectionsLoading = writable<boolean>(false)
 
@@ -47,6 +53,18 @@ export async function addCollection(): Promise<Collection | null> {
   const collection = await window.api.addCollection()
   if (collection) {
     collections.update((list) => [...list, collection])
+  }
+  return collection
+}
+
+/**
+ * Add a collection via the native picker and activate it on success.
+ * Shared by the sidebar "+" button and the Collection > Add Collection… menu.
+ */
+export async function addAndActivateCollection(): Promise<Collection | null> {
+  const collection = await addCollection()
+  if (collection) {
+    await setActiveCollection(collection.id)
   }
   return collection
 }
@@ -86,7 +104,7 @@ async function fetchCollectionStatus(id: string): Promise<void> {
 }
 
 /** Fetch doctor diagnostic results for a collection by ID. */
-async function fetchCollectionDoctorStatus(id: string): Promise<void> {
+export async function fetchCollectionDoctorStatus(id: string): Promise<void> {
   const collection = get(collections).find((c) => c.id === id)
   if (!collection) return
   const path = collection.path
@@ -97,4 +115,22 @@ async function fetchCollectionDoctorStatus(id: string): Promise<void> {
   } catch {
     collectionDoctorResult.set(null)
   }
+}
+
+/** Re-run doctor for the active collection (drives the modal's Run Again). */
+export async function runDoctor(): Promise<void> {
+  const id = get(activeCollectionId)
+  if (!id) return
+  doctorRunning.set(true)
+  try {
+    await fetchCollectionDoctorStatus(id)
+  } finally {
+    doctorRunning.set(false)
+  }
+}
+
+/** Open the doctor modal and kick off a fresh run. */
+export function openDoctorModal(): void {
+  doctorModalOpen.set(true)
+  void runDoctor()
 }

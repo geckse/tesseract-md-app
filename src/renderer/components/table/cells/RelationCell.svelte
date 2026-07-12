@@ -1,9 +1,10 @@
 <script lang="ts">
   import type { RelationValue } from '../../../types/cli'
-  import { workspace } from '../../../stores/workspace.svelte'
+  import { openResolvedPath, openResolvedPathOtherPane } from '../../../lib/link-navigation'
   import { formatRelationValue } from '../../../lib/relation-format'
   import RelationChip from '../../RelationChip.svelte'
   import RelationPicker from '../../RelationPicker.svelte'
+  import PopoverMenu, { type PopoverMenuItem } from '../../ui/PopoverMenu.svelte'
   import { type CellProps, isEmptyValue } from './types'
 
   let {
@@ -44,8 +45,14 @@
     })
   })
 
+  // openResolvedPath (not bare workspace.openFile): editors don't poll, so
+  // skipping the file-store sync opens an empty editor tab.
   function navigate(path: string): void {
-    workspace.openFile(path)
+    openResolvedPath(path)
+  }
+
+  function openInNewTab(path: string): void {
+    openResolvedPath(path, { forceNewTab: true })
   }
 
   /** Paths already linked (excluded from the picker in multi-value add mode). */
@@ -70,9 +77,95 @@
   function clear(): void {
     oncommit(null)
   }
+
+  /** Right-click context menu, anchored to the chip that was clicked. */
+  let menu: { index: number; anchor: HTMLElement } | null = $state(null)
+
+  function openMenu(index: number, e: MouseEvent): void {
+    const anchor = (e.currentTarget as HTMLElement | null) ?? cellEl
+    if (anchor) menu = { index, anchor }
+  }
+
+  // Cell-background right-click: unambiguous only for single-chip cells
+  // (chips stop propagation and open their own menu).
+  function handleCellContextMenu(e: MouseEvent): void {
+    if (chips.length !== 1 || !cellEl) return
+    e.preventDefault()
+    e.stopPropagation()
+    menu = { index: 0, anchor: cellEl }
+  }
+
+  const menuItems = $derived.by<PopoverMenuItem[]>(() => {
+    if (!menu) return []
+    const chip = chips[menu.index]
+    const resolved = !!chip?.relation && chip.relation.exists && !!chip.relation.path
+    return [
+      { id: 'open', label: 'Open', icon: 'arrow_forward', disabled: !resolved },
+      { id: 'open-new-tab', label: 'Open in New Tab', icon: 'tab', disabled: !resolved },
+      {
+        id: 'open-other-pane',
+        label: 'Open in Other Pane',
+        icon: 'vertical_split',
+        disabled: !resolved
+      },
+      {
+        id: 'open-popup',
+        label: 'Open in Popup Window',
+        icon: 'picture_in_picture_alt',
+        disabled: !resolved || !root
+      },
+      { id: 'copy-link', label: 'Copy Link Text', icon: 'content_copy', separatorBefore: true },
+      {
+        id: 'unlink',
+        label: 'Unlink',
+        icon: 'link_off',
+        danger: true,
+        separatorBefore: true,
+        disabled: readOnly
+      }
+    ]
+  })
+
+  function handleMenuSelect(id: string): void {
+    const m = menu
+    if (!m) return
+    const chip = chips[m.index]
+    if (!chip) return
+    const path = chip.relation?.exists ? chip.relation.path : null
+    switch (id) {
+      case 'open':
+        if (path) openResolvedPath(path)
+        break
+      case 'open-new-tab':
+        if (path) openInNewTab(path)
+        break
+      case 'open-other-pane':
+        if (path) openResolvedPathOtherPane(path)
+        break
+      case 'open-popup':
+        if (path && root) {
+          void window.api.openPopup({
+            kind: 'document',
+            filePath: path,
+            collectionId: collectionId ?? undefined,
+            collectionPath: root
+          })
+        }
+        break
+      case 'copy-link':
+        void navigator.clipboard.writeText(chip.raw)
+        break
+      case 'unlink':
+        if (readOnly) break
+        if (isArray) removeAt(m.index)
+        else oncommit(null)
+        break
+    }
+  }
 </script>
 
-<div class="rc" bind:this={cellEl}>
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="rc" bind:this={cellEl} oncontextmenu={handleCellContextMenu}>
   {#if rawValues.length === 0}
     <span class="empty">—</span>
   {:else}
@@ -82,10 +175,22 @@
           relation={chip.relation}
           raw={chip.raw}
           onnavigate={navigate}
+          onopennewtab={editing ? undefined : openInNewTab}
+          oncontextmenu={(e) => openMenu(i, e)}
           onremove={editing && isArray && !readOnly ? () => removeAt(i) : undefined}
         />
       {/each}
     </div>
+  {/if}
+
+  {#if menu}
+    <PopoverMenu
+      anchorEl={menu.anchor}
+      items={menuItems}
+      onselect={handleMenuSelect}
+      ondismiss={() => (menu = null)}
+      ariaLabel="Relation actions"
+    />
   {/if}
 
   {#if editing && !readOnly && cellEl && root}

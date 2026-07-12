@@ -1,7 +1,36 @@
 import { get } from 'svelte/store'
 import { flatFileList, selectedFilePath, syncFileStoresFromTab } from '../stores/files'
-import { workspace } from '../stores/workspace.svelte'
+import { workspace, detectAssetMime } from '../stores/workspace.svelte'
 import { recordNavigation } from '../stores/navigation'
+import { activeCollection } from '../stores/collections'
+
+/**
+ * A popup window renders exactly one fixed piece of content — tabs created by
+ * workspace.openFile/openTab exist in its workspace but are never displayed.
+ * When an in-place replace of the popup's document isn't possible (the popup
+ * shows a table/graph/asset, its document is dirty, the caller asked for a
+ * new tab / other pane, or the target is an asset), open the path in a fresh
+ * popup window instead. Returns true when the open was routed there.
+ */
+function routeToPopupWindow(path: string, force = false): boolean {
+  if (!workspace.isPopup) return false
+  const mime = detectAssetMime(path)
+  if (!force && !mime) {
+    const active = workspace.focusedTab
+    // Clean document popups navigate in place via replaceTab — keep that.
+    if (active?.kind === 'document' && !active.isDirty) return false
+  }
+  const collection = get(activeCollection)
+  if (!collection) return false
+  void window.api.openPopup({
+    kind: mime ? 'asset' : 'document',
+    filePath: path,
+    mimeCategory: mime ?? undefined,
+    collectionId: collection.id,
+    collectionPath: collection.path
+  })
+  return true
+}
 
 /**
  * Resolve a wikilink target (e.g. "my-note") to a file path in the collection.
@@ -120,6 +149,7 @@ export function navigateLink(href: string): void {
   if (isInternalHref(href)) {
     const resolved = resolveHref(href)
     if (resolved) {
+      if (routeToPopupWindow(resolved)) return
       recordNavigation(resolved)
       workspace.openFile(resolved)
       syncFileStoresFromTab()
@@ -136,6 +166,7 @@ export function navigateLinkNewTab(href: string): void {
   if (isInternalHref(href)) {
     const resolved = resolveHref(href)
     if (resolved) {
+      if (routeToPopupWindow(resolved, true)) return
       recordNavigation(resolved)
       workspace.openTab(resolved)
       syncFileStoresFromTab()
@@ -152,6 +183,7 @@ export function navigateLinkOtherPane(href: string): void {
   if (isInternalHref(href)) {
     const resolved = resolveHref(href)
     if (resolved) {
+      if (routeToPopupWindow(resolved, true)) return
       recordNavigation(resolved)
       workspace.openTabFromGraph(resolved)
       syncFileStoresFromTab()
@@ -159,6 +191,27 @@ export function navigateLinkOtherPane(href: string): void {
   } else {
     window.open(href, '_blank')
   }
+}
+
+/**
+ * Open an already-resolved root-relative file path (e.g. a `RelationValue.path`
+ * from the CLI). Skips href/wikilink resolution but keeps the full navigation
+ * sequence — recordNavigation + openFile + file-store sync. Editors don't poll:
+ * calling workspace.openFile without syncFileStoresFromTab opens an empty tab.
+ */
+export function openResolvedPath(path: string, options?: { forceNewTab?: boolean }): void {
+  if (routeToPopupWindow(path, options?.forceNewTab)) return
+  recordNavigation(path)
+  workspace.openFile(path, options)
+  syncFileStoresFromTab()
+}
+
+/** Open an already-resolved path in the other split pane (creates the split). */
+export function openResolvedPathOtherPane(path: string): void {
+  if (routeToPopupWindow(path, true)) return
+  recordNavigation(path)
+  workspace.openTabFromGraph(path)
+  syncFileStoresFromTab()
 }
 
 /**
@@ -182,9 +235,11 @@ export function handleLinkClick(event: MouseEvent): boolean {
       if (resolved) {
         event.preventDefault()
         event.stopPropagation()
-        recordNavigation(resolved)
-        workspace.openFile(resolved)
-        syncFileStoresFromTab()
+        if (!routeToPopupWindow(resolved)) {
+          recordNavigation(resolved)
+          workspace.openFile(resolved)
+          syncFileStoresFromTab()
+        }
         return true
       }
     }
@@ -202,9 +257,11 @@ export function handleLinkClick(event: MouseEvent): boolean {
       if (resolved) {
         event.preventDefault()
         event.stopPropagation()
-        recordNavigation(resolved)
-        workspace.openFile(resolved)
-        syncFileStoresFromTab()
+        if (!routeToPopupWindow(resolved)) {
+          recordNavigation(resolved)
+          workspace.openFile(resolved)
+          syncFileStoresFromTab()
+        }
         return true
       }
     } else {

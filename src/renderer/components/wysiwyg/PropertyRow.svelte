@@ -2,7 +2,7 @@
   import type { JsonValue, RelationValue, SchemaField } from '../../types/cli'
   import { cliFeatures } from '../../lib/cli-features.svelte'
   import { formatRelationValue } from '../../lib/relation-format'
-  import { workspace } from '../../stores/workspace.svelte'
+  import { openResolvedPath } from '../../lib/link-navigation'
   import AutocompleteDropdown from './AutocompleteDropdown.svelte'
   import DatePicker from './DatePicker.svelte'
   import DateTimePicker from './DateTimePicker.svelte'
@@ -111,8 +111,10 @@
     return relationValues?.find((r) => r.raw === raw) ?? null
   }
 
+  // openResolvedPath (not bare workspace.openFile): editors don't poll, so
+  // skipping the file-store sync opens an empty editor tab.
   function openRelationTarget(path: string): void {
-    workspace.openFile(path)
+    openResolvedPath(path)
   }
 
   function pickRelation(path: string): void {

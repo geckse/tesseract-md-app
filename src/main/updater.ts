@@ -208,3 +208,26 @@ export class AppUpdater {
     this.windowManager.broadcastToAll(`${IPC_PREFIX}:event`, { type, data })
   }
 }
+
+/** Singleton AppUpdater instance (shared by IPC handlers and the native menu). */
+let appUpdater: AppUpdater | null = null
+
+/**
+ * Get or create the AppUpdater singleton.
+ */
+export function getAppUpdater(): AppUpdater {
+  if (!appUpdater) {
+    appUpdater = new AppUpdater()
+  }
+  return appUpdater
+}
+
+/**
+ * Destroy the app updater (call on app quit).
+ */
+export function destroyAppUpdater(): void {
+  if (appUpdater) {
+    appUpdater.destroy()
+    appUpdater = null
+  }
+}

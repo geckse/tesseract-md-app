@@ -36,7 +36,8 @@
   } from './stores/editor'
   import { loadFavorites } from './stores/favorites'
   import { openQuickOpen } from './stores/quickopen'
-  import { shortcutManager } from './lib/shortcuts'
+  import { shortcutManager, isEditableTarget } from './lib/shortcuts'
+  import { tableStore } from './stores/table.svelte'
   import { openNewNotePopup } from './lib/new-note'
   import {
     setupWatcherListener,
@@ -63,11 +64,23 @@
   } from './stores/navigation'
   import {
     settingsOpen,
+    shortcutsModalOpen,
+    propertiesOpen,
+    togglePropertiesPanel,
+    sidebarVisible,
     onboardingComplete,
     loadOnboardingState,
     editorFontSize,
     loadEditorFontSize
   } from './stores/ui'
+  import { handleMenuCommand } from './lib/menu-commands'
+  import {
+    closeFocusedTabWithConfirm,
+    reopenLastClosedTab,
+    cycleTab
+  } from './stores/workspace-actions'
+  import DoctorModal from './components/DoctorModal.svelte'
+  import KeyboardShortcuts from './components/KeyboardShortcuts.svelte'
   import { setupUpdateListener, teardownUpdateListener } from './stores/updater'
   import {
     loadAccentColors,
@@ -85,7 +98,6 @@
   } from './stores/theme'
   import { applyTheme } from './lib/apply-theme'
   import { workspace } from './stores/workspace.svelte'
-  import { closedTabs } from './stores/closed-tabs.svelte'
   import PopupShell from './components/PopupShell.svelte'
   import BottomPanel from './components/BottomPanel.svelte'
   import { terminalStore } from './stores/terminal.svelte'
@@ -95,7 +107,6 @@
   const popupParams = new URLSearchParams(window.location.search)
   const isPopupMode = popupParams.get('mode') === 'popup'
 
-  let propertiesOpen = $state(localStorage.getItem('mdvdb-properties-open') === 'true')
   let searchAreaEl: HTMLElement | undefined = $state(undefined)
 
   // Focus management refs for Tab navigation
@@ -203,6 +214,9 @@
       }, 50)
     })
 
+    // Native menu commands (File/Format/View/Collection/Help — phase 43)
+    window.api.onMenuCommand(handleMenuCommand)
+
     // Register keyboard shortcuts
     const unregisterShortcuts = [
       // Cmd+O / Ctrl+O: Open quick file finder
@@ -229,8 +243,7 @@
         meta: true,
         shift: true,
         handler: () => {
-          propertiesOpen = !propertiesOpen
-          localStorage.setItem('mdvdb-properties-open', String(propertiesOpen))
+          togglePropertiesPanel()
         }
       }),
 
@@ -239,28 +252,7 @@
         key: 'w',
         meta: true,
         handler: () => {
-          const tab = workspace.focusedTab
-          if (tab && tab.kind === 'document') {
-            if (tab.isDirty) {
-              // Show save/discard/cancel prompt for dirty tabs
-              const shouldClose = window.confirm(
-                `"${tab.title}" has unsaved changes. Discard changes and close?`
-              )
-              if (!shouldClose) return
-            }
-            const paneId = workspace.activePaneId
-            const closed = workspace.closeTab(tab.id)
-            if (closed && closed.kind === 'document') {
-              closedTabs.push(closed, paneId)
-            }
-          } else {
-            // No document tab focused — deselect
-            const pane = workspace.focusedPane
-            if (pane) {
-              pane.activeTabId = null
-            }
-          }
-          syncFileStoresFromTab()
+          closeFocusedTabWithConfirm()
         }
       }),
 
@@ -289,11 +281,7 @@
         meta: true,
         shift: true,
         handler: () => {
-          const entry = closedTabs.pop()
-          if (entry) {
-            workspace.openTab(entry.tab.filePath)
-            syncFileStoresFromTab()
-          }
+          reopenLastClosedTab()
         }
       }),
 
@@ -303,6 +291,38 @@
         meta: true,
         handler: () => {
           openNewNotePopup()
+        }
+      }),
+
+      // Cmd+Z / Ctrl+Z: Undo in the focused table tab. preventDefault:false +
+      // explicit shift so native undo inside inputs / CodeMirror / Tiptap is
+      // never overridden; we preventDefault manually only when we handle it.
+      shortcutManager.register({
+        key: 'z',
+        meta: true,
+        shift: false,
+        preventDefault: false,
+        handler: (event) => {
+          const tab = workspace.focusedTab
+          if (!tab || tab.kind !== 'table') return
+          if (event.defaultPrevented || isEditableTarget(event.target)) return
+          event.preventDefault()
+          void tableStore.undo(tab.id)
+        }
+      }),
+
+      // Cmd+Shift+Z / Ctrl+Shift+Z: Redo in the focused table tab
+      shortcutManager.register({
+        key: 'z',
+        meta: true,
+        shift: true,
+        preventDefault: false,
+        handler: (event) => {
+          const tab = workspace.focusedTab
+          if (!tab || tab.kind !== 'table') return
+          if (event.defaultPrevented || isEditableTarget(event.target)) return
+          event.preventDefault()
+          void tableStore.redo(tab.id)
         }
       }),
 
@@ -350,14 +370,7 @@
         meta: true,
         alt: true,
         handler: () => {
-          const pane = workspace.focusedPane
-          if (!pane) return
-          const docTabs = pane.tabOrder.filter((id) => workspace.tabs[id]?.kind === 'document')
-          if (docTabs.length === 0) return
-          const currentIdx = pane.activeTabId ? docTabs.indexOf(pane.activeTabId) : -1
-          const prevIdx = currentIdx <= 0 ? docTabs.length - 1 : currentIdx - 1
-          workspace.switchTab(docTabs[prevIdx])
-          syncFileStoresFromTab()
+          cycleTab(-1)
         }
       }),
 
@@ -367,14 +380,7 @@
         meta: true,
         alt: true,
         handler: () => {
-          const pane = workspace.focusedPane
-          if (!pane) return
-          const docTabs = pane.tabOrder.filter((id) => workspace.tabs[id]?.kind === 'document')
-          if (docTabs.length === 0) return
-          const currentIdx = pane.activeTabId ? docTabs.indexOf(pane.activeTabId) : -1
-          const nextIdx = currentIdx < 0 || currentIdx >= docTabs.length - 1 ? 0 : currentIdx + 1
-          workspace.switchTab(docTabs[nextIdx])
-          syncFileStoresFromTab()
+          cycleTab(1)
         }
       }),
 
@@ -582,6 +588,7 @@
       teardownFileSyncListener()
       teardownUpdateListener()
       window.api.removeMenuOpenRecentListener()
+      window.api.removeMenuCommandListener()
       window.api.removeFileSavedExternallyListener()
       unsub()
       unsubAccent()
@@ -625,17 +632,12 @@
     searchOpen.set(false)
   }
 
-  function handleToggleProperties(detail: { open: boolean }) {
-    propertiesOpen = detail.open
-    localStorage.setItem('mdvdb-properties-open', String(propertiesOpen))
-  }
-
   /**
    * Cycle focus between the three main regions: sidebar, editor, and metadata panel.
    * @param reverse - If true, cycle backward (Shift+Tab), otherwise forward (Tab)
    */
   function cycleFocus(reverse: boolean = false) {
-    const regions = [sidebarEl, editorEl, propertiesOpen ? propertiesEl : null].filter(
+    const regions = [sidebarEl, editorEl, $propertiesOpen ? propertiesEl : null].filter(
       Boolean
     ) as HTMLElement[]
 
@@ -681,30 +683,28 @@
   <div class="app-shell bg-grain" style="--editor-font-size: {$editorFontSize}px">
     <UpdateNotification />
     <div class="titlebar-region" bind:this={searchAreaEl}>
-      <Titlebar
-        bind:propertiesOpen
-        onsearchresultclick={navigateToResult}
-        ontoggleproperties={handleToggleProperties}
-      />
+      <Titlebar onsearchresultclick={navigateToResult} />
     </div>
 
     <div class="body-region">
-      <div
-        class="sidebar-region"
-        bind:this={sidebarEl}
-        tabindex="-1"
-        role="navigation"
-        aria-label="File navigation"
-      >
-        <Sidebar onnavigate={handleNavigate} onfileselect={handleFileSelect} />
-      </div>
+      {#if $sidebarVisible}
+        <div
+          class="sidebar-region"
+          bind:this={sidebarEl}
+          tabindex="-1"
+          role="navigation"
+          aria-label="File navigation"
+        >
+          <Sidebar onnavigate={handleNavigate} onfileselect={handleFileSelect} />
+        </div>
+      {/if}
 
       <main class="main-area">
         <div class="content-area">
           <div id="main-content" class="tab-pane-region" bind:this={editorEl} tabindex="-1">
             <SplitPaneContainer />
           </div>
-          {#if propertiesOpen}
+          {#if $propertiesOpen}
             <div
               class="properties-region"
               bind:this={propertiesEl}
@@ -729,9 +729,11 @@
       <Settings onclose={() => settingsOpen.set(false)} />
     {/if}
     <IngestModal />
+    <DoctorModal />
     <QuickOpen />
     <DiffView />
     <ConvertTypeModal />
+    <KeyboardShortcuts open={$shortcutsModalOpen} onclose={() => shortcutsModalOpen.set(false)} />
   </div>
 {/if}
 

@@ -1,4 +1,6 @@
 import { writable, derived, get } from 'svelte/store'
+import { settingsOpen } from './ui'
+import { activeCollectionId } from './collections'
 
 /** User-level config key-value pairs (~/.mdvdb/config) — last saved state. */
 export const userConfig = writable<Record<string, string>>({})
@@ -44,6 +46,23 @@ export const settingsTarget = writable<string>('global')
 export function openCollectionSettings(collectionId: string): void {
   settingsTarget.set(collectionId)
   activeSection.set('embedding')
+}
+
+/**
+ * Open the settings modal to a specific target and section — the single
+ * deep-link entry point used by the native menu and context menus.
+ * `target: 'collection'` resolves to the active collection (no-ops to
+ * global when none is active).
+ */
+export function openSettingsSection(target: 'global' | 'collection', section: string): void {
+  if (target === 'collection') {
+    const id = get(activeCollectionId)
+    settingsTarget.set(id ?? 'global')
+  } else {
+    settingsTarget.set('global')
+  }
+  activeSection.set(section)
+  settingsOpen.set(true)
 }
 
 /** Load user-level config from main process. */

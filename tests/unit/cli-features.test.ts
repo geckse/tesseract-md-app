@@ -69,4 +69,30 @@ describe('cliFeatures', () => {
     expect(cliFeatures.version).toBeNull()
     expect(cliFeatures.supportsRelations).toBe(false)
   })
+
+  it('init() is single-flight — a caller during in-flight detection awaits the SAME fetch', async () => {
+    let resolveVersion!: (v: string) => void
+    const getCliVersion = vi
+      .fn()
+      .mockReturnValue(new Promise<string>((resolve) => (resolveVersion = resolve)))
+    Object.defineProperty(globalThis, 'window', {
+      value: { api: { getCliVersion } },
+      configurable: true
+    })
+
+    const first = cliFeatures.init() // app startup (fire-and-forget)
+    let secondSettled = false
+    const second = cliFeatures.init().then(() => (secondSettled = true))
+
+    // The second caller must NOT resolve before detection does — resolving
+    // early is exactly the race that fetched tables unpopulated (neutral chips).
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(secondSettled).toBe(false)
+
+    resolveVersion('0.2.0')
+    await Promise.all([first, second])
+    expect(getCliVersion).toHaveBeenCalledTimes(1)
+    expect(cliFeatures.supportsRelations).toBe(true)
+  })
 })

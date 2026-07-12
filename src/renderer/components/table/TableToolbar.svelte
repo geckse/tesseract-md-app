@@ -2,7 +2,9 @@
   import { activeCollection } from '../../stores/collections'
   import { workspace, type TableTab } from '../../stores/workspace.svelte'
   import { tableStore } from '../../stores/table.svelte'
+  import { tableHistory } from '../../stores/table-history.svelte'
   import { tableViewsStore } from '../../stores/table-views.svelte'
+  import { getShortcutDisplay } from '../../lib/shortcuts'
   import IconButton from '../ui/IconButton.svelte'
   import PopoverMenu, { type PopoverMenuItem } from '../ui/PopoverMenu.svelte'
 
@@ -31,6 +33,9 @@
   const config = $derived(tableStore.mergedConfig(tabId))
   const allColumns = $derived(tableStore.state(tabId).data?.columns ?? [])
   const rowCount = $derived(tableStore.rowCount(tabId))
+  const canUndo = $derived(tableHistory.canUndo(tabId))
+  const canRedo = $derived(tableHistory.canRedo(tabId))
+  const historyNotice = $derived(tableHistory.noticeFor(tabId))
   const savedViews = $derived(
     $activeCollection ? tableViewsStore.getViews($activeCollection.id, tab?.folderPath ?? '') : []
   )
@@ -219,6 +224,24 @@
   </div>
 
   <div class="right">
+    {#if historyNotice}
+      <span class="history-notice" role="status" aria-live="polite">{historyNotice.message}</span>
+    {/if}
+    <IconButton
+      icon="undo"
+      title={`Undo (${getShortcutDisplay('z', true)})`}
+      size="sm"
+      disabled={!canUndo}
+      onclick={() => void tableStore.undo(tabId)}
+    />
+    <IconButton
+      icon="redo"
+      title={`Redo (${getShortcutDisplay('z', true, true)})`}
+      size="sm"
+      disabled={!canRedo}
+      onclick={() => void tableStore.redo(tabId)}
+    />
+    <span class="divider"></span>
     {#if addingRow}
       <span class="add-row-form">
         <!-- svelte-ignore a11y_autofocus -->
@@ -376,6 +399,27 @@
   }
 
   /* ── Right side ─────────────────────────────────────────────── */
+  .history-notice {
+    font-size: var(--text-xs, 0.625rem);
+    color: var(--color-text-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 260px;
+    animation: notice-in 150ms ease-out;
+  }
+
+  @keyframes notice-in {
+    from {
+      opacity: 0;
+      transform: translateX(4px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
   .row-count {
     font-size: var(--text-xs, 0.625rem);
     color: var(--color-text-dim);
@@ -419,6 +463,9 @@
   @media (prefers-reduced-motion: reduce) {
     .ghost-btn {
       transition: none;
+    }
+    .history-notice {
+      animation: none;
     }
   }
 </style>

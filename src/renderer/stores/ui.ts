@@ -3,6 +3,45 @@ import { writable } from 'svelte/store'
 /** Whether the settings panel is open. */
 export const settingsOpen = writable<boolean>(false)
 
+/** Whether the keyboard-shortcuts reference modal is open. */
+export const shortcutsModalOpen = writable<boolean>(false)
+
+/** Create a boolean store persisted to localStorage. */
+function persistedBoolean(key: string, defaultValue: boolean) {
+  let initial = defaultValue
+  try {
+    const stored = localStorage.getItem(key)
+    if (stored !== null) initial = stored === 'true'
+  } catch {
+    // localStorage unavailable (tests) — keep default
+  }
+  const store = writable<boolean>(initial)
+  store.subscribe((value) => {
+    try {
+      localStorage.setItem(key, String(value))
+    } catch {
+      // ignore persistence failures
+    }
+  })
+  return store
+}
+
+/** Whether the properties panel is open (persisted; shared by Titlebar, Header, menu). */
+export const propertiesOpen = persistedBoolean('mdvdb-properties-open', false)
+
+/** Toggle the properties panel. */
+export function togglePropertiesPanel(): void {
+  propertiesOpen.update((v) => !v)
+}
+
+/** Whether the sidebar is visible (persisted; View > Toggle Sidebar). */
+export const sidebarVisible = persistedBoolean('mdvdb-sidebar-visible', true)
+
+/** Toggle sidebar visibility. */
+export function toggleSidebar(): void {
+  sidebarVisible.update((v) => !v)
+}
+
 /** Whether the user has completed onboarding. */
 export const onboardingComplete = writable<boolean>(true)
 

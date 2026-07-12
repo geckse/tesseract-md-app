@@ -35,7 +35,7 @@ class CliFeatures {
   /** Detected CLI version (e.g. "0.2.0"), or null while unknown/undetected. */
   version = $state<string | null>(null)
 
-  private initStarted = false
+  private initPromise: Promise<void> | null = null
 
   /** Whether the detected CLI supports phase-31 relations (`--populate` etc.). */
   get supportsRelations(): boolean {
@@ -45,22 +45,26 @@ class CliFeatures {
   }
 
   /**
-   * Fetch the CLI version once at startup (idempotent). Failures leave
-   * `version` null — every capability stays off.
+   * Fetch the CLI version once at startup (idempotent). Single-flight:
+   * concurrent callers share the in-flight fetch, so awaiting init()
+   * guarantees detection has SETTLED — loads whose request shape depends on
+   * `supportsRelations` await this instead of racing ahead with a stale
+   * `false`. Failures leave `version` null — every capability stays off.
    */
-  async init(): Promise<void> {
-    if (this.initStarted) return
-    this.initStarted = true
-    try {
-      this.version = await window.api.getCliVersion()
-    } catch {
-      this.version = null
-    }
+  init(): Promise<void> {
+    this.initPromise ??= (async () => {
+      try {
+        this.version = (await window.api.getCliVersion()) ?? null
+      } catch {
+        this.version = null
+      }
+    })()
+    return this.initPromise
   }
 
   /** Test hook: reset detection state. */
   reset(): void {
-    this.initStarted = false
+    this.initPromise = null
     this.version = null
   }
 }

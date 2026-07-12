@@ -1,5 +1,4 @@
 <script lang="ts">
-  import KeyboardShortcuts from './KeyboardShortcuts.svelte'
   import ColorPicker from './ui/ColorPicker.svelte'
   import {
     globalPrimaryColor,
@@ -32,7 +31,7 @@
     saveAllSettings,
     discardDraft
   } from '../stores/settings'
-  import { settingsOpen } from '../stores/ui'
+  import { settingsOpen, shortcutsModalOpen } from '../stores/ui'
   import { collections, activeCollection } from '../stores/collections'
   import type { Collection } from '../../preload/api'
   import type { TopicDef, CustomClusterSummary, TopicUnassigned } from '../types/cli'
@@ -148,8 +147,9 @@
   globalTheme.subscribe((v) => (currentGlobalTheme = v))
   collectionTheme.subscribe((v) => (currentCollectionTheme = v))
 
-  // Keyboard shortcuts modal
+  // Keyboard shortcuts modal (global store — also opened from Help menu)
   let shortcutsOpen = $state(false)
+  shortcutsModalOpen.subscribe((v) => (shortcutsOpen = v))
 
   // API key visibility
   let showApiKey = $state(false)
@@ -1564,7 +1564,7 @@
             </div>
             <div class="field-group">
               <span class="field-label">Keyboard Shortcuts</span>
-              <button class="action-btn" onclick={() => (shortcutsOpen = true)}>
+              <button class="action-btn" onclick={() => shortcutsModalOpen.set(true)}>
                 <span class="material-symbols-outlined">keyboard</span>
                 View Shortcuts
               </button>
@@ -1599,8 +1599,6 @@
     </div>
   </div>
 </div>
-
-<KeyboardShortcuts open={shortcutsOpen} onclose={() => (shortcutsOpen = false)} />
 
 <style>
   .settings-overlay {
@@ -2376,6 +2374,31 @@
     font-size: 12px;
     color: #ef4444;
     margin: 0 0 12px 0;
+  }
+
+  .btn-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-md, 6px);
+    color: var(--color-text-dim, #71717a);
+    cursor: pointer;
+    transition:
+      color var(--transition-fast, 150ms ease),
+      background var(--transition-fast, 150ms ease);
+  }
+
+  .btn-icon:hover {
+    color: var(--color-primary, #00e5ff);
+    background: var(--color-surface-dark, #0a0a0a);
+  }
+
+  .btn-icon .material-symbols-outlined {
+    font-size: 18px;
   }
 
   .btn-icon-sm {

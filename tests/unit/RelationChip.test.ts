@@ -70,4 +70,41 @@ describe('RelationChip', () => {
     await fireEvent.mouseDown(screen.getByLabelText('Remove Acme Corp'))
     expect(onremove).toHaveBeenCalled()
   })
+
+  it('renders a hover quick-open button that fires onopennewtab with the path', async () => {
+    const onopennewtab = vi.fn()
+    render(RelationChip, { props: { relation: rel(), raw: '[[clients/acme]]', onopennewtab } })
+    await fireEvent.click(screen.getByLabelText('Open Acme Corp in new tab'))
+    expect(onopennewtab).toHaveBeenCalledWith('clients/acme.md')
+  })
+
+  it('never renders the quick-open button for broken or neutral chips', () => {
+    const onopennewtab = vi.fn()
+    render(RelationChip, {
+      props: {
+        relation: rel({ exists: false, title: null, frontmatter: null }),
+        raw: '[[clients/ghost]]',
+        onopennewtab
+      }
+    })
+    render(RelationChip, { props: { raw: '[[clients/acme]]', onopennewtab } })
+    expect(screen.queryByTitle('Open in new tab')).toBeNull()
+  })
+
+  it('does not render the quick-open button when onopennewtab is absent', () => {
+    render(RelationChip, { props: { relation: rel(), raw: '[[clients/acme]]' } })
+    expect(screen.queryByTitle('Open in new tab')).toBeNull()
+  })
+
+  it('fires oncontextmenu on right-click and suppresses the native menu', async () => {
+    const oncontextmenu = vi.fn()
+    const { container } = render(RelationChip, {
+      props: { relation: rel(), raw: '[[clients/acme]]', oncontextmenu }
+    })
+    const chip = container.querySelector('.rel-chip')!
+    // fireEvent returns false when preventDefault was called by a handler.
+    const notPrevented = await fireEvent.contextMenu(chip)
+    expect(oncontextmenu).toHaveBeenCalled()
+    expect(notPrevented).toBe(false)
+  })
 })

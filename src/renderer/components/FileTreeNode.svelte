@@ -27,6 +27,13 @@
     noRecursiveRender?: boolean // If true, don't render children recursively (for virtual lists)
     currentSelectedFilePath?: string | null
     currentExpandedPaths?: Set<string>
+    /** Path of the node currently being renamed inline (phase 43), if any. */
+    renamingPath?: string | null
+    /** Initial input value for the rename (name without extension for files). */
+    renameInitial?: string
+    renameError?: string | null
+    onrenamecommit?: (value: string) => void
+    onrenamecancel?: () => void
   }
 
   let {
@@ -40,8 +47,32 @@
     focusedPath,
     noRecursiveRender = false,
     currentSelectedFilePath = null,
-    currentExpandedPaths = new Set<string>()
+    currentExpandedPaths = new Set<string>(),
+    renamingPath = null,
+    renameInitial = '',
+    renameError = null,
+    onrenamecommit,
+    onrenamecancel
   }: FileTreeNodeProps = $props()
+
+  const isRenaming = $derived(renamingPath === node.path)
+
+  let renameDraft = $state('')
+  $effect(() => {
+    if (isRenaming) {
+      renameDraft = renameInitial
+    }
+  })
+
+  function handleRenameKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      onrenamecommit?.(renameDraft)
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      onrenamecancel?.()
+    }
+  }
 
   /** Open a folder as a table view without toggling expansion. */
   function handleOpenAsTable(event: MouseEvent) {
@@ -181,53 +212,89 @@
 </script>
 
 <div class="tree-node">
-  <button
-    bind:this={buttonElement}
-    class="tree-row"
-    class:active={isSelected}
-    class:focused={isFocused}
-    class:directory={node.is_dir}
-    style="padding-left: {12 + depth * 16}px;"
-    draggable={!node.is_dir}
-    onclick={handleClick}
-    ondblclick={handleDblClick}
-    oncontextmenu={handleContextMenu}
-    ondragstart={handleDragStart}
-    title={node.path}
-    role="treeitem"
-    aria-level={depth + 1}
-    aria-expanded={node.is_dir ? isExpanded : undefined}
-    aria-selected={isSelected}
-  >
-    {#if node.is_dir}
-      <span class="material-symbols-outlined expand-icon" class:expanded={isExpanded}>
-        chevron_right
-      </span>
-      <span class="material-symbols-outlined node-icon">
-        {isExpanded ? 'folder_open' : 'folder'}
-      </span>
-    {:else}
-      <span class="expand-spacer"></span>
-      <span
-        class="material-symbols-outlined node-icon"
-        class:file-icon={!node.isAsset}
-        class:asset-icon={node.isAsset}
-      >
-        {fileIcon(node.name)}
-      </span>
-    {/if}
+  {#if isRenaming}
+    <div class="tree-row renaming" style="padding-left: {12 + depth * 16}px;">
+      {#if node.is_dir}
+        <span class="material-symbols-outlined expand-icon" class:expanded={isExpanded}>
+          chevron_right
+        </span>
+        <span class="material-symbols-outlined node-icon">
+          {isExpanded ? 'folder_open' : 'folder'}
+        </span>
+      {:else}
+        <span class="expand-spacer"></span>
+        <span
+          class="material-symbols-outlined node-icon"
+          class:file-icon={!node.isAsset}
+          class:asset-icon={node.isAsset}
+        >
+          {fileIcon(node.name)}
+        </span>
+      {/if}
+      <!-- svelte-ignore a11y_autofocus -->
+      <input
+        class="rename-input"
+        class:has-error={!!renameError}
+        type="text"
+        bind:value={renameDraft}
+        onkeydown={handleRenameKeydown}
+        onblur={() => onrenamecommit?.(renameDraft)}
+        autofocus
+        aria-label="Rename {node.name}"
+      />
+      {#if renameError}
+        <span class="material-symbols-outlined rename-error-icon" title={renameError}>error</span>
+      {/if}
+    </div>
+  {:else}
+    <button
+      bind:this={buttonElement}
+      class="tree-row"
+      class:active={isSelected}
+      class:focused={isFocused}
+      class:directory={node.is_dir}
+      style="padding-left: {12 + depth * 16}px;"
+      draggable={!node.is_dir}
+      onclick={handleClick}
+      ondblclick={handleDblClick}
+      oncontextmenu={handleContextMenu}
+      ondragstart={handleDragStart}
+      title={node.path}
+      role="treeitem"
+      aria-level={depth + 1}
+      aria-expanded={node.is_dir ? isExpanded : undefined}
+      aria-selected={isSelected}
+    >
+      {#if node.is_dir}
+        <span class="material-symbols-outlined expand-icon" class:expanded={isExpanded}>
+          chevron_right
+        </span>
+        <span class="material-symbols-outlined node-icon">
+          {isExpanded ? 'folder_open' : 'folder'}
+        </span>
+      {:else}
+        <span class="expand-spacer"></span>
+        <span
+          class="material-symbols-outlined node-icon"
+          class:file-icon={!node.isAsset}
+          class:asset-icon={node.isAsset}
+        >
+          {fileIcon(node.name)}
+        </span>
+      {/if}
 
-    <span class="node-name">{node.name}</span>
+      <span class="node-name">{node.name}</span>
 
-    {#if !node.is_dir && !node.isAsset && node.state}
-      <span
-        class="material-symbols-outlined state-indicator {stateClass(node.state)}"
-        title={node.state}
-      >
-        {stateIcon(node.state)}
-      </span>
-    {/if}
-  </button>
+      {#if !node.is_dir && !node.isAsset && node.state}
+        <span
+          class="material-symbols-outlined state-indicator {stateClass(node.state)}"
+          title={node.state}
+        >
+          {stateIcon(node.state)}
+        </span>
+      {/if}
+    </button>
+  {/if}
 
   {#if node.is_dir}
     <button
@@ -254,6 +321,11 @@
           {focusedPath}
           {currentSelectedFilePath}
           {currentExpandedPaths}
+          {renamingPath}
+          {renameInitial}
+          {renameError}
+          {onrenamecommit}
+          {onrenamecancel}
         />
       {/each}
     </div>
@@ -377,6 +449,36 @@
     flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .tree-row.renaming {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+  }
+
+  .rename-input {
+    flex: 1;
+    min-width: 0;
+    background: var(--color-surface-darker, #0a0a0a);
+    border: 1px solid var(--color-primary, #00e5ff);
+    border-radius: 4px;
+    color: var(--color-text-main, #e4e4e7);
+    font: inherit;
+    font-size: 13px;
+    padding: 1px 6px;
+    outline: none;
+  }
+
+  .rename-input.has-error {
+    border-color: var(--color-error, #ef4444);
+  }
+
+  .rename-error-icon {
+    font-size: 14px;
+    color: var(--color-error, #ef4444);
+    flex-shrink: 0;
   }
 
   .state-indicator {

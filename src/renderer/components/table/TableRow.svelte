@@ -117,6 +117,12 @@
         e.stopPropagation()
         onselect()
       }}
+      onmousedown={(e) => {
+        // The second click of a double-click starts native word-selection before
+        // dblclick fires; suppress it so entering edit mode doesn't highlight text.
+        // Skip while editing so word-selection inside the editor input still works.
+        if (e.detail > 1 && editingCol !== col.name) e.preventDefault()
+      }}
       ondblclick={() => startEdit(col)}
     >
       <Cell
@@ -132,6 +138,15 @@
       />
       {#if cs.saving}
         <span class="saving-dot" aria-hidden="true"></span>
+      {/if}
+      {#if cs.flash}
+        {#key cs.flash}
+          <span
+            class="flash-overlay"
+            aria-hidden="true"
+            onanimationend={() => tableStore.clearFlash(tabId, row.path, col.name)}
+          ></span>
+        {/key}
       {/if}
     </div>
   {/each}
@@ -240,8 +255,31 @@
     }
   }
 
+  /* One-shot undo/redo highlight; cleared store-side via onanimationend. */
+  .flash-overlay {
+    position: absolute;
+    inset: 0;
+    background: var(--color-primary-dim);
+    opacity: 0;
+    pointer-events: none;
+    animation: cell-flash 600ms ease-out forwards;
+  }
+
+  @keyframes cell-flash {
+    from {
+      opacity: 0.9;
+    }
+    to {
+      opacity: 0;
+    }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .saving-dot {
+      animation: none;
+    }
+    /* Stays at opacity 0 — the lingering flag is invisible and harmless. */
+    .flash-overlay {
       animation: none;
     }
     .row,

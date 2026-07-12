@@ -1,6 +1,7 @@
 <script lang="ts">
   import Kbd from './ui/Kbd.svelte'
   import { getShortcutDisplay } from '../lib/shortcuts'
+  import { focusTrap } from '../lib/focus-trap'
 
   interface KeyboardShortcutsProps {
     open: boolean
@@ -19,6 +20,10 @@
     shortcuts: ShortcutEntry[]
   }
 
+  const isMac = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().includes('MAC')
+  const alt = isMac ? '⌥' : 'Alt+'
+  const meta = isMac ? '⌘' : 'Ctrl+'
+
   const categories: ShortcutCategory[] = [
     {
       name: 'Navigation',
@@ -26,22 +31,42 @@
         { label: 'Quick Open', keys: getShortcutDisplay('O', true) },
         { label: 'Search', keys: getShortcutDisplay('K', true) },
         { label: 'Graph View', keys: getShortcutDisplay('G', true) },
-        { label: 'Close File', keys: getShortcutDisplay('W', true) },
+        { label: 'Back / Forward', keys: `${meta}[ / ${meta}]` },
+        { label: 'Next / Previous Tab', keys: `${alt}${meta}→ / ${alt}${meta}←` },
+        { label: 'Switch to Tab 1–9', keys: `${meta}1–9` },
         { label: 'Cycle Focus Forward', keys: 'Tab' },
         { label: 'Cycle Focus Backward', keys: 'Shift+Tab' }
       ]
     },
     {
-      name: 'Editing',
+      name: 'Files & Tabs',
       shortcuts: [
         { label: 'New Note (popup window)', keys: getShortcutDisplay('N', true) },
-        { label: 'Toggle Mode', keys: getShortcutDisplay('E', true) },
+        { label: 'New Window', keys: getShortcutDisplay('N', true, true) },
+        { label: 'Close Tab', keys: getShortcutDisplay('W', true) },
+        { label: 'Reopen Closed Tab', keys: getShortcutDisplay('T', true, true) },
         { label: 'Save', keys: getShortcutDisplay('S', true) }
       ]
     },
     {
-      name: 'Panels',
-      shortcuts: [{ label: 'Toggle Properties', keys: getShortcutDisplay('B', true, true) }]
+      name: 'Editing',
+      shortcuts: [
+        { label: 'Toggle Editor/Raw Mode', keys: getShortcutDisplay('E', true) },
+        { label: 'Undo (table)', keys: getShortcutDisplay('Z', true) },
+        { label: 'Redo (table)', keys: getShortcutDisplay('Z', true, true) }
+      ]
+    },
+    {
+      name: 'Panels & View',
+      shortcuts: [
+        { label: 'Toggle Sidebar', keys: `${alt}${meta}B` },
+        { label: 'Toggle Properties', keys: getShortcutDisplay('B', true, true) },
+        { label: 'Toggle Bottom Panel', keys: `${meta}\`` },
+        { label: 'New Terminal', keys: `${isMac ? '⇧' : 'Shift+'}${meta}\`` },
+        { label: 'Split Editor', keys: `${meta}\\` },
+        { label: 'Zoom In / Out / Reset', keys: `${meta}+ / ${meta}− / ${meta}0` },
+        { label: 'Settings', keys: `${meta},` }
+      ]
     }
   ]
 
@@ -64,7 +89,13 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="modal-backdrop" onclick={handleBackdropClick}>
-    <div class="modal-content" role="dialog" aria-modal="true" aria-label="Keyboard Shortcuts">
+    <div
+      class="modal-content"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Keyboard Shortcuts"
+      use:focusTrap
+    >
       <div class="modal-header">
         <span class="material-symbols-outlined modal-icon">keyboard</span>
         <h2 class="modal-title">Keyboard Shortcuts</h2>

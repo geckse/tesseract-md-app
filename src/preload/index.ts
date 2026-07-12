@@ -196,6 +196,16 @@ const api: MdvdbApi = {
   removeMenuOpenRecentListener: () => {
     ipcRenderer.removeAllListeners('menu:open-recent')
   },
+  onMenuCommand: (callback) => {
+    ipcRenderer.on('menu:command', (_event, data) => callback(data))
+  },
+  removeMenuCommandListener: () => {
+    ipcRenderer.removeAllListeners('menu:command')
+  },
+
+  // Export (phase 43) — native save dialog, outside collection bounds
+  exportSave: (request) => invoke('export:save', request),
+  exportPdf: (request) => invoke('export:pdf', request),
 
   // CLI detection & installation
   detectCli: () => invoke('cli:detect'),

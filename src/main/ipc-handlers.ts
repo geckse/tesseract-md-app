@@ -51,7 +51,8 @@ import type { FrontmatterPatch } from './frontmatter'
 import { WatcherManager, type WatcherState } from './watcher'
 import { getVaultWatcher } from './vault-watcher'
 import { registerOwnWrite, clearOwnWrites } from './own-writes'
-import { AppUpdater } from './updater'
+import { getAppUpdater } from './updater'
+import { registerExportHandlers } from './export'
 import type { WindowManager } from './window-manager'
 import type { PtyManager } from './pty'
 import {
@@ -69,7 +70,7 @@ import {
   confirmRemoveCollection,
   promptInitCollection
 } from './collections'
-import { refreshRecentMenu } from './menu'
+import { refreshAppMenu } from './menu'
 import type {
   SearchOutput,
   IndexStatus,
@@ -149,28 +150,9 @@ function getWatcherManager(): WatcherManager {
   return watcherManager
 }
 
-/** Singleton AppUpdater instance */
-let appUpdater: AppUpdater | null = null
-
-/**
- * Get or create the AppUpdater singleton.
- */
-export function getAppUpdater(): AppUpdater {
-  if (!appUpdater) {
-    appUpdater = new AppUpdater()
-  }
-  return appUpdater
-}
-
-/**
- * Destroy the app updater (call on app quit).
- */
-export function destroyAppUpdater(): void {
-  if (appUpdater) {
-    appUpdater.destroy()
-    appUpdater = null
-  }
-}
+// AppUpdater singleton now lives in updater.ts (the native menu needs it
+// without importing this module). Re-exported for existing callers.
+export { getAppUpdater, destroyAppUpdater } from './updater'
 
 /**
  * Destroy the watcher manager (call on app quit).
@@ -213,6 +195,9 @@ export async function withWatcherPaused<T>(root: string, fn: () => Promise<T>): 
  * @param ptyManager - PTY registry, used to rebind terminals during cross-window transfers
  */
 export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: PtyManager): void {
+  // Export (phase 43): Save a Copy… / Export ▸ via native save dialog
+  registerExportHandlers()
+
   // CLI detection
   ipcMain.handle('cli:find', () => wrapHandler(() => findCli()))
 
@@ -455,7 +440,9 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
         await initCollection(path)
       }
 
-      return addCollection(path)
+      const collection = addCollection(path)
+      refreshAppMenu()
+      return collection
     })
   )
 
@@ -491,7 +478,7 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
         'recentFiles',
         recents.filter((r) => r.collectionId !== id)
       )
-      refreshRecentMenu()
+      refreshAppMenu()
 
       // Clean up saved table views for this collection
       await import('./table-views').then((m) => m.cleanupCollectionTableViews(id))
@@ -532,6 +519,9 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
       } else {
         await getVaultWatcher().stop()
       }
+
+      // Collection menu reflects the active collection (radio, watcher checkbox)
+      refreshAppMenu()
     })
   )
 
@@ -597,7 +587,7 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
       // Cap at 50 entries
       recents = recents.slice(0, 50)
       s.set('recentFiles', recents)
-      refreshRecentMenu()
+      refreshAppMenu()
     })
   )
 
@@ -605,7 +595,7 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
     wrapHandler(async () => {
       const s = await import('./store').then((m) => m.initStore())
       s.set('recentFiles', [])
-      refreshRecentMenu()
+      refreshAppMenu()
     })
   )
 
@@ -1132,7 +1122,11 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
   )
 
   ipcMain.handle('store:set-watcher-enabled', (_event, collectionId: string, enabled: boolean) =>
-    wrapHandler(async () => setWatcherEnabled(collectionId, enabled))
+    wrapHandler(async () => {
+      setWatcherEnabled(collectionId, enabled)
+      // Keep the Collection menu's "Watch for Changes" checkbox in sync
+      refreshAppMenu()
+    })
   )
 
   ipcMain.handle('store:set-editor-font-size', (_event, value: number) =>

@@ -15,9 +15,23 @@
     onnavigate?: (path: string) => void
     /** When set, renders a remove × (multi-value edit mode). */
     onremove?: () => void
+    /**
+     * When set, a quick "open in new tab" icon button appears on chip hover
+     * (resolved, existing targets only).
+     */
+    onopennewtab?: (path: string) => void
+    /** Right-click handler; the chip suppresses the native menu and row events. */
+    oncontextmenu?: (e: MouseEvent) => void
   }
 
-  let { relation = null, raw = '', onnavigate, onremove }: Props = $props()
+  let {
+    relation = null,
+    raw = '',
+    onnavigate,
+    onremove,
+    onopennewtab,
+    oncontextmenu
+  }: Props = $props()
 
   const broken = $derived(relation !== null && !relation.exists)
   const text = $derived.by(() => {
@@ -36,15 +50,37 @@
   const clickable = $derived(
     relation !== null && relation.exists && !!relation.path && !!onnavigate
   )
+  const canQuickOpen = $derived(
+    relation !== null && relation.exists && !!relation.path && !!onopennewtab
+  )
 
   function navigate(e: MouseEvent): void {
     // Row click selects; chip click navigates — never both.
     e.stopPropagation()
     if (relation?.path && relation.exists) onnavigate?.(relation.path)
   }
+
+  function quickOpen(e: MouseEvent): void {
+    e.stopPropagation()
+    if (relation?.path && relation.exists) onopennewtab?.(relation.path)
+  }
+
+  function handleContextMenu(e: MouseEvent): void {
+    if (!oncontextmenu) return
+    e.preventDefault()
+    e.stopPropagation()
+    oncontextmenu(e)
+  }
 </script>
 
-<span class="rel-chip" class:broken class:neutral={relation === null} title={tooltip}>
+<span
+  class="rel-chip"
+  class:broken
+  class:neutral={relation === null}
+  title={tooltip}
+  role={oncontextmenu ? 'group' : undefined}
+  oncontextmenu={oncontextmenu ? handleContextMenu : undefined}
+>
   {#if broken}
     <span class="material-symbols-outlined rel-chip-icon" aria-hidden="true">link_off</span>
   {/if}
@@ -54,6 +90,18 @@
     </button>
   {:else}
     <span class="rel-chip-text">{text}</span>
+  {/if}
+  {#if canQuickOpen}
+    <button
+      class="rel-chip-open"
+      title="Open in new tab"
+      aria-label="Open {text} in new tab"
+      tabindex="-1"
+      onclick={quickOpen}
+      ondblclick={(e) => e.stopPropagation()}
+    >
+      <span class="material-symbols-outlined" aria-hidden="true">open_in_new</span>
+    </button>
   {/if}
   {#if onremove}
     <button
@@ -136,6 +184,34 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  /*
+   * Hover-reveal (display, not opacity): collapsed buttons must not reserve
+   * flex-gap width inside compact chips.
+   */
+  .rel-chip-open {
+    display: none;
+    align-items: center;
+    background: none;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    padding: 0;
+    opacity: 0.6;
+  }
+
+  .rel-chip:hover .rel-chip-open {
+    display: inline-flex;
+  }
+
+  .rel-chip-open:hover {
+    opacity: 1;
+  }
+
+  .rel-chip-open .material-symbols-outlined {
+    font-size: 12px;
+    line-height: 1;
   }
 
   .rel-chip-remove {

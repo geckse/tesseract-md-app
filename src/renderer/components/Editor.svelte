@@ -21,12 +21,27 @@
     countTokens,
     saveRequested,
     discardRequested,
+    editorCommand,
     scrollToLine,
     activeHeadingIndex,
     editorMode,
     syncEditorStoresFromTab,
-    type EditorMode
+    type EditorMode,
+    type EditorCommandSignal
   } from '../stores/editor'
+  import {
+    toggleInlineMark,
+    setHeadingLevelInText,
+    toggleBulletListInText,
+    toggleOrderedListInText,
+    toggleTaskListInText,
+    toggleBlockquoteInText,
+    buildTableMarkdown,
+    buildTocMarkdown,
+    parseHeadings,
+    fixHeadingHierarchyInText,
+    shiftHeadingInLine
+  } from '../lib/markdown-structure'
   import { propertiesFileContent, outline } from '../stores/properties'
   import ConflictNotification from './ConflictNotification.svelte'
   import { dismissConflict } from '../stores/conflict'
@@ -108,6 +123,20 @@
     if (discardCounter > 0 && discardCounter !== lastDiscardCounter) {
       lastDiscardCounter = discardCounter
       handleDiscard()
+    }
+  })
+
+  // Native menu Format/Structure commands (phase 43) — same signal pattern
+  // as saveRequested. Only the instance hosting the focused document tab in
+  // raw mode executes.
+  let commandSignal = $state<EditorCommandSignal | null>(null)
+  let lastCommandNonce = 0
+  const unsubCommand = editorCommand.subscribe((v) => (commandSignal = v))
+  $effect(() => {
+    const signal = commandSignal
+    if (signal && signal.nonce !== lastCommandNonce) {
+      lastCommandNonce = signal.nonce
+      executeEditorCommand(signal)
     }
   })
 
@@ -540,6 +569,152 @@
     applyExternalContent(entry, entry.lastSavedContent, tab)
   }
 
+  // ── Native menu Format/Structure commands (phase 43) ─────────────────
+
+  /** Toggle an inline mark around the current selection. */
+  function applyInlineMark(view: EditorView, marker: string): void {
+    const sel = view.state.selection.main
+    const result = toggleInlineMark(view.state.doc.toString(), sel.from, sel.to, marker)
+    view.dispatch({ changes: result.changes, selection: result.selection })
+  }
+
+  /** Replace the full lines covered by the selection using a text transform. */
+  function transformSelectedLines(view: EditorView, fn: (text: string) => string): void {
+    const sel = view.state.selection.main
+    const fromLine = view.state.doc.lineAt(sel.from)
+    const toLine = view.state.doc.lineAt(sel.to)
+    const original = view.state.sliceDoc(fromLine.from, toLine.to)
+    const transformed = fn(original)
+    if (transformed === original) return
+    view.dispatch({
+      changes: { from: fromLine.from, to: toLine.to, insert: transformed },
+      selection: { anchor: fromLine.from, head: fromLine.from + transformed.length }
+    })
+  }
+
+  /** Insert a block of markdown on its own lines at the cursor. */
+  function insertBlock(view: EditorView, block: string): void {
+    const sel = view.state.selection.main
+    const line = view.state.doc.lineAt(sel.head)
+    const prefix = line.length > 0 ? '\n\n' : ''
+    const insert = `${prefix}${block}\n\n`
+    const at = line.to
+    view.dispatch({
+      changes: { from: at, to: at, insert },
+      selection: { anchor: at + insert.length }
+    })
+  }
+
+  /** Strip common inline markdown markers from the selection (Clear Formatting). */
+  function stripInlineMarks(text: string): string {
+    return text.replace(/(\*\*|__|\*|_|~~|`)/g, '')
+  }
+
+  function executeEditorCommand(signal: EditorCommandSignal): void {
+    // Only the instance hosting the focused document tab in raw mode acts.
+    const tab = activeDocTab
+    if (!tab || tab.editorMode !== 'editor') return
+    if (workspace.focusedDocumentTab?.id !== activeTabId) return
+    const entry = activeTabId ? pool.get(activeTabId) : null
+    if (!entry) return
+    const view = entry.view
+
+    switch (signal.id) {
+      case 'format.bold':
+        applyInlineMark(view, '**')
+        break
+      case 'format.italic':
+        applyInlineMark(view, '*')
+        break
+      case 'format.strike':
+        applyInlineMark(view, '~~')
+        break
+      case 'format.code':
+        applyInlineMark(view, '`')
+        break
+      case 'format.clear':
+        transformSelectedLines(view, stripInlineMarks)
+        break
+      case 'format.heading': {
+        const level = (signal.payload as { level?: number } | undefined)?.level ?? 1
+        transformSelectedLines(view, (text) => setHeadingLevelInText(text, level))
+        break
+      }
+      case 'format.paragraph':
+        transformSelectedLines(view, (text) => setHeadingLevelInText(text, 0))
+        break
+      case 'format.bullet-list':
+        transformSelectedLines(view, toggleBulletListInText)
+        break
+      case 'format.ordered-list':
+        transformSelectedLines(view, toggleOrderedListInText)
+        break
+      case 'format.task-list':
+        transformSelectedLines(view, toggleTaskListInText)
+        break
+      case 'format.blockquote':
+        transformSelectedLines(view, toggleBlockquoteInText)
+        break
+      case 'format.code-block': {
+        const sel = view.state.selection.main
+        if (sel.empty) {
+          insertBlock(view, '```\n\n```')
+        } else {
+          const selected = view.state.sliceDoc(sel.from, sel.to)
+          view.dispatch({
+            changes: { from: sel.from, to: sel.to, insert: `\`\`\`\n${selected}\n\`\`\`` }
+          })
+        }
+        break
+      }
+      case 'format.link': {
+        const sel = view.state.selection.main
+        const selected = view.state.sliceDoc(sel.from, sel.to)
+        const text = selected || 'text'
+        const insert = `[${text}](url)`
+        // Select the placeholder url for immediate typing
+        const urlStart = sel.from + text.length + 3
+        view.dispatch({
+          changes: { from: sel.from, to: sel.to, insert },
+          selection: { anchor: urlStart, head: urlStart + 3 }
+        })
+        break
+      }
+      case 'format.insert-table':
+        insertBlock(view, buildTableMarkdown())
+        break
+      case 'format.hr':
+        insertBlock(view, '---')
+        break
+      case 'structure.toc': {
+        const toc = buildTocMarkdown(parseHeadings(view.state.doc.toString()))
+        if (toc) insertBlock(view, toc)
+        break
+      }
+      case 'structure.promote':
+      case 'structure.demote': {
+        const delta = signal.id === 'structure.promote' ? -1 : 1
+        transformSelectedLines(view, (text) =>
+          text
+            .split('\n')
+            .map((line) => shiftHeadingInLine(line, delta) ?? line)
+            .join('\n')
+        )
+        break
+      }
+      case 'structure.fix-hierarchy': {
+        const current = view.state.doc.toString()
+        const result = fixHeadingHierarchyInText(current)
+        if (result.changedLines > 0) {
+          // Regular (undoable) dispatch — unlike applyExternalContent
+          view.dispatch({ changes: computeMinimalChanges(current, result.content) })
+        }
+        break
+      }
+    }
+    view.focus()
+  }
+
   // ── Large File Warning ────────────────────────────────────────────────
 
   function dismissLargeFileWarning() {
@@ -580,6 +755,7 @@
     unsubCollection()
     unsubSave()
     unsubDiscard()
+    unsubCommand()
     unsubScrollToLine()
     unsubOutline()
     unsubEditorMode()

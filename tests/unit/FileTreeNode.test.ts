@@ -92,3 +92,59 @@ describe('FileTreeNode folder interactions', () => {
     expect(screen.queryByRole('button', { name: /as table/ })).toBeNull()
   })
 })
+
+describe('FileTreeNode inline rename (phase 43)', () => {
+  it('renders an input instead of the row button while renaming', () => {
+    render(FileTreeNode, {
+      props: { node: fileNode, renamingPath: 'readme.md', renameInitial: 'readme' }
+    })
+
+    const input = screen.getByRole('textbox', { name: 'Rename readme.md' }) as HTMLInputElement
+    expect(input.value).toBe('readme')
+    expect(screen.queryByRole('treeitem')).toBeNull()
+  })
+
+  it('commits the draft on Enter and cancels on Escape', async () => {
+    const onrenamecommit = vi.fn()
+    const onrenamecancel = vi.fn()
+    render(FileTreeNode, {
+      props: {
+        node: fileNode,
+        renamingPath: 'readme.md',
+        renameInitial: 'readme',
+        onrenamecommit,
+        onrenamecancel
+      }
+    })
+
+    const input = screen.getByRole('textbox', { name: 'Rename readme.md' }) as HTMLInputElement
+    await fireEvent.input(input, { target: { value: 'guide' } })
+    await fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onrenamecommit).toHaveBeenCalledWith('guide')
+
+    await fireEvent.keyDown(input, { key: 'Escape' })
+    expect(onrenamecancel).toHaveBeenCalled()
+  })
+
+  it('shows the error indicator when renameError is set', () => {
+    render(FileTreeNode, {
+      props: {
+        node: fileNode,
+        renamingPath: 'readme.md',
+        renameInitial: 'readme',
+        renameError: 'already exists'
+      }
+    })
+
+    expect(screen.getByTitle('already exists')).toBeTruthy()
+  })
+
+  it('renders normally when a different node is being renamed', () => {
+    render(FileTreeNode, {
+      props: { node: fileNode, renamingPath: 'other.md', renameInitial: 'other' }
+    })
+
+    expect(screen.getByRole('treeitem')).toBeTruthy()
+    expect(screen.queryByRole('textbox')).toBeNull()
+  })
+})

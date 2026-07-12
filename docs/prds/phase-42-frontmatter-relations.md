@@ -23,12 +23,12 @@ Emitted wherever a relation resolves — always inside arrays:
 
 ```jsonc
 {
-  "raw": "[[clients/acme|Acme]]",  // the literal frontmatter value (or list element)
-  "path": "clients/acme.md",       // resolved root-relative path; null only if unresolvable (e.g. empty after fragment strip)
-  "exists": true,                  // resolved path is present in the index (during full ingest: the discovered file set)
-  "title": "Acme Corp",            // derived server-side via the phase-29 title rule on the target; null when !exists
-  "frontmatter": { "...": "..." }  // ALWAYS-present key: object | null. null when !exists OR the target has no frontmatter.
-}                                  // NEVER nested: a populated target's frontmatter never contains "relations".
+  "raw": "[[clients/acme|Acme]]", // the literal frontmatter value (or list element)
+  "path": "clients/acme.md", // resolved root-relative path; null only if unresolvable (e.g. empty after fragment strip)
+  "exists": true, // resolved path is present in the index (during full ingest: the discovered file set)
+  "title": "Acme Corp", // derived server-side via the phase-29 title rule on the target; null when !exists
+  "frontmatter": { "...": "..." } // ALWAYS-present key: object | null. null when !exists OR the target has no frontmatter.
+} // NEVER nested: a populated target's frontmatter never contains "relations".
 ```
 
 ### Populate surfaces
@@ -77,7 +77,7 @@ Emitted wherever a relation resolves — always inside arrays:
   1. Target contains `/` → resolve **root-relative** (normalize `.`/`..`, append `.md` if missing); if that path is not in the index, fall back to source-dir-relative; if neither exists, the root-relative candidate is the reported `path` with `exists: false`.
   2. Else, if the field's schema/overlay declares a `target` folder → `target + "/" + name + ".md"`.
   3. Else → source-dir-relative (same as body links).
-  No vault-wide basename search (nondeterministic with duplicate basenames — future work). `#fragment` is stripped; `\` normalizes to `/`; alias text is display-only.
+     No vault-wide basename search (nondeterministic with duplicate basenames — future work). `#fragment` is stripped; `\` normalizes to `/`; alias text is display-only.
 - **Self-references are skipped** in both the link graph and `relations` (a self-FK is meaningless).
 - A body link and a frontmatter relation to the same target are **two distinct edges** (graph dedup key is `(target, field)`); duplicate values within one field dedupe in the graph but are preserved in `relations`.
 - Path matching against the index is **exact-case** (`[[Clients/Acme]]` does not match `clients/acme.md`) — documented limitation.
@@ -85,7 +85,7 @@ Emitted wherever a relation resolves — always inside arrays:
 
 <!-- CONTRACT-END -->
 
-The app **never re-implements resolution** — the CLI is the single resolver; the resolution order is reproduced above strictly for reference (and for the one client-side *display fallback* during optimistic edits, see §6.4). `search --populate` is mirrored in types for completeness but **unused by the app in v1**.
+The app **never re-implements resolution** — the CLI is the single resolver; the resolution order is reproduced above strictly for reference (and for the one client-side _display fallback_ during optimistic edits, see §6.4). `search --populate` is mirrored in types for completeness but **unused by the app in v1**.
 
 ## Goals
 
@@ -100,7 +100,7 @@ The app **never re-implements resolution** — the CLI is the single resolver; t
 ## Non-Goals
 
 - Nested populate / relations-of-relations (CLI is depth-1 only).
-- **Rename propagation.** Renaming a target document does not rewrite referencing frontmatter — every reference dangles (`exists: false` chips). v1's answer is *discoverability* (Referenced-by + broken styling), not repair. State this loudly: it is by design, not a bug. Rename-repair is a future app-side write feature; the CLI's `referenced_by` + doctor check are exactly the primitives it will need.
+- **Rename propagation.** Renaming a target document does not rewrite referencing frontmatter — every reference dangles (`exists: false` chips). v1's answer is _discoverability_ (Referenced-by + broken styling), not repair. State this loudly: it is by design, not a bug. Rename-repair is a future app-side write feature; the CLI's `referenced_by` + doctor check are exactly the primitives it will need.
 - Rollups, lookups, or aggregation over relations.
 - Relation-aware server-side sort by resolved title (sort stays server-authoritative over raw values — phase-39 rule).
 - Using `search --populate` in the search UI.
@@ -214,10 +214,10 @@ export const cliFeatures: CliFeatures
 ```ts
 interface Props {
   anchorEl: HTMLElement
-  root: string                      // collection root for CLI calls
-  targetFolder?: string | null      // column.relation_target / schemaField.relation_target
-  excludePaths?: string[]           // already-linked paths (multi-value add mode)
-  onpick: (path: string) => void    // root-relative path WITH .md; the caller formats the raw value
+  root: string // collection root for CLI calls
+  targetFolder?: string | null // column.relation_target / schemaField.relation_target
+  excludePaths?: string[] // already-linked paths (multi-value add mode)
+  onpick: (path: string) => void // root-relative path WITH .md; the caller formats the raw value
   ondismiss: () => void
 }
 ```

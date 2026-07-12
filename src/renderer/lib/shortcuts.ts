@@ -148,6 +148,18 @@ class ShortcutManager {
 }
 
 /**
+ * True when the event target should keep native/editor-internal shortcut
+ * handling (Cmd+Z etc.): form fields, contenteditable, CodeMirror (.cm-editor
+ * — which also preventDefaults Mod-z itself) and Tiptap/ProseMirror hosts.
+ */
+export function isEditableTarget(target: EventTarget | null): boolean {
+  const el = target instanceof Element ? target : null
+  return !!el?.closest(
+    'input, textarea, select, [contenteditable="true"], .cm-editor, .ProseMirror'
+  )
+}
+
+/**
  * Detect the current platform from navigator.
  */
 export function detectPlatform(): Platform {

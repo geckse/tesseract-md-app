@@ -401,4 +401,32 @@ describe('properties store — populate (phase 42)', () => {
     await loadProperties('docs/test.md')
     expect(mockApi.getFile).toHaveBeenCalledWith('/alpha', 'docs/test.md', undefined)
   })
+
+  it('a load racing async version detection awaits it — populate is never dropped', async () => {
+    // Startup order: App fires detection fire-and-forget, then session restore
+    // selects a file. loadProperties must wait for detection instead of
+    // silently fetching without populate (neutral chips, no Referenced-by).
+    let resolveVersion!: (v: string) => void
+    const getCliVersion = vi
+      .fn()
+      .mockReturnValue(new Promise<string>((resolve) => (resolveVersion = resolve)))
+    Object.defineProperty(globalThis, 'window', {
+      value: { api: { ...mockApi, getCliVersion } },
+      writable: true
+    })
+    try {
+      void cliFeatures.init()
+      const loading = loadProperties('docs/test.md')
+
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(mockApi.getFile).not.toHaveBeenCalled()
+
+      resolveVersion('0.2.0')
+      await loading
+      expect(mockApi.getFile).toHaveBeenCalledWith('/alpha', 'docs/test.md', { populate: true })
+    } finally {
+      Object.defineProperty(globalThis, 'window', { value: { api: mockApi }, writable: true })
+    }
+  })
 })

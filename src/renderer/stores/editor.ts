@@ -166,6 +166,51 @@ export const saveRequested = writable<number>(0)
 /** Monotonic counter — increment to request a discard from the Editor. */
 export const discardRequested = writable<number>(0)
 
+// ─── Editor command signal (native menu Format/Structure items) ──────────
+
+/** Formatting/structure commands dispatchable into the focused editor. */
+export type EditorCommandId =
+  | 'format.bold'
+  | 'format.italic'
+  | 'format.strike'
+  | 'format.code'
+  | 'format.clear'
+  | 'format.heading'
+  | 'format.paragraph'
+  | 'format.bullet-list'
+  | 'format.ordered-list'
+  | 'format.task-list'
+  | 'format.blockquote'
+  | 'format.code-block'
+  | 'format.link'
+  | 'format.insert-table'
+  | 'format.hr'
+  | 'structure.toc'
+  | 'structure.promote'
+  | 'structure.demote'
+  | 'structure.fix-hierarchy'
+
+/** A dispatched editor command; the nonce makes every dispatch distinct. */
+export interface EditorCommandSignal {
+  id: EditorCommandId
+  payload?: unknown
+  nonce: number
+}
+
+/**
+ * Latest editor command, following the saveRequested signal pattern.
+ * Both editors subscribe; the one hosting the focused document tab in its
+ * matching mode executes, everything else ignores.
+ */
+export const editorCommand = writable<EditorCommandSignal | null>(null)
+
+let commandNonce = 0
+
+/** Dispatch a formatting/structure command to the focused editor. */
+export function dispatchEditorCommand(id: EditorCommandId, payload?: unknown): void {
+  editorCommand.set({ id, payload, nonce: ++commandNonce })
+}
+
 // ─── Mutation functions ─────────────────────────────────────────────────
 
 /** Toggle between editor modes: wysiwyg ↔ editor — targets focused tab. */

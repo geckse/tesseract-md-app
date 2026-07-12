@@ -48,8 +48,7 @@ function supportsRelations(version: string): boolean {
 
 const cliPath = findMdvdbSync()
 const cliVersion = cliPath ? cliVersionSync(cliPath) : ''
-const cliAvailable =
-  cliPath.length > 0 && existsSync(appPath) && supportsRelations(cliVersion)
+const cliAvailable = cliPath.length > 0 && existsSync(appPath) && supportsRelations(cliVersion)
 
 const INVOICE_BODY = '# Invoice i1\n\nBody stays byte-identical.\n'
 

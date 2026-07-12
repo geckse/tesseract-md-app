@@ -137,7 +137,7 @@ describe('TableView', () => {
     expect(container.querySelector('[role="row"][aria-selected="true"]')).toBeTruthy()
 
     await fireEvent.keyDown(grid, { key: 'Enter' })
-    expect(openFile).toHaveBeenCalledWith('docs/a.md')
+    expect(openFile).toHaveBeenCalledWith('docs/a.md', undefined)
   })
 
   it('opening a row loads the document content into the new tab', async () => {
@@ -202,6 +202,26 @@ describe('TableView', () => {
     await fireEvent.keyDown(input, { key: 'Enter' }) // commits the edit; bubbles to the grid
 
     expect(openFile).not.toHaveBeenCalled()
+  })
+
+  it('suppresses native text selection on double-click but not on single clicks or in edit mode', async () => {
+    const tabId = workspace.openTableTab('docs')
+    mockApi.collection.mockResolvedValue(fixture)
+    await tableStore.load(tabId, 'c1', '/root')
+
+    const { container } = render(TableView, { props: { tabId } })
+    const cell = container.querySelector('.data-cell')!
+
+    // Single-click mousedown keeps its default → drag-selection still possible.
+    expect(await fireEvent.mouseDown(cell, { detail: 1 })).toBe(true)
+    // The double-click's second mousedown is prevented → no word-selection highlight.
+    expect(await fireEvent.mouseDown(cell, { detail: 2 })).toBe(false)
+
+    // In edit mode the guard steps aside: double-click word-selection inside the
+    // editor input must keep working (its mousedown bubbles to the cell).
+    await fireEvent.dblClick(cell)
+    const input = container.querySelector<HTMLInputElement>('.data-cell input')!
+    expect(await fireEvent.mouseDown(input, { detail: 2 })).toBe(true)
   })
 
   it('an open cell editor follows its row when a reload reorders the data', async () => {

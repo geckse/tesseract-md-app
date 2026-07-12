@@ -482,6 +482,7 @@
     display: flex;
     align-items: center;
     gap: 2px;
+    padding-right: 6px;
     -webkit-app-region: no-drag;
   }
 

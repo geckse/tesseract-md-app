@@ -427,12 +427,16 @@ const relationFixture: CollectionOutput = {
 }
 
 describe('tableStore — relations (phase 42)', () => {
+  let mockGetCliVersion: ReturnType<typeof vi.fn>
+
   beforeEach(() => {
     workspace.reset()
     cliFeatures.reset()
     mockCollection = vi.fn().mockResolvedValue(relationFixture)
+    // Rejecting default = "no detectable CLI version" (capabilities stay off).
+    mockGetCliVersion = vi.fn().mockRejectedValue(new Error('no cli'))
     Object.defineProperty(globalThis, 'window', {
-      value: { api: { collection: mockCollection } },
+      value: { api: { collection: mockCollection, getCliVersion: mockGetCliVersion } },
       configurable: true
     })
   })
@@ -455,6 +459,29 @@ describe('tableStore — relations (phase 42)', () => {
     await tableStore.load(tabId, 'c1', '/root')
     const lastCall = mockCollection.mock.calls[mockCollection.mock.calls.length - 1]
     expect(lastCall[2].populate).toBe(true)
+  })
+
+  it('a load racing async version detection awaits it — the FIRST fetch is populated', async () => {
+    // Startup order: App fires detection fire-and-forget, then a restored
+    // table tab loads immediately. The load must wait for detection instead
+    // of fetching unpopulated (which renders every chip neutral/unlinked
+    // until some other server input changes).
+    let resolveVersion!: (v: string) => void
+    mockGetCliVersion.mockReturnValue(new Promise<string>((resolve) => (resolveVersion = resolve)))
+    void cliFeatures.init()
+
+    const tabId = workspace.openTableTab('invoices')
+    const loading = tableStore.load(tabId, 'c1', '/root')
+
+    // No fetch while detection is in flight.
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(mockCollection).not.toHaveBeenCalled()
+
+    resolveVersion('0.2.0')
+    await loading
+    expect(mockCollection).toHaveBeenCalledTimes(1)
+    expect(mockCollection.mock.calls[0][2].populate).toBe(true)
   })
 
   it('equals filter matches [[wiki]], path.md, and bare-path forms interchangeably', async () => {

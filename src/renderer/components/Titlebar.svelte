@@ -4,21 +4,19 @@
   import { canGoBack, canGoForward, goBack, goForward, setNavigating } from '../stores/navigation'
   import { syncFileStoresFromTab } from '../stores/files'
   import { workspace } from '../stores/workspace.svelte'
+  import { propertiesOpen as propertiesOpenStore, togglePropertiesPanel } from '../stores/ui'
   import type { SearchResult } from '../types/cli'
   import Search from './Search.svelte'
   import SearchResults from './SearchResults.svelte'
 
   interface TitlebarProps {
-    propertiesOpen?: boolean
     onsearchresultclick?: (result: SearchResult) => void
-    ontoggleproperties?: (detail: { open: boolean }) => void
   }
 
-  let {
-    propertiesOpen = $bindable(false),
-    onsearchresultclick,
-    ontoggleproperties
-  }: TitlebarProps = $props()
+  let { onsearchresultclick }: TitlebarProps = $props()
+
+  let propertiesOpen = $state(false)
+  propertiesOpenStore.subscribe((v) => (propertiesOpen = v))
 
   let currentGraphActive = $state(false)
   graphViewActive.subscribe((v) => (currentGraphActive = v))
@@ -61,8 +59,7 @@
   }
 
   function toggleProperties() {
-    propertiesOpen = !propertiesOpen
-    ontoggleproperties?.({ open: propertiesOpen })
+    togglePropertiesPanel()
   }
 </script>
 

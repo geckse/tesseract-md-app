@@ -18,10 +18,14 @@
     countTokens,
     saveRequested,
     discardRequested,
+    editorCommand,
     editorMode,
     syncEditorStoresFromTab,
-    type EditorMode
+    type EditorMode,
+    type EditorCommandSignal
   } from '../stores/editor'
+  import { computeFixedHeadingLevels, type ParsedHeading } from '../lib/markdown-structure'
+  import { buildTocTiptapJSON } from '../lib/tiptap/toc-content'
   import { propertiesFileContent } from '../stores/properties'
   import ConflictNotification from './ConflictNotification.svelte'
   import DocumentHeader from './wysiwyg/DocumentHeader.svelte'
@@ -124,6 +128,20 @@
     if (discardCounter > 0 && discardCounter !== lastDiscardCounter) {
       lastDiscardCounter = discardCounter
       handleDiscard()
+    }
+  })
+
+  // Native menu Format/Structure commands (phase 43) — same signal pattern
+  // as saveRequested. Only the instance hosting the focused document tab in
+  // wysiwyg mode executes.
+  let commandSignal = $state<EditorCommandSignal | null>(null)
+  let lastCommandNonce = 0
+  const unsubCommand = editorCommand.subscribe((v) => (commandSignal = v))
+  $effect(() => {
+    const signal = commandSignal
+    if (signal && signal.nonce !== lastCommandNonce) {
+      lastCommandNonce = signal.nonce
+      executeEditorCommand(signal)
     }
   })
 
@@ -611,6 +629,135 @@
     applyExternalContent(entry, entry.lastSavedContent, tab)
   }
 
+  // ── Native menu Format/Structure commands (phase 43) ─────────────────
+
+  /** Collect headings from the ProseMirror doc (body only — frontmatter is split out). */
+  function collectDocHeadings(
+    doc: import('@tiptap/pm/model').Node
+  ): { pos: number; level: number; text: string }[] {
+    const headings: { pos: number; level: number; text: string }[] = []
+    doc.descendants((node, pos) => {
+      if (node.type.name === 'heading') {
+        headings.push({ pos, level: node.attrs.level as number, text: node.textContent })
+      }
+      return true
+    })
+    return headings
+  }
+
+  function executeEditorCommand(signal: EditorCommandSignal): void {
+    // Only the instance hosting the focused document tab in wysiwyg mode acts.
+    const tab = activeDocTab
+    if (!tab || tab.editorMode !== 'wysiwyg') return
+    if (workspace.focusedDocumentTab?.id !== activeTabId) return
+    const entry = activeTabId ? pool.get(activeTabId) : null
+    if (!entry) return
+    const editor = entry.editor.editor
+
+    switch (signal.id) {
+      case 'format.bold':
+        editor.chain().focus().toggleBold().run()
+        break
+      case 'format.italic':
+        editor.chain().focus().toggleItalic().run()
+        break
+      case 'format.strike':
+        editor.chain().focus().toggleStrike().run()
+        break
+      case 'format.code':
+        editor.chain().focus().toggleCode().run()
+        break
+      case 'format.clear':
+        editor.chain().focus().clearNodes().unsetAllMarks().run()
+        break
+      case 'format.heading': {
+        const level = (signal.payload as { level?: number } | undefined)?.level ?? 1
+        editor
+          .chain()
+          .focus()
+          .toggleHeading({ level: Math.min(6, Math.max(1, level)) as 1 | 2 | 3 | 4 | 5 | 6 })
+          .run()
+        break
+      }
+      case 'format.paragraph':
+        editor.chain().focus().setParagraph().run()
+        break
+      case 'format.bullet-list':
+        editor.chain().focus().toggleBulletList().run()
+        break
+      case 'format.ordered-list':
+        editor.chain().focus().toggleOrderedList().run()
+        break
+      case 'format.task-list':
+        editor.chain().focus().toggleTaskList().run()
+        break
+      case 'format.blockquote':
+        editor.chain().focus().toggleBlockquote().run()
+        break
+      case 'format.code-block':
+        editor.chain().focus().toggleCodeBlock().run()
+        break
+      case 'format.link':
+        // Reuse the existing LinkModal flow (same event the context menu fires)
+        editor.view.dom.dispatchEvent(new CustomEvent('open-link-modal', { bubbles: true }))
+        break
+      case 'format.insert-table':
+        editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
+        break
+      case 'format.hr':
+        editor.chain().focus().setHorizontalRule().run()
+        break
+      case 'structure.toc': {
+        const headings: ParsedHeading[] = collectDocHeadings(editor.state.doc).map((h, i) => ({
+          level: h.level,
+          text: h.text,
+          line: i + 1
+        }))
+        const toc = buildTocTiptapJSON(headings)
+        if (toc) editor.chain().focus().insertContent(toc).run()
+        break
+      }
+      case 'structure.promote':
+      case 'structure.demote': {
+        const delta = signal.id === 'structure.promote' ? -1 : 1
+        if (!editor.isActive('heading')) break
+        const current = editor.getAttributes('heading').level as number
+        const next = current + delta
+        if (next < 1 || next > 6) break
+        editor
+          .chain()
+          .focus()
+          .setHeading({ level: next as 1 | 2 | 3 | 4 | 5 | 6 })
+          .run()
+        break
+      }
+      case 'structure.fix-hierarchy': {
+        const headings = collectDocHeadings(editor.state.doc)
+        const fixed = computeFixedHeadingLevels(headings.map((h) => h.level))
+        const changed = headings
+          .map((h, i) => ({ ...h, fixed: fixed[i] }))
+          .filter((h) => h.fixed !== h.level)
+        if (changed.length === 0) break
+        // One transaction = one undo step; never setMarkdownContent here
+        // (it resets undo history — tiptap#5708).
+        editor
+          .chain()
+          .focus()
+          .command(({ tr, state }) => {
+            for (const heading of changed) {
+              const node = state.doc.nodeAt(heading.pos)
+              if (node?.type.name === 'heading') {
+                tr.setNodeMarkup(heading.pos, undefined, { ...node.attrs, level: heading.fixed })
+              }
+            }
+            return true
+          })
+          .run()
+        break
+      }
+    }
+  }
+
   // ── Large File Warning ────────────────────────────────────────────────
 
   function dismissLargeFileWarning() {
@@ -652,6 +799,7 @@
     unsubSchema()
     unsubSave()
     unsubDiscard()
+    unsubCommand()
     unsubEditorMode()
   })
 

@@ -48,6 +48,35 @@ export interface RecentEntry {
   openedAt: number // Unix timestamp, updated on each open
 }
 
+/** A native menu command pushed from main via the `menu:command` channel (phase 43). */
+export interface MenuCommand {
+  id: string
+  payload?: unknown
+}
+
+/**
+ * Request for `export:save` — export via native save dialog (phase 43).
+ * `content` is a string for text formats (html/text/rtf/markdown) and a
+ * Uint8Array for zip-container formats (docx/odt/epub).
+ */
+export interface ExportSaveRequest {
+  defaultName: string
+  content: string | Uint8Array
+  filters: { name: string; extensions: string[] }[]
+}
+
+/** Request for `export:pdf` — standalone HTML printed to PDF (phase 43). */
+export interface ExportPdfRequest {
+  defaultName: string
+  html: string
+}
+
+/** Result of an export operation; `saved: false` means the dialog was canceled. */
+export interface ExportResult {
+  saved: boolean
+  path?: string
+}
+
 /** Options for the search command. */
 export interface SearchOptions {
   limit?: number
@@ -523,6 +552,12 @@ export interface MdvdbApi {
   // Native menu events
   onMenuOpenRecent(callback: (data: { collectionId: string; filePath: string }) => void): void
   removeMenuOpenRecentListener(): void
+  onMenuCommand(callback: (command: MenuCommand) => void): void
+  removeMenuCommandListener(): void
+
+  // Export (phase 43) — native save dialog, writes outside collection bounds
+  exportSave(request: ExportSaveRequest): Promise<ExportResult>
+  exportPdf(request: ExportPdfRequest): Promise<ExportResult>
 
   // CLI detection & installation
   detectCli(): Promise<CliDetectResult>

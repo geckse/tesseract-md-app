@@ -7,6 +7,7 @@ import type {
   JsonValue
 } from '../types/cli'
 import { cliFeatures } from '../lib/cli-features.svelte'
+import { parseHeadings } from '../lib/markdown-structure'
 import { activeCollection } from './collections'
 
 /** Document info for the selected file (from CLI `get` command). */
@@ -131,39 +132,11 @@ export interface OutlineHeading {
 /** Outline headings parsed from the file content. */
 export const outline = derived(propertiesFileContent, ($content): OutlineHeading[] => {
   if (!$content) return []
-  const headings: OutlineHeading[] = []
-  const lines = $content.split('\n')
-  let inFrontmatter = false
-  let inCodeBlock = false
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
-    // Skip frontmatter block (only at start of file)
-    if (
-      line.trimEnd() === '---' &&
-      (!inFrontmatter ? i === 0 || (i > 0 && headings.length === 0 && !inCodeBlock) : true)
-    ) {
-      inFrontmatter = !inFrontmatter
-      continue
-    }
-    if (inFrontmatter) continue
-
-    // Track fenced code blocks
-    if (line.trimStart().startsWith('```')) {
-      inCodeBlock = !inCodeBlock
-      continue
-    }
-    if (inCodeBlock) continue
-
-    const match = line.match(/^(#{1,6})\s+(.+)$/)
-    if (match) {
-      headings.push({
-        level: match[1].length,
-        heading: match[2].trim(),
-        line: i + 1 // 1-indexed line number
-      })
-    }
-  }
-  return headings
+  return parseHeadings($content).map((h) => ({
+    heading: h.text,
+    level: h.level,
+    line: h.line
+  }))
 })
 
 /** Load properties (document info + backlinks) for a given file path.
@@ -180,6 +153,11 @@ export async function loadProperties(filePath: string): Promise<void> {
 
   propertiesLoading.set(true)
   propertiesError.set(null)
+
+  // Version detection is async — racing ahead of it would silently drop
+  // `populate` on the first load after startup (neutral relation chips,
+  // no Referenced-by). Settled detection resolves instantly.
+  if (cliFeatures.version === null) await cliFeatures.init()
 
   // Run all read operations in parallel — Tantivy supports concurrent reads.
   // Populate (phase 42) resolves relations + referenced_by in the same `get`
