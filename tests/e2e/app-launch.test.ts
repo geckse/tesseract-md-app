@@ -46,6 +46,15 @@ test.describe('App Launch', () => {
     const body = await window.locator('body')
     await expect(body).toBeVisible()
 
+    const appShell = window.locator('.app-shell')
+    await expect(appShell).toBeVisible()
+    await expect(appShell).not.toHaveClass(/bg-grain/)
+    await expect
+      .poll(() =>
+        appShell.evaluate((element) => getComputedStyle(element, '::before').backgroundImage)
+      )
+      .toBe('none')
+
     await electronApp.close()
   })
 

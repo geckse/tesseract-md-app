@@ -162,11 +162,14 @@ test.describe('Table undo/redo @table-undo', () => {
     const { electronApp, window } = await openNotesTable()
     const filePath = join(vaultDir, 'notes', 'undo-me.md')
 
-    // Row delete confirms via window.confirm — auto-accept.
-    window.on('dialog', (dialog) => void dialog.accept())
-
     const row = window.locator('.row', { hasText: 'undo-me' }).first()
     await expect(row).toBeVisible({ timeout: 15_000 })
+    await electronApp.evaluate(({ dialog }) => {
+      dialog.showMessageBox = (async () => ({
+        response: 1,
+        checkboxChecked: false
+      })) as typeof dialog.showMessageBox
+    })
     await row.hover()
     await row.getByRole('button', { name: 'Delete file' }).click()
 

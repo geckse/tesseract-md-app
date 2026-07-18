@@ -93,6 +93,7 @@
   <input
     bind:this={inputEl}
     class="search-input"
+    aria-label="Search database"
     type="text"
     placeholder="Search database..."
     value={currentQuery}

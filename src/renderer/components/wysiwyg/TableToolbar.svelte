@@ -165,9 +165,9 @@
       const node = pos.node(d)
       if (node.type.name === 'table') {
         const rows: string[][] = []
-        node.forEach((row: any) => {
+        node.forEach((row) => {
           const cells: string[] = []
-          row.forEach((cell: any) => cells.push(cell.textContent.trim()))
+          row.forEach((cell) => cells.push(cell.textContent.trim()))
           rows.push(cells)
         })
         return rows

@@ -47,6 +47,10 @@
     if (timestamp <= 0) return 'Never'
     return new Date(timestamp * 1000).toLocaleString()
   }
+
+  function formatCount(value: number | null): string {
+    return value == null ? '—' : value.toLocaleString()
+  }
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -103,13 +107,15 @@
                 </div>
                 <div class="stat-row">
                   <span class="stat-label">Chunks</span>
-                  <span class="stat-value">{info.chunk_count.toLocaleString()}</span>
+                  <span class="stat-value">{formatCount(info.chunk_count)}</span>
                 </div>
                 <div class="stat-row">
                   <span class="stat-label">Vectors</span>
                   <span class="stat-value">
-                    {info.vector_count.toLocaleString()}
-                    <span class="value-detail">({info.edge_count.toLocaleString()} edge)</span>
+                    {formatCount(info.vector_count)}
+                    {#if info.edge_count != null}
+                      <span class="value-detail">({info.edge_count.toLocaleString()} edge)</span>
+                    {/if}
                   </span>
                 </div>
               </div>
@@ -139,7 +145,7 @@
                 <div class="stat-row">
                   <span class="stat-label">Estimated API calls</span>
                   <span class="stat-value">
-                    {info.reindex_estimated_api_calls.toLocaleString()}
+                    {formatCount(info.reindex_estimated_api_calls)}
                   </span>
                 </div>
               </div>

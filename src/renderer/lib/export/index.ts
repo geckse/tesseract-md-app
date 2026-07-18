@@ -85,6 +85,10 @@ export async function exportActiveDocument(format: ExportFormat): Promise<void> 
       filters: [{ name: spec.filterName, extensions: [spec.extension] }]
     })
   } catch (err) {
-    window.alert(`Export failed: ${err instanceof Error ? err.message : String(err)}`)
+    await window.api.showMessage({
+      title: 'Export Failed',
+      message: err instanceof Error ? err.message : String(err),
+      type: 'error'
+    })
   }
 }

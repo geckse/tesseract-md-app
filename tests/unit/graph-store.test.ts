@@ -29,16 +29,20 @@ import {
   setGraphLevel,
   graphHighlightedFolder,
   graphEdgeFilter,
+  graphUnconnectedHighlight,
   graphSemanticEdgesEnabled,
   graphEdgeWeakThreshold,
   loadGraphData,
+  refreshGraphData,
   toggleGraphView,
   selectGraphNode,
   resetGraphState,
+  resetGraphForCollectionSwitch,
   cycleColoringMode,
   setGraphHighlightedFolder,
   toggleEdgeClusterFilter,
   clearEdgeFilter,
+  toggleGraphUnconnectedHighlight,
   toggleSemanticEdges,
   syncGraphStoresFromTab
 } from '../../src/renderer/stores/graph'
@@ -61,6 +65,7 @@ function resetStores() {
   graphSelectedNode.set(null)
   graphHighlightedFolder.set(null)
   graphEdgeFilter.set(new Set())
+  graphUnconnectedHighlight.set(false)
   graphSemanticEdgesEnabled.set(true)
   graphEdgeWeakThreshold.set(0.3)
   collections.set([])
@@ -139,6 +144,31 @@ describe('graph store', () => {
       expect(get(graphLoading)).toBe(false)
     })
 
+    it('replacement-loads an active empty graph after the first ingest', async () => {
+      activateCollection(collection)
+      activateGraphTab()
+      graphData.set(null)
+      graphError.set('Index not found')
+      mockApi.graphData.mockResolvedValue(sampleGraphData)
+
+      await refreshGraphData()
+
+      expect(mockApi.graphData).toHaveBeenCalledWith('/test', 'document', undefined)
+      expect(get(graphData)).toEqual(sampleGraphData)
+      expect(get(graphError)).toBeNull()
+      expect(get(graphLoading)).toBe(false)
+    })
+
+    it('does not eagerly load an unopened graph with no snapshot', async () => {
+      activateCollection(collection)
+      graphData.set(null)
+
+      await refreshGraphData()
+
+      expect(get(graphViewActive)).toBe(false)
+      expect(mockApi.graphData).not.toHaveBeenCalled()
+    })
+
     it('discards stale results', async () => {
       activateCollection(collection)
 
@@ -166,6 +196,41 @@ describe('graph store', () => {
 
       // Results should still be from second load
       expect(get(graphData)).toEqual(sampleGraphData)
+    })
+
+    it('restores and reloads an active graph after the workspace resets for a collection switch', async () => {
+      const nextCollection = {
+        id: 'col2',
+        name: 'Next',
+        path: '/next',
+        addedAt: 2,
+        lastOpenedAt: 2
+      }
+      collections.set([collection, nextCollection])
+      activeCollectionId.set(collection.id)
+      activateGraphTab()
+      const wasGraphActive = get(graphViewActive)
+
+      // resetFileState() performs this workspace reset before graph cleanup.
+      workspace.reset()
+      syncGraphStoresFromTab()
+      activeCollectionId.set(nextCollection.id)
+      mockApi.graphData.mockResolvedValue(sampleGraphData)
+
+      await resetGraphForCollectionSwitch(wasGraphActive)
+
+      expect(get(graphViewActive)).toBe(true)
+      expect(mockApi.graphData).toHaveBeenCalledWith('/next', 'document', undefined)
+      expect(get(graphData)).toEqual(sampleGraphData)
+    })
+
+    it('does not activate or load Graph when another view was active before switching', async () => {
+      activateCollection(collection)
+
+      await resetGraphForCollectionSwitch(false)
+
+      expect(get(graphViewActive)).toBe(false)
+      expect(mockApi.graphData).not.toHaveBeenCalled()
     })
   })
 
@@ -248,6 +313,7 @@ describe('graph store', () => {
       graphSelectedNode.set({ path: 'a.md', cluster_id: 0 })
       graphColoringMode.set('none')
       graphHighlightedFolder.set('/some/folder')
+      graphUnconnectedHighlight.set(true)
 
       resetGraphState()
 
@@ -260,6 +326,7 @@ describe('graph store', () => {
       expect(get(graphSelectedNode)).toBeNull()
       expect(get(graphHighlightedFolder)).toBeNull()
       expect(get(graphEdgeFilter).size).toBe(0)
+      expect(get(graphUnconnectedHighlight)).toBe(false)
       expect(get(graphSemanticEdgesEnabled)).toBe(true)
       expect(get(graphEdgeWeakThreshold)).toBe(0.3)
     })
@@ -383,6 +450,18 @@ describe('graph store', () => {
     it('is a no-op when already empty', () => {
       clearEdgeFilter()
       expect(get(graphEdgeFilter).size).toBe(0)
+    })
+  })
+
+  describe('toggleGraphUnconnectedHighlight', () => {
+    it('toggles highlighting for unconnected nodes', () => {
+      expect(get(graphUnconnectedHighlight)).toBe(false)
+
+      toggleGraphUnconnectedHighlight()
+      expect(get(graphUnconnectedHighlight)).toBe(true)
+
+      toggleGraphUnconnectedHighlight()
+      expect(get(graphUnconnectedHighlight)).toBe(false)
     })
   })
 

@@ -220,6 +220,30 @@ describe('properties store', () => {
       expect(get(propertiesLoading)).toBe(false)
     })
 
+    it('contains synchronous preload bridge failures like rejected IPC calls', async () => {
+      collections.set([col1])
+      activeCollectionId.set('a')
+      mockApi.getFile.mockImplementation(() => {
+        throw new TypeError('getFile bridge unavailable')
+      })
+      mockApi.backlinks.mockImplementation(() => {
+        throw new TypeError('backlinks bridge unavailable')
+      })
+      mockApi.links.mockImplementation(() => {
+        throw new TypeError('links bridge unavailable')
+      })
+      mockApi.neighborhood.mockImplementation(() => {
+        throw new TypeError('neighborhood bridge unavailable')
+      })
+
+      await expect(loadProperties('docs/test.md')).resolves.toBeUndefined()
+
+      expect(get(documentInfo)).toBeNull()
+      expect(get(backlinksInfo)).toBeNull()
+      expect(get(linksInfo)).toBeNull()
+      expect(get(propertiesLoading)).toBe(false)
+    })
+
     it('clears properties when no active collection', async () => {
       documentInfo.set(sampleDoc)
       backlinksInfo.set(sampleBacklinks)
@@ -233,6 +257,43 @@ describe('properties store', () => {
       expect(mockApi.getFile).not.toHaveBeenCalled()
       expect(mockApi.backlinks).not.toHaveBeenCalled()
       expect(mockApi.links).not.toHaveBeenCalled()
+    })
+
+    it('ignores an older file response after a newer properties load completes', async () => {
+      let resolveFirstDocument!: (value: DocumentInfo) => void
+      const firstDocument = new Promise<DocumentInfo>((resolve) => {
+        resolveFirstDocument = resolve
+      })
+      const secondDocument = { ...sampleDoc, path: 'docs/second.md' }
+
+      collections.set([col1])
+      activeCollectionId.set('a')
+      mockApi.getFile.mockImplementation((_root: string, filePath: string) =>
+        filePath === 'docs/first.md' ? firstDocument : Promise.resolve(secondDocument)
+      )
+      mockApi.backlinks.mockImplementation((_root: string, filePath: string) =>
+        Promise.resolve({ file: filePath, backlinks: [], total_backlinks: 0 })
+      )
+      mockApi.links.mockImplementation((_root: string, filePath: string) =>
+        Promise.resolve({ file: filePath, links: { file: filePath, outgoing: [], incoming: [] } })
+      )
+      mockApi.neighborhood.mockImplementation((_root: string, filePath: string) =>
+        Promise.resolve({ file: filePath, outgoing: [], incoming: [] })
+      )
+
+      const firstLoad = loadProperties('docs/first.md')
+      const secondLoad = loadProperties('docs/second.md')
+      await secondLoad
+
+      expect(get(documentInfo)?.path).toBe('docs/second.md')
+      expect(get(linksInfo)?.file).toBe('docs/second.md')
+
+      resolveFirstDocument({ ...sampleDoc, path: 'docs/first.md' })
+      await firstLoad
+
+      expect(get(documentInfo)?.path).toBe('docs/second.md')
+      expect(get(linksInfo)?.file).toBe('docs/second.md')
+      expect(get(propertiesLoading)).toBe(false)
     })
   })
 

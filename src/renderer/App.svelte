@@ -14,6 +14,7 @@
   import Settings from './components/Settings.svelte'
   import UpdateNotification from './components/UpdateNotification.svelte'
   import ObsidianImportNotification from './components/ObsidianImportNotification.svelte'
+  import { requestConfirmation } from './stores/confirmation'
   import { setupObsidianImportListener } from './stores/obsidian-import'
   import {
     loadCollections,
@@ -40,6 +41,7 @@
   import { openQuickOpen } from './stores/quickopen'
   import { shortcutManager, isEditableTarget } from './lib/shortcuts'
   import { tableStore } from './stores/table.svelte'
+  import { clearSchema } from './stores/schema'
   import { openNewNotePopup } from './lib/new-note'
   import {
     setupWatcherListener,
@@ -56,7 +58,12 @@
     applyDiskContentToTab
   } from './stores/file-sync'
   import DiffView from './components/DiffView.svelte'
-  import { graphViewActive, toggleGraphView, loadGraphData, resetGraphState } from './stores/graph'
+  import {
+    graphViewActive,
+    toggleGraphView,
+    loadGraphData,
+    resetGraphForCollectionSwitch
+  } from './stores/graph'
   import {
     goBack,
     goForward,
@@ -176,13 +183,19 @@
         void window.api.confirmClose()
         return
       }
-      const shouldClose = window.confirm(
-        'This window has unsaved changes. Discard changes and close?'
-      )
-      if (shouldClose) {
-        void window.api.confirmClose()
-      }
-      // On cancel: do nothing — the window stays open.
+      void requestConfirmation({
+        title: 'Close with unsaved changes?',
+        message: 'This window contains unsaved work. Discard those changes and close it?',
+        confirmLabel: 'Discard and Close',
+        cancelLabel: 'Keep Editing',
+        tone: 'danger'
+      }).then((shouldClose) => {
+        if (shouldClose) {
+          void window.api.confirmClose()
+        } else {
+          void window.api.cancelClose()
+        }
+      })
     })
 
     // System preference listener for auto theme mode
@@ -510,6 +523,7 @@
       // Tab: Cycle focus forward through regions (sidebar → editor → metadata)
       shortcutManager.register({
         key: 'Tab',
+        shift: false,
         handler: (event) => {
           // Only handle Tab if we're not in an input/textarea
           const target = event.target as HTMLElement
@@ -581,20 +595,23 @@
         firstRun = false
         return
       }
+      // Capture this before resetFileState() resets the workspace and makes
+      // graphViewActive false, otherwise an active graph is never reloaded.
+      const wasGraphActive = get(graphViewActive)
+
       // Clear file selection, tree, properties, and editor state FIRST
       // to prevent stale paths from being used in CLI calls
       resetFileState()
       resetFileSyncState()
       resetEditorState()
+      clearSchema()
       clearSearch()
       clearNavigation()
       clearWatcherEvents()
-      // Reset graph state (clears old data immediately) then reload if active
-      const wasGraphActive = get(graphViewActive)
-      resetGraphState()
-      if (wasGraphActive) {
-        loadGraphData()
-      }
+      // Clear the old graph immediately, restore the Graph tab if it was the
+      // active view, and load the newly active collection. The graph store's
+      // generation guard discards results from rapid consecutive switches.
+      void resetGraphForCollectionSwitch(wasGraphActive)
       // Restart the mdvdb watcher if the new collection had it running
       restoreWatcherForCollection().catch(() => {})
     })
@@ -704,7 +721,7 @@
   <!-- Skip navigation link for accessibility -->
   <a href="#main-content" class="skip-link">Skip to main content</a>
 
-  <div class="app-shell bg-grain" style="--editor-font-size: {$editorFontSize}px">
+  <div class="app-shell" style="--editor-font-size: {$editorFontSize}px">
     <UpdateNotification />
     <ObsidianImportNotification />
     <div class="titlebar-region" bind:this={searchAreaEl}>
@@ -794,7 +811,7 @@
     overflow: hidden;
     background: var(--color-bg, #0f0f10);
     color: var(--color-text, #e4e4e7);
-    font-family: var(--font-display, 'Space Grotesk', sans-serif);
+    font-family: var(--font-display, 'Space Grotesk Variable', system-ui, sans-serif);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     position: relative;

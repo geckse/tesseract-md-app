@@ -69,6 +69,23 @@ describe('settings store', () => {
       await expect(loadUserConfig()).rejects.toThrow('fail')
       expect(get(configLoading)).toBe(false)
     })
+
+    it('does not erase a draft created while saved config is loading', async () => {
+      let resolveConfig!: (config: Record<string, string>) => void
+      mockApi.getUserConfig.mockReturnValue(
+        new Promise((resolve) => {
+          resolveConfig = resolve
+        })
+      )
+
+      const loading = loadUserConfig()
+      stageUserConfig('OPENAI_API_KEY', 'new-key')
+      resolveConfig({ OPENAI_API_KEY: 'old-key' })
+      await loading
+
+      expect(get(userConfig)).toEqual({ OPENAI_API_KEY: 'old-key' })
+      expect(get(userDraft)).toEqual({ OPENAI_API_KEY: 'new-key' })
+    })
   })
 
   describe('loadCollectionConfig', () => {
@@ -86,6 +103,51 @@ describe('settings store', () => {
 
       await expect(loadCollectionConfig('/x')).rejects.toThrow('fail')
       expect(get(configLoading)).toBe(false)
+    })
+
+    it('keeps only the latest collection response and its loading state', async () => {
+      let resolveFirst!: (config: Record<string, string>) => void
+      let resolveSecond!: (config: Record<string, string>) => void
+      mockApi.getCollectionConfig
+        .mockReturnValueOnce(
+          new Promise((resolve) => {
+            resolveFirst = resolve
+          })
+        )
+        .mockReturnValueOnce(
+          new Promise((resolve) => {
+            resolveSecond = resolve
+          })
+        )
+
+      const first = loadCollectionConfig('/first')
+      const second = loadCollectionConfig('/second')
+      resolveSecond({ VAULT: 'second' })
+      await second
+      expect(get(collectionConfig)).toEqual({ VAULT: 'second' })
+      expect(get(configLoading)).toBe(true)
+
+      resolveFirst({ VAULT: 'stale-first' })
+      await first
+      expect(get(collectionConfig)).toEqual({ VAULT: 'second' })
+      expect(get(configLoading)).toBe(false)
+    })
+
+    it('does not erase collection drafts created during a load', async () => {
+      let resolveConfig!: (config: Record<string, string>) => void
+      mockApi.getCollectionConfig.mockReturnValue(
+        new Promise((resolve) => {
+          resolveConfig = resolve
+        })
+      )
+
+      const loading = loadCollectionConfig('/vault')
+      stageCollectionConfig('MDVDB_SEARCH_MODE', 'lexical')
+      resolveConfig({ MDVDB_SEARCH_MODE: 'hybrid' })
+      await loading
+
+      expect(get(collectionConfig)).toEqual({ MDVDB_SEARCH_MODE: 'hybrid' })
+      expect(get(collectionDraft)).toEqual({ MDVDB_SEARCH_MODE: 'lexical' })
     })
   })
 

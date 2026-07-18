@@ -113,7 +113,7 @@
 </div>
 
 {#if currentSearchOpen}
-  <div class="search-results-overlay">
+  <div class="search-results-anchor">
     <SearchResults onresultclick={handleResultClick} oncloserequest={handleCloseRequest} />
   </div>
 {/if}
@@ -167,7 +167,7 @@
     gap: 8px;
   }
 
-  .search-results-overlay {
+  .search-results-anchor {
     position: absolute;
     top: 35px;
     left: 50%;

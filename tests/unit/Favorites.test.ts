@@ -28,14 +28,16 @@ vi.mock('../../src/renderer/stores/files', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/renderer/stores/files')>()
   return {
     ...actual,
-    syncFileStoresFromTab: vi.fn()
+    syncFileStoresFromTab: vi.fn(),
+    loadFileTree: vi.fn().mockResolvedValue(undefined),
+    loadAssetTree: vi.fn().mockResolvedValue(undefined)
   }
 })
 
 import { favorites, favoritesLoading } from '../../src/renderer/stores/favorites'
 import { collections, activeCollectionId } from '../../src/renderer/stores/collections'
 import { workspace } from '../../src/renderer/stores/workspace.svelte'
-import { syncFileStoresFromTab } from '../../src/renderer/stores/files'
+import { loadAssetTree, loadFileTree, syncFileStoresFromTab } from '../../src/renderer/stores/files'
 import Favorites from '@renderer/components/Favorites.svelte'
 import type { FavoriteEntry } from '../../src/preload/api.d'
 
@@ -245,11 +247,13 @@ describe('Favorites component', () => {
 
     await fireEvent.click(meetingButton!)
 
-    // Should switch to collection 2 via the API
-    expect(mockApi.setActiveCollection).toHaveBeenCalledWith('2')
-
-    // Then open the file via workspace.openTab
-    expect(openTabSpy).toHaveBeenCalledWith('notes/meeting.md', expect.any(String))
+    await vi.waitFor(() => {
+      // Switch, repopulate the sidebar for that collection, then open the file.
+      expect(mockApi.setActiveCollection).toHaveBeenCalledWith('2')
+      expect(loadFileTree).toHaveBeenCalledOnce()
+      expect(loadAssetTree).toHaveBeenCalledOnce()
+      expect(openTabSpy).toHaveBeenCalledWith('notes/meeting.md', expect.any(String))
+    })
 
     openTabSpy.mockRestore()
   })

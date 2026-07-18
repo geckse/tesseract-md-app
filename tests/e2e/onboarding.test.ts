@@ -1,18 +1,58 @@
-import { test, expect, _electron as electron, ElectronApplication } from '@playwright/test'
-import { resolve } from 'path'
+import {
+  test,
+  expect,
+  _electron as electron,
+  ElectronApplication,
+  type Page
+} from '@playwright/test'
+import { resolve, join } from 'path'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 
 const appPath = resolve(__dirname, '../../out/main/index.js')
+const onboardingEnv = {
+  ...process.env,
+  TESSERACT_E2E_AUTO_COMPLETE_ONBOARDING: '0',
+  TESSERACT_E2E_AUTO_CREATE_EXAMPLE: '0'
+}
 
 /**
  * Launch app with a fresh onboarding state by using a custom userData path
  * so we get a clean electron-store.
  */
+const profileDirs: string[] = []
+
+function freshProfile(): string {
+  const profileDir = mkdtempSync(join(tmpdir(), 'tesseract-onboarding-e2e-'))
+  profileDirs.push(profileDir)
+  return profileDir
+}
+
 async function launchWithFreshStore(): Promise<ElectronApplication> {
-  const tmpDir = resolve(__dirname, '../../out/.test-userdata-' + Date.now())
+  const tmpDir = freshProfile()
   return electron.launch({
-    args: ['--user-data-dir=' + tmpDir, appPath]
+    args: ['--user-data-dir=' + tmpDir, appPath],
+    env: onboardingEnv
   })
 }
+
+async function advancePastCli(page: Page): Promise<void> {
+  const actions = page.locator('.forward-actions')
+  await expect(actions).toContainText(/Skip for now|Continue/, { timeout: 10_000 })
+
+  const skip = actions.getByRole('button', { name: /^Skip for now$/ })
+  if (await skip.isVisible().catch(() => false)) {
+    await skip.click()
+  } else {
+    await actions.getByRole('button', { name: /^Continue$/ }).click()
+  }
+}
+
+test.afterEach(() => {
+  for (const profileDir of profileDirs.splice(0)) {
+    rmSync(profileDir, { recursive: true, force: true })
+  }
+})
 
 test.describe('Onboarding Flow', () => {
   test('should show onboarding wizard on first launch', async () => {
@@ -27,8 +67,9 @@ test.describe('Onboarding Flow', () => {
     const card = window.locator('.onboarding-card')
     await expect(card).toBeVisible()
 
-    const stepDots = window.locator('.step-dots')
-    await expect(stepDots).toBeVisible()
+    await expect(window.getByRole('dialog')).toHaveAttribute('aria-modal', 'true')
+    await expect(window.locator('.step-nav [aria-current="step"]')).toContainText('Welcome')
+    await expect(window.getByRole('heading', { name: /Your knowledge/i })).toBeFocused()
 
     await electronApp.close()
   })
@@ -55,7 +96,27 @@ test.describe('Onboarding Flow', () => {
     await electronApp.close()
   })
 
-  test('should allow skipping CLI install step', async () => {
+  test('loads the bundled Space Grotesk font instead of a serif fallback', async () => {
+    const electronApp = await launchWithFreshStore()
+    const window = await electronApp.firstWindow()
+    await window.waitForLoadState('domcontentloaded')
+
+    const fontState = await window.locator('.onboarding-overlay').evaluate(async (overlay) => {
+      await document.fonts.ready
+      return {
+        family: getComputedStyle(overlay).fontFamily,
+        loaded: document.fonts.check('400 16px "Space Grotesk Variable"', 'Tesseract')
+      }
+    })
+
+    expect(fontState.family).toContain('Space Grotesk Variable')
+    expect(fontState.family).not.toMatch(/(^|,\s*)serif(?:,|$)/i)
+    expect(fontState.loaded).toBe(true)
+
+    await electronApp.close()
+  })
+
+  test('should advance through the detected CLI state', async () => {
     const electronApp = await launchWithFreshStore()
 
     const window = await electronApp.firstWindow()
@@ -66,10 +127,7 @@ test.describe('Onboarding Flow', () => {
     await expect(getStartedBtn).toBeVisible()
     await getStartedBtn.click()
 
-    // Should be on CLI step - find skip link
-    const skipLink = window.locator('.skip-link')
-    await expect(skipLink).toBeVisible()
-    await skipLink.click()
+    await advancePastCli(window)
 
     // Should advance to provider step
     const stepTitle = window.locator('.step-title')
@@ -89,10 +147,8 @@ test.describe('Onboarding Flow', () => {
     await expect(getStartedBtn).toBeVisible()
     await getStartedBtn.click()
 
-    // Step 2: CLI - skip
-    const skipLink = window.locator('.skip-link')
-    await expect(skipLink).toBeVisible()
-    await skipLink.click()
+    // Step 2: CLI - continue when installed, otherwise skip installation
+    await advancePastCli(window)
 
     // Step 3: Provider - skip
     await window.getByRole('button', { name: /skip for now/i }).click()
@@ -112,8 +168,10 @@ test.describe('Onboarding Flow', () => {
   })
 
   test('should not show onboarding wizard on subsequent launches', async () => {
+    const profileDir = freshProfile()
     const electronApp = await electron.launch({
-      args: [appPath]
+      args: ['--user-data-dir=' + profileDir, appPath],
+      env: onboardingEnv
     })
 
     const window = await electronApp.firstWindow()
@@ -127,8 +185,7 @@ test.describe('Onboarding Flow', () => {
       // Complete the wizard
       const getStartedBtn = window.locator('.primary-btn', { hasText: /get started/i })
       await getStartedBtn.click()
-      const skipLink1 = window.locator('.skip-link')
-      await skipLink1.click()
+      await advancePastCli(window)
       await window.getByRole('button', { name: /skip for now/i }).click()
       await window.locator('.skip-link', { hasText: /^Skip$/ }).click()
       await expect(overlay).not.toBeVisible()
@@ -138,7 +195,8 @@ test.describe('Onboarding Flow', () => {
 
     // Second launch - onboarding should NOT show (persisted)
     const electronApp2 = await electron.launch({
-      args: [appPath]
+      args: ['--user-data-dir=' + profileDir, appPath],
+      env: onboardingEnv
     })
 
     const window2 = await electronApp2.firstWindow()
@@ -154,19 +212,45 @@ test.describe('Onboarding Flow', () => {
     await electronApp2.close()
   })
 
-  test('should show step indicator dots reflecting current step', async () => {
+  test('should expose the current step in the semantic progress rail', async () => {
     const electronApp = await launchWithFreshStore()
 
     const window = await electronApp.firstWindow()
     await window.waitForLoadState('domcontentloaded')
 
-    // On welcome step, first dot should be active
-    const dots = window.locator('.step-dots .dot')
-    const count = await dots.count()
-    expect(count).toBe(4)
+    const progress = window.locator('.step-nav')
+    await expect(progress.locator('li')).toHaveCount(4)
+    await expect(progress.locator('[aria-current="step"]')).toContainText('Welcome')
 
-    const firstDot = dots.nth(0)
-    await expect(firstDot).toHaveClass(/active/)
+    await window.getByRole('button', { name: /get started/i }).click()
+    await expect(progress.locator('[aria-current="step"]')).toContainText('CLI')
+    await expect(progress.locator('li').first()).toHaveClass(/complete/)
+
+    await electronApp.close()
+  })
+
+  test('should create and open the guided example collection', async () => {
+    const electronApp = await launchWithFreshStore()
+    const window = await electronApp.firstWindow()
+    await window.waitForLoadState('domcontentloaded')
+
+    await window.getByRole('button', { name: /get started/i }).click()
+    await advancePastCli(window)
+    await window.getByRole('button', { name: /^Skip for now$/ }).click()
+    await window.getByRole('button', { name: /Explore Example Collection/i }).click()
+
+    await expect(window.locator('.onboarding-overlay')).not.toBeVisible()
+    await expect(window.locator('.sidebar')).toContainText('Tesseract Example')
+
+    const userData = await electronApp.evaluate(({ app }) => app.getPath('userData'))
+    const examplePath = join(userData, 'Tesseract Example')
+    expect(existsSync(join(examplePath, '.tesseract-example.json'))).toBe(true)
+    expect(readFileSync(join(examplePath, 'Start Here.md'), 'utf8')).toContain(
+      '[[Guides/Search by meaning|Search by meaning]]'
+    )
+    expect(
+      readFileSync(join(examplePath, 'Guides', 'Properties and table views.md'), 'utf8')
+    ).toContain('published: true')
 
     await electronApp.close()
   })

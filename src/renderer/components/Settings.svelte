@@ -31,6 +31,7 @@
     saveAllSettings,
     discardDraft
   } from '../stores/settings'
+  import { requestConfirmation } from '../stores/confirmation'
   import { settingsOpen, shortcutsModalOpen } from '../stores/ui'
   import { collections, activeCollection } from '../stores/collections'
   import type { Collection } from '../../preload/api'
@@ -234,21 +235,36 @@
     }
   }
 
-  function handleDiscard() {
+  async function confirmDiscardChanges(): Promise<boolean> {
+    if (!currentIsDirty) return true
+    try {
+      return await requestConfirmation({
+        title: 'Discard unsaved settings?',
+        message: 'Your unsaved settings changes will be lost.',
+        confirmLabel: 'Discard Changes',
+        cancelLabel: 'Keep Editing',
+        tone: 'danger'
+      })
+    } catch {
+      // A failed native dialog must never become implicit permission to lose data.
+      return false
+    }
+  }
+
+  async function handleDiscard(): Promise<void> {
+    if (!(await confirmDiscardChanges())) return
     discardDraft()
   }
 
-  function selectTarget(target: string) {
+  async function selectTarget(target: string): Promise<void> {
+    if (target === currentTarget) return
+    if (!(await confirmDiscardChanges())) return
     discardDraft()
     settingsTarget.set(target)
     if (target === 'global') {
       activeSection.set('cli')
     } else {
       activeSection.set('embedding')
-      const coll = allCollections.find((c) => c.id === target)
-      if (coll) {
-        loadCollectionConfig(coll.path)
-      }
     }
   }
 
@@ -479,7 +495,8 @@
     window.api.setEditorFontSize(newSize)
   }
 
-  function handleClose() {
+  async function handleClose(): Promise<void> {
+    if (!(await confirmDiscardChanges())) return
     discardDraft()
     settingsTarget.set('global')
     activeSection.set('cli')
@@ -489,7 +506,7 @@
 
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape' && !shortcutsOpen) {
-      handleClose()
+      void handleClose()
     }
     if (e.key === 's' && (e.metaKey || e.ctrlKey) && currentIsDirty) {
       e.preventDefault()
@@ -514,7 +531,7 @@
   aria-label="Settings"
   tabindex="-1"
   onclick={(e) => {
-    if (e.target === e.currentTarget) handleClose()
+    if (e.target === e.currentTarget) void handleClose()
   }}
 >
   <div class="settings-panel">

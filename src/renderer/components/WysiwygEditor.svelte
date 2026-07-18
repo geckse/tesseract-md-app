@@ -37,6 +37,7 @@
   import BubbleMenu from './wysiwyg/BubbleMenu.svelte'
   import EditorContextMenu from './wysiwyg/EditorContextMenu.svelte'
   import LinkModal from './wysiwyg/LinkModal.svelte'
+  import { requestConfirmation } from '../stores/confirmation'
 
   // ── Props ─────────────────────────────────────────────────────────────
   interface WysiwygEditorProps {
@@ -775,10 +776,13 @@
     if (debounceTimer) clearTimeout(debounceTimer)
     if (composingRetryTimer) clearTimeout(composingRetryTimer)
 
-    // Sync all pool entries' content to workspace tabs before destroying
+    // Sync changed entries before destroying. A clean TipTap document may
+    // serialize to equivalent but byte-different Markdown (for example list
+    // or whitespace normalization). Preserve the exact disk content for clean
+    // tabs so merely switching editor modes never creates phantom changes.
     for (const [id, entry] of pool) {
       const tab = workspace.tabs[id]
-      if (tab && tab.kind === 'document') {
+      if (tab && tab.kind === 'document' && tab.isDirty) {
         tab.content = getFullContentForEntry(entry)
       }
     }
@@ -791,10 +795,6 @@
     pool.clear()
     serializedPool.clear()
     accessOrder.length = 0
-
-    isDirty.set(false)
-    wordCount.set(0)
-    tokenCount.set(0)
 
     unsubCollection()
     unsubSchema()
@@ -898,9 +898,12 @@
           }
         } else {
           // File is outside the collection — prompt and copy
-          const confirmed = window.confirm(
-            `"${file.name}" is outside your collection. Copy it alongside the current file?`
-          )
+          const confirmed = await requestConfirmation({
+            title: `Copy ${file.name} into this collection?`,
+            message:
+              'The file is outside your collection. Tesseract can copy it alongside the current document before inserting the link.',
+            confirmLabel: 'Copy and Insert'
+          })
           if (!confirmed) continue
 
           // Determine destination path (same directory as current file)

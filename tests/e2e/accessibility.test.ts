@@ -1,391 +1,114 @@
-import { test, expect, _electron as electron } from '@playwright/test'
-import { resolve } from 'path'
+import { test, expect, _electron as electron, type Page } from '@playwright/test'
+import axe from 'axe-core'
+import { resolve } from 'node:path'
+import { openExampleFile, waitForExampleCollection } from './support/example-collection'
 
 const appPath = resolve(__dirname, '../../out/main/index.js')
 
-// Helper to inject and run axe-core
-async function injectAxe(page: any) {
-  // Inject axe-core from CDN
-  await page.addScriptTag({
-    url: 'https://cdnjs.cloudflare.com/ajax/libs/axe-core/4.7.2/axe.min.js'
-  })
-}
-
-async function runAxe(page: any) {
-  return await page.evaluate(() => {
-    // @ts-expect-error - axe is injected at runtime
-    return window.axe.run()
-  })
+interface AxeViolation {
+  id: string
+  impact: 'minor' | 'moderate' | 'serious' | 'critical' | null
+  help: string
+  nodes: Array<{ target: string[]; failureSummary?: string }>
 }
 
 interface AxeResult {
-  violations: Array<{
-    id: string
-    impact: 'minor' | 'moderate' | 'serious' | 'critical'
-    description: string
-    help: string
-    helpUrl: string
-    nodes: Array<{
-      html: string
-      target: string[]
-      failureSummary: string
-    }>
-  }>
-  passes: any[]
-  incomplete: any[]
-  inapplicable: any[]
+  violations: AxeViolation[]
+}
+
+async function launch() {
+  const electronApp = await electron.launch({ args: [appPath] })
+  const window = await electronApp.firstWindow()
+  await window.waitForLoadState('domcontentloaded')
+  await waitForExampleCollection(window)
+  return { electronApp, window }
+}
+
+async function injectAxe(page: Page) {
+  // Local package injection keeps the audit deterministic and compatible
+  // with the production CSP; no CDN or script-src exception is involved.
+  await page.evaluate(axe.source)
+}
+
+async function runAxe(page: Page, runOnly?: string[]): Promise<AxeResult> {
+  return page.evaluate(async (rules) => {
+    // @ts-expect-error axe is injected into the isolated renderer at runtime.
+    return window.axe.run(rules ? { runOnly: { type: 'rule', values: rules } } : undefined)
+  }, runOnly)
+}
+
+function formatViolations(violations: AxeViolation[]): string {
+  return violations
+    .map(
+      (violation) =>
+        `${violation.impact ?? 'unknown'} ${violation.id}: ${violation.help}\n${violation.nodes
+          .map((node) => `  ${node.target.join(' > ')}: ${node.failureSummary ?? ''}`)
+          .join('\n')}`
+    )
+    .join('\n')
+}
+
+async function expectNoHighImpactViolations(page: Page) {
+  await injectAxe(page)
+  const results = await runAxe(page)
+  const highImpact = results.violations.filter(
+    (violation) => violation.impact === 'critical' || violation.impact === 'serious'
+  )
+  expect(highImpact, formatViolations(highImpact)).toEqual([])
 }
 
 test.describe('Accessibility', () => {
-  test('should have no critical or serious axe-core violations on main window', async () => {
-    const electronApp = await electron.launch({
-      args: [appPath],
-      env: {
-        ...process.env,
-        ELECTRON_DISABLE_SECURITY_WARNINGS: 'true'
-      }
-    })
+  test('has no critical or serious violations in the indexed workspace', async () => {
+    const { electronApp, window } = await launch()
 
-    const window = await electronApp.firstWindow()
-    await window.waitForLoadState('domcontentloaded')
-    await window.waitForTimeout(1000) // Wait for components to render
+    await expectNoHighImpactViolations(window)
 
-    // Inject axe-core
-    await injectAxe(window)
+    await electronApp.close()
+  })
 
-    // Run axe accessibility audit
-    const results = (await runAxe(window)) as AxeResult
+  test('has no critical or serious violations with a document and Properties open', async () => {
+    const { electronApp, window } = await launch()
+    await openExampleFile(window)
 
-    // Filter for critical and serious violations
-    const criticalViolations = results.violations.filter(
-      (v) => v.impact === 'critical' || v.impact === 'serious'
+    const properties = window.locator('.properties-panel')
+    if (!(await properties.isVisible().catch(() => false))) {
+      await window.getByTitle('Toggle Properties').click()
+    }
+    await expect(properties).toBeVisible()
+    await expect(properties.getByRole('button', { name: 'Frontmatter' })).toHaveAttribute(
+      'aria-expanded',
+      'true'
     )
 
-    // Log violations for debugging
-    if (criticalViolations.length > 0) {
-      console.log('\n=== Critical/Serious Accessibility Violations ===')
-      criticalViolations.forEach((violation) => {
-        console.log(`\n${violation.impact.toUpperCase()}: ${violation.id}`)
-        console.log(`Description: ${violation.description}`)
-        console.log(`Help: ${violation.help}`)
-        console.log(`Help URL: ${violation.helpUrl}`)
-        console.log('Affected elements:')
-        violation.nodes.forEach((node) => {
-          console.log(`  - ${node.html}`)
-          console.log(`    Target: ${node.target.join(' > ')}`)
-        })
-      })
-      console.log('=== End Violations ===\n')
-    }
-
-    // Assert no critical or serious violations
-    expect(criticalViolations).toHaveLength(0)
+    await expectNoHighImpactViolations(window)
 
     await electronApp.close()
   })
 
-  test('should have no critical or serious violations with collection open', async () => {
-    const electronApp = await electron.launch({
-      args: [appPath]
-    })
+  test('has no critical or serious violations with real search results open', async () => {
+    const { electronApp, window } = await launch()
+    const input = window.getByRole('textbox', { name: 'Search database' })
+    await input.fill('Tesseract')
+    await expect(window.locator('.result-card').first()).toBeVisible({ timeout: 15_000 })
+    await expect(window.locator('.search-results-overlay')).toHaveCount(1)
 
-    const window = await electronApp.firstWindow()
-    await window.waitForLoadState('domcontentloaded')
-    await window.waitForTimeout(1000)
+    await expectNoHighImpactViolations(window)
 
-    // Open a collection if available
-    const collectionItems = window.locator('.collection-item')
-    const count = await collectionItems.count()
+    await electronApp.close()
+  })
 
-    if (count > 0) {
-      await collectionItems.first().click()
-      await window.waitForTimeout(1000)
-    }
-
-    // Inject axe-core
+  test('passes explicit button-name, form-label, heading-order, and contrast rules', async () => {
+    const { electronApp, window } = await launch()
+    await openExampleFile(window)
     await injectAxe(window)
 
-    // Run axe accessibility audit
-    const results = (await runAxe(window)) as AxeResult
-
-    // Filter for critical and serious violations
-    const criticalViolations = results.violations.filter(
-      (v) => v.impact === 'critical' || v.impact === 'serious'
-    )
-
-    // Log violations for debugging
-    if (criticalViolations.length > 0) {
-      console.log('\n=== Critical/Serious Accessibility Violations (Collection Open) ===')
-      criticalViolations.forEach((violation) => {
-        console.log(`\n${violation.impact.toUpperCase()}: ${violation.id}`)
-        console.log(`Description: ${violation.description}`)
-        console.log(`Help: ${violation.help}`)
-        console.log(`Help URL: ${violation.helpUrl}`)
-        console.log('Affected elements:')
-        violation.nodes.forEach((node) => {
-          console.log(`  - ${node.html}`)
-          console.log(`    Target: ${node.target.join(' > ')}`)
-        })
-      })
-      console.log('=== End Violations ===\n')
-    }
-
-    // Assert no critical or serious violations
-    expect(criticalViolations).toHaveLength(0)
-
-    await electronApp.close()
-  })
-
-  test('should have no critical or serious violations with search results open', async () => {
-    const electronApp = await electron.launch({
-      args: [appPath]
-    })
-
-    const window = await electronApp.firstWindow()
-    await window.waitForLoadState('domcontentloaded')
-    await window.waitForTimeout(1000)
-
-    // Open a collection
-    const collectionItems = window.locator('.collection-item')
-    const count = await collectionItems.count()
-
-    if (count > 0) {
-      await collectionItems.first().click()
-      await window.waitForTimeout(1000)
-
-      // Perform a search
-      const searchInput = window.locator('.search-input')
-      await searchInput.click()
-      await searchInput.fill('test')
-      await window.waitForTimeout(1000)
-
-      // Inject axe-core
-      await injectAxe(window)
-
-      // Run axe accessibility audit
-      const results = (await runAxe(window)) as AxeResult
-
-      // Filter for critical and serious violations
-      const criticalViolations = results.violations.filter(
-        (v) => v.impact === 'critical' || v.impact === 'serious'
-      )
-
-      // Log violations for debugging
-      if (criticalViolations.length > 0) {
-        console.log('\n=== Critical/Serious Accessibility Violations (Search Results) ===')
-        criticalViolations.forEach((violation) => {
-          console.log(`\n${violation.impact.toUpperCase()}: ${violation.id}`)
-          console.log(`Description: ${violation.description}`)
-          console.log(`Help: ${violation.help}`)
-          console.log(`Help URL: ${violation.helpUrl}`)
-          console.log('Affected elements:')
-          violation.nodes.forEach((node) => {
-            console.log(`  - ${node.html}`)
-            console.log(`    Target: ${node.target.join(' > ')}`)
-          })
-        })
-        console.log('=== End Violations ===\n')
-      }
-
-      // Assert no critical or serious violations
-      expect(criticalViolations).toHaveLength(0)
-    }
-
-    await electronApp.close()
-  })
-
-  test('should have no critical or serious violations with metadata panel', async () => {
-    const electronApp = await electron.launch({
-      args: [appPath]
-    })
-
-    const window = await electronApp.firstWindow()
-    await window.waitForLoadState('domcontentloaded')
-    await window.waitForTimeout(1000)
-
-    // Open a collection and file
-    const collectionItems = window.locator('.collection-item')
-    const count = await collectionItems.count()
-
-    if (count > 0) {
-      await collectionItems.first().click()
-      await window.waitForTimeout(1000)
-
-      // Open a file from the tree
-      const fileTreeItems = window.locator('.file-tree-item')
-      const fileCount = await fileTreeItems.count()
-
-      if (fileCount > 0) {
-        await fileTreeItems.first().click()
-        await window.waitForTimeout(1000)
-
-        // Open metadata panel if available
-        const metadataButton = window.locator('[aria-label*="metadata"], [title*="metadata"]')
-        const metadataExists = await metadataButton.count()
-
-        if (metadataExists > 0) {
-          await metadataButton.first().click()
-          await window.waitForTimeout(500)
-        }
-
-        // Inject axe-core
-        await injectAxe(window)
-
-        // Run axe accessibility audit
-        const results = (await runAxe(window)) as AxeResult
-
-        // Filter for critical and serious violations
-        const criticalViolations = results.violations.filter(
-          (v) => v.impact === 'critical' || v.impact === 'serious'
-        )
-
-        // Log violations for debugging
-        if (criticalViolations.length > 0) {
-          console.log('\n=== Critical/Serious Accessibility Violations (Metadata Panel) ===')
-          criticalViolations.forEach((violation) => {
-            console.log(`\n${violation.impact.toUpperCase()}: ${violation.id}`)
-            console.log(`Description: ${violation.description}`)
-            console.log(`Help: ${violation.help}`)
-            console.log(`Help URL: ${violation.helpUrl}`)
-            console.log('Affected elements:')
-            violation.nodes.forEach((node) => {
-              console.log(`  - ${node.html}`)
-              console.log(`    Target: ${node.target.join(' > ')}`)
-            })
-          })
-          console.log('=== End Violations ===\n')
-        }
-
-        // Assert no critical or serious violations
-        expect(criticalViolations).toHaveLength(0)
-      }
-    }
-
-    await electronApp.close()
-  })
-
-  test('should have proper ARIA labels on interactive elements', async () => {
-    const electronApp = await electron.launch({
-      args: [appPath]
-    })
-
-    const window = await electronApp.firstWindow()
-    await window.waitForLoadState('domcontentloaded')
-    await window.waitForTimeout(1000)
-
-    // Check search input has proper label
-    const searchInput = window.locator('.search-input')
-    const searchInputExists = await searchInput.count()
-
-    if (searchInputExists > 0) {
-      const hasAriaLabel = await searchInput.evaluate((el) => {
-        return (
-          el.hasAttribute('aria-label') ||
-          el.hasAttribute('aria-labelledby') ||
-          (el.id && document.querySelector(`label[for="${el.id}"]`) !== null)
-        )
-      })
-      expect(hasAriaLabel).toBe(true)
-    }
-
-    // Check buttons have accessible names
-    const buttons = window.locator('button')
-    const buttonCount = await buttons.count()
-
-    for (let i = 0; i < Math.min(buttonCount, 10); i++) {
-      const button = buttons.nth(i)
-      const isVisible = await button.isVisible()
-
-      if (isVisible) {
-        const hasAccessibleName = await button.evaluate((el) => {
-          const text = el.textContent?.trim()
-          const ariaLabel = el.getAttribute('aria-label')
-          const ariaLabelledby = el.getAttribute('aria-labelledby')
-          const title = el.getAttribute('title')
-
-          return !!(text || ariaLabel || ariaLabelledby || title)
-        })
-
-        expect(hasAccessibleName).toBe(true)
-      }
-    }
-
-    await electronApp.close()
-  })
-
-  test('should have proper heading hierarchy', async () => {
-    const electronApp = await electron.launch({
-      args: [appPath]
-    })
-
-    const window = await electronApp.firstWindow()
-    await window.waitForLoadState('domcontentloaded')
-    await window.waitForTimeout(1000)
-
-    // Check heading levels are sequential
-    const headings = await window.evaluate(() => {
-      const headingElements = document.querySelectorAll('h1, h2, h3, h4, h5, h6')
-      return Array.from(headingElements).map((el) => {
-        const level = parseInt(el.tagName.substring(1))
-        return { level, text: el.textContent?.trim() }
-      })
-    })
-
-    if (headings.length > 0) {
-      // Should start with h1 or h2
-      expect(headings[0].level).toBeLessThanOrEqual(2)
-
-      // Check for no skipped levels
-      for (let i = 1; i < headings.length; i++) {
-        const levelDiff = headings[i].level - headings[i - 1].level
-        // Level can stay same, go down any amount, or go up by 1
-        expect(levelDiff).toBeLessThanOrEqual(1)
-      }
-    }
-
-    await electronApp.close()
-  })
-
-  test('should have sufficient color contrast', async () => {
-    const electronApp = await electron.launch({
-      args: [appPath]
-    })
-
-    const window = await electronApp.firstWindow()
-    await window.waitForLoadState('domcontentloaded')
-    await window.waitForTimeout(1000)
-
-    // Inject axe-core
-    await injectAxe(window)
-
-    // Run axe with only color-contrast rule
-    const results = (await window.evaluate(() => {
-      // @ts-expect-error - axe is injected at runtime
-      return window.axe.run({
-        runOnly: ['color-contrast']
-      })
-    })) as AxeResult
-
-    // Filter for critical and serious violations
-    const criticalViolations = results.violations.filter(
-      (v) => v.impact === 'critical' || v.impact === 'serious'
-    )
-
-    // Log violations for debugging
-    if (criticalViolations.length > 0) {
-      console.log('\n=== Color Contrast Violations ===')
-      criticalViolations.forEach((violation) => {
-        console.log(`\n${violation.impact.toUpperCase()}: ${violation.id}`)
-        console.log(`Description: ${violation.description}`)
-        violation.nodes.forEach((node) => {
-          console.log(`  - ${node.html}`)
-        })
-      })
-      console.log('=== End Violations ===\n')
-    }
-
-    // Assert no critical or serious contrast violations
-    expect(criticalViolations).toHaveLength(0)
+    const results = await runAxe(window, [
+      'button-name',
+      'label',
+      'heading-order',
+      'color-contrast'
+    ])
+    expect(results.violations, formatViolations(results.violations)).toEqual([])
 
     await electronApp.close()
   })

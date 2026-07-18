@@ -31,7 +31,7 @@
 
   /* --- Colors: Text --- */
   --color-text: #e4e4e7;
-  --color-text-dim: #71717a;
+  --color-text-dim: #8b8b94;
   --color-text-syntax: #526366;
   --color-text-white: #ffffff;
 
@@ -47,8 +47,8 @@
   --color-edge-bidi: #51cf66;
 
   /* --- Fonts --- */
-  --font-display: 'Space Grotesk', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font-display: 'Space Grotesk Variable', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, monospace;
 
   /* --- Layout --- */
   --sidebar-width: 16rem;

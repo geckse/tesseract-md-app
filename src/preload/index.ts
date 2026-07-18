@@ -89,6 +89,7 @@ const api: MdvdbApi = {
   // Collection management
   listCollections: () => invoke('collections:list'),
   addCollection: () => invoke('collections:add'),
+  createExampleCollection: () => invoke('collections:create-example'),
   removeCollection: (id) => invoke('collections:remove', id),
   setActiveCollection: (id) => invoke('collections:set-active', id),
   getActiveCollection: () => invoke('collections:get-active'),
@@ -120,6 +121,10 @@ const api: MdvdbApi = {
 
   // Clipboard operations
   writeToClipboard: (text) => invoke('clipboard:write-text', text),
+
+  // Native simple dialogs
+  showConfirmation: (options) => invoke('dialog:confirm', options),
+  showMessage: (options) => invoke('dialog:message', options),
 
   // Single-file ingest
   ingestFile: (root, filePath, options?) => invoke('cli:ingest-file', root, filePath, options),
@@ -290,6 +295,7 @@ const api: MdvdbApi = {
     ipcRenderer.removeAllListeners('app:close-request')
   },
   confirmClose: () => invoke('app:confirm-close'),
+  cancelClose: () => invoke('app:cancel-close'),
 
   // Cross-window tab transfer
   detachTab: (tabData) => invoke('tab:detach', tabData),

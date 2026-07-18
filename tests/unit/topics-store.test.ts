@@ -82,6 +82,34 @@ describe('loadTopics', () => {
     await loadTopics(ROOT)
     expect(get(topicsNeedIngest)).toBe(false)
   })
+
+  it('does not let a stale root response overwrite the current topics', async () => {
+    let resolveOldDefs!: (value: TopicDef[]) => void
+    mockApi.clusterDefinitions
+      .mockReturnValueOnce(new Promise((resolve) => (resolveOldDefs = resolve)))
+      .mockResolvedValueOnce([{ ...sampleDef, name: 'Current' }])
+    mockApi.customClusters.mockResolvedValue([])
+    mockApi.topicUnassigned.mockResolvedValue(null)
+
+    const oldLoad = loadTopics('/old')
+    const currentLoad = loadTopics('/current')
+    await currentLoad
+    resolveOldDefs([{ ...sampleDef, name: 'Stale' }])
+    await oldLoad
+
+    expect(get(topicDefs).map((def) => def.name)).toEqual(['Current'])
+    expect(get(topicsLoading)).toBe(false)
+  })
+
+  it('contains synchronous partial-bridge failures like rejected reads', async () => {
+    mockApi.clusterDefinitions.mockImplementation(() => {
+      throw new Error('bridge unavailable')
+    })
+
+    await expect(loadTopics(ROOT)).resolves.toBeUndefined()
+    expect(get(topicDefs)).toEqual([])
+    expect(get(topicSummaries)).not.toEqual([])
+  })
 })
 
 describe('topic mutations', () => {
@@ -108,6 +136,21 @@ describe('topic mutations', () => {
   it('propagates CLI failures without flagging re-ingest', async () => {
     mockApi.addTopic.mockRejectedValue(new Error('topic already exists'))
     await expect(addTopic(ROOT, sampleDef)).rejects.toThrow('topic already exists')
+    expect(get(topicsNeedIngest)).toBe(false)
+  })
+
+  it('does not repaint a new target after an old-root mutation finishes', async () => {
+    let resolveAdd!: () => void
+    await loadTopics('/old')
+    mockApi.addTopic.mockReturnValueOnce(new Promise<void>((resolve) => (resolveAdd = resolve)))
+
+    const adding = addTopic('/old', sampleDef)
+    await loadTopics('/current')
+    const callsBeforeResolve = mockApi.clusterDefinitions.mock.calls.length
+    resolveAdd()
+    await adding
+
+    expect(mockApi.clusterDefinitions).toHaveBeenCalledTimes(callsBeforeResolve)
     expect(get(topicsNeedIngest)).toBe(false)
   })
 })

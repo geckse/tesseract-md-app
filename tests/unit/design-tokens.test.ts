@@ -67,7 +67,7 @@ describe('Design Tokens — tokens.css', () => {
     })
 
     it('defines --color-text-dim', () => {
-      expect(tokens.get('--color-text-dim')).toBe('#71717a')
+      expect(tokens.get('--color-text-dim')).toBe('#8b8b94')
     })
 
     it('defines --color-text-syntax', () => {
@@ -173,12 +173,11 @@ describe('Design Tokens — tokens.css', () => {
       const zSidebar = Number(tokens.get('--z-sidebar'))
       const zHeader = Number(tokens.get('--z-header'))
       const zOverlay = Number(tokens.get('--z-overlay'))
-      const zGrain = Number(tokens.get('--z-grain'))
 
       expect(zBase).toBeLessThan(zSidebar)
       expect(zSidebar).toBeLessThan(zHeader)
       expect(zHeader).toBeLessThan(zOverlay)
-      expect(zOverlay).toBeLessThan(zGrain)
+      expect(tokens.has('--z-grain')).toBe(false)
     })
   })
 })

@@ -52,8 +52,8 @@ class MockBrowserWindow {
   }
 
   show = vi.fn()
-  loadURL = vi.fn()
-  loadFile = vi.fn()
+  loadURL = vi.fn().mockResolvedValue(undefined)
+  loadFile = vi.fn().mockResolvedValue(undefined)
 
   /** Real-lifecycle close: preventable 'close', then 'closed' if allowed. */
   close(): void {
@@ -220,5 +220,34 @@ describe('dirty-close guard', () => {
     expect(win.webContents.send).toHaveBeenCalledTimes(2)
     vi.advanceTimersByTime(3_000)
     expect(win.isDestroyed()).toBe(true)
+  })
+
+  it('resumes application quit only after every guarded window closes', () => {
+    const first = wm.createWindow()
+    const second = wm.createWindow()
+    const resume = vi.fn()
+
+    wm.requestAppQuit(resume)
+
+    expect(first.webContents.send).toHaveBeenCalledWith('app:close-request')
+    expect(second.webContents.send).toHaveBeenCalledWith('app:close-request')
+    expect(resume).not.toHaveBeenCalled()
+
+    wm.confirmClose(first.webContents.id)
+    expect(resume).not.toHaveBeenCalled()
+
+    wm.confirmClose(second.webContents.id)
+    expect(resume).toHaveBeenCalledOnce()
+  })
+
+  it('does not resume application quit after a renderer cancels', () => {
+    const win = wm.createWindow()
+    const resume = vi.fn()
+
+    wm.requestAppQuit(resume)
+    wm.cancelAppQuit()
+    wm.confirmClose(win.webContents.id)
+
+    expect(resume).not.toHaveBeenCalled()
   })
 })

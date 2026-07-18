@@ -1,4 +1,5 @@
 import './styles/fonts.css'
+import './styles/app.css'
 import App from './App.svelte'
 import { mount } from 'svelte'
 import { platform } from './lib/platform'

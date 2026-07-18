@@ -31,6 +31,12 @@ const BASE_RETRY_DELAY_MS = 1_000
 /** Max buffer size for stdout/stderr (10 MB) */
 const MAX_BUFFER = 10 * 1024 * 1024
 
+/** Graph JSON can include semantic context for every edge in a large vault. */
+const GRAPH_MAX_BUFFER = 256 * 1024 * 1024
+
+/** The graph UI only renders a short edge-context excerpt. */
+const GRAPH_CONTEXT_PREVIEW_LENGTH = 512
+
 /** Options for execCommand */
 export interface ExecCommandOptions {
   timeout?: number
@@ -60,6 +66,41 @@ function sleep(ms: number): Promise<void> {
 function calculateRetryDelay(attempt: number): number {
   // Exponential backoff: 1s, 2s, 4s, 8s, etc.
   return BASE_RETRY_DELAY_MS * Math.pow(2, attempt)
+}
+
+/** Use a larger subprocess buffer for graph payloads without raising every command's ceiling. */
+function maxBufferForCommand(command: string): number {
+  return command === 'graph' ? GRAPH_MAX_BUFFER : MAX_BUFFER
+}
+
+/**
+ * Parse CLI JSON, bounding graph edge context before the result crosses Electron IPC.
+ * The renderer displays at most 120 characters, so retaining entire multi-KB Markdown
+ * paragraphs only multiplies memory and structured-clone cost for large collections.
+ */
+function parseCommandJson<T>(command: string, output: string): T {
+  const reviver =
+    command === 'graph'
+      ? (key: string, value: unknown): unknown => {
+          if (
+            key === 'context_text' &&
+            typeof value === 'string' &&
+            value.length > GRAPH_CONTEXT_PREVIEW_LENGTH
+          ) {
+            return value.slice(0, GRAPH_CONTEXT_PREVIEW_LENGTH)
+          }
+          return value
+        }
+      : undefined
+
+  return JSON.parse(output, reviver) as T
+}
+
+/** Prefer stderr, but keep Node execution failures useful when stderr is empty. */
+function executionErrorDetail(error: unknown, stderr?: string): string {
+  if (stderr?.trim()) return stderr.trim()
+  if (error instanceof Error && error.message.trim()) return error.message.trim()
+  return 'unknown error'
 }
 
 /** Cached resolved CLI path — repeated CLI calls skip re-resolution */
@@ -198,6 +239,7 @@ export async function execCommand<T>(
   const timeout = options?.timeout ?? DEFAULT_TIMEOUT_MS
   const maxRetries = options?.retries ?? DEFAULT_RETRIES
   const fullArgs = [command, '--json', '--root', root, ...args]
+  const maxBuffer = maxBufferForCommand(command)
 
   let lastError: Error | undefined
   let attempt = 0
@@ -208,7 +250,7 @@ export async function execCommand<T>(
     try {
       const result = await execFileAsync(cliPath, fullArgs, {
         timeout,
-        maxBuffer: MAX_BUFFER,
+        maxBuffer,
         env: { ...process.env }
       })
       stdout = result.stdout
@@ -221,13 +263,13 @@ export async function execCommand<T>(
       // Parse JSON output — strip any non-JSON lines (e.g., tracing logs
       // that may leak into stdout on some platforms).
       try {
-        return JSON.parse(stdout) as T
+        return parseCommandJson<T>(command, stdout)
       } catch {
         // Try extracting the JSON object/array from the output
         const jsonMatch = stdout.match(/(\{[\s\S]*\}|\[[\s\S]*\])/)
         if (jsonMatch) {
           try {
-            return JSON.parse(jsonMatch[0]) as T
+            return parseCommandJson<T>(command, jsonMatch[0])
           } catch {
             /* fall through to error */
           }
@@ -253,10 +295,11 @@ export async function execCommand<T>(
         )
       } else {
         // Handle execution error
+        const detail = executionErrorDetail(error, err.stderr)
         lastError = new CliExecutionError(
           attempt < maxRetries
-            ? `CLI command '${command}' failed (attempt ${attempt + 1}/${maxRetries + 1}): ${err.stderr ?? 'unknown error'}. Retrying...`
-            : `CLI command '${command}' failed after ${maxRetries + 1} attempts: ${err.stderr ?? 'unknown error'}. Please check the CLI output or try again.`,
+            ? `CLI command '${command}' failed (attempt ${attempt + 1}/${maxRetries + 1}): ${detail}. Retrying...`
+            : `CLI command '${command}' failed after ${maxRetries + 1} attempts: ${detail}. Please check the CLI output or try again.`,
           err.exitCode ?? 1,
           err.stderr ?? ''
         )
@@ -328,10 +371,11 @@ export async function execRaw(
         )
       } else {
         // Handle execution error
+        const detail = executionErrorDetail(error, err.stderr)
         lastError = new CliExecutionError(
           attempt < maxRetries
-            ? `CLI command '${command}' failed (attempt ${attempt + 1}/${maxRetries + 1}): ${err.stderr ?? 'unknown error'}. Retrying...`
-            : `CLI command '${command}' failed after ${maxRetries + 1} attempts: ${err.stderr ?? 'unknown error'}. Please check the CLI output or try again.`,
+            ? `CLI command '${command}' failed (attempt ${attempt + 1}/${maxRetries + 1}): ${detail}. Retrying...`
+            : `CLI command '${command}' failed after ${maxRetries + 1} attempts: ${detail}. Please check the CLI output or try again.`,
           err.exitCode ?? 1,
           err.stderr ?? ''
         )

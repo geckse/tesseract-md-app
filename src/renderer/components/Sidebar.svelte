@@ -90,6 +90,11 @@
     dropdownOpen = false
   }
 
+  function closeTransientMenus() {
+    closeContextMenu()
+    closeDropdown()
+  }
+
   async function handleDropdownSelect(collection: Collection) {
     dropdownOpen = false
     await handleCollectionClick(collection)
@@ -215,16 +220,9 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
-<aside
-  class="sidebar"
-  style:width="{sidebarWidth}px"
-  style:min-width="{sidebarWidth}px"
-  onclick={() => {
-    closeContextMenu()
-    closeDropdown()
-  }}
->
+<svelte:window onclick={closeTransientMenus} />
+
+<aside class="sidebar" style:width="{sidebarWidth}px" style:min-width="{sidebarWidth}px">
   <!-- Scrollable content -->
   <div class="nav-content">
     <!-- Favorites -->
@@ -349,40 +347,44 @@
     >
       <button class="context-menu-item" onclick={handleRevealCollection}>
         <span class="material-symbols-outlined">folder_open</span>
-        {isMac ? 'Reveal in Finder' : 'Reveal in File Explorer'}
+        <span class="context-menu-label">
+          {isMac ? 'Reveal in Finder' : 'Reveal in File Explorer'}
+        </span>
       </button>
       <button class="context-menu-item" onclick={handleCopyCollectionPath}>
         <span class="material-symbols-outlined">content_copy</span>
-        Copy Path
+        <span class="context-menu-label">Copy Path</span>
       </button>
       <button class="context-menu-item" onclick={handleOpenInTerminal}>
         <span class="material-symbols-outlined">terminal</span>
-        Open in Terminal
+        <span class="context-menu-label">Open in Terminal</span>
       </button>
       <div class="context-menu-separator"></div>
       <button class="context-menu-item" onclick={handleSyncCollection}>
         <span class="material-symbols-outlined">sync</span>
-        Sync (Incremental)
+        <span class="context-menu-label">Sync (Incremental)</span>
       </button>
       <button class="context-menu-item" onclick={handleReindexCollection}>
         <span class="material-symbols-outlined">restart_alt</span>
-        Reindex Collection
+        <span class="context-menu-label">Reindex Collection</span>
       </button>
       {#if contextMenuCollection.id === currentActiveCollectionId}
         <button class="context-menu-item" onclick={handleWatcherToggle}>
           <span class="material-symbols-outlined">
             {currentWatcherState === 'running' ? 'visibility_off' : 'visibility'}
           </span>
-          {currentWatcherState === 'running' ? 'Stop Watching' : 'Watch for Changes'}
+          <span class="context-menu-label">
+            {currentWatcherState === 'running' ? 'Stop Watching' : 'Watch for Changes'}
+          </span>
         </button>
       {/if}
       <button class="context-menu-item" onclick={handleRunDoctor}>
         <span class="material-symbols-outlined">troubleshoot</span>
-        Run Doctor…
+        <span class="context-menu-label">Run Doctor…</span>
       </button>
       <button class="context-menu-item" onclick={handleInformation}>
         <span class="material-symbols-outlined">info</span>
-        Information
+        <span class="context-menu-label">Information</span>
       </button>
       <div class="context-menu-separator"></div>
       <div
@@ -395,7 +397,7 @@
           onclick={() => (settingsSubmenuOpen = !settingsSubmenuOpen)}
         >
           <span class="material-symbols-outlined">settings</span>
-          Settings
+          <span class="context-menu-label">Settings</span>
           <span class="material-symbols-outlined submenu-arrow">chevron_right</span>
         </button>
         {#if settingsSubmenuOpen}
@@ -403,10 +405,11 @@
             {#each settingsSections as entry (entry.section)}
               <button
                 class="context-menu-item"
+                title={entry.label}
                 onclick={() => handleCollectionSettingsSection(entry.section)}
               >
                 <span class="material-symbols-outlined">{entry.icon}</span>
-                {entry.label}
+                <span class="context-menu-label">{entry.label}</span>
               </button>
             {/each}
           </div>
@@ -415,7 +418,7 @@
       <div class="context-menu-separator"></div>
       <button class="context-menu-item danger" onclick={handleRemoveCollection}>
         <span class="material-symbols-outlined">delete</span>
-        Remove Collection
+        <span class="context-menu-label">Remove Collection</span>
       </button>
     </div>
   </div>
@@ -736,6 +739,14 @@
     cursor: pointer;
     font-family: inherit;
     transition: all 0.15s;
+    white-space: nowrap;
+  }
+
+  .context-menu-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .context-menu-item:hover {
@@ -749,6 +760,7 @@
 
   .context-menu-item .material-symbols-outlined {
     font-size: 16px;
+    flex-shrink: 0;
   }
 
   .context-menu-separator {

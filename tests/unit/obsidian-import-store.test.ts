@@ -48,11 +48,11 @@ describe('handleObsidianTopicsSynced', () => {
     expect(get(obsidianImportNotice)).toEqual(EVENT)
   })
 
-  it('flags re-ingest and reloads topics when the active collection matches', () => {
+  it('flags re-ingest and reloads topics when the active collection matches', async () => {
     activeCollectionId.set('col-1')
     handleObsidianTopicsSynced(EVENT)
     expect(get(topicsNeedIngest)).toBe(true)
-    expect(mockApi.clusterDefinitions).toHaveBeenCalledWith('/vault')
+    await vi.waitFor(() => expect(mockApi.clusterDefinitions).toHaveBeenCalledWith('/vault'))
   })
 
   it('leaves topic state alone for a non-active collection', () => {

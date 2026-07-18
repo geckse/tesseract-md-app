@@ -33,6 +33,7 @@ import {
   propertiesFileContent
 } from '../../src/renderer/stores/properties'
 import { syncFileStoresFromTab } from '../../src/renderer/stores/files'
+import { collections, activeCollectionId } from '../../src/renderer/stores/collections'
 import { workspace } from '../../src/renderer/stores/workspace.svelte'
 import PropertiesPanel from '@renderer/components/PropertiesPanel.svelte'
 import type { DocumentInfo, BacklinksOutput, LinksOutput } from '../../src/renderer/types/cli'
@@ -129,6 +130,8 @@ function resetStores() {
   propertiesFileContent.set(null)
   workspace.reset()
   syncFileStoresFromTab()
+  collections.set([])
+  activeCollectionId.set(null)
 }
 
 beforeEach(() => {
@@ -263,7 +266,7 @@ describe('PropertiesPanel component', () => {
       expect(screen.getByText('No incoming links')).toBeTruthy()
     })
 
-    it.skip('renders incoming link file names on incoming tab', () => {
+    it('renders incoming link file names on incoming tab', () => {
       selectFilePath('docs/test.md')
       backlinksInfo.set(sampleBacklinks)
 
@@ -273,7 +276,7 @@ describe('PropertiesPanel component', () => {
       expect(screen.getByText('standup.md')).toBeTruthy()
     })
 
-    it.skip('renders incoming link snippets', () => {
+    it('renders incoming link snippets', () => {
       selectFilePath('docs/test.md')
       backlinksInfo.set(sampleBacklinks)
 
@@ -283,7 +286,7 @@ describe('PropertiesPanel component', () => {
       expect(screen.getByText('Discussed test doc')).toBeTruthy()
     })
 
-    it.skip('shows total link count in section header', () => {
+    it('shows total link count in section header', () => {
       selectFilePath('docs/test.md')
       backlinksInfo.set(sampleBacklinks)
       linksInfo.set(sampleLinks)
@@ -295,7 +298,7 @@ describe('PropertiesPanel component', () => {
       expect(counts.length).toBeGreaterThanOrEqual(1)
     })
 
-    it.skip('fires onfileselect when an incoming link is clicked', async () => {
+    it('fires onfileselect when an incoming link is clicked', async () => {
       selectFilePath('docs/test.md')
       backlinksInfo.set(sampleBacklinks)
       const handler = vi.fn()
@@ -307,7 +310,7 @@ describe('PropertiesPanel component', () => {
       expect(handler).toHaveBeenCalledWith({ path: 'docs/roadmap.md' })
     })
 
-    it.skip('switches to outgoing tab and shows outgoing links', async () => {
+    it('switches to outgoing tab and shows outgoing links', async () => {
       selectFilePath('docs/test.md')
       linksInfo.set(sampleLinks)
 
@@ -320,7 +323,7 @@ describe('PropertiesPanel component', () => {
       expect(screen.getByText('api.md')).toBeTruthy()
     })
 
-    it.skip('renders outgoing link snippets', async () => {
+    it('renders outgoing link snippets', async () => {
       selectFilePath('docs/test.md')
       linksInfo.set(sampleLinks)
 
@@ -342,7 +345,7 @@ describe('PropertiesPanel component', () => {
       expect(screen.getByText('No outgoing links')).toBeTruthy()
     })
 
-    it.skip('fires onfileselect when an outgoing link is clicked', async () => {
+    it('fires onfileselect when an outgoing link is clicked', async () => {
       selectFilePath('docs/test.md')
       linksInfo.set(sampleLinks)
       const handler = vi.fn()
@@ -425,7 +428,7 @@ describe('PropertiesPanel component', () => {
       expect(screen.queryByText('in-progress')).toBeNull()
     })
 
-    it.skip('collapses links section on header click', async () => {
+    it('collapses links section on header click', async () => {
       selectFilePath('docs/test.md')
       backlinksInfo.set(sampleBacklinks)
 

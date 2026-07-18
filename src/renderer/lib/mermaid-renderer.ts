@@ -55,7 +55,7 @@ export async function initMermaid(): Promise<void> {
         edgeLabelBackground: surface,
         nodeTextColor: text
       },
-      fontFamily: "'Space Grotesk', system-ui, sans-serif",
+      fontFamily: "'Space Grotesk Variable', system-ui, sans-serif",
       securityLevel: 'strict'
     })
   })()

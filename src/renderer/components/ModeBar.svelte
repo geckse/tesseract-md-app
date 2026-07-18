@@ -6,6 +6,7 @@
   import { isDirty } from '../stores/editor'
   import { fileContent } from '../stores/files'
   import { renderMarkdown } from '../lib/markdown-render'
+  import { requestConfirmation } from '../stores/confirmation'
 
   interface ModeBarProps {
     paneId: string
@@ -70,10 +71,15 @@
   })
 
   // ── Discard confirmation ──────────────────────────────────────────
-  function handleDiscardClick() {
-    if (window.confirm('Discard unsaved changes? This cannot be undone.')) {
-      requestDiscard()
-    }
+  async function handleDiscardClick(): Promise<void> {
+    const confirmed = await requestConfirmation({
+      title: 'Discard unsaved changes?',
+      message: 'Your document will return to the last saved version. This cannot be undone.',
+      confirmLabel: 'Discard Changes',
+      cancelLabel: 'Keep Editing',
+      tone: 'danger'
+    })
+    if (confirmed) requestDiscard()
   }
 </script>
 

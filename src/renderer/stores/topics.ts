@@ -28,58 +28,76 @@ export const topicsNeedIngest = writable<boolean>(false)
 /** Whether a topics load is in progress. */
 export const topicsLoading = writable<boolean>(false)
 
+let topicsGeneration = 0
+let currentTopicsRoot: string | null = null
+
 /** The legacy dotenv key that older app versions wrote (dead once YAML exists). */
 export const LEGACY_TOPICS_KEY = 'MDVDB_CUSTOM_CLUSTERS'
+
+function invokeTopicRead<T>(operation: () => Promise<T>): Promise<T> {
+  return Promise.resolve().then(operation)
+}
 
 /**
  * Load topic definitions, computed summaries, and the unassigned bucket.
  * Each sub-load fails independently (e.g. summaries need an index).
  */
 export async function loadTopics(root: string): Promise<void> {
+  const generation = ++topicsGeneration
+  const rootChanged = currentTopicsRoot !== root
+  currentTopicsRoot = root
+  if (rootChanged) {
+    topicDefs.set([])
+    topicSummaries.set([])
+    topicUnassigned.set(null)
+    topicsNeedIngest.set(false)
+  }
   topicsLoading.set(true)
   try {
-    try {
-      const defs = await window.api.clusterDefinitions(root)
-      topicDefs.set(Array.isArray(defs) ? defs : [])
-    } catch {
-      topicDefs.set([])
-    }
-    try {
-      const summaries = await window.api.customClusters(root)
-      topicSummaries.set(Array.isArray(summaries) ? summaries : [])
-    } catch {
-      topicSummaries.set([])
-    }
-    try {
-      const unassigned = await window.api.topicUnassigned(root)
-      topicUnassigned.set(unassigned ?? null)
-    } catch {
-      topicUnassigned.set(null)
-    }
+    const [defs, summaries, unassigned] = await Promise.allSettled([
+      invokeTopicRead(() => window.api.clusterDefinitions(root)),
+      invokeTopicRead(() => window.api.customClusters(root)),
+      invokeTopicRead(() => window.api.topicUnassigned(root))
+    ])
+    if (generation !== topicsGeneration || currentTopicsRoot !== root) return
+
+    topicDefs.set(defs.status === 'fulfilled' && Array.isArray(defs.value) ? defs.value : [])
+    topicSummaries.set(
+      summaries.status === 'fulfilled' && Array.isArray(summaries.value) ? summaries.value : []
+    )
+    topicUnassigned.set(unassigned.status === 'fulfilled' ? (unassigned.value ?? null) : null)
   } finally {
-    topicsLoading.set(false)
+    if (generation === topicsGeneration && currentTopicsRoot === root) {
+      topicsLoading.set(false)
+    }
   }
 }
 
 /** Add a topic (immediate CLI write), reload, and flag for re-ingest. */
 export async function addTopic(root: string, def: TopicDef): Promise<void> {
+  const scopeAtStart = currentTopicsRoot
   await window.api.addTopic(root, def)
+  if (scopeAtStart !== null && currentTopicsRoot !== root) return
   await loadTopics(root)
-  topicsNeedIngest.set(true)
+  if (currentTopicsRoot === root) topicsNeedIngest.set(true)
 }
 
 /** Update a topic by its current name (immediate CLI write) and reload. */
 export async function updateTopic(root: string, name: string, def: TopicDef): Promise<void> {
+  const scopeAtStart = currentTopicsRoot
   await window.api.updateTopic(root, name, def)
+  if (scopeAtStart !== null && currentTopicsRoot !== root) return
   await loadTopics(root)
-  topicsNeedIngest.set(true)
+  if (currentTopicsRoot === root) topicsNeedIngest.set(true)
 }
 
 /** Remove a topic (immediate CLI write) and reload. */
 export async function removeTopic(root: string, name: string): Promise<void> {
+  const scopeAtStart = currentTopicsRoot
   await window.api.removeTopic(root, name)
+  if (scopeAtStart !== null && currentTopicsRoot !== root) return
   await loadTopics(root)
-  topicsNeedIngest.set(true)
+  if (currentTopicsRoot === root) topicsNeedIngest.set(true)
 }
 
 /**
@@ -89,6 +107,7 @@ export async function removeTopic(root: string, name: string): Promise<void> {
  * Returns the number of definitions successfully imported.
  */
 export async function migrateLegacyDotenvTopics(root: string, raw: string): Promise<number> {
+  const scopeAtStart = currentTopicsRoot
   const defs = parseCustomClusters(raw)
   let imported = 0
   for (const def of defs) {
@@ -100,6 +119,7 @@ export async function migrateLegacyDotenvTopics(root: string, raw: string): Prom
     }
   }
   await window.api.deleteCollectionConfig(root, LEGACY_TOPICS_KEY)
+  if (scopeAtStart !== null && currentTopicsRoot !== root) return imported
   // Keep the in-memory settings mirror consistent with the deletion
   collectionConfig.update((cfg) => {
     const next = { ...cfg }
@@ -107,12 +127,14 @@ export async function migrateLegacyDotenvTopics(root: string, raw: string): Prom
     return next
   })
   await loadTopics(root)
-  if (imported > 0) topicsNeedIngest.set(true)
+  if (imported > 0 && currentTopicsRoot === root) topicsNeedIngest.set(true)
   return imported
 }
 
 /** Reset topics state (e.g. on collection switch). */
 export function resetTopicsState(): void {
+  topicsGeneration++
+  currentTopicsRoot = null
   topicDefs.set([])
   topicSummaries.set([])
   topicUnassigned.set(null)

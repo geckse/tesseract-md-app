@@ -7,19 +7,24 @@
 import { workspace } from './workspace.svelte'
 import { closedTabs } from './closed-tabs.svelte'
 import { syncFileStoresFromTab } from './files'
+import { requestConfirmation } from './confirmation'
 
 /**
  * Close the focused tab with the standard dirty-file confirm, pushing
  * closed document tabs onto the reopen stack. When no document tab is
  * focused, deselects the pane's active tab (same semantics as ⌘W).
  */
-export function closeFocusedTabWithConfirm(): void {
+export async function closeFocusedTabWithConfirm(): Promise<void> {
   const tab = workspace.focusedTab
   if (tab && tab.kind === 'document') {
     if (tab.isDirty) {
-      const shouldClose = window.confirm(
-        `"${tab.title}" has unsaved changes. Discard changes and close?`
-      )
+      const shouldClose = await requestConfirmation({
+        title: `Close ${tab.title}?`,
+        message: 'This document has unsaved changes. Discard them and close the tab?',
+        confirmLabel: 'Discard and Close',
+        cancelLabel: 'Keep Editing',
+        tone: 'danger'
+      })
       if (!shouldClose) return
     }
     const paneId = workspace.activePaneId

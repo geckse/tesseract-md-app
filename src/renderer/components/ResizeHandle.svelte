@@ -67,6 +67,18 @@
     document.body.style.userSelect = ''
   }
 
+  function handleKeyDown(e: KeyboardEvent) {
+    let nextWidth = width
+    if (e.key === 'ArrowLeft') nextWidth -= 10
+    else if (e.key === 'ArrowRight') nextWidth += 10
+    else if (e.key === 'Home') nextWidth = minWidth
+    else if (e.key === 'End') nextWidth = maxWidth
+    else return
+
+    e.preventDefault()
+    onresize?.(Math.max(minWidth, Math.min(maxWidth, nextWidth)))
+  }
+
   // Cleanup on unmount
   $effect(() => {
     return () => {
@@ -80,17 +92,21 @@
   })
 </script>
 
-<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
   class="resize-handle"
   class:left={position === 'left'}
   class:right={position === 'right'}
   class:dragging={isDragging}
   onmousedown={handleMouseDown}
-  role="separator"
-  aria-orientation="vertical"
-  aria-label="Resize panel"
-  tabindex="-1"
+  onkeydown={handleKeyDown}
+  role="slider"
+  aria-orientation="horizontal"
+  aria-label="Panel width"
+  aria-valuemin={minWidth}
+  aria-valuemax={maxWidth}
+  aria-valuenow={Math.round(width)}
+  aria-valuetext={`${Math.round(width)} pixels`}
+  tabindex="0"
 ></div>
 
 <style>
@@ -99,6 +115,9 @@
     top: 0;
     bottom: 0;
     width: 4px;
+    border: 0;
+    padding: 0;
+    background: transparent;
     cursor: col-resize;
     z-index: var(--z-base, 10);
     transition: background var(--transition-fast, 150ms ease);
@@ -131,8 +150,14 @@
   }
 
   .resize-handle:hover::before,
+  .resize-handle:focus-visible::before,
   .resize-handle.dragging::before {
     background: var(--color-primary, #00e5ff);
+  }
+
+  .resize-handle:focus-visible {
+    outline: 1px solid var(--color-primary, #00e5ff);
+    outline-offset: -1px;
   }
 
   .resize-handle:hover {

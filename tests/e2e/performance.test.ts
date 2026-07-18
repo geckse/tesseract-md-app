@@ -1,388 +1,199 @@
-import { test, expect, _electron as electron } from '@playwright/test'
-import { resolve } from 'path'
+import {
+  test,
+  expect,
+  _electron as electron,
+  type ElectronApplication,
+  type Page
+} from '@playwright/test'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 
 const appPath = resolve(__dirname, '../../out/main/index.js')
+const FILE_COUNT = 1_200
+const DIRECTORY_COUNT = 24
 
-test.describe('Performance', () => {
-  test('should render file tree with 1000+ files within 2 seconds', async () => {
-    const electronApp = await electron.launch({
-      args: [appPath]
-    })
+function findMdvdb(): string {
+  try {
+    const command = process.platform === 'win32' ? 'where' : 'which'
+    return execFileSync(command, ['mdvdb'], { timeout: 5_000 }).toString().trim().split('\n')[0]
+  } catch {
+    return ''
+  }
+}
 
-    const window = await electronApp.firstWindow()
-    await window.waitForLoadState('domcontentloaded')
-    await window.waitForTimeout(1000)
+function getCliVersion(cliPath: string): string {
+  try {
+    const output = execFileSync(cliPath, ['--version', '--json'], { timeout: 10_000 })
+      .toString()
+      .trim()
+    return String(JSON.parse(output).version ?? '')
+  } catch {
+    return ''
+  }
+}
 
-    // Find a collection to open
-    const collectionItems = window.locator('.collection-item')
-    const count = await collectionItems.count()
+const cliPath = findMdvdb()
+const cliVersion = cliPath ? getCliVersion(cliPath) : ''
+const cliAvailable = cliPath.length > 0 && existsSync(appPath)
 
-    if (count > 0) {
-      // Click on first collection
-      await collectionItems.first().click()
+test.describe('Large file-tree performance', () => {
+  test.skip(!cliAvailable, 'mdvdb binary or built app not available')
+  test.setTimeout(60_000)
 
-      // Measure render time
-      const startTime = Date.now()
+  let vaultDir: string
+  let profileDir: string
+  let electronApp: ElectronApplication | undefined
+  let window: Page
 
-      // Wait for file tree to load
-      await window.waitForSelector('.file-tree-container', { timeout: 3000 })
+  test.beforeAll(() => {
+    vaultDir = mkdtempSync(join(tmpdir(), 'tesseract-performance-vault-'))
+    mkdirSync(join(vaultDir, '.markdownvdb'), { recursive: true })
+    writeFileSync(
+      join(vaultDir, '.markdownvdb', 'config.yaml'),
+      'embedding:\n  provider: mock\n  dimensions: 8\n'
+    )
 
-      // Wait for tree items to appear
-      const treeRows = window.locator('.tree-row')
-      await treeRows.first().waitFor({ timeout: 3000 })
-
-      const renderTime = Date.now() - startTime
-
-      // Get the count of files in the tree
-      const fileCount = await window.evaluate(() => {
-        const summaryItems = document.querySelectorAll('.summary-item')
-        for (const item of summaryItems) {
-          const text = item.textContent || ''
-          if (text.includes('file')) {
-            const match = text.match(/(\d+)/)
-            return match ? parseInt(match[1], 10) : 0
-          }
-        }
-        return 0
-      })
-
-      // Log performance metrics
-      console.log(`\n=== Performance Metrics ===`)
-      console.log(`File count: ${fileCount}`)
-      console.log(`Render time: ${renderTime}ms`)
-      console.log(`===========================\n`)
-
-      // Assert render time is under 2 seconds
-      // Note: This test only validates if there are enough files
-      // If the collection has 1000+ files, verify the render time
-      if (fileCount >= 1000) {
-        expect(renderTime).toBeLessThan(2000)
-      } else {
-        console.log(
-          `⚠️  Warning: Collection has only ${fileCount} files. Need 1000+ for meaningful performance test.`
-        )
-        // Still verify that rendering doesn't take too long for smaller sets
-        expect(renderTime).toBeLessThan(2000)
-      }
-    } else {
-      console.log('⚠️  No collections found. Skipping test.')
-    }
-
-    await electronApp.close()
-  })
-
-  test('should maintain smooth scrolling performance with large file tree', async () => {
-    const electronApp = await electron.launch({
-      args: [appPath]
-    })
-
-    const window = await electronApp.firstWindow()
-    await window.waitForLoadState('domcontentloaded')
-    await window.waitForTimeout(1000)
-
-    // Open a collection
-    const collectionItems = window.locator('.collection-item')
-    const count = await collectionItems.count()
-
-    if (count > 0) {
-      await collectionItems.first().click()
-      await window.waitForTimeout(1000)
-
-      // Find the file tree scroll container
-      const fileTreeContainer = window.locator('.file-tree-container')
-      await expect(fileTreeContainer).toBeVisible()
-
-      // Get scroll container element
-      const scrollContainer = fileTreeContainer.locator('.file-tree-scroll')
-
-      // Verify scroll container exists
-      const scrollExists = await scrollContainer.count()
-      if (scrollExists > 0) {
-        // Measure multiple scroll operations
-        const scrollMetrics: number[] = []
-
-        for (let i = 0; i < 5; i++) {
-          const startTime = Date.now()
-
-          // Scroll by a chunk
-          await scrollContainer.evaluate((el, offset) => {
-            el.scrollTop = offset * 500
-          }, i)
-
-          await window.waitForTimeout(100) // Wait for render
-
-          const scrollTime = Date.now() - startTime
-          scrollMetrics.push(scrollTime)
-        }
-
-        const avgScrollTime = scrollMetrics.reduce((a, b) => a + b, 0) / scrollMetrics.length
-
-        console.log(`\n=== Scroll Performance ===`)
-        console.log(`Average scroll time: ${avgScrollTime.toFixed(2)}ms`)
-        console.log(`Min: ${Math.min(...scrollMetrics)}ms`)
-        console.log(`Max: ${Math.max(...scrollMetrics)}ms`)
-        console.log(`==========================\n`)
-
-        // Scrolling should be responsive (under 200ms per scroll event)
-        expect(avgScrollTime).toBeLessThan(200)
-      } else {
-        console.log('⚠️  File tree scroll container not found. Skipping scroll test.')
-      }
-    } else {
-      console.log('⚠️  No collections found. Skipping test.')
-    }
-
-    await electronApp.close()
-  })
-
-  test('should only render visible items in virtualized file tree', async () => {
-    const electronApp = await electron.launch({
-      args: [appPath]
-    })
-
-    const window = await electronApp.firstWindow()
-    await window.waitForLoadState('domcontentloaded')
-    await window.waitForTimeout(1000)
-
-    // Open a collection
-    const collectionItems = window.locator('.collection-item')
-    const count = await collectionItems.count()
-
-    if (count > 0) {
-      await collectionItems.first().click()
-      await window.waitForTimeout(1000)
-
-      // Count total files vs rendered DOM nodes
-      const metrics = await window.evaluate(() => {
-        // Get total file count from summary
-        let totalFiles = 0
-        const summaryItems = document.querySelectorAll('.summary-item')
-        for (const item of summaryItems) {
-          const text = item.textContent || ''
-          if (text.includes('file')) {
-            const match = text.match(/(\d+)/)
-            totalFiles = match ? parseInt(match[1], 10) : 0
-            break
-          }
-        }
-
-        // Count rendered DOM nodes
-        const renderedNodes = document.querySelectorAll('.tree-row').length
-
-        return {
-          totalFiles,
-          renderedNodes
-        }
-      })
-
-      console.log(`\n=== Virtualization Metrics ===`)
-      console.log(`Total files: ${metrics.totalFiles}`)
-      console.log(`Rendered DOM nodes: ${metrics.renderedNodes}`)
-      console.log(
-        `Rendering ratio: ${((metrics.renderedNodes / metrics.totalFiles) * 100).toFixed(1)}%`
+    for (let index = 0; index < FILE_COUNT; index += 1) {
+      const directory = `folder-${String(index % DIRECTORY_COUNT).padStart(2, '0')}`
+      const directoryPath = join(vaultDir, directory)
+      mkdirSync(directoryPath, { recursive: true })
+      writeFileSync(
+        join(directoryPath, `note-${String(index).padStart(4, '0')}.md`),
+        `# Performance fixture ${index}\n\nDeterministic large-tree content.\n`
       )
-      console.log(`==============================\n`)
-
-      // If we have many files, verify virtualization is working
-      // (rendered nodes should be much less than total files)
-      if (metrics.totalFiles >= 100) {
-        // With virtualization, we should render much less than 100% of nodes
-        // Typically visible items + buffer (e.g., 50-100 items visible at once)
-        expect(metrics.renderedNodes).toBeLessThan(metrics.totalFiles)
-
-        // More specifically, for 1000+ files, we shouldn't render more than ~200 items
-        if (metrics.totalFiles >= 1000) {
-          expect(metrics.renderedNodes).toBeLessThan(300)
-        }
-      }
-    } else {
-      console.log('⚠️  No collections found. Skipping test.')
     }
-
-    await electronApp.close()
   })
 
-  test('should handle rapid scroll events without performance degradation', async () => {
-    const electronApp = await electron.launch({
-      args: [appPath]
+  test.beforeEach(async () => {
+    profileDir = mkdtempSync(join(tmpdir(), 'tesseract-performance-profile-'))
+    const now = Date.now()
+    writeFileSync(
+      join(profileDir, 'config.json'),
+      JSON.stringify({
+        collections: [
+          {
+            id: 'performance-fixture',
+            name: 'Performance Fixture',
+            path: vaultDir,
+            addedAt: now,
+            lastOpenedAt: now
+          }
+        ],
+        activeCollectionId: 'performance-fixture',
+        onboardingComplete: true,
+        cliPath,
+        cliVersion
+      })
+    )
+
+    electronApp = await electron.launch({
+      args: [`--user-data-dir=${profileDir}`, appPath]
     })
-
-    const window = await electronApp.firstWindow()
+    window = await electronApp.firstWindow()
     await window.waitForLoadState('domcontentloaded')
-    await window.waitForTimeout(1000)
-
-    // Open a collection
-    const collectionItems = window.locator('.collection-item')
-    const count = await collectionItems.count()
-
-    if (count > 0) {
-      await collectionItems.first().click()
-      await window.waitForTimeout(1000)
-
-      // Find the scroll container
-      const scrollContainer = window.locator('.file-tree-scroll')
-      const scrollExists = await scrollContainer.count()
-
-      if (scrollExists > 0) {
-        const startTime = Date.now()
-
-        // Rapid scroll simulation (10 quick scrolls)
-        for (let i = 0; i < 10; i++) {
-          await scrollContainer.evaluate((el, offset) => {
-            el.scrollTop = offset * 100 + Math.random() * 100
-          }, i)
-        }
-
-        // Wait for all renders to settle
-        await window.waitForTimeout(500)
-
-        const totalTime = Date.now() - startTime
-
-        console.log(`\n=== Rapid Scroll Test ===`)
-        console.log(`Total time for 10 rapid scrolls: ${totalTime}ms`)
-        console.log(`Average per scroll: ${(totalTime / 10).toFixed(2)}ms`)
-        console.log(`=========================\n`)
-
-        // Rapid scrolling should complete in reasonable time
-        // With throttling, should handle bursts without hanging
-        expect(totalTime).toBeLessThan(1500)
-
-        // Verify tree is still responsive after rapid scrolling
-        const treeRows = window.locator('.tree-row')
-        const visibleCount = await treeRows.count()
-        expect(visibleCount).toBeGreaterThan(0)
-      } else {
-        console.log('⚠️  Scroll container not found. Skipping test.')
-      }
-    } else {
-      console.log('⚠️  No collections found. Skipping test.')
-    }
-
-    await electronApp.close()
+    await expect(window.locator('.file-tree-summary')).toContainText(`${FILE_COUNT} files`, {
+      timeout: 15_000
+    })
   })
 
-  test('should expand and collapse directories without lag', async () => {
-    const electronApp = await electron.launch({
-      args: [appPath]
-    })
-
-    const window = await electronApp.firstWindow()
-    await window.waitForLoadState('domcontentloaded')
-    await window.waitForTimeout(1000)
-
-    // Open a collection
-    const collectionItems = window.locator('.collection-item')
-    const count = await collectionItems.count()
-
-    if (count > 0) {
-      await collectionItems.first().click()
-      await window.waitForTimeout(1000)
-
-      // Find directory nodes
-      const dirRows = window.locator('.tree-row.directory')
-      const dirCount = await dirRows.count()
-
-      if (dirCount > 0) {
-        const expandTimes: number[] = []
-        const collapseTimes: number[] = []
-
-        // Test first 3 directories (or fewer if not available)
-        const testCount = Math.min(3, dirCount)
-
-        for (let i = 0; i < testCount; i++) {
-          const dir = dirRows.nth(i)
-
-          // Measure expand time
-          const expandStart = Date.now()
-          await dir.click()
-          await window.waitForTimeout(50) // Wait for animation
-          expandTimes.push(Date.now() - expandStart)
-
-          // Measure collapse time
-          const collapseStart = Date.now()
-          await dir.click()
-          await window.waitForTimeout(50) // Wait for animation
-          collapseTimes.push(Date.now() - collapseStart)
-        }
-
-        const avgExpandTime = expandTimes.reduce((a, b) => a + b, 0) / expandTimes.length
-        const avgCollapseTime = collapseTimes.reduce((a, b) => a + b, 0) / collapseTimes.length
-
-        console.log(`\n=== Expand/Collapse Performance ===`)
-        console.log(`Average expand time: ${avgExpandTime.toFixed(2)}ms`)
-        console.log(`Average collapse time: ${avgCollapseTime.toFixed(2)}ms`)
-        console.log(`===================================\n`)
-
-        // Expand/collapse should be responsive (under 300ms including animation)
-        expect(avgExpandTime).toBeLessThan(300)
-        expect(avgCollapseTime).toBeLessThan(300)
-      } else {
-        console.log('⚠️  No directories found in tree. Skipping test.')
-      }
-    } else {
-      console.log('⚠️  No collections found. Skipping test.')
-    }
-
-    await electronApp.close()
+  test.afterEach(async () => {
+    await electronApp?.close().catch(() => {})
+    electronApp = undefined
+    rmSync(profileDir, { recursive: true, force: true })
   })
 
-  test('should handle keyboard navigation with large file tree efficiently', async () => {
-    const electronApp = await electron.launch({
-      args: [appPath]
+  test.afterAll(() => {
+    rmSync(vaultDir, { recursive: true, force: true })
+  })
+
+  async function expandAll(): Promise<number> {
+    const start = Date.now()
+    await window.getByTitle('Expand All').click()
+    await expect(window.locator('.tree-nodes-virtual')).toHaveAttribute(
+      'style',
+      new RegExp(`height: ${(FILE_COUNT + DIRECTORY_COUNT) * 28}px`)
+    )
+    return Date.now() - start
+  }
+
+  test('expands a 1,200-file tree within two seconds', async () => {
+    expect(await expandAll()).toBeLessThan(2_000)
+  })
+
+  test('virtualizes the expanded tree instead of mounting every row', async () => {
+    await expandAll()
+    const renderedRows = await window.locator('.tree-row').count()
+
+    expect(renderedRows).toBeGreaterThan(0)
+    expect(renderedRows).toBeLessThan(300)
+    expect(renderedRows).toBeLessThan(FILE_COUNT)
+  })
+
+  test('keeps repeated scrolling within a frame-scale budget', async () => {
+    await expandAll()
+    const scrollContainer = window.locator('.file-tree-content')
+
+    const durations = await scrollContainer.evaluate(async (element) => {
+      const samples: number[] = []
+      for (let index = 0; index < 6; index += 1) {
+        const start = performance.now()
+        element.scrollTop = index * 4_000
+        await new Promise<void>((resolveFrame) => requestAnimationFrame(() => resolveFrame()))
+        samples.push(performance.now() - start)
+      }
+      return samples
     })
 
-    const window = await electronApp.firstWindow()
-    await window.waitForLoadState('domcontentloaded')
-    await window.waitForTimeout(1000)
+    expect(Math.max(...durations)).toBeLessThan(200)
+    await expect(window.locator('.tree-row').first()).toBeVisible()
+  })
 
-    // Open a collection
-    const collectionItems = window.locator('.collection-item')
-    const count = await collectionItems.count()
+  test('survives a rapid scroll burst without mounting the full tree', async () => {
+    await expandAll()
+    const scrollContainer = window.locator('.file-tree-content')
 
-    if (count > 0) {
-      await collectionItems.first().click()
-      await window.waitForTimeout(1000)
-
-      // Click on file tree to focus it
-      const fileTree = window.locator('.file-tree-container')
-      await fileTree.click()
-
-      // Measure keyboard navigation performance
-      const startTime = Date.now()
-
-      // Simulate rapid arrow key presses (10 down, 10 up)
-      for (let i = 0; i < 10; i++) {
-        await window.keyboard.press('ArrowDown')
-        await window.waitForTimeout(20)
+    const duration = await scrollContainer.evaluate(async (element) => {
+      const start = performance.now()
+      for (let index = 0; index < 100; index += 1) {
+        element.scrollTop = (index * 613) % element.scrollHeight
       }
+      await new Promise<void>((resolveFrame) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolveFrame()))
+      )
+      return performance.now() - start
+    })
 
-      for (let i = 0; i < 10; i++) {
-        await window.keyboard.press('ArrowUp')
-        await window.waitForTimeout(20)
-      }
+    expect(duration).toBeLessThan(500)
+    expect(await window.locator('.tree-row').count()).toBeLessThan(300)
+  })
 
-      const totalTime = Date.now() - startTime
+  test('expands and collapses directories without lag', async () => {
+    const directories = window.locator('.tree-row.directory')
+    await expect(directories).toHaveCount(DIRECTORY_COUNT)
 
-      console.log(`\n=== Keyboard Navigation Performance ===`)
-      console.log(`20 arrow key presses completed in: ${totalTime}ms`)
-      console.log(`Average per keypress: ${(totalTime / 20).toFixed(2)}ms`)
-      console.log(`=======================================\n`)
-
-      // Keyboard navigation should be responsive
-      // Even with rendering updates, should complete quickly
-      expect(totalTime).toBeLessThan(1000)
-
-      // Verify focus is still visible and tree is responsive
-      const focusedRow = window.locator('.tree-row.keyboard-focused')
-      const focusExists = await focusedRow.count()
-
-      if (focusExists > 0) {
-        await expect(focusedRow).toBeVisible()
-      }
-    } else {
-      console.log('⚠️  No collections found. Skipping test.')
+    for (let index = 0; index < 3; index += 1) {
+      const directory = directories.nth(index)
+      const start = Date.now()
+      await directory.click()
+      await expect(directory.locator('.expand-icon')).toHaveClass(/expanded/)
+      await directory.click()
+      await expect(directory.locator('.expand-icon')).not.toHaveClass(/expanded/)
+      expect(Date.now() - start).toBeLessThan(500)
     }
+  })
 
-    await electronApp.close()
+  test('handles rapid keyboard navigation efficiently', async () => {
+    await expandAll()
+    const fileTree = window.getByRole('tree', { name: 'Collection file tree' })
+    await fileTree.focus()
+
+    const start = Date.now()
+    for (let index = 0; index < 10; index += 1) await window.keyboard.press('ArrowDown')
+    for (let index = 0; index < 10; index += 1) await window.keyboard.press('ArrowUp')
+
+    expect(Date.now() - start).toBeLessThan(1_000)
+    await expect(window.locator('.tree-row.focused')).toBeVisible()
   })
 })

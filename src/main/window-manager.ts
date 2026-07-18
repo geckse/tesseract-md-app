@@ -111,6 +111,9 @@ export class WindowManager {
   /** Pending hung-renderer fallback timers keyed by webContents.id. */
   private closeTimers: Map<number, NodeJS.Timeout> = new Map()
 
+  /** Resumes a guarded application quit once every window has closed. */
+  private resumeAppQuit: (() => void) | null = null
+
   /** Register a callback fired when any tracked window closes. */
   onWindowClosed(cb: (webContentsId: number) => void): void {
     this.closeListeners.push(cb)
@@ -186,6 +189,38 @@ export class WindowManager {
   }
 
   /**
+   * Start an application-level quit without bypassing dirty-document guards.
+   * The caller must prevent the current `before-quit` event; this method asks
+   * every window to close and resumes the quit only after all agree.
+   */
+  requestAppQuit(resume: () => void): void {
+    this.resumeAppQuit = resume
+
+    const windows = this.getAllWindows()
+    if (windows.length === 0) {
+      this.finishAppQuit()
+      return
+    }
+
+    for (const win of windows) {
+      win.close()
+    }
+  }
+
+  /** Cancel a pending application quit when any renderer keeps its window open. */
+  cancelAppQuit(): void {
+    this.resumeAppQuit = null
+  }
+
+  /** Resume a pending app quit after its final guarded window closes. */
+  private finishAppQuit(): void {
+    if (this.windows.size !== 0 || !this.resumeAppQuit) return
+    const resume = this.resumeAppQuit
+    this.resumeAppQuit = null
+    resume()
+  }
+
+  /**
    * Close a window for real, bypassing the dirty-close guard. Called when
    * the renderer confirmed the close (or main already handled its state,
    * e.g. popup pop-back after the tab was transferred).
@@ -243,6 +278,7 @@ export class WindowManager {
           // ignore listener errors
         }
       }
+      this.finishAppQuit()
     })
 
     win.on('ready-to-show', () => {
@@ -301,9 +337,13 @@ export class WindowManager {
     win.on('move', saveWindowBounds)
 
     if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-      win.loadURL(process.env['ELECTRON_RENDERER_URL'])
+      void win.loadURL(process.env['ELECTRON_RENDERER_URL']).catch((error: unknown) => {
+        console.error('Failed to load the Tesseract renderer:', error)
+      })
     } else {
-      win.loadFile(join(__dirname, '../renderer/index.html'))
+      void win.loadFile(join(__dirname, '../renderer/index.html')).catch((error: unknown) => {
+        console.error('Failed to load the Tesseract renderer:', error)
+      })
     }
 
     return win
@@ -355,6 +395,7 @@ export class WindowManager {
           // ignore listener errors
         }
       }
+      this.finishAppQuit()
     })
 
     win.on('ready-to-show', () => {

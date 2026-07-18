@@ -192,7 +192,6 @@ export async function installCli(mainWindow: BrowserWindow): Promise<CliInstallR
     const reader = downloadResponse.body.getReader()
 
     try {
-      // eslint-disable-next-line no-constant-condition
       while (true) {
         const { done, value } = await reader.read()
         if (done) break

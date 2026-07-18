@@ -96,12 +96,16 @@ export interface VaultInfo {
   is_whole_vault: boolean
   file_count: number
   indexed_file_count: number
-  chunk_count: number
-  vector_count: number
-  edge_count: number
+  /** null only for a scoped query through a legacy CLI that cannot expose the count. */
+  chunk_count: number | null
+  /** null only for a scoped query through a legacy CLI that cannot expose the count. */
+  vector_count: number | null
+  /** null only for a scoped query through a legacy CLI that cannot expose the count. */
+  edge_count: number | null
   reindex_chunks: number
   reindex_estimated_tokens: number
-  reindex_estimated_api_calls: number
+  /** null only when a legacy CLI does not expose the batch size needed for a scoped estimate. */
+  reindex_estimated_api_calls: number | null
   index_file_size: number
   embedding: EmbeddingConfig
   sync: SyncBreakdown

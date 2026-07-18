@@ -16,7 +16,10 @@ import {
   insertFileNode,
   routeVaultEventToTree,
   applyWatchReportToTree,
-  resetVaultTreeRouting
+  resetVaultTreeRouting,
+  loadFileTree,
+  loadAssetTree,
+  fileTreeLoading
 } from '../../src/renderer/stores/files'
 import { collections, activeCollectionId } from '../../src/renderer/stores/collections'
 import type { FileTree, AssetScanResult, WatchEventReport } from '../../src/renderer/types/cli'
@@ -47,6 +50,49 @@ function makeAssetTree(): AssetScanResult {
     root: { name: '', path: '', is_dir: true, children: [] },
     totalAssets: 0,
     scanDurationMs: 0
+  }
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
+
+function namedTree(name: string): FileTree {
+  const tree = makeTree()
+  tree.root.children = [
+    { name: `${name}.md`, path: `${name}.md`, is_dir: false, state: 'indexed', children: [] }
+  ]
+  tree.total_files = 1
+  tree.indexed_count = 1
+  tree.new_count = 0
+  return tree
+}
+
+function namedAssetTree(name: string): AssetScanResult {
+  return {
+    root: {
+      name: '',
+      path: '',
+      is_dir: true,
+      children: [
+        {
+          name: `${name}.png`,
+          path: `${name}.png`,
+          is_dir: false,
+          mimeCategory: 'image',
+          fileSize: 1,
+          children: []
+        }
+      ]
+    },
+    totalAssets: 1,
+    scanDurationMs: 1
   }
 }
 
@@ -89,6 +135,52 @@ beforeEach(() => {
   activeCollectionId.set('c1')
   fileTree.set(makeTree())
   assetTree.set(makeAssetTree())
+})
+
+describe('collection-scoped tree loading', () => {
+  it('does not let a stale collection response replace the current file tree', async () => {
+    const first = deferred<FileTree>()
+    const second = deferred<FileTree>()
+    collections.set([
+      { id: 'c1', name: 'first', path: '/first', addedAt: 0, lastOpenedAt: 0 },
+      { id: 'c2', name: 'second', path: '/second', addedAt: 0, lastOpenedAt: 0 }
+    ])
+    mockApi.tree.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
+
+    const firstLoad = loadFileTree()
+    activeCollectionId.set('c2')
+    const secondLoad = loadFileTree()
+
+    first.resolve(namedTree('stale'))
+    await firstLoad
+    expect(get(fileTreeLoading)).toBe(true)
+
+    second.resolve(namedTree('current'))
+    await secondLoad
+    expect(get(fileTree)?.root.children[0]?.name).toBe('current.md')
+    expect(get(fileTreeLoading)).toBe(false)
+  })
+
+  it('does not let a stale collection response replace the current asset tree', async () => {
+    const first = deferred<AssetScanResult>()
+    const second = deferred<AssetScanResult>()
+    collections.set([
+      { id: 'c1', name: 'first', path: '/first', addedAt: 0, lastOpenedAt: 0 },
+      { id: 'c2', name: 'second', path: '/second', addedAt: 0, lastOpenedAt: 0 }
+    ])
+    mockApi.scanAssets.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
+
+    const firstLoad = loadAssetTree()
+    activeCollectionId.set('c2')
+    const secondLoad = loadAssetTree()
+
+    second.resolve(namedAssetTree('current'))
+    await secondLoad
+    first.resolve(namedAssetTree('stale'))
+    await firstLoad
+
+    expect(get(assetTree)?.root.children[0]?.name).toBe('current.png')
+  })
 })
 
 describe('setFileNodeState', () => {

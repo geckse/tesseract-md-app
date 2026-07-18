@@ -197,6 +197,16 @@ export function computeDegreeMap(edges: GraphEdge[]): Map<string, number> {
 }
 
 /**
+ * Return node IDs with no incoming or outgoing edges in the supplied topology.
+ * Edge visibility filters are intentionally ignored by callers so hiding an
+ * edge type does not make connected content appear unconnected.
+ */
+export function findUnconnectedNodeIds(nodes: GraphNode[], edges: GraphEdge[]): Set<string> {
+  const degreeMap = computeDegreeMap(edges)
+  return new Set(nodes.filter((node) => !degreeMap.has(node.id)).map((node) => node.id))
+}
+
+/**
  * Compute the sphere size value for a node based on the graph level.
  *
  * - Document mode: `1 + degree * 2` — hub nodes appear larger.

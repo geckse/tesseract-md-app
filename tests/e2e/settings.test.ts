@@ -1,7 +1,31 @@
-import { test, expect, _electron as electron } from '@playwright/test'
+import { test, expect, _electron as electron, type ElectronApplication } from '@playwright/test'
 import { resolve } from 'path'
 
 const appPath = resolve(__dirname, '../../out/main/index.js')
+
+async function setNativeDialogResponse(
+  electronApp: ElectronApplication,
+  response: 0 | 1
+): Promise<void> {
+  await electronApp.evaluate(({ dialog }, nextResponse) => {
+    ;(globalThis as { __settingsDialogCalls?: number }).__settingsDialogCalls = 0
+    dialog.showMessageBox = (async () => {
+      const state = globalThis as { __settingsDialogCalls?: number }
+      state.__settingsDialogCalls = (state.__settingsDialogCalls ?? 0) + 1
+      return { response: nextResponse, checkboxChecked: false }
+    }) as typeof dialog.showMessageBox
+  }, response)
+}
+
+async function expectNativeDialogCalled(electronApp: ElectronApplication): Promise<void> {
+  await expect
+    .poll(() =>
+      electronApp.evaluate(
+        () => (globalThis as { __settingsDialogCalls?: number }).__settingsDialogCalls ?? 0
+      )
+    )
+    .toBe(1)
+}
 
 test.describe('Settings Panel', () => {
   test('should open settings panel when clicking gear icon in sidebar', async () => {
@@ -11,12 +35,6 @@ test.describe('Settings Panel', () => {
 
     const window = await electronApp.firstWindow()
     await window.waitForLoadState('domcontentloaded')
-
-    // Skip onboarding if present
-    const skipLink = window.locator('.skip-link')
-    if (await skipLink.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await skipLink.click()
-    }
 
     // Click gear icon in sidebar footer
     const settingsBtn = window.locator('.sidebar-footer-btn[title="Settings"]')
@@ -40,11 +58,6 @@ test.describe('Settings Panel', () => {
 
     const window = await electronApp.firstWindow()
     await window.waitForLoadState('domcontentloaded')
-
-    const skipLink = window.locator('.skip-link')
-    if (await skipLink.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await skipLink.click()
-    }
 
     const settingsBtn = window.locator('.sidebar-footer-btn[title="Settings"]')
     await settingsBtn.click()
@@ -75,11 +88,6 @@ test.describe('Settings Panel', () => {
     const window = await electronApp.firstWindow()
     await window.waitForLoadState('domcontentloaded')
 
-    const skipLink = window.locator('.skip-link')
-    if (await skipLink.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await skipLink.click()
-    }
-
     const settingsBtn = window.locator('.sidebar-footer-btn[title="Settings"]')
     await settingsBtn.click()
 
@@ -107,11 +115,6 @@ test.describe('Settings Panel', () => {
 
     const window = await electronApp.firstWindow()
     await window.waitForLoadState('domcontentloaded')
-
-    const skipLink = window.locator('.skip-link')
-    if (await skipLink.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await skipLink.click()
-    }
 
     const settingsBtn = window.locator('.sidebar-footer-btn[title="Settings"]')
     await settingsBtn.click()
@@ -147,11 +150,6 @@ test.describe('Settings Panel', () => {
     const window = await electronApp.firstWindow()
     await window.waitForLoadState('domcontentloaded')
 
-    const skipLink = window.locator('.skip-link')
-    if (await skipLink.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await skipLink.click()
-    }
-
     // Open settings
     const settingsBtn = window.locator('.sidebar-footer-btn[title="Settings"]')
     await settingsBtn.click()
@@ -176,11 +174,6 @@ test.describe('Settings Panel', () => {
 
     const window = await electronApp.firstWindow()
     await window.waitForLoadState('domcontentloaded')
-
-    const skipLink = window.locator('.skip-link')
-    if (await skipLink.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await skipLink.click()
-    }
 
     const settingsBtn = window.locator('.sidebar-footer-btn[title="Settings"]')
 
@@ -215,6 +208,38 @@ test.describe('Settings Panel', () => {
     // Verify font size persisted
     const persistedSize = await fontSizeValue.textContent()
     expect(persistedSize).toBe(changedSize)
+
+    await electronApp.close()
+  })
+
+  test('uses a native dialog before discarding unsaved settings', async () => {
+    const electronApp = await electron.launch({ args: [appPath] })
+    const window = await electronApp.firstWindow()
+    await window.waitForLoadState('domcontentloaded')
+
+    await window.locator('.sidebar-footer-btn[title="Settings"]').click()
+    await window.locator('.section-tab', { hasText: 'Embedding Provider' }).click()
+
+    const provider = window.locator('#setting-embedding-provider')
+    const original = await provider.inputValue()
+    const changed = original === 'ollama' ? 'openai' : 'ollama'
+    await provider.selectOption(changed)
+    await expect(window.getByRole('button', { name: 'Save' })).toBeVisible()
+
+    await setNativeDialogResponse(electronApp, 0)
+    await window.getByTitle('Close settings').click()
+    await expectNativeDialogCalled(electronApp)
+    await expect(window.locator('.settings-panel')).toBeVisible()
+    await expect(provider).toHaveValue(changed)
+
+    await setNativeDialogResponse(electronApp, 1)
+    await window.getByTitle('Close settings').click()
+    await expectNativeDialogCalled(electronApp)
+    await expect(window.locator('.settings-panel')).not.toBeVisible()
+
+    await window.locator('.sidebar-footer-btn[title="Settings"]').click()
+    await window.locator('.section-tab', { hasText: 'Embedding Provider' }).click()
+    await expect(window.locator('#setting-embedding-provider')).toHaveValue(original)
 
     await electronApp.close()
   })

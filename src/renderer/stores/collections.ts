@@ -45,6 +45,20 @@ export const infoScope = writable<string | null>(null)
 /** Whether collections are currently loading. */
 export const collectionsLoading = writable<boolean>(false)
 
+// Async collection metadata is fetched in the background. These generations
+// make every channel last-request-wins so a slow response from the previously
+// active collection cannot overwrite the current collection's UI.
+let statusRequestGeneration = 0
+let doctorRequestGeneration = 0
+let infoRequestGeneration = 0
+
+function invalidateCollectionMetadataRequests(): void {
+  statusRequestGeneration++
+  doctorRequestGeneration++
+  infoRequestGeneration++
+  doctorRunning.set(false)
+}
+
 /** Load all collections from the main process store. */
 export async function loadCollections(): Promise<void> {
   collectionsLoading.set(true)
@@ -84,9 +98,22 @@ export async function addAndActivateCollection(): Promise<Collection | null> {
   return collection
 }
 
+/** Create (or reuse) the guided example collection and make it active. */
+export async function createAndActivateExampleCollection(): Promise<Collection> {
+  const collection = await window.api.createExampleCollection()
+  collections.update((list) => {
+    const existingIndex = list.findIndex((item) => item.id === collection.id)
+    if (existingIndex === -1) return [...list, collection]
+    return list.map((item, index) => (index === existingIndex ? collection : item))
+  })
+  await setActiveCollection(collection.id)
+  return collection
+}
+
 /** Remove a collection by ID (does not delete files on disk). */
 export async function removeCollection(id: string): Promise<void> {
   await window.api.removeCollection(id)
+  invalidateCollectionMetadataRequests()
   collections.update((list) => list.filter((c) => c.id !== id))
   activeCollectionId.update((current) => (current === id ? null : current))
   collectionStatus.set(null)
@@ -97,6 +124,7 @@ export async function removeCollection(id: string): Promise<void> {
 /** Set the active collection and fetch its status. */
 export async function setActiveCollection(id: string): Promise<void> {
   await window.api.setActiveCollection(id)
+  invalidateCollectionMetadataRequests()
   activeCollectionId.set(id)
   collectionStatus.set(null)
   collectionDoctorResult.set(null)
@@ -108,28 +136,41 @@ export async function setActiveCollection(id: string): Promise<void> {
 
 /** Fetch index status for a collection by ID. */
 async function fetchCollectionStatus(id: string): Promise<void> {
+  const requestGeneration = ++statusRequestGeneration
   const collection = get(collections).find((c) => c.id === id)
   if (!collection) return
   const path = collection.path
 
   try {
     const status = await window.api.status(path)
+    if (requestGeneration !== statusRequestGeneration || get(activeCollectionId) !== id) return
     collectionStatus.set(status)
   } catch {
+    if (requestGeneration !== statusRequestGeneration || get(activeCollectionId) !== id) return
     collectionStatus.set(null)
   }
 }
 
 /** Fetch doctor diagnostic results for a collection by ID. */
 export async function fetchCollectionDoctorStatus(id: string): Promise<void> {
+  const requestGeneration = ++doctorRequestGeneration
+  await fetchCollectionDoctorStatusForGeneration(id, requestGeneration)
+}
+
+async function fetchCollectionDoctorStatusForGeneration(
+  id: string,
+  requestGeneration: number
+): Promise<void> {
   const collection = get(collections).find((c) => c.id === id)
   if (!collection) return
   const path = collection.path
 
   try {
     const result = await window.api.doctor(path)
+    if (requestGeneration !== doctorRequestGeneration || get(activeCollectionId) !== id) return
     collectionDoctorResult.set(result)
   } catch {
+    if (requestGeneration !== doctorRequestGeneration || get(activeCollectionId) !== id) return
     collectionDoctorResult.set(null)
   }
 }
@@ -138,11 +179,14 @@ export async function fetchCollectionDoctorStatus(id: string): Promise<void> {
 export async function runDoctor(): Promise<void> {
   const id = get(activeCollectionId)
   if (!id) return
+  const requestGeneration = ++doctorRequestGeneration
   doctorRunning.set(true)
   try {
-    await fetchCollectionDoctorStatus(id)
+    await fetchCollectionDoctorStatusForGeneration(id, requestGeneration)
   } finally {
-    doctorRunning.set(false)
+    if (requestGeneration === doctorRequestGeneration && get(activeCollectionId) === id) {
+      doctorRunning.set(false)
+    }
   }
 }
 
@@ -157,17 +201,31 @@ export async function fetchCollectionInfo(): Promise<void> {
   const collection = get(activeCollection)
   if (!collection) return
 
+  const requestGeneration = ++infoRequestGeneration
+  const collectionId = collection.id
   const scope = get(infoScope)
   infoLoading.set(true)
   infoError.set(null)
   try {
     const result = await window.api.info(collection.path, scope ?? undefined)
+    if (
+      requestGeneration !== infoRequestGeneration ||
+      get(activeCollectionId) !== collectionId ||
+      get(infoScope) !== scope
+    )
+      return
     collectionInfo.set(result)
   } catch (error) {
+    if (
+      requestGeneration !== infoRequestGeneration ||
+      get(activeCollectionId) !== collectionId ||
+      get(infoScope) !== scope
+    )
+      return
     collectionInfo.set(null)
     infoError.set(error instanceof Error ? error.message : 'Unable to load collection information.')
   } finally {
-    infoLoading.set(false)
+    if (requestGeneration === infoRequestGeneration) infoLoading.set(false)
   }
 }
 
@@ -186,6 +244,7 @@ export function closeInfoModal(): void {
 }
 
 function resetCollectionInfo(): void {
+  infoRequestGeneration++
   collectionInfo.set(null)
   infoModalOpen.set(false)
   infoLoading.set(false)

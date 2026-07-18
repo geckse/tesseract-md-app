@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/svelte'
-import type { LinksOutput, BacklinksOutput } from '../../src/renderer/types/cli'
+import type { LinksOutput, BacklinksOutput, NeighborhoodResult } from '../../src/renderer/types/cli'
 import { buildLocalGraph } from '../../src/renderer/utils/local-graph'
 import type { NeighborLinks } from '../../src/renderer/utils/local-graph'
 
@@ -58,6 +58,7 @@ Object.defineProperty(globalThis, 'window', {
 })
 
 import LocalGraph from '@renderer/components/LocalGraph.svelte'
+import { collections, activeCollectionId } from '../../src/renderer/stores/collections'
 
 /** Flush pending microtasks (resolved promises). */
 function flushPromises() {
@@ -92,6 +93,8 @@ function makeBacklinksOutput(
 
 beforeEach(() => {
   vi.resetAllMocks()
+  collections.set([])
+  activeCollectionId.set(null)
   // Default neighborhood mock to reject (so LocalGraph falls back to 1-hop data)
   mockApi.neighborhood.mockRejectedValue(new Error('not available'))
 })
@@ -420,6 +423,61 @@ describe('LocalGraph component rendering', () => {
     const lines = container.querySelectorAll('line')
     expect(lines.length).toBe(1)
   })
+
+  it('ignores a stale neighborhood response after the selected file changes', async () => {
+    let resolveFirst!: (value: NeighborhoodResult) => void
+    let resolveSecond!: (value: NeighborhoodResult) => void
+    const firstRequest = new Promise<NeighborhoodResult>((resolve) => {
+      resolveFirst = resolve
+    })
+    const secondRequest = new Promise<NeighborhoodResult>((resolve) => {
+      resolveSecond = resolve
+    })
+
+    mockApi.neighborhood.mockImplementation((_root: string, path: string) =>
+      path === 'docs/first.md' ? firstRequest : secondRequest
+    )
+    collections.set([
+      { id: 'collection-1', name: 'Docs', path: '/vault', addedAt: 0, lastOpenedAt: 0 }
+    ])
+    activeCollectionId.set('collection-1')
+
+    const emptyLinks = (file: string) => makeLinksOutput(file, [])
+    const emptyBacklinks = (file: string) => makeBacklinksOutput(file, [])
+    const neighborhood = (file: string, neighbor: string): NeighborhoodResult => ({
+      file,
+      outgoing: [{ path: neighbor, state: 'Valid', children: [] }],
+      incoming: [],
+      outgoing_count: 1,
+      incoming_count: 0,
+      outgoing_depth_count: 1,
+      incoming_depth_count: 0
+    })
+
+    const { container, rerender } = render(LocalGraph, {
+      props: {
+        centerPath: 'docs/first.md',
+        linksInfo: emptyLinks('docs/first.md'),
+        backlinksInfo: emptyBacklinks('docs/first.md')
+      }
+    })
+
+    await rerender({
+      centerPath: 'docs/second.md',
+      linksInfo: emptyLinks('docs/second.md'),
+      backlinksInfo: emptyBacklinks('docs/second.md')
+    })
+    resolveSecond(neighborhood('docs/second.md', 'docs/current.md'))
+    await flushPromises()
+
+    expect(container.querySelector('[aria-label="current.md"]')).toBeTruthy()
+
+    resolveFirst(neighborhood('docs/first.md', 'docs/stale.md'))
+    await flushPromises()
+
+    expect(container.querySelector('[aria-label="current.md"]')).toBeTruthy()
+    expect(container.querySelector('[aria-label="stale.md"]')).toBeNull()
+  })
 })
 
 // --- Integration tests: LocalGraph within PropertiesPanel ---
@@ -543,7 +601,7 @@ describe('LocalGraph integration in PropertiesPanel', () => {
     expect(expandBtn).toBeTruthy()
   })
 
-  it.skip('fires onfileselect with correct path when a graph node is clicked', async () => {
+  it('fires onfileselect with correct path when a graph node is activated', async () => {
     // Set stores BEFORE render so subscriptions fire during initialization
     selectFileInWorkspace('docs/test.md')
     linksInfo.set(sampleLinks)
@@ -558,8 +616,9 @@ describe('LocalGraph integration in PropertiesPanel', () => {
     // First graph-node is center (test.md), second and third are neighbors
     expect(graphNodes.length).toBeGreaterThanOrEqual(2)
 
-    // Click the second node (a neighbor — either guide.md or standup.md)
-    await fireEvent.click(graphNodes[1])
+    // Exercise the keyboard-equivalent activation path. Pointer activation is
+    // split across pointerdown/up so node dragging does not also open a file.
+    await fireEvent.keyDown(graphNodes[1], { key: 'Enter' })
 
     // Handler should be called with one of the neighbor paths
     expect(handler).toHaveBeenCalledTimes(1)

@@ -11,7 +11,7 @@ Object.defineProperty(globalThis, 'window', {
   writable: true
 })
 
-import { schema, fetchSchema } from '../../src/renderer/stores/schema'
+import { schema, fetchSchema, clearSchema } from '../../src/renderer/stores/schema'
 
 beforeEach(() => {
   schema.set(null)
@@ -58,6 +58,36 @@ describe('schema store', () => {
       mockApi.schema.mockRejectedValue(new Error('fail'))
 
       await fetchSchema('/root')
+
+      expect(get(schema)).toBeNull()
+    })
+
+    it('does not let a stale scope response replace the latest schema', async () => {
+      let resolveFirst!: (value: typeof mockSchema) => void
+      let resolveSecond!: (value: typeof mockSchema) => void
+      mockApi.schema
+        .mockReturnValueOnce(new Promise((resolve) => (resolveFirst = resolve)))
+        .mockReturnValueOnce(new Promise((resolve) => (resolveSecond = resolve)))
+
+      const first = fetchSchema('/first', 'old')
+      const second = fetchSchema('/second', 'current')
+      const current = { fields: [{ name: 'current', field_type: 'String', count: 1 }] }
+      resolveSecond(current as typeof mockSchema)
+      await second
+      resolveFirst(mockSchema)
+      await first
+
+      expect(get(schema)).toEqual(current)
+    })
+
+    it('invalidates an in-flight response when schema state is cleared', async () => {
+      let resolveSchema!: (value: typeof mockSchema) => void
+      mockApi.schema.mockReturnValue(new Promise((resolve) => (resolveSchema = resolve)))
+
+      const loading = fetchSchema('/old')
+      clearSchema()
+      resolveSchema(mockSchema)
+      await loading
 
       expect(get(schema)).toBeNull()
     })

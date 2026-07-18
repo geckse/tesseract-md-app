@@ -5,6 +5,7 @@
   import { closedTabs } from '../stores/closed-tabs.svelte'
   import { syncFileStoresFromTab } from '../stores/files'
   import { saveAsTabId, dismissSaveAs } from '../stores/save-as'
+  import { requestConfirmation } from '../stores/confirmation'
   import TabBar from './TabBar.svelte'
   import ModeBar from './ModeBar.svelte'
   import Editor from './Editor.svelte'
@@ -68,7 +69,7 @@
     syncFileStoresFromTab()
   }
 
-  function handleTabClose(tabId: string) {
+  async function handleTabClose(tabId: string): Promise<void> {
     const tab = workspace.tabs[tabId]
     if (!tab) return
     // Graph tabs cannot be closed
@@ -76,9 +77,13 @@
 
     // Confirm before closing dirty document tabs to prevent data loss
     if (tab.kind === 'document' && tab.isDirty) {
-      const shouldClose = window.confirm(
-        `"${tab.title}" has unsaved changes. Discard changes and close?`
-      )
+      const shouldClose = await requestConfirmation({
+        title: `Close ${tab.title}?`,
+        message: 'This document has unsaved changes. Discard them and close the tab?',
+        confirmLabel: 'Discard and Close',
+        cancelLabel: 'Keep Editing',
+        tone: 'danger'
+      })
       if (!shouldClose) return
     }
 
@@ -91,9 +96,9 @@
     syncFileStoresFromTab()
   }
 
-  function handleTabCloseMany(tabIds: string[]) {
+  async function handleTabCloseMany(tabIds: string[]): Promise<void> {
     for (const tabId of tabIds) {
-      handleTabClose(tabId)
+      await handleTabClose(tabId)
     }
   }
 
@@ -189,7 +194,7 @@
           <p class="empty-title">No file open</p>
           <p class="empty-hint">
             Open a file from the sidebar or press
-            <kbd class="empty-kbd"><span class="kbd-symbol">&#8984;</span>P</kbd>
+            <kbd class="empty-kbd"><span class="kbd-symbol">&#8984;</span>O</kbd>
             to search
           </p>
         </div>

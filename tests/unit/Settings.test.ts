@@ -38,6 +38,7 @@ const mockApi = {
   setTerminalShellArgs: vi.fn().mockResolvedValue(undefined),
   getTerminalFontSize: vi.fn().mockResolvedValue(14),
   setTerminalFontSize: vi.fn().mockResolvedValue(undefined),
+  showConfirmation: vi.fn().mockResolvedValue(true),
   openPath: vi.fn()
 }
 
@@ -54,7 +55,11 @@ import {
   collectionConfig,
   configLoading,
   activeSection,
-  settingsTarget
+  settingsTarget,
+  userDraft,
+  collectionDraft,
+  collectionDeletions,
+  stageUserConfig
 } from '../../src/renderer/stores/settings'
 import { collections, activeCollectionId } from '../../src/renderer/stores/collections'
 import { get } from 'svelte/store'
@@ -64,6 +69,9 @@ function resetStores() {
   userConfig.set({})
   collectionConfig.set({})
   configLoading.set(false)
+  userDraft.set({})
+  collectionDraft.set({})
+  collectionDeletions.set(new Set())
   activeSection.set('cli')
   settingsTarget.set('global')
   collections.set([])
@@ -79,6 +87,7 @@ beforeEach(() => {
   mockApi.getEditorFontSize.mockResolvedValue(14)
   mockApi.getAppVersion.mockResolvedValue('0.1.0')
   mockApi.getUserConfig.mockResolvedValue({})
+  mockApi.showConfirmation.mockResolvedValue(true)
 })
 
 describe('Settings component', () => {
@@ -242,6 +251,60 @@ describe('Settings component', () => {
     expect(onclose).toHaveBeenCalledOnce()
     expect(get(settingsTarget)).toBe('global')
     expect(get(activeSection)).toBe('cli')
+  })
+
+  it('keeps unsaved settings open when the native discard dialog is cancelled', async () => {
+    const onclose = vi.fn()
+    mockApi.showConfirmation.mockResolvedValue(false)
+    render(Settings, { props: { onclose } })
+    stageUserConfig('MDVDB_EMBEDDING_PROVIDER', 'ollama')
+
+    await fireEvent.click(screen.getByTitle('Close settings'))
+
+    await vi.waitFor(() => expect(mockApi.showConfirmation).toHaveBeenCalledOnce())
+    expect(onclose).not.toHaveBeenCalled()
+    expect(get(userDraft)).toEqual({ MDVDB_EMBEDDING_PROVIDER: 'ollama' })
+    expect(mockApi.showConfirmation).toHaveBeenCalledWith({
+      title: 'Discard unsaved settings?',
+      message: 'Your unsaved settings changes will be lost.',
+      confirmLabel: 'Discard Changes',
+      cancelLabel: 'Keep Editing',
+      tone: 'danger'
+    })
+  })
+
+  it('discards unsaved settings only after native confirmation', async () => {
+    const onclose = vi.fn()
+    render(Settings, { props: { onclose } })
+    stageUserConfig('MDVDB_EMBEDDING_PROVIDER', 'ollama')
+
+    await fireEvent.click(screen.getByTitle('Close settings'))
+
+    await vi.waitFor(() => expect(onclose).toHaveBeenCalledOnce())
+    expect(get(userDraft)).toEqual({})
+  })
+
+  it('does not discard drafts when the current settings target is clicked again', async () => {
+    render(Settings, { props: { onclose: vi.fn() } })
+    stageUserConfig('MDVDB_EMBEDDING_PROVIDER', 'ollama')
+
+    await fireEvent.click(screen.getByText('Global Settings'))
+
+    expect(mockApi.showConfirmation).not.toHaveBeenCalled()
+    expect(get(userDraft)).toEqual({ MDVDB_EMBEDDING_PROVIDER: 'ollama' })
+  })
+
+  it('cancels settings target changes when native discard is declined', async () => {
+    collections.set([{ id: 'c1', name: 'My Notes', path: '/tmp/notes' }])
+    mockApi.showConfirmation.mockResolvedValue(false)
+    render(Settings, { props: { onclose: vi.fn() } })
+    stageUserConfig('MDVDB_EMBEDDING_PROVIDER', 'ollama')
+
+    await fireEvent.click(screen.getByText('My Notes'))
+
+    await vi.waitFor(() => expect(mockApi.showConfirmation).toHaveBeenCalledOnce())
+    expect(get(settingsTarget)).toBe('global')
+    expect(get(userDraft)).toEqual({ MDVDB_EMBEDDING_PROVIDER: 'ollama' })
   })
 
   it('CLI section shows version and path', async () => {

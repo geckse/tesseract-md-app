@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte'
-  import { get } from 'svelte/store'
+  import { onDestroy, untrack } from 'svelte'
   import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide } from 'd3-force'
   import type { Simulation } from 'd3-force'
   import type { LinksOutput, BacklinksOutput } from '../types/cli'
@@ -35,6 +34,11 @@
   let degreeMap: Map<string, number> = $state(new Map())
   let hoveredPath: string | null = $state(null)
   let simulation: Simulation<LocalNode, LocalEdge> | null = null
+  let currentCollectionPath: string | null = $state(null)
+
+  const unsubscribeActiveCollection = activeCollection.subscribe((collection) => {
+    currentCollectionPath = collection?.path ?? null
+  })
 
   // Zoom & pan state
   let zoom: number = $state(1)
@@ -218,33 +222,47 @@
   // Rebuild graph when inputs change — use single neighborhood API call for depth-2
   $effect(() => {
     if (!centerPath) {
-      runSimulation({ nodes: [], edges: [] })
+      untrack(() => runSimulation({ nodes: [], edges: [] }))
       return
     }
 
-    const collection = get(activeCollection)
+    const collectionPath = currentCollectionPath
     const cp = centerPath
     const li = linksInfo
     const bi = backlinksInfo
 
-    if (!collection) {
-      runSimulation(buildLocalGraph(cp, li, bi))
+    if (!collectionPath) {
+      // runSimulation updates degreeMap and also reads it while configuring
+      // collision radii. Keep those internal simulation writes out of this
+      // input effect's dependency set so the fallback cannot recurse.
+      untrack(() => runSimulation(buildLocalGraph(cp, li, bi)))
       return
     }
 
+    let cancelled = false
+
     // Try single neighborhood call (depth 2) — show neighbors of neighbors
     window.api
-      .neighborhood(collection.path, cp, 2)
+      .neighborhood(collectionPath, cp, 2)
       .then((result) => {
+        if (cancelled) return
         runSimulation(buildLocalGraphFromNeighborhood(cp, result))
       })
       .catch(() => {
+        if (cancelled) return
         // Fallback: use existing 1-hop data from props
         runSimulation(buildLocalGraph(cp, li, bi))
       })
+
+    // File and collection switches can overlap slow CLI calls. Never let a
+    // response for the previous selection replace the current local graph.
+    return () => {
+      cancelled = true
+    }
   })
 
   onDestroy(() => {
+    unsubscribeActiveCollection()
     if (simulation) simulation.stop()
   })
 
@@ -518,15 +536,16 @@
 
   <!-- Context menu -->
   {#if contextMenuPath}
-    <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
-    <div
+    <button
+      type="button"
       class="context-menu-backdrop"
+      aria-label="Close context menu"
       onclick={() => (contextMenuPath = null)}
       oncontextmenu={(e) => {
         e.preventDefault()
         contextMenuPath = null
       }}
-    ></div>
+    ></button>
     <div class="context-menu" style="left: {contextMenuX}px; top: {contextMenuY}px">
       <div class="context-menu-header">{contextMenuPath.split('/').pop()}</div>
       <button class="context-menu-item" onclick={handleContextMenuOpen}>
@@ -754,6 +773,10 @@
     position: fixed;
     inset: 0;
     z-index: 49;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    cursor: default;
   }
 
   .context-menu {

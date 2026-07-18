@@ -78,6 +78,14 @@
     onclose?.(tab.id)
   }
 
+  function handleTabKeydown(e: KeyboardEvent) {
+    if (e.key === 'Delete' && canClose) {
+      e.preventDefault()
+      e.stopPropagation()
+      onclose?.(tab.id)
+    }
+  }
+
   function handleDragStart(e: DragEvent) {
     if (!canDrag) {
       e.preventDefault()
@@ -124,53 +132,54 @@
   }
 </script>
 
-<button
-  class="tab-item"
+<div
+  class="tab-item-shell"
   class:active={isActive && paneFocused}
   class:active-dimmed={isActive && !paneFocused}
   class:graph={isGraph}
   class:dragging={isDragging}
-  onclick={handleClick}
-  onauxclick={handleAuxClick}
-  oncontextmenu={handleContextMenu}
-  draggable={canDrag}
-  ondragstart={handleDragStart}
-  ondragend={handleDragEnd}
-  title={tab.title}
-  role="tab"
-  aria-selected={isActive}
 >
-  <span class="material-symbols-outlined tab-icon">{icon}</span>
+  <button
+    class="tab-item"
+    onclick={handleClick}
+    onkeydown={handleTabKeydown}
+    onauxclick={handleAuxClick}
+    oncontextmenu={handleContextMenu}
+    draggable={canDrag}
+    ondragstart={handleDragStart}
+    ondragend={handleDragEnd}
+    title={tab.title}
+    role="tab"
+    aria-selected={isActive}
+    aria-label="{tab.title}{isDirty ? ', unsaved changes' : ''}{canClose
+      ? '. Press Delete to close'
+      : ''}"
+    tabindex={isActive ? 0 : -1}
+  >
+    <span class="material-symbols-outlined tab-icon" aria-hidden="true">{icon}</span>
 
-  <span class="tab-title">{tab.title}</span>
+    <span class="tab-title">{tab.title}</span>
 
-  {#if isDirty}
-    <span class="dirty-indicator" aria-label="Unsaved changes"></span>
-  {/if}
+    {#if isDirty}
+      <span class="dirty-indicator" aria-label="Unsaved changes"></span>
+    {/if}
+  </button>
 
   {#if canClose}
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <span
-      class="close-btn"
-      role="button"
-      tabindex="-1"
-      aria-label="Close tab"
-      onclick={handleCloseClick}
-    >
-      <span class="material-symbols-outlined close-icon">close</span>
+    <!-- The tab itself owns the Delete-key close action. This visual pointer
+         target stays decorative to preserve a valid tablist accessibility tree. -->
+    <span class="close-btn" title="Close {tab.title}" aria-hidden="true" onclick={handleCloseClick}>
+      <span class="material-symbols-outlined close-icon" aria-hidden="true">close</span>
     </span>
   {/if}
-</button>
+</div>
 
 <style>
-  .tab-item {
+  .tab-item-shell {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
     height: 100%;
-    padding: 0 12px;
     background: none;
-    border: none;
     border-bottom: 2px solid transparent;
     color: var(--color-text-dim, #71717a);
     font-family: var(--font-display, 'Space Grotesk', system-ui, sans-serif);
@@ -186,27 +195,50 @@
     flex-shrink: 0;
   }
 
-  .tab-item:hover {
+  .tab-item-shell:hover {
     color: var(--color-text, #e4e4e7);
     background: var(--color-surface, #161617);
   }
 
-  .tab-item.active {
+  .tab-item-shell.active {
     color: var(--color-text-white, #fff);
     border-bottom-color: var(--color-primary, #00e5ff);
   }
 
-  .tab-item.active-dimmed {
+  .tab-item-shell.active-dimmed {
     color: var(--color-text, #e4e4e7);
     border-bottom-color: var(--color-primary-glow, rgba(0, 229, 255, 0.3));
   }
 
-  .tab-item.graph {
+  .tab-item-shell.graph {
     cursor: pointer;
   }
 
-  .tab-item.dragging {
+  .tab-item-shell.dragging {
     opacity: 0.4;
+  }
+
+  .tab-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 100%;
+    padding: 0 6px 0 12px;
+    border: none;
+    background: none;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .tab-item-shell.graph .tab-item {
+    padding-right: 12px;
+  }
+
+  .tab-item:focus-visible,
+  .close-btn:focus-visible {
+    outline: 1px solid var(--color-primary, #00e5ff);
+    outline-offset: -2px;
   }
 
   /* --- Icon --- */
@@ -216,11 +248,11 @@
     flex-shrink: 0;
   }
 
-  .tab-item.active .tab-icon {
+  .tab-item-shell.active .tab-icon {
     color: var(--color-primary, #00e5ff);
   }
 
-  .tab-item.active-dimmed .tab-icon {
+  .tab-item-shell.active-dimmed .tab-icon {
     color: var(--color-primary-glow, rgba(0, 229, 255, 0.4));
   }
 
@@ -254,6 +286,10 @@
     color: var(--color-text-dim, #71717a);
     opacity: 0;
     cursor: pointer;
+    border: none;
+    padding: 0;
+    margin-right: 6px;
+    background: none;
     transition:
       opacity var(--transition-fast, 150ms ease),
       color var(--transition-fast, 150ms ease),
@@ -261,7 +297,8 @@
     flex-shrink: 0;
   }
 
-  .tab-item:hover .close-btn {
+  .tab-item-shell:hover .close-btn,
+  .close-btn:focus-visible {
     opacity: 1;
   }
 

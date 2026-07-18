@@ -1,259 +1,161 @@
-import { test, expect, _electron as electron } from '@playwright/test'
-import { resolve } from 'path'
+import { test, expect, _electron as electron, type ElectronApplication } from '@playwright/test'
+import { resolve } from 'node:path'
+import { openExampleFile, openRawEditor } from './support/example-collection'
 
 const appPath = resolve(__dirname, '../../out/main/index.js')
+const modifier = process.platform === 'darwin' ? 'Meta' : 'Control'
+
+async function setNativeDialogResponse(
+  electronApp: ElectronApplication,
+  response: 0 | 1
+): Promise<void> {
+  await electronApp.evaluate(({ dialog }, nextResponse) => {
+    ;(globalThis as { __tesseractDialogCalls?: number }).__tesseractDialogCalls = 0
+    dialog.showMessageBox = (async () => {
+      const state = globalThis as { __tesseractDialogCalls?: number }
+      state.__tesseractDialogCalls = (state.__tesseractDialogCalls ?? 0) + 1
+      return { response: nextResponse, checkboxChecked: false }
+    }) as typeof dialog.showMessageBox
+  }, response)
+}
+
+async function expectNativeDialogCalled(electronApp: ElectronApplication): Promise<void> {
+  await expect
+    .poll(() =>
+      electronApp.evaluate(
+        () => (globalThis as { __tesseractDialogCalls?: number }).__tesseractDialogCalls ?? 0
+      )
+    )
+    .toBe(1)
+}
 
 test.describe('Editor Workflow', () => {
-  test('should show empty state when no file is selected', async () => {
-    const electronApp = await electron.launch({
-      args: [appPath]
-    })
-
+  test('shows a useful empty state before a file is selected', async () => {
+    const electronApp = await electron.launch({ args: [appPath] })
     const window = await electronApp.firstWindow()
     await window.waitForLoadState('domcontentloaded')
 
-    const emptyState = window.locator('.empty-state')
-    const isVisible = await emptyState.isVisible().catch(() => false)
-
-    if (isVisible) {
-      const emptyText = window.locator('.empty-text')
-      await expect(emptyText).toContainText('Select a file from the sidebar')
-    }
+    const emptyState = window.getByRole('main', { name: 'No file open' })
+    await expect(emptyState).toBeVisible()
+    await expect(emptyState).toContainText('Open a file from the sidebar')
 
     await electronApp.close()
   })
 
-  test('should render editor when a file is opened', async () => {
-    const electronApp = await electron.launch({
-      args: [appPath]
-    })
-
+  test('opens the generated guide in the WYSIWYG editor', async () => {
+    const electronApp = await electron.launch({ args: [appPath] })
     const window = await electronApp.firstWindow()
     await window.waitForLoadState('domcontentloaded')
 
-    const collectionItems = window.locator('.collection-item')
-    const count = await collectionItems.count()
-
-    if (count > 0) {
-      await collectionItems.first().click()
-      await window.waitForTimeout(1000)
-
-      const fileRows = window.locator('.tree-row:not(.directory)')
-      const fileCount = await fileRows.count()
-
-      if (fileCount > 0) {
-        await fileRows.first().click()
-        await window.waitForTimeout(1000)
-
-        // Editor container should be visible
-        const editorContainer = window.locator('.editor-container')
-        await expect(editorContainer).toBeVisible()
-
-        // CodeMirror editor should be rendered inside
-        const cmEditor = window.locator('.cm-editor')
-        await expect(cmEditor).toBeVisible()
-      }
-    }
+    await openExampleFile(window)
+    await expect(window.locator('.ProseMirror')).toBeVisible()
+    await expect(window.getByRole('heading', { name: 'Welcome to Tesseract' })).toBeVisible()
 
     await electronApp.close()
   })
 
-  test('should show word count in status bar', async () => {
-    const electronApp = await electron.launch({
-      args: [appPath]
-    })
-
+  test('reports non-zero word and token counts for an open guide', async () => {
+    const electronApp = await electron.launch({ args: [appPath] })
     const window = await electronApp.firstWindow()
     await window.waitForLoadState('domcontentloaded')
 
-    const collectionItems = window.locator('.collection-item')
-    const count = await collectionItems.count()
-
-    if (count > 0) {
-      await collectionItems.first().click()
-      await window.waitForTimeout(1000)
-
-      const fileRows = window.locator('.tree-row:not(.directory)')
-      const fileCount = await fileRows.count()
-
-      if (fileCount > 0) {
-        await fileRows.first().click()
-        await window.waitForTimeout(1000)
-
-        // Status bar should show word count
-        const statusBar = window.locator('.status-bar')
-        await expect(statusBar).toBeVisible()
-
-        // Look for the word count item (contains "words")
-        const wordCountItem = window.locator('.status-item', { hasText: 'words' })
-        await expect(wordCountItem).toBeVisible()
-
-        const text = await wordCountItem.textContent()
-        expect(text).toMatch(/\d+ words/)
-      }
-    }
+    await openExampleFile(window)
+    await expect(window.locator('.status-item', { hasText: 'words' })).toHaveText(
+      /[1-9][\d,]* words/
+    )
+    await expect(window.locator('.status-item', { hasText: 'tokens' })).toHaveText(
+      /[1-9][\d,]* tokens/
+    )
 
     await electronApp.close()
   })
 
-  test('should show token count in status bar', async () => {
-    const electronApp = await electron.launch({
-      args: [appPath]
-    })
-
+  test('marks source edits dirty and clears the state after saving', async () => {
+    const electronApp = await electron.launch({ args: [appPath] })
     const window = await electronApp.firstWindow()
     await window.waitForLoadState('domcontentloaded')
 
-    const collectionItems = window.locator('.collection-item')
-    const count = await collectionItems.count()
+    await openExampleFile(window)
+    const content = await openRawEditor(window)
+    const dirtyDot = window.locator('.dirty-dot')
+    await expect(dirtyDot).not.toBeVisible()
 
-    if (count > 0) {
-      await collectionItems.first().click()
-      await window.waitForTimeout(1000)
+    await content.click()
+    await window.keyboard.press(`${modifier}+End`)
+    await window.keyboard.type('\n\nRelease-gate edit.')
+    await expect(dirtyDot).toBeVisible()
 
-      const fileRows = window.locator('.tree-row:not(.directory)')
-      const fileCount = await fileRows.count()
-
-      if (fileCount > 0) {
-        await fileRows.first().click()
-        await window.waitForTimeout(1000)
-
-        const tokenCountItem = window.locator('.status-item', { hasText: 'tokens' })
-        await expect(tokenCountItem).toBeVisible()
-
-        const text = await tokenCountItem.textContent()
-        expect(text).toMatch(/[\d,]+ tokens/)
-      }
-    }
+    await window.keyboard.press(`${modifier}+s`)
+    await expect(dirtyDot).not.toBeVisible({ timeout: 10_000 })
 
     await electronApp.close()
   })
 
-  test('should set dirty state when typing in editor', async () => {
-    const electronApp = await electron.launch({
-      args: [appPath]
-    })
-
+  test('uses the native dialog for destructive discard actions', async () => {
+    const electronApp = await electron.launch({ args: [appPath] })
     const window = await electronApp.firstWindow()
     await window.waitForLoadState('domcontentloaded')
 
-    const collectionItems = window.locator('.collection-item')
-    const count = await collectionItems.count()
+    await openExampleFile(window)
+    const content = await openRawEditor(window)
+    await content.click()
+    await window.keyboard.press(`${modifier}+End`)
+    await window.keyboard.type('\n\nUnsaved dialog test.')
+    await expect(window.locator('.dirty-dot')).toBeVisible()
 
-    if (count > 0) {
-      await collectionItems.first().click()
-      await window.waitForTimeout(1000)
+    const discard = window.getByTitle('Discard changes')
+    await setNativeDialogResponse(electronApp, 0)
+    await discard.click()
+    await expectNativeDialogCalled(electronApp)
+    await expect(window.locator('.dirty-dot')).toBeVisible()
 
-      const fileRows = window.locator('.tree-row:not(.directory)')
-      const fileCount = await fileRows.count()
-
-      if (fileCount > 0) {
-        await fileRows.first().click()
-        await window.waitForTimeout(1000)
-
-        // Dirty dot should not be visible initially
-        const dirtyDot = window.locator('.dirty-dot')
-        await expect(dirtyDot).not.toBeVisible()
-
-        // Type into the CodeMirror editor
-        const cmContent = window.locator('.cm-content')
-        await cmContent.click()
-        await window.keyboard.type('test input ')
-        await window.waitForTimeout(500)
-
-        // Dirty dot should now be visible
-        await expect(dirtyDot).toBeVisible()
-      }
-    }
+    await setNativeDialogResponse(electronApp, 1)
+    await discard.click()
+    await expectNativeDialogCalled(electronApp)
+    await expect(window.locator('.dirty-dot')).not.toBeVisible()
+    await expect(content).not.toContainText('Unsaved dialog test.')
 
     await electronApp.close()
   })
 
-  test('should clear dirty state after saving with Cmd+S', async () => {
-    const electronApp = await electron.launch({
-      args: [appPath]
-    })
-
+  test('guards a native window close with the native discard dialog', async () => {
+    const electronApp = await electron.launch({ args: [appPath] })
     const window = await electronApp.firstWindow()
     await window.waitForLoadState('domcontentloaded')
 
-    const collectionItems = window.locator('.collection-item')
-    const count = await collectionItems.count()
+    await openExampleFile(window)
+    const content = await openRawEditor(window)
+    await content.click()
+    await window.keyboard.press(`${modifier}+End`)
+    await window.keyboard.type('\n\nClose guard test.')
+    await expect(window.locator('.dirty-dot')).toBeVisible()
 
-    if (count > 0) {
-      await collectionItems.first().click()
-      await window.waitForTimeout(1000)
+    await setNativeDialogResponse(electronApp, 0)
+    await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.close())
+    await expectNativeDialogCalled(electronApp)
+    await expect(window.locator('.dirty-dot')).toBeVisible()
+    expect(electronApp.windows()).toHaveLength(1)
 
-      const fileRows = window.locator('.tree-row:not(.directory)')
-      const fileCount = await fileRows.count()
-
-      if (fileCount > 0) {
-        await fileRows.first().click()
-        await window.waitForTimeout(1000)
-
-        // Type to make dirty
-        const cmContent = window.locator('.cm-content')
-        await cmContent.click()
-        await window.keyboard.type('save test ')
-        await window.waitForTimeout(500)
-
-        const dirtyDot = window.locator('.dirty-dot')
-        await expect(dirtyDot).toBeVisible()
-
-        // Save with Cmd+S / Ctrl+S
-        const modifier = process.platform === 'darwin' ? 'Meta' : 'Control'
-        await window.keyboard.press(`${modifier}+s`)
-        await window.waitForTimeout(1000)
-
-        // Dirty dot should be cleared after save
-        await expect(dirtyDot).not.toBeVisible()
-      }
-    }
+    await setNativeDialogResponse(electronApp, 1)
+    await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.close())
+    await expectNativeDialogCalled(electronApp)
+    await expect.poll(() => electronApp.windows().length).toBe(0)
 
     await electronApp.close()
   })
 
-  test('should load new content when switching files', async () => {
-    const electronApp = await electron.launch({
-      args: [appPath]
-    })
-
+  test('loads different content when switching files', async () => {
+    const electronApp = await electron.launch({ args: [appPath] })
     const window = await electronApp.firstWindow()
     await window.waitForLoadState('domcontentloaded')
 
-    const collectionItems = window.locator('.collection-item')
-    const count = await collectionItems.count()
+    await openExampleFile(window)
+    await expect(window.getByRole('heading', { name: 'Welcome to Tesseract' })).toBeVisible()
 
-    if (count > 0) {
-      await collectionItems.first().click()
-      await window.waitForTimeout(1000)
-
-      const fileRows = window.locator('.tree-row:not(.directory)')
-      const fileCount = await fileRows.count()
-
-      if (fileCount >= 2) {
-        // Open first file
-        await fileRows.nth(0).click()
-        await window.waitForTimeout(1000)
-
-        const cmEditor = window.locator('.cm-editor')
-        await expect(cmEditor).toBeVisible()
-
-        // Get first file content
-        const _firstContent = await window.locator('.cm-content').textContent()
-
-        // Switch to second file
-        await fileRows.nth(1).click()
-        await window.waitForTimeout(1000)
-
-        // Editor should still be visible with potentially different content
-        await expect(cmEditor).toBeVisible()
-
-        // Dirty state should be cleared on file switch
-        const dirtyDot = window.locator('.dirty-dot')
-        await expect(dirtyDot).not.toBeVisible()
-      }
-    }
+    await openExampleFile(window, 'Search by meaning.md')
+    await expect(window.getByRole('heading', { name: 'Search by meaning' })).toBeVisible()
+    await expect(window.getByRole('heading', { name: 'Welcome to Tesseract' })).not.toBeVisible()
+    await expect(window.locator('.dirty-dot')).not.toBeVisible()
 
     await electronApp.close()
   })

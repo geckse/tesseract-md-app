@@ -11,6 +11,7 @@
   import AssetInfoCard from './AssetInfoCard.svelte'
   import SaveAsModal from './SaveAsModal.svelte'
   import { workspace } from '../stores/workspace.svelte'
+  import { requestConfirmation } from '../stores/confirmation'
   import { syncFileStoresFromTab, loadFileTree } from '../stores/files'
   import { loadGraphData, syncGraphStoresFromTab } from '../stores/graph'
   import { setupVaultListener, teardownVaultListener } from '../stores/vault-events'
@@ -253,13 +254,19 @@
         void window.api.confirmClose()
         return
       }
-      const shouldClose = window.confirm(
-        `"${docTab.title}" has unsaved changes. Discard changes and close?`
-      )
-      if (shouldClose) {
-        void window.api.confirmClose()
-      }
-      // On cancel: do nothing — the window stays open.
+      void requestConfirmation({
+        title: `Close ${docTab.title}?`,
+        message: 'This document has unsaved changes. Discard them and close the window?',
+        confirmLabel: 'Discard and Close',
+        cancelLabel: 'Keep Editing',
+        tone: 'danger'
+      }).then((shouldClose) => {
+        if (shouldClose) {
+          void window.api.confirmClose()
+        } else {
+          void window.api.cancelClose()
+        }
+      })
     })
 
     return () => {

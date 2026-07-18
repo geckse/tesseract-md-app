@@ -28,10 +28,33 @@ describe('ResizeHandle component', () => {
 
     const handle = container.querySelector('.resize-handle')
     expect(handle).toBeTruthy()
-    expect(handle?.getAttribute('role')).toBe('separator')
-    expect(handle?.getAttribute('aria-orientation')).toBe('vertical')
-    expect(handle?.getAttribute('aria-label')).toBe('Resize panel')
-    expect(handle?.getAttribute('tabindex')).toBe('-1')
+    expect(handle?.getAttribute('role')).toBe('slider')
+    expect(handle?.getAttribute('aria-orientation')).toBe('horizontal')
+    expect(handle?.getAttribute('aria-label')).toBe('Panel width')
+    expect(handle?.getAttribute('aria-valuemin')).toBe('180')
+    expect(handle?.getAttribute('aria-valuemax')).toBe('500')
+    expect(handle?.getAttribute('aria-valuenow')).toBe('256')
+    expect(handle?.getAttribute('aria-valuetext')).toBe('256 pixels')
+    expect(handle?.getAttribute('tabindex')).toBe('0')
+  })
+
+  it('supports keyboard resizing and min/max shortcuts', async () => {
+    const { container } = render(ResizeHandle, {
+      props: {
+        width: 256,
+        minWidth: 180,
+        maxWidth: 400,
+        onresize: mockOnResize
+      }
+    })
+    const handle = container.querySelector('.resize-handle')!
+
+    await fireEvent.keyDown(handle, { key: 'ArrowLeft' })
+    await fireEvent.keyDown(handle, { key: 'ArrowRight' })
+    await fireEvent.keyDown(handle, { key: 'Home' })
+    await fireEvent.keyDown(handle, { key: 'End' })
+
+    expect(mockOnResize.mock.calls.map(([value]) => value)).toEqual([246, 266, 180, 400])
   })
 
   it('renders with left position by default', () => {

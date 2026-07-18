@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render } from '@testing-library/svelte'
+import { fireEvent, render } from '@testing-library/svelte'
 
 const mockApi = { detachTab: vi.fn() }
 Object.defineProperty(window, 'api', { value: mockApi, writable: true, configurable: true })
@@ -60,5 +60,37 @@ describe('TabItem icons', () => {
 
     expect(iconFor(graph)).toBe('hub')
     expect(iconFor(terminal)).toBe('terminal')
+  })
+
+  it('keeps a valid tab control and exposes keyboard close behavior', async () => {
+    const tab = {
+      id: 'd1',
+      kind: 'document',
+      filePath: 'a.md',
+      title: 'a.md',
+      isDirty: false,
+      isUntitled: false,
+      content: null,
+      savedContent: null,
+      editorMode: 'wysiwyg'
+    } as unknown as TabState
+    const onactivate = vi.fn()
+    const onclose = vi.fn()
+    const { container, getByRole, queryByRole } = render(TabItem, {
+      props: { tab, isActive: true, onactivate, onclose }
+    })
+
+    const tabControl = getByRole('tab', { name: /a\.md.*Delete to close/ })
+    expect(queryByRole('button', { name: 'Close a.md' })).toBeNull()
+
+    await fireEvent.click(tabControl)
+    expect(onactivate).toHaveBeenCalledWith('d1')
+    expect(onclose).not.toHaveBeenCalled()
+
+    await fireEvent.keyDown(tabControl, { key: 'Delete' })
+    expect(onclose).toHaveBeenCalledWith('d1')
+
+    await fireEvent.click(container.querySelector('.close-btn')!)
+    expect(onclose).toHaveBeenCalledTimes(2)
   })
 })

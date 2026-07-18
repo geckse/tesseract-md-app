@@ -178,7 +178,7 @@ describe('Editor component', () => {
     expect(container.querySelector('.empty-state')).toBeFalsy()
   })
 
-  it('resets isDirty and wordCount on destroy', () => {
+  it('does not erase the document state when its editor view unmounts', () => {
     setActiveCollectionForTest({ id: '1', name: 'Test', path: '/test' })
     openFileInWorkspace('test.md', 'hello world')
 
@@ -189,8 +189,8 @@ describe('Editor component', () => {
 
     unmount()
 
-    expect(get(isDirty)).toBe(false)
-    expect(get(wordCount)).toBe(0)
+    expect(get(isDirty)).toBe(true)
+    expect(get(wordCount)).toBe(42)
   })
 
   it('sets wordCount when file content loads', async () => {

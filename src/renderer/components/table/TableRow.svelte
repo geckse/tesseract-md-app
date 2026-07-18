@@ -11,6 +11,7 @@
   import DateCell from './cells/DateCell.svelte'
   import MixedCell from './cells/MixedCell.svelte'
   import RelationCell from './cells/RelationCell.svelte'
+  import { requestConfirmation } from '../../stores/confirmation'
 
   interface Props {
     tabId: string
@@ -51,10 +52,14 @@
     return row.frontmatter ? row.frontmatter[name] : undefined
   }
 
-  function confirmDelete(): void {
-    if (window.confirm(`Move "${row.path}" to the trash?`)) {
-      void tableStore.deleteRow(tabId, row.path)
-    }
+  async function confirmDelete(): Promise<void> {
+    const confirmed = await requestConfirmation({
+      title: 'Move this document to the Trash?',
+      message: row.path,
+      confirmLabel: 'Move to Trash',
+      tone: 'danger'
+    })
+    if (confirmed) void tableStore.deleteRow(tabId, row.path)
   }
 
   function startEdit(col: CollectionColumn): void {

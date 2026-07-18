@@ -38,3 +38,23 @@ if (typeof Element.prototype.animate === 'undefined') {
     } as unknown as Animation
   }
 }
+
+// jsdom deliberately leaves canvas unimplemented and logs a noisy error even
+// when libraries feature-detect it. A minimal 2D context is enough for xterm's
+// module-level color setup; WebGL stays unavailable so components exercise
+// their real fallback paths.
+if (typeof HTMLCanvasElement !== 'undefined') {
+  Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
+    configurable: true,
+    value(contextId: string) {
+      if (contextId !== '2d') return null
+      return {
+        globalCompositeOperation: 'source-over',
+        fillStyle: '#000000',
+        createLinearGradient: () => ({ addColorStop() {} }),
+        fillRect() {},
+        getImageData: () => ({ data: new Uint8ClampedArray([0, 0, 0, 255]) })
+      }
+    }
+  })
+}

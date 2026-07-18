@@ -35,8 +35,8 @@ class MockBrowserWindow {
   focus = vi.fn()
   restore = vi.fn()
   isMinimized = vi.fn().mockReturnValue(false)
-  loadURL = vi.fn()
-  loadFile = vi.fn()
+  loadURL = vi.fn().mockResolvedValue(undefined)
+  loadFile = vi.fn().mockResolvedValue(undefined)
 
   close(): void {
     this._destroyed = true

@@ -24,8 +24,11 @@ export const obsidianImportNotice = writable<ObsidianTopicsSyncedEvent | null>(n
 export function handleObsidianTopicsSynced(event: ObsidianTopicsSyncedEvent): void {
   obsidianImportNotice.set(event)
   if (get(activeCollectionId) === event.collectionId) {
+    const refresh = loadTopics(event.root)
+    // loadTopics synchronously establishes the new root and clears the prior
+    // root's transient flag; mark this root dirty after that scope hand-off.
     topicsNeedIngest.set(true)
-    loadTopics(event.root).catch(() => {})
+    refresh.catch(() => {})
   }
 }
 

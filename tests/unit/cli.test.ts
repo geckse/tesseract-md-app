@@ -452,6 +452,36 @@ describe('execCommand', () => {
     expect(args).toContain('test query')
   })
 
+  it('uses a larger output buffer for graph data', async () => {
+    setupWhichAndExec('{"nodes":[],"edges":[],"clusters":[],"level":"document"}')
+
+    await execCommand('graph', [], '/tmp/project')
+
+    const secondCall = mockExecFile.mock.calls[1]
+    const opts = secondCall[2] as { maxBuffer: number }
+    expect(opts.maxBuffer).toBe(256 * 1024 * 1024)
+  })
+
+  it('bounds graph edge context before returning data', async () => {
+    const context = 'x'.repeat(1_000)
+    setupWhichAndExec(
+      JSON.stringify({
+        nodes: [],
+        edges: [{ source: 'a.md', target: 'b.md', context_text: context }],
+        clusters: [],
+        level: 'document'
+      })
+    )
+
+    const result = await execCommand<{ edges: Array<{ context_text: string }> }>(
+      'graph',
+      [],
+      '/tmp/project'
+    )
+
+    expect(result.edges[0].context_text).toBe(context.slice(0, 512))
+  })
+
   it('returns undefined for empty stdout', async () => {
     setupWhichAndExec('  \n')
 
@@ -529,6 +559,33 @@ describe('execCommand', () => {
     )
 
     await expect(execCommand('status', [], '/tmp/project')).rejects.toThrow(CliExecutionError)
+  })
+
+  it('reports the Node error message when stderr is empty', async () => {
+    let callCount = 0
+    mockExecFile.mockImplementation(
+      (
+        _cmd: string,
+        _args: string[],
+        _opts: unknown,
+        cb: (err: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        callCount++
+        if (callCount === 1) {
+          cb(null, '/usr/local/bin/mdvdb\n', '')
+        } else {
+          const err = Object.assign(new RangeError('stdout maxBuffer length exceeded'), {
+            code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER',
+            stderr: ''
+          })
+          cb(err, '', '')
+        }
+      }
+    )
+
+    await expect(execCommand('status', [], '/tmp/project')).rejects.toThrow(
+      /stdout maxBuffer length exceeded/
+    )
   })
 
   it('respects custom timeout option', async () => {

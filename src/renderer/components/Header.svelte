@@ -3,6 +3,7 @@
   import { selectedFilePath } from '../stores/files'
   import { isDirty, requestSave, requestDiscard } from '../stores/editor'
   import { isFavorited, toggleFavorite } from '../stores/favorites'
+  import { requestConfirmation } from '../stores/confirmation'
 
   interface HeaderProps {
     propertiesOpen?: boolean
@@ -52,10 +53,15 @@
     await toggleFavorite(currentActiveCollectionId, currentSelectedFilePath)
   }
 
-  function handleDiscardClick() {
-    if (window.confirm('Discard unsaved changes? This cannot be undone.')) {
-      requestDiscard()
-    }
+  async function handleDiscardClick(): Promise<void> {
+    const confirmed = await requestConfirmation({
+      title: 'Discard unsaved changes?',
+      message: 'Your document will return to the last saved version. This cannot be undone.',
+      confirmLabel: 'Discard Changes',
+      cancelLabel: 'Keep Editing',
+      tone: 'danger'
+    })
+    if (confirmed) requestDiscard()
   }
 </script>
 

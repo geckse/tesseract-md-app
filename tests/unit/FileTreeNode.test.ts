@@ -46,7 +46,7 @@ describe('FileTreeNode folder interactions', () => {
       props: { node: dirNode, onfolderopen, onfolderclick }
     })
 
-    await fireEvent.click(screen.getByRole('treeitem'))
+    await fireEvent.click(screen.getByTitle('docs'))
 
     expect(onfolderopen).toHaveBeenCalledWith('docs')
     expect(onfolderclick).toHaveBeenCalledWith('docs')
@@ -60,7 +60,7 @@ describe('FileTreeNode folder interactions', () => {
       props: { node: fileNode, onfolderopen, onfileselect }
     })
 
-    await fireEvent.click(screen.getByRole('treeitem'))
+    await fireEvent.click(screen.getByTitle('readme.md'))
 
     expect(onfileselect).toHaveBeenCalledWith({ path: 'readme.md' })
     expect(onfolderopen).not.toHaveBeenCalled()
@@ -71,7 +71,7 @@ describe('FileTreeNode folder interactions', () => {
     const onfolderopen = vi.fn()
     render(FileTreeNode, { props: { node: dirNode, onfolderopen } })
 
-    await fireEvent.dblClick(screen.getByRole('treeitem'))
+    await fireEvent.dblClick(screen.getByTitle('docs'))
 
     expect(onfolderopen).toHaveBeenCalledWith('docs')
   })
@@ -101,7 +101,8 @@ describe('FileTreeNode inline rename (phase 43)', () => {
 
     const input = screen.getByRole('textbox', { name: 'Rename readme.md' }) as HTMLInputElement
     expect(input.value).toBe('readme')
-    expect(screen.queryByRole('treeitem')).toBeNull()
+    expect(screen.getByRole('treeitem')).not.toBeNull()
+    expect(screen.queryByRole('button', { name: /readme.md/ })).toBeNull()
   })
 
   it('commits the draft on Enter and cancels on Escape', async () => {

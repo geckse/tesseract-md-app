@@ -77,12 +77,12 @@ Desktop GUI for markdown-vdb. Electron + Svelte 5 + CodeMirror 6. Bridges to the
 ├── out/                            # Build output (main/, preload/, renderer/)
 ├── electron.vite.config.ts         # Three-target build config
 ├── vitest.config.ts                # Unit test config (jsdom)
-├── vitest.integration.config.ts    # Integration test config
+├── vitest.integration.config.mts   # Integration test config
 ├── playwright.config.ts            # E2E test config
 ├── tsconfig.json                   # Workspace references root
 ├── tsconfig.node.json              # Main + preload (ES2020, commonjs)
 ├── tsconfig.web.json               # Renderer (ESNext, extends @tsconfig/svelte)
-├── eslint.config.js                # ESLint 9 flat config + svelte plugin
+├── eslint.config.mjs               # ESLint 9 flat config + svelte plugin
 └── .prettierrc                     # Semi, single quotes, trailing comma es5
 ```
 
@@ -163,10 +163,9 @@ npm run typecheck        # tsc --noEmit (full type check)
 
 Note: the app holds a single-instance lock — a second `npm run dev` (or packaged launch) exits immediately and focuses the running instance's primary window instead.
 
-Known test issue: selected `PropertiesPanel.test.ts` and `LocalGraph.test.ts` component cases are
-quarantined because the jsdom/Svelte 5 harness can throw `effect_update_depth_exceeded`. This is a
-test-harness artifact; keep the pure graph/data tests enabled and remove the skips when the harness
-is fixed.
+The `PropertiesPanel.test.ts` and `LocalGraph.test.ts` component cases are active. Keep Local Graph's
+simulation writes outside its reactive input effect's dependency tracking; reading and writing the
+degree map in the same effect can otherwise trigger `effect_update_depth_exceeded`.
 
 ## Testing Requirements
 
@@ -199,7 +198,7 @@ expect(screen.getByText('...')).toBeInTheDocument()
 
 ### Integration Tests
 
-- Config: `vitest.integration.config.ts`
+- Config: `vitest.integration.config.mts`
 - Location: `tests/integration/**/*.test.ts`
 
 ### E2E Tests (Playwright)

@@ -29,6 +29,19 @@ export const isDirty = derived(
 export const saveStatus = writable<'saved' | 'error' | null>(null)
 
 let saveStatusTimer: ReturnType<typeof setTimeout> | null = null
+let userConfigGeneration = 0
+let collectionConfigGeneration = 0
+let configRequestsInFlight = 0
+
+function beginConfigRequest(): void {
+  configRequestsInFlight++
+  configLoading.set(true)
+}
+
+function endConfigRequest(): void {
+  configRequestsInFlight = Math.max(0, configRequestsInFlight - 1)
+  if (configRequestsInFlight === 0) configLoading.set(false)
+}
 
 function showSaveStatus(status: 'saved' | 'error'): void {
   if (saveStatusTimer) clearTimeout(saveStatusTimer)
@@ -67,26 +80,27 @@ export function openSettingsSection(target: 'global' | 'collection', section: st
 
 /** Load user-level config from main process. */
 export async function loadUserConfig(): Promise<void> {
-  configLoading.set(true)
+  const generation = ++userConfigGeneration
+  beginConfigRequest()
   try {
     const config = await window.api.getUserConfig()
+    if (generation !== userConfigGeneration) return
     userConfig.set(config)
-    userDraft.set({})
   } finally {
-    configLoading.set(false)
+    endConfigRequest()
   }
 }
 
 /** Load collection-level config for a given root path. */
 export async function loadCollectionConfig(root: string): Promise<void> {
-  configLoading.set(true)
+  const generation = ++collectionConfigGeneration
+  beginConfigRequest()
   try {
     const config = await window.api.getCollectionConfig(root)
+    if (generation !== collectionConfigGeneration) return
     collectionConfig.set(config)
-    collectionDraft.set({})
-    collectionDeletions.set(new Set())
   } finally {
-    configLoading.set(false)
+    endConfigRequest()
   }
 }
 
@@ -125,6 +139,13 @@ export async function saveAllSettings(collectionRoot?: string): Promise<void> {
   const ud = get(userDraft)
   const cd = get(collectionDraft)
   const dels = get(collectionDeletions)
+
+  // A pending read started before this save must not overwrite the values we
+  // merge locally after the write succeeds.
+  if (Object.keys(ud).length > 0) userConfigGeneration++
+  if (collectionRoot && (Object.keys(cd).length > 0 || dels.size > 0)) {
+    collectionConfigGeneration++
+  }
 
   try {
     // Save user-level changes
@@ -177,6 +198,7 @@ export function discardDraft(): void {
 
 /** Delete a user-level config key (immediate, no draft). */
 export async function deleteUserConfigKey(key: string): Promise<void> {
+  userConfigGeneration++
   await window.api.deleteUserConfig(key)
   userConfig.update((cfg) => {
     const next = { ...cfg }

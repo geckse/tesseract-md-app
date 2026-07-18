@@ -55,6 +55,7 @@ import { toggleWatcher } from '../stores/watcher'
 import { openSettingsSection } from '../stores/settings'
 import { openNewNotePopup } from './new-note'
 import { exportActiveDocument, type ExportFormat } from './export'
+import { requestConfirmation } from '../stores/confirmation'
 
 const EDITOR_COMMAND_IDS: ReadonlySet<string> = new Set<EditorCommandId>([
   'format.bold',
@@ -178,9 +179,14 @@ export const menuCommandHandlers: Record<string, (payload?: unknown) => void> = 
     void runIngest(true)
   },
   'collection.rebuild': () => {
-    if (window.confirm('Rebuild deletes and re-creates the entire index. Continue?')) {
-      void rebuildIndex()
-    }
+    void requestConfirmation({
+      title: 'Rebuild the collection index?',
+      message: 'Tesseract will delete and recreate the entire search index for this collection.',
+      confirmLabel: 'Rebuild Index',
+      tone: 'danger'
+    }).then((confirmed) => {
+      if (confirmed) void rebuildIndex()
+    })
   },
   'collection.preview': () => {
     void runPreview()

@@ -31,6 +31,9 @@ export const propertiesError = writable<string | null>(null)
 /** File content mirror for outline derivation (set by files.ts to avoid circular imports). */
 export const propertiesFileContent = writable<string | null>(null)
 
+/** Last-request-wins guard for rapid tab/file/collection changes. */
+let propertiesGeneration = 0
+
 /** Parse YAML frontmatter from raw markdown content. */
 function parseFrontmatter(content: string): Record<string, JsonValue> | null {
   const lines = content.split('\n')
@@ -129,6 +132,11 @@ export interface OutlineHeading {
   line: number
 }
 
+/** Convert synchronous bridge failures into ordinary rejected promises. */
+function invokePropertyRead<T>(operation: () => Promise<T>): Promise<T> {
+  return Promise.resolve().then(operation)
+}
+
 /** Outline headings parsed from the file content. */
 export const outline = derived(propertiesFileContent, ($content): OutlineHeading[] => {
   if (!$content) return []
@@ -144,6 +152,7 @@ export const outline = derived(propertiesFileContent, ($content): OutlineHeading
  *  Silently handles "file not in index" — the file may not be ingested yet.
  */
 export async function loadProperties(filePath: string): Promise<void> {
+  const generation = ++propertiesGeneration
   const collection = get(activeCollection)
 
   if (!collection) {
@@ -158,20 +167,25 @@ export async function loadProperties(filePath: string): Promise<void> {
   // `populate` on the first load after startup (neutral relation chips,
   // no Referenced-by). Settled detection resolves instantly.
   if (cliFeatures.version === null) await cliFeatures.init()
+  if (generation !== propertiesGeneration || get(activeCollection)?.id !== collection.id) return
 
   // Run all read operations in parallel — Tantivy supports concurrent reads.
   // Populate (phase 42) resolves relations + referenced_by in the same `get`
   // call — never passed on CLIs that predate the flag.
   const [docResult, backlinksResult, linksResult, neighborhoodResult] = await Promise.allSettled([
-    window.api.getFile(
-      collection.path,
-      filePath,
-      cliFeatures.supportsRelations ? { populate: true } : undefined
+    invokePropertyRead(() =>
+      window.api.getFile(
+        collection.path,
+        filePath,
+        cliFeatures.supportsRelations ? { populate: true } : undefined
+      )
     ),
-    window.api.backlinks(collection.path, filePath),
-    window.api.links(collection.path, filePath),
-    window.api.neighborhood(collection.path, filePath, 1)
+    invokePropertyRead(() => window.api.backlinks(collection.path, filePath)),
+    invokePropertyRead(() => window.api.links(collection.path, filePath)),
+    invokePropertyRead(() => window.api.neighborhood(collection.path, filePath, 1))
   ])
+
+  if (generation !== propertiesGeneration || get(activeCollection)?.id !== collection.id) return
 
   documentInfo.set(docResult.status === 'fulfilled' ? docResult.value : null)
   backlinksInfo.set(backlinksResult.status === 'fulfilled' ? backlinksResult.value : null)
@@ -183,6 +197,7 @@ export async function loadProperties(filePath: string): Promise<void> {
 
 /** Clear all properties stores. */
 export function clearProperties(): void {
+  propertiesGeneration++
   documentInfo.set(null)
   backlinksInfo.set(null)
   linksInfo.set(null)

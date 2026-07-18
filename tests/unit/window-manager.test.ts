@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // Track created mock windows for assertions
 let mockWindowInstances: MockBrowserWindow[] = []
 let nextWebContentsId = 1
+let nextLoadFailure: Error | null = null
 
 /** Mock webContents with configurable behavior. */
 function createMockWebContents(id: number) {
@@ -61,8 +62,10 @@ class MockBrowserWindow {
     return this
   }
 
-  loadURL = vi.fn()
-  loadFile = vi.fn()
+  loadURL = vi.fn().mockResolvedValue(undefined)
+  loadFile = vi.fn(() =>
+    nextLoadFailure ? Promise.reject(nextLoadFailure) : Promise.resolve(undefined)
+  )
 
   /** Test helper: simulate window destruction. */
   _simulateDestroy(): void {
@@ -116,6 +119,7 @@ describe('WindowManager', () => {
     wm = new WindowManager()
     mockWindowInstances = []
     nextWebContentsId = 1
+    nextLoadFailure = null
     mockStoreGet.mockReset()
     mockStoreSet.mockReset()
     mockStoreGet.mockImplementation((key: string, defaultValue?: unknown) => {
@@ -171,6 +175,22 @@ describe('WindowManager', () => {
       wm.createWindow()
 
       expect(mockStoreGet).toHaveBeenCalledWith('windowBounds', expect.any(Object))
+    })
+
+    it('reports renderer load failures without creating an unhandled rejection', async () => {
+      const loadError = new Error('renderer missing')
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+      nextLoadFailure = loadError
+
+      expect(() => wm.createWindow()).not.toThrow()
+      await vi.waitFor(() => {
+        expect(consoleError).toHaveBeenCalledWith(
+          'Failed to load the Tesseract renderer:',
+          loadError
+        )
+      })
+
+      consoleError.mockRestore()
     })
   })
 

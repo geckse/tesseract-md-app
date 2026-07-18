@@ -33,6 +33,10 @@ export const fileTreeLoading = writable<boolean>(false)
 /** Error message if file tree loading failed. */
 export const fileTreeError = writable<string | null>(null)
 
+/** Last-request-wins guards for collection-scoped tree reads. */
+let fileTreeGeneration = 0
+let assetTreeGeneration = 0
+
 /** Set of expanded directory paths in the tree UI. */
 export const expandedPaths = writable<Set<string>>(new Set())
 
@@ -103,6 +107,7 @@ export const fileStateCounts = derived(fileTree, ($fileTree) => {
  * writable is bumped, pulling fresh values from workspace state.
  */
 const _workspaceSync = writable(0)
+let lastPropertiesContextKey: string | null = null
 
 /**
  * Notify backward-compat derived stores that the workspace focus has changed.
@@ -122,7 +127,19 @@ export function syncFileStoresFromTab(): void {
   syncGraphStoresFromTab()
   // Keep propertiesFileContent in sync with the focused tab's content
   const tab = workspace.focusedDocumentTab
+  const collection = get(activeCollection)
   propertiesFileContent.set(tab?.content ?? null)
+
+  const propertiesContextKey =
+    tab && collection ? `${collection.id}\0${tab.id}\0${tab.filePath}` : null
+  if (propertiesContextKey !== lastPropertiesContextKey) {
+    lastPropertiesContextKey = propertiesContextKey
+    if (tab && collection && tab.content !== null && !tab.contentError) {
+      void loadProperties(tab.filePath)
+    } else if (!tab) {
+      clearProperties()
+    }
+  }
 
   // Auto-load content for newly focused tabs that have no content yet.
   // The contentLoading guard prevents re-entrant loading when syncFileStoresFromTab
@@ -279,7 +296,6 @@ export async function selectFile(path: string | null): Promise<void> {
   if (tab && tab.kind === 'document' && tab.content !== null) {
     propertiesFileContent.set(tab.content)
     syncFileStoresFromTab()
-    loadProperties(path)
     return
   }
 
@@ -337,6 +353,9 @@ export async function selectFile(path: string | null): Promise<void> {
 /** Reset all file-related state (e.g. on collection switch). */
 export function resetFileState(): void {
   selectGeneration++
+  fileTreeGeneration++
+  assetTreeGeneration++
+  lastPropertiesContextKey = null
   workspace.reset()
   fileTree.set(null)
   assetTree.set(null)
@@ -354,21 +373,29 @@ export function resetFileState(): void {
 /** Load the file tree for the active collection. */
 export async function loadFileTree(subPath?: string): Promise<void> {
   const collection = get(activeCollection)
+  const generation = ++fileTreeGeneration
   if (!collection) {
     fileTree.set(null)
+    fileTreeLoading.set(false)
     return
   }
+
+  const collectionId = collection.id
 
   fileTreeLoading.set(true)
   fileTreeError.set(null)
   try {
     const tree = await window.api.tree(collection.path, subPath)
+    if (generation !== fileTreeGeneration || get(activeCollection)?.id !== collectionId) return
     fileTree.set(tree)
   } catch (err) {
+    if (generation !== fileTreeGeneration || get(activeCollection)?.id !== collectionId) return
     fileTreeError.set(err instanceof Error ? err.message : String(err))
     fileTree.set(null)
   } finally {
-    fileTreeLoading.set(false)
+    if (generation === fileTreeGeneration && get(activeCollection)?.id === collectionId) {
+      fileTreeLoading.set(false)
+    }
   }
 }
 
@@ -412,15 +439,20 @@ export function collapseAll(): void {
 /** Load the asset tree for the active collection. */
 export async function loadAssetTree(): Promise<void> {
   const collection = get(activeCollection)
+  const generation = ++assetTreeGeneration
   if (!collection) {
     assetTree.set(null)
     return
   }
 
+  const collectionId = collection.id
+
   try {
     const result = await window.api.scanAssets(collection.path)
+    if (generation !== assetTreeGeneration || get(activeCollection)?.id !== collectionId) return
     assetTree.set(result)
   } catch {
+    if (generation !== assetTreeGeneration || get(activeCollection)?.id !== collectionId) return
     assetTree.set(null)
   }
 }

@@ -276,17 +276,23 @@
   {:else}
     <!-- METADATA section -->
     <section class="panel-section">
-      <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div class="section-header" onclick={() => (metadataOpen = !metadataOpen)}>
-        <span class="material-symbols-outlined section-chevron" class:rotated={metadataOpen}
-          >chevron_right</span
+      <button
+        type="button"
+        class="section-header"
+        aria-expanded={metadataOpen}
+        aria-controls="properties-frontmatter"
+        onclick={() => (metadataOpen = !metadataOpen)}
+      >
+        <span
+          class="material-symbols-outlined section-chevron"
+          class:rotated={metadataOpen}
+          aria-hidden="true">chevron_right</span
         >
-        <h3 class="section-title">Frontmatter</h3>
-      </div>
+        <span class="section-title">Frontmatter</span>
+      </button>
 
       {#if metadataOpen}
-        <div class="section-content">
+        <div id="properties-frontmatter" class="section-content">
           {#if currentFrontmatter}
             <div class="properties-grid">
               {#each Object.entries(currentFrontmatter) as [key, value]}
@@ -340,30 +346,36 @@
 
     <!-- LOCAL GRAPH section -->
     <section class="panel-section">
-      <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div class="section-header" onclick={() => (localGraphOpen = !localGraphOpen)}>
-        <span class="material-symbols-outlined section-chevron" class:rotated={localGraphOpen}
-          >chevron_right</span
-        >
-        <h3 class="section-title">Local Graph</h3>
-        {#if neighborCount > 0}
-          <span class="section-count">{neighborCount}</span>
-        {/if}
+      <div class="section-header section-header-group">
         <button
+          type="button"
+          class="section-toggle"
+          aria-expanded={localGraphOpen}
+          aria-controls="properties-local-graph"
+          onclick={() => (localGraphOpen = !localGraphOpen)}
+        >
+          <span
+            class="material-symbols-outlined section-chevron"
+            class:rotated={localGraphOpen}
+            aria-hidden="true">chevron_right</span
+          >
+          <span class="section-title">Local Graph</span>
+          {#if neighborCount > 0}
+            <span class="section-count">{neighborCount}</span>
+          {/if}
+        </button>
+        <button
+          type="button"
           class="expand-button"
           title="Open full graph view"
-          onclick={(e) => {
-            e.stopPropagation()
-            expandToFullGraph()
-          }}
+          onclick={expandToFullGraph}
         >
-          <span class="material-symbols-outlined">open_in_full</span>
+          <span class="material-symbols-outlined" aria-hidden="true">open_in_full</span>
         </button>
       </div>
 
       {#if localGraphOpen}
-        <div class="graph-section-content">
+        <div id="properties-local-graph" class="graph-section-content">
           <LocalGraph
             centerPath={currentFilePath}
             linksInfo={currentLinks}
@@ -377,20 +389,26 @@
 
     <!-- LINKS section -->
     <section class="panel-section">
-      <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div class="section-header" onclick={() => (linksOpen = !linksOpen)}>
-        <span class="material-symbols-outlined section-chevron" class:rotated={linksOpen}
-          >chevron_right</span
+      <button
+        type="button"
+        class="section-header"
+        aria-expanded={linksOpen}
+        aria-controls="properties-links"
+        onclick={() => (linksOpen = !linksOpen)}
+      >
+        <span
+          class="material-symbols-outlined section-chevron"
+          class:rotated={linksOpen}
+          aria-hidden="true">chevron_right</span
         >
-        <h3 class="section-title">Links</h3>
+        <span class="section-title">Links</span>
         {#if incomingCount + outgoingCount > 0}
           <span class="section-count">{incomingCount + outgoingCount}</span>
         {/if}
-      </div>
+      </button>
 
       {#if linksOpen}
-        <div class="section-content">
+        <div id="properties-links" class="section-content">
           <!-- Tabs -->
           <div class="links-tabs">
             <button
@@ -509,18 +527,24 @@
          FRONTMATTER points here; Backlinks lists body links. -->
     {#if referencedBy.length > 0}
       <section class="panel-section">
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div class="section-header" onclick={() => (referencedByOpen = !referencedByOpen)}>
-          <span class="material-symbols-outlined section-chevron" class:rotated={referencedByOpen}
-            >chevron_right</span
+        <button
+          type="button"
+          class="section-header"
+          aria-expanded={referencedByOpen}
+          aria-controls="properties-referenced-by"
+          onclick={() => (referencedByOpen = !referencedByOpen)}
+        >
+          <span
+            class="material-symbols-outlined section-chevron"
+            class:rotated={referencedByOpen}
+            aria-hidden="true">chevron_right</span
           >
-          <h3 class="section-title">Referenced by</h3>
+          <span class="section-title">Referenced by</span>
           <span class="section-count">{referencedBy.length}</span>
-        </div>
+        </button>
 
         {#if referencedByOpen}
-          <div class="section-content">
+          <div id="properties-referenced-by" class="section-content">
             <span class="muted-text refby-hint"
               >Documents whose frontmatter points here (body links are under Links).</span
             >
@@ -560,17 +584,23 @@
 
     <!-- OUTLINE section -->
     <section class="panel-section">
-      <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div class="section-header" onclick={() => (outlineOpen = !outlineOpen)}>
-        <span class="material-symbols-outlined section-chevron" class:rotated={outlineOpen}
-          >chevron_right</span
+      <button
+        type="button"
+        class="section-header"
+        aria-expanded={outlineOpen}
+        aria-controls="properties-outline"
+        onclick={() => (outlineOpen = !outlineOpen)}
+      >
+        <span
+          class="material-symbols-outlined section-chevron"
+          class:rotated={outlineOpen}
+          aria-hidden="true">chevron_right</span
         >
-        <h3 class="section-title">Outline</h3>
-      </div>
+        <span class="section-title">Outline</span>
+      </button>
 
       {#if outlineOpen}
-        <div class="section-content">
+        <div id="properties-outline" class="section-content">
           {#if currentOutline.length > 0}
             <nav class="outline-list">
               {#each currentOutline as item, i}
@@ -769,10 +799,35 @@
     padding: var(--space-3, 12px) var(--space-4, 16px);
     cursor: pointer;
     transition: background var(--transition-fast, 150ms ease);
+    width: 100%;
+    border: none;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
   }
 
   .section-header:hover {
     background: var(--overlay-hover, rgba(255, 255, 255, 0.03));
+  }
+
+  .section-header-group {
+    cursor: default;
+  }
+
+  .section-toggle {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 8px);
+    flex: 1;
+    min-width: 0;
+    padding: 0;
+    border: none;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
   }
 
   .section-chevron {

@@ -1,208 +1,133 @@
 import { test, expect, _electron as electron } from '@playwright/test'
-import { resolve } from 'path'
+import { resolve } from 'node:path'
+import { openExampleFile } from './support/example-collection'
 
 const appPath = resolve(__dirname, '../../out/main/index.js')
+const modifier = process.platform === 'darwin' ? 'Meta' : 'Control'
+
+async function openPanel(window: import('@playwright/test').Page) {
+  const toggle = window.getByTitle('Toggle Properties')
+  const panel = window.locator('.properties-panel')
+  if (!(await panel.isVisible().catch(() => false))) await toggle.click()
+  await expect(panel).toBeVisible()
+  return { panel, toggle }
+}
 
 test.describe('Metadata Panel', () => {
-  test('should toggle panel visibility via header button', async () => {
-    const electronApp = await electron.launch({
-      args: [appPath]
-    })
-
+  test('toggles panel visibility from the title bar', async () => {
+    const electronApp = await electron.launch({ args: [appPath] })
     const window = await electronApp.firstWindow()
     await window.waitForLoadState('domcontentloaded')
 
-    // Find the toggle button (side_navigation icon)
-    const toggleBtn = window.locator('.icon-button', { hasText: 'side_navigation' })
-    const isToggleVisible = await toggleBtn.isVisible().catch(() => false)
-
-    if (isToggleVisible) {
-      // Panel should initially be hidden (default is false unless persisted)
-      const panel = window.locator('.properties-panel')
-
-      // Click to open
-      await toggleBtn.click()
-      await window.waitForTimeout(300)
-      await expect(panel).toBeVisible()
-
-      // Click to close
-      await toggleBtn.click()
-      await window.waitForTimeout(300)
-      await expect(panel).not.toBeVisible()
-    }
+    const { panel, toggle } = await openPanel(window)
+    await toggle.click()
+    await expect(panel).not.toBeVisible()
 
     await electronApp.close()
   })
 
-  test('should show properties panel with metadata when file is open', async () => {
-    const electronApp = await electron.launch({
-      args: [appPath]
-    })
-
+  test('shows real frontmatter, links, and outline data for the guide', async () => {
+    const electronApp = await electron.launch({ args: [appPath] })
     const window = await electronApp.firstWindow()
     await window.waitForLoadState('domcontentloaded')
 
-    const collectionItems = window.locator('.collection-item')
-    const count = await collectionItems.count()
-
-    if (count > 0) {
-      await collectionItems.first().click()
-      await window.waitForTimeout(1000)
-
-      const fileRows = window.locator('.tree-row:not(.directory)')
-      const fileCount = await fileRows.count()
-
-      if (fileCount > 0) {
-        await fileRows.first().click()
-        await window.waitForTimeout(1000)
-
-        // Open the properties panel
-        const toggleBtn = window.locator('.icon-button', { hasText: 'side_navigation' })
-        await toggleBtn.click()
-        await window.waitForTimeout(500)
-
-        const panel = window.locator('.properties-panel')
-        await expect(panel).toBeVisible()
-
-        // Should show section headers
-        await expect(panel.locator('text=Metadata')).toBeVisible()
-        await expect(panel.locator('text=Links')).toBeVisible()
-        await expect(panel.locator('text=Outline')).toBeVisible()
-      }
-    }
+    await openExampleFile(window)
+    const { panel } = await openPanel(window)
+    await expect(panel.getByText('Frontmatter', { exact: true })).toBeVisible()
+    await expect(panel.getByText('Links', { exact: true })).toBeVisible()
+    await expect(panel.getByText('Outline', { exact: true })).toBeVisible()
+    await expect(panel).toContainText('ready')
+    await expect(panel.locator('.outline-item').first()).toContainText('Welcome to Tesseract')
 
     await electronApp.close()
   })
 
-  test('should show outline headings from document content', async () => {
-    const electronApp = await electron.launch({
-      args: [appPath]
-    })
-
+  test('collapses and expands frontmatter without losing the panel', async () => {
+    const electronApp = await electron.launch({ args: [appPath] })
     const window = await electronApp.firstWindow()
     await window.waitForLoadState('domcontentloaded')
 
-    const collectionItems = window.locator('.collection-item')
-    const count = await collectionItems.count()
-
-    if (count > 0) {
-      await collectionItems.first().click()
-      await window.waitForTimeout(1000)
-
-      const fileRows = window.locator('.tree-row:not(.directory)')
-      const fileCount = await fileRows.count()
-
-      if (fileCount > 0) {
-        await fileRows.first().click()
-        await window.waitForTimeout(1000)
-
-        // Open the properties panel
-        const toggleBtn = window.locator('.icon-button', { hasText: 'side_navigation' })
-        await toggleBtn.click()
-        await window.waitForTimeout(500)
-
-        // Outline section should have items or show "No headings"
-        const outlineItems = window.locator('.outline-item')
-        const noHeadings = window.locator('text=No headings')
-        const hasItems = (await outlineItems.count()) > 0
-        const hasEmpty = await noHeadings.isVisible().catch(() => false)
-
-        expect(hasItems || hasEmpty).toBe(true)
-      }
-    }
+    await openExampleFile(window)
+    const { panel } = await openPanel(window)
+    const header = panel.getByRole('button', { name: 'Frontmatter' })
+    await expect(header).toHaveAttribute('aria-expanded', 'true')
+    await header.click()
+    await expect(header).toHaveAttribute('aria-expanded', 'false')
+    await expect(panel.getByText('ready', { exact: true })).not.toBeVisible()
+    await header.press('Enter')
+    await expect(header).toHaveAttribute('aria-expanded', 'true')
+    await expect(panel).toContainText('ready')
 
     await electronApp.close()
   })
 
-  test('should collapse and expand sections', async () => {
-    const electronApp = await electron.launch({
-      args: [appPath]
-    })
-
+  test('keeps live metadata in sync with WYSIWYG property edits', async () => {
+    const electronApp = await electron.launch({ args: [appPath] })
     const window = await electronApp.firstWindow()
     await window.waitForLoadState('domcontentloaded')
 
-    const collectionItems = window.locator('.collection-item')
-    const count = await collectionItems.count()
+    await openExampleFile(window)
+    const { panel } = await openPanel(window)
+    const editor = window.getByRole('main', { name: 'Editor' })
+    const status = editor.getByRole('textbox', { name: 'status value' })
+    await status.fill('reviewed')
+    await status.press('Enter')
+    await expect(panel).toContainText('reviewed', { timeout: 10_000 })
 
-    if (count > 0) {
-      await collectionItems.first().click()
-      await window.waitForTimeout(1000)
+    await window.keyboard.press(`${modifier}+s`)
+    await expect(window.locator('.dirty-dot')).not.toBeVisible({ timeout: 10_000 })
+    await electronApp.close()
+  })
 
-      const fileRows = window.locator('.tree-row:not(.directory)')
-      const fileCount = await fileRows.count()
+  test('renders the real local graph and opens a linked note from it', async () => {
+    const electronApp = await electron.launch({ args: [appPath] })
+    const window = await electronApp.firstWindow()
+    await window.waitForLoadState('domcontentloaded')
 
-      if (fileCount > 0) {
-        await fileRows.first().click()
-        await window.waitForTimeout(1000)
+    await openExampleFile(window)
+    const { panel } = await openPanel(window)
+    const localGraph = panel.locator('#properties-local-graph')
+    const neighbor = localGraph.locator('.graph-node:not(.center-node)').first()
+    const activeDocumentTab = window.locator('.tab-item[aria-selected="true"] .tab-title')
 
-        // Open the properties panel
-        const toggleBtn = window.locator('.icon-button', { hasText: 'side_navigation' })
-        await toggleBtn.click()
-        await window.waitForTimeout(500)
+    await expect(activeDocumentTab).toHaveText('Start Here.md')
+    await expect(neighbor).toBeVisible({ timeout: 10_000 })
+    await neighbor.press('Enter')
 
-        // Click Metadata header to collapse
-        const metadataHeader = window.locator('.section-header', { hasText: 'Metadata' })
-        await metadataHeader.click()
-        await window.waitForTimeout(300)
-
-        // Click again to re-expand
-        await metadataHeader.click()
-        await window.waitForTimeout(300)
-
-        // Section should be visible again
-        const panel = window.locator('.properties-panel')
-        await expect(panel).toBeVisible()
-      }
-    }
+    await expect(activeDocumentTab).not.toHaveText('Start Here.md', {
+      timeout: 10_000
+    })
+    await expect(window.getByRole('main', { name: 'Editor' })).toBeVisible()
 
     await electronApp.close()
   })
 
-  test('should update properties when editing frontmatter', async () => {
-    const electronApp = await electron.launch({
-      args: [appPath]
-    })
-
+  test('reloads indexed links when returning to an already-loaded tab', async () => {
+    const electronApp = await electron.launch({ args: [appPath] })
     const window = await electronApp.firstWindow()
     await window.waitForLoadState('domcontentloaded')
 
-    const collectionItems = window.locator('.collection-item')
-    const count = await collectionItems.count()
+    await openExampleFile(window)
+    const { panel } = await openPanel(window)
+    await panel.getByRole('button', { name: /Outgoing/ }).click()
+    await expect(panel).toContainText('Search by meaning.md', { timeout: 10_000 })
 
-    if (count > 0) {
-      await collectionItems.first().click()
-      await window.waitForTimeout(1000)
+    await window.getByTitle('Expand All').click()
+    const writing = window
+      .locator('.tree-row:not(.directory)', { hasText: 'Writing and editing.md' })
+      .first()
+    await writing.click({ button: 'right' })
+    await window.getByRole('button', { name: 'Open in New Tab' }).click()
+    await expect(window.locator('.tab-item[aria-selected="true"] .tab-title')).toHaveText(
+      'Writing and editing.md'
+    )
+    await expect(panel).not.toContainText('Search by meaning.md', { timeout: 10_000 })
 
-      const fileRows = window.locator('.tree-row:not(.directory)')
-      const fileCount = await fileRows.count()
-
-      if (fileCount > 0) {
-        await fileRows.first().click()
-        await window.waitForTimeout(1000)
-
-        // Open the properties panel
-        const toggleBtn = window.locator('.icon-button', { hasText: 'side_navigation' })
-        await toggleBtn.click()
-        await window.waitForTimeout(500)
-
-        const panel = window.locator('.properties-panel')
-        await expect(panel).toBeVisible()
-
-        // Type in the editor — panel should update within ~200ms debounce
-        const cmContent = window.locator('.cm-content')
-        const isEditorVisible = await cmContent.isVisible().catch(() => false)
-
-        if (isEditorVisible) {
-          await cmContent.click()
-          await window.keyboard.type('test ')
-          await window.waitForTimeout(500) // Wait for debounce
-
-          // Panel should still be showing (no crash from live update)
-          await expect(panel).toBeVisible()
-        }
-      }
-    }
+    await window.locator('.tab-item', { hasText: 'Start Here.md' }).click()
+    await expect(window.locator('.tab-item[aria-selected="true"] .tab-title')).toHaveText(
+      'Start Here.md'
+    )
+    await expect(panel).toContainText('Search by meaning.md', { timeout: 10_000 })
 
     await electronApp.close()
   })

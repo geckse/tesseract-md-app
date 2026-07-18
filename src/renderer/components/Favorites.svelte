@@ -1,7 +1,7 @@
 <script lang="ts">
   import { favorites, favoritesLoading } from '../stores/favorites'
   import { collections, activeCollectionId, setActiveCollection } from '../stores/collections'
-  import { syncFileStoresFromTab } from '../stores/files'
+  import { loadAssetTree, loadFileTree, syncFileStoresFromTab } from '../stores/files'
   import { workspace } from '../stores/workspace.svelte'
   import { recordNavigation } from '../stores/navigation'
   import type { FavoriteEntry } from '../../preload/api'
@@ -39,6 +39,7 @@
     // Switch collection if needed
     if (currentActiveCollectionId !== favorite.collectionId) {
       await setActiveCollection(favorite.collectionId)
+      await Promise.all([loadFileTree(), loadAssetTree()])
     }
     // Open the file — replaces current tab if clean
     recordNavigation(favorite.filePath)

@@ -117,6 +117,26 @@
     onresultclick?.({ score: 0, chunk: item.chunk, file: item.file })
   }
 
+  function handleResultsKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      oncloserequest?.()
+      return
+    }
+    if (results.length === 0) return
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      highlightedIndex.set(currentHighlighted + 1 < results.length ? currentHighlighted + 1 : 0)
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      highlightedIndex.set(currentHighlighted > 0 ? currentHighlighted - 1 : results.length - 1)
+    } else if (event.key === 'Enter') {
+      event.preventDefault()
+      handleResultClick(results[currentHighlighted >= 0 ? currentHighlighted : 0])
+    }
+  }
+
   function getFileName(path: string): string {
     return path.split('/').pop() ?? path
   }
@@ -182,7 +202,17 @@
     </div>
 
     <!-- Content area -->
-    <div class="results-list" onscroll={handleScroll}>
+    <div
+      class="results-list"
+      role="listbox"
+      tabindex="0"
+      aria-label="Search results"
+      aria-activedescendant={currentHighlighted >= 0
+        ? `search-result-${currentHighlighted}`
+        : undefined}
+      onscroll={handleScroll}
+      onkeydown={handleResultsKeydown}
+    >
       {#if currentLoading}
         <div class="state-message">
           <div class="spinner"></div>
@@ -208,10 +238,13 @@
           {#each visibleResults as result, i (result.chunk.id ?? `${result.file.path}:${virtualState.start + i}`)}
             {@const actualIndex = virtualState.start + i}
             <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
             <div
+              id="search-result-{actualIndex}"
               class="result-card virtual-item"
               class:highlighted={currentHighlighted === actualIndex}
+              role="option"
+              tabindex="-1"
+              aria-selected={currentHighlighted === actualIndex}
               onclick={() => handleResultClick(result)}
               onmouseenter={() => setGraphHoveredFilePath(result.file.path)}
               onmouseleave={() => setGraphHoveredFilePath(null)}
@@ -232,10 +265,13 @@
         <!-- Normal list for <=20 results -->
         {#each results as result, i (result.chunk.id ?? `${result.file.path}:${i}`)}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
+            id="search-result-{i}"
             class="result-card"
             class:highlighted={currentHighlighted === i}
+            role="option"
+            tabindex="-1"
+            aria-selected={currentHighlighted === i}
             onclick={() => handleResultClick(result)}
             onmouseenter={() => setGraphHoveredFilePath(result.file.path)}
             onmouseleave={() => setGraphHoveredFilePath(null)}
@@ -262,9 +298,11 @@
           </div>
           {#each graphContext as item (item.file.path + ':' + item.chunk.chunk_id)}
             <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
             <div
               class="result-card graph-context-card"
+              role="option"
+              tabindex="-1"
+              aria-selected="false"
               onclick={() => handleGraphContextClick(item)}
               onmouseenter={() => setGraphHoveredFilePath(item.file.path)}
               onmouseleave={() => setGraphHoveredFilePath(null)}

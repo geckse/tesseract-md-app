@@ -51,10 +51,12 @@
     setGraphPathFilter,
     setGraphHighlightedFolder,
     graphEdgeFilter,
+    graphUnconnectedHighlight,
     graphSemanticEdgesEnabled,
     graphEdgeWeakThreshold,
     toggleEdgeClusterFilter,
-    clearEdgeFilter
+    clearEdgeFilter,
+    toggleGraphUnconnectedHighlight
   } from '../stores/graph'
   import type { GraphColoringMode } from '../stores/graph'
   import type { GraphLevel } from '../types/cli'
@@ -65,6 +67,9 @@
   import { get } from 'svelte/store'
   import { workspace } from '../stores/workspace.svelte'
   import GraphPreview from './GraphPreview.svelte'
+  import GraphPerformanceWarning from './GraphPerformanceWarning.svelte'
+  import GraphUnconnectedFilter from './GraphUnconnectedFilter.svelte'
+  import GraphDisplayControls from './GraphDisplayControls.svelte'
   import PopoverMenu, { type PopoverMenuItem } from './ui/PopoverMenu.svelte'
   import { edgeClusterColor, isEdgeVisible, edgeLinkColor, edgeLinkWidth } from '../lib/edge-utils'
   import { diffGraphData, shouldPatch, isEmptyDelta, type GraphDelta } from '../lib/graph-delta'
@@ -87,6 +92,7 @@
     seedClusterPositions,
     seedNearNeighbors,
     computeDegreeMap,
+    findUnconnectedNodeIds,
     nodeSizeValue,
     nodeColorForMode,
     edgeArrowColor,
@@ -131,6 +137,16 @@
   /** Typed ForceGraph3D instance using our node/link types. */
   type GraphInstance = ForceGraph3DInstance<ForceNode, ForceLink>
 
+  /** Runtime controls exposed by 3d-force-graph when orbit controls are active. */
+  interface GraphControls {
+    target: THREE.Vector3
+    update?: () => void
+  }
+
+  // The library uses `false` to request its default node object, but its public
+  // TypeScript declaration only admits Object3D even though the runtime docs do.
+  const defaultNodeObject = false as unknown as THREE.Object3D
+
   // ─── State ──────────────────────────────────────────────────────────
 
   /** The 3d-force-graph instance. Created in onMount via dynamic import. */
@@ -169,6 +185,7 @@
   let unsubHighlightedFolder: (() => void) | null = null
   let unsubHoveredFilePath: (() => void) | null = null
   let unsubEdgeFilter: (() => void) | null = null
+  let unsubUnconnectedHighlight: (() => void) | null = null
   let unsubSemanticEdges: (() => void) | null = null
   let unsubEdgeWeakThreshold: (() => void) | null = null
   let unsubLoading: (() => void) | null = null
@@ -192,6 +209,8 @@
   let currentHighlightedFolder: string | null = $state(null)
   let _currentHoveredFilePath: string | null = $state(null)
   let currentEdgeFilter: Set<number> = $state(new Set())
+  let currentUnconnectedHighlight = $state(false)
+  let unconnectedNodeIds: Set<string> = $state(new Set())
   let _currentSemanticEdgesEnabled: boolean = $state(true)
   let currentEdgeWeakThreshold: number = $state(0.3)
   let currentOpenedNode: GraphNode | null = $state(null)
@@ -271,6 +290,11 @@
 
   // Node count for performance warnings
   let nodeCount = $state(0)
+
+  // Display controls
+  let graphLabelsVisible = $state(true)
+  let graphLinesVisible = $state(true)
+  let graphShapesVisible = $state(true)
 
   // Label update animation frame
   let labelFrameId: number | null = null
@@ -417,6 +441,15 @@
     if (graph) graph.refresh()
   }
 
+  /** Open and focus the graph search overlay. */
+  function openGraphSearch(): void {
+    graphSearchVisible = true
+    tick().then(() => {
+      const input = containerEl?.querySelector('.graph-search-input') as HTMLInputElement | null
+      input?.focus()
+    })
+  }
+
   /**
    * Update proximity labels: project node positions to screen,
    * show labels only for nodes within a distance threshold from camera.
@@ -530,6 +563,10 @@
    * the highlighted topic fall back to the default node color.
    */
   function getNodeColor(node: ForceNode): string {
+    const searchActive = graphSearchScores.size > 0 || graphSearchContextScores.size > 0
+    if (currentUnconnectedHighlight && !searchActive) {
+      return unconnectedNodeIds.has(node.id) ? getPrimaryColor() : getMutedNodeColor()
+    }
     if (currentColoringMode === 'custom-cluster' && highlightedTopicId != null) {
       const isMember = node.custom_cluster_ids?.includes(highlightedTopicId) ?? false
       if (!isMember) return getDefaultNodeColor()
@@ -564,6 +601,28 @@
       if (val) return val
     }
     return '#E4E4E7'
+  }
+
+  /** Read the accent used to call out unconnected nodes. */
+  function getPrimaryColor(): string {
+    if (typeof document !== 'undefined') {
+      const val = getComputedStyle(document.documentElement)
+        .getPropertyValue('--color-primary')
+        .trim()
+      if (val) return val
+    }
+    return '#00E5FF'
+  }
+
+  /** Read a low-contrast color used to dim connected nodes. */
+  function getMutedNodeColor(): string {
+    if (typeof document !== 'undefined') {
+      const val = getComputedStyle(document.documentElement)
+        .getPropertyValue('--color-border')
+        .trim()
+      if (val) return val
+    }
+    return '#27272A'
   }
 
   /** Read the current background color from CSS variable. */
@@ -764,12 +823,12 @@
       })
 
       // Override nodeThreeObject: neighbor + hub nodes get custom objects at full opacity
-      graph.nodeThreeObject(((node: ForceNode) => {
+      graph.nodeThreeObject((node: ForceNode) => {
         const degree = degreeMap.get(node.id) ?? 0
         const isNeighbor = neighborSet.has(node.id)
         const isHub = degree >= 5
 
-        if (!isNeighbor && !isHub) return false // Use default sphere at 0.15 opacity
+        if (!isNeighbor && !isHub) return defaultNodeObject // Use default sphere at 0.15 opacity
 
         const targetOpacity = isNeighbor ? 0.9 : 0.15
 
@@ -791,8 +850,7 @@
         })
         group.add(new THREE.Mesh(geometry, material))
         return group
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      }) as any)
+      })
 
       // Clear linkMaterial — dimming handled via linkColor + linkOpacity
       graph.linkMaterial(null)
@@ -817,12 +875,11 @@
       })
 
       // Restore nodeThreeObject to hub-only mode
-      graph.nodeThreeObject(((node: ForceNode) => {
+      graph.nodeThreeObject((node: ForceNode) => {
         const degree = degreeMap.get(node.id) ?? 0
-        if (degree < 5) return false
+        if (degree < 5) return defaultNodeObject
         return createHubNodeObject(node, 0.85)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      }) as any)
+      })
 
       // Clear linkMaterial override
       graph.linkMaterial(null)
@@ -846,11 +903,11 @@
     graph.linkOpacity(0.8)
 
     // Custom node rendering based on search scores
-    graph.nodeThreeObject(((node: ForceNode) => {
+    graph.nodeThreeObject((node: ForceNode) => {
       const path = node.id
       const score = graphSearchScores.get(path) ?? graphSearchContextScores.get(path)
 
-      if (score === undefined) return false // Default sphere at 0.05 opacity
+      if (score === undefined) return defaultNodeObject // Default sphere at 0.05 opacity
 
       const opacity = computeSearchNodeOpacity(score)
       const degree = degreeMap.get(node.id) ?? 0
@@ -874,8 +931,7 @@
       })
       group.add(new THREE.Mesh(geometry, material))
       return group
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    }) as any)
+    })
 
     // Edge coloring based on endpoint match status
     graph.linkColor((link: ForceLink) => {
@@ -990,8 +1046,7 @@
     // Cluster attraction: pulls nodes toward their cluster centroid
     // Strong enough that clusters form tight groups despite repulsion
     const clusterStrength = isDocument ? 0.15 : 0.25
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    graph.d3Force('cluster', createClusterForce(clusterStrength) as any)
+    graph.d3Force('cluster', createClusterForce(clusterStrength))
 
     // Edge opacity: subtle hairlines. Chunk mode even more subtle.
     if (!isDocument) {
@@ -1102,8 +1157,7 @@
       return
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const controls = graph.controls() as any
+    const controls = graph.controls() as GraphControls
     const camera = graph.camera() as THREE.PerspectiveCamera
     if (!controls || !camera) {
       cameraLoopFrameId = null
@@ -1189,6 +1243,27 @@
     graph.zoomToFit(600, 80)
   }
 
+  function toggleGraphLabels(): void {
+    graphLabelsVisible = !graphLabelsVisible
+  }
+
+  function toggleGraphLines(): void {
+    graphLinesVisible = !graphLinesVisible
+    if (graph) {
+      graph.linkVisibility(graphLinesVisible)
+      graph.refresh()
+    }
+  }
+
+  function toggleGraphShapes(): void {
+    graphShapesVisible = !graphShapesVisible
+    if (clusterMeshGroup) {
+      clusterMeshGroup.visible = graphShapesVisible
+    } else if (graphShapesVisible) {
+      updateClusterSpheres()
+    }
+  }
+
   function handleKeyUp(e: KeyboardEvent) {
     pressedCameraKeys.delete(e.key)
   }
@@ -1231,9 +1306,10 @@
           node.y = cached.y
           node.z = cached.z
           // Pin positions so force simulation doesn't disturb the restored layout
-          ;(node as any).fx = cached.x
-          ;(node as any).fy = cached.y
-          ;(node as any).fz = cached.z
+          const forceNode = node as ForceNode
+          forceNode.fx = cached.x
+          forceNode.fy = cached.y
+          forceNode.fz = cached.z
         }
       }
       // Clear the cache after restoring (one-time use)
@@ -1669,6 +1745,7 @@
     // Create a group to hold all cluster meshes
     clusterMeshGroup = new THREE.Group()
     clusterMeshGroup.name = 'clusterEnclosures'
+    clusterMeshGroup.visible = graphShapesVisible
 
     const newLabels: typeof clusterLabels = []
 
@@ -1999,6 +2076,8 @@
     unsubData = graphData.subscribe(async (d) => {
       const prev = currentData
       currentData = d
+      unconnectedNodeIds = d ? findUnconnectedNodeIds(d.nodes, d.edges) : new Set()
+      if (graph && currentUnconnectedHighlight) graph.refresh()
       if (d && d.nodes.length > 0 && !graph && webglSupported) {
         // graphContainerEl is always mounted, but may need a tick for bind:this
         await tick()
@@ -2103,6 +2182,12 @@
     unsubEdgeFilter = graphEdgeFilter.subscribe((f) => {
       currentEdgeFilter = f
       if (currentData && graph) feedData(currentData)
+    })
+
+    // Unconnected-node highlight → recolor in place without disturbing layout.
+    unsubUnconnectedHighlight = graphUnconnectedHighlight.subscribe((active) => {
+      currentUnconnectedHighlight = active
+      if (graph) graph.refresh()
     })
 
     // Semantic edge toggle → rebuild data
@@ -2249,12 +2334,10 @@
     // Cmd/Ctrl+F: toggle graph search overlay
     if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
       e.preventDefault()
-      graphSearchVisible = !graphSearchVisible
       if (graphSearchVisible) {
-        tick().then(() => {
-          const input = containerEl?.querySelector('.graph-search-input') as HTMLInputElement | null
-          input?.focus()
-        })
+        clearGraphSearch()
+      } else {
+        openGraphSearch()
       }
       return
     }
@@ -2268,11 +2351,7 @@
         (e.target as HTMLElement)?.hasAttribute('contenteditable')
       if (!isEditable) {
         e.preventDefault()
-        graphSearchVisible = true
-        tick().then(() => {
-          const input = containerEl?.querySelector('.graph-search-input') as HTMLInputElement | null
-          input?.focus()
-        })
+        openGraphSearch()
         return
       }
     }
@@ -2586,6 +2665,7 @@
       .nodeColor((node: ForceNode) => getNodeColor(node))
       // Link color: pre-computed by buildGraph3DData (edge cluster palette, weak edges at low opacity)
       .linkColor((link: ForceLink) => link.color)
+      .linkVisibility(graphLinesVisible)
       // Link width: 0 = ThreeJS Line (constant 1px hairline, very fast)
       .linkWidth(0)
       // Frontmatter relation edges (phase 42) are distinguished by color only:
@@ -2621,12 +2701,11 @@
       })
       // Hub node glow: custom THREE.Group with emissive sphere + halo for high-degree nodes (degree >= 5)
       // Returns false for low-degree nodes to use default sphere rendering.
-      .nodeThreeObject(((node: ForceNode) => {
+      .nodeThreeObject((node: ForceNode) => {
         const degree = degreeMap.get(node.id) ?? 0
-        if (degree < 5) return false
+        if (degree < 5) return defaultNodeObject
         return createHubNodeObject(node, 0.9)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      }) as any)
+      })
       // Disable built-in tooltips — we use custom HTML overlays instead
       .nodeLabel(() => '')
       .linkLabel(() => '') as GraphInstance
@@ -2739,8 +2818,7 @@
     if (graph && graphTabId) {
       try {
         const pos = graph.cameraPosition()
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const controls = graph.controls() as any
+        const controls = graph.controls() as Partial<GraphControls>
         const target = controls?.target
           ? {
               x: controls.target.x as number,
@@ -2812,6 +2890,7 @@
     unsubHighlightedFolder?.()
     unsubHoveredFilePath?.()
     unsubEdgeFilter?.()
+    unsubUnconnectedHighlight?.()
     unsubSemanticEdges?.()
     unsubEdgeWeakThreshold?.()
     unsubLoading?.()
@@ -2832,6 +2911,10 @@
     <div
       bind:this={graphContainerEl}
       class="graph-3d-container"
+      role="img"
+      aria-label={currentData
+        ? `Knowledge graph with ${currentData.nodes.length} node${currentData.nodes.length === 1 ? '' : 's'}`
+        : 'Knowledge graph'}
       style:visibility={currentData &&
       currentData.nodes.length > 0 &&
       !currentError &&
@@ -2870,7 +2953,7 @@
     {/if}
 
     <!-- Proximity node labels (document mode only, distance-based) -->
-    {#if visibleLabels.length > 0}
+    {#if graphLabelsVisible && visibleLabels.length > 0}
       <div class="proximity-labels">
         {#each visibleLabels as lbl (lbl.id)}
           <span class="proximity-label" style="left: {lbl.x}px; top: {lbl.y}px">{lbl.label}</span>
@@ -2879,19 +2962,26 @@
     {/if}
 
     {#if currentData && currentData.nodes.length > 0 && !currentError && webglSupported}
-      <!-- View mode dropdown (top-left): what the nodes are colored/grouped by -->
-      <button
-        bind:this={viewModeBtnEl}
-        class="graph-view-mode-trigger"
-        onclick={() => (viewModeMenuOpen = !viewModeMenuOpen)}
-        aria-haspopup="menu"
-        aria-expanded={viewModeMenuOpen}
-        title="Select graph view"
-      >
-        <span class="material-symbols-outlined view-mode-icon">{currentViewMode.icon}</span>
-        <span class="view-mode-label">{currentViewMode.label}</span>
-        <span class="material-symbols-outlined view-mode-caret">arrow_drop_down</span>
-      </button>
+      <!-- View and content filters (top-left). -->
+      <div class="graph-top-left-controls">
+        <button
+          bind:this={viewModeBtnEl}
+          class="graph-view-mode-trigger"
+          onclick={() => (viewModeMenuOpen = !viewModeMenuOpen)}
+          aria-haspopup="menu"
+          aria-expanded={viewModeMenuOpen}
+          title="Select graph view"
+        >
+          <span class="material-symbols-outlined view-mode-icon">{currentViewMode.icon}</span>
+          <span class="view-mode-label">{currentViewMode.label}</span>
+          <span class="material-symbols-outlined view-mode-caret">arrow_drop_down</span>
+        </button>
+        <GraphUnconnectedFilter
+          count={unconnectedNodeIds.size}
+          active={currentUnconnectedHighlight}
+          ontoggle={toggleGraphUnconnectedHighlight}
+        />
+      </div>
       {#if viewModeMenuOpen && viewModeBtnEl}
         <PopoverMenu
           anchorEl={viewModeBtnEl}
@@ -3033,7 +3123,7 @@
       {/if}
 
       <!-- Cluster/topic enclosure labels (screen-projected from 3D centroids) -->
-      {#if (currentColoringMode === 'cluster' || currentColoringMode === 'custom-cluster') && clusterLabels.length > 0}
+      {#if graphLabelsVisible && (currentColoringMode === 'cluster' || currentColoringMode === 'custom-cluster') && clusterLabels.length > 0}
         {#each clusterLabels as label}
           {#if label.visible}
             <div
@@ -3056,24 +3146,21 @@
         <div class="graph-notice">No link connections found.</div>
       {/if}
 
-      {#if nodeCount > 2000}
-        <div class="graph-notice warning">
-          Very large graph ({nodeCount} nodes). Visual quality reduced for performance.
-        </div>
-      {:else if nodeCount > 500}
-        <div class="graph-notice warning">
-          Large graph ({nodeCount} nodes). Some effects disabled for performance.
-        </div>
-      {/if}
+      <GraphPerformanceWarning {nodeCount} />
 
-      <!-- Recenter camera button -->
-      <button
-        class="graph-recenter-btn"
-        onclick={recenterCamera}
-        title="Recenter camera (fit all nodes)"
-      >
-        <span class="material-symbols-outlined">center_focus_strong</span>
-      </button>
+      <GraphDisplayControls
+        searchOpen={graphSearchVisible}
+        labelsVisible={graphLabelsVisible}
+        linesVisible={graphLinesVisible}
+        shapesVisible={graphShapesVisible}
+        shapesAvailable={currentColoringMode === 'cluster' ||
+          currentColoringMode === 'custom-cluster'}
+        onsearch={openGraphSearch}
+        ontogglelabels={toggleGraphLabels}
+        ontogglelines={toggleGraphLines}
+        ontoggleshapes={toggleGraphShapes}
+        onrecenter={recenterCamera}
+      />
 
       <!-- Node tooltip (populated by hover handler in subtask 2-2) -->
       {#if hoveredNode}
@@ -3160,15 +3247,16 @@
 
       <!-- Context menu -->
       {#if contextMenuNode}
-        <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
-        <div
+        <button
+          type="button"
           class="context-menu-backdrop"
+          aria-label="Close context menu"
           onclick={() => (contextMenuNode = null)}
           oncontextmenu={(e) => {
             e.preventDefault()
             contextMenuNode = null
           }}
-        ></div>
+        ></button>
         <div class="context-menu" style="left: {contextMenuX}px; top: {contextMenuY}px">
           <div class="context-menu-header">{contextMenuNode.path.split('/').pop()}</div>
           <button class="context-menu-item" onclick={handleContextMenuOpen}>
@@ -3517,11 +3605,6 @@
     pointer-events: none;
   }
 
-  .graph-notice.warning {
-    border-color: var(--color-warning, #f59e0b);
-    color: var(--color-warning, #f59e0b);
-  }
-
   .graph-tooltip {
     position: fixed;
     padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
@@ -3641,6 +3724,10 @@
     position: fixed;
     inset: 0;
     z-index: 49;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    cursor: default;
   }
 
   .context-menu {
@@ -3690,10 +3777,17 @@
     font-size: 16px;
   }
 
-  .graph-view-mode-trigger {
+  .graph-top-left-controls {
     position: absolute;
     top: var(--space-3, 0.75rem);
     left: var(--space-3, 0.75rem);
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 0.5rem);
+    z-index: var(--z-base, 10);
+  }
+
+  .graph-view-mode-trigger {
     display: flex;
     align-items: center;
     gap: var(--space-1, 0.25rem);
@@ -3701,7 +3795,6 @@
     background: var(--color-surface, #161617);
     border: 1px solid var(--color-border, #27272a);
     border-radius: var(--radius-md, 0.375rem);
-    z-index: var(--z-base, 10);
     color: var(--color-text, #e4e4e7);
     font-family: var(--font-display, 'Space Grotesk', sans-serif);
     font-size: var(--text-xs, 0.625rem);
@@ -4087,35 +4180,6 @@
     font-size: var(--text-xs, 0.625rem);
     color: var(--color-text-dim, #71717a);
     white-space: nowrap;
-  }
-
-  .graph-recenter-btn {
-    position: absolute;
-    bottom: var(--space-4, 1rem);
-    right: var(--space-4, 1rem);
-    z-index: var(--z-base, 10);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 36px;
-    height: 36px;
-    background: var(--color-surface, #161617);
-    border: 1px solid var(--color-border, #27272a);
-    border-radius: var(--radius-md, 0.375rem);
-    color: var(--color-text-dim, #71717a);
-    cursor: pointer;
-    transition:
-      color var(--transition-fast, 150ms ease),
-      background var(--transition-fast, 150ms ease);
-  }
-
-  .graph-recenter-btn:hover {
-    color: var(--color-text, #e4e4e7);
-    background: var(--overlay-hover, #1e1e20);
-  }
-
-  .graph-recenter-btn .material-symbols-outlined {
-    font-size: 20px;
   }
 
   @keyframes spin {

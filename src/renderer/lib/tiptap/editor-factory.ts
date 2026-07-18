@@ -57,6 +57,11 @@ export function createWysiwygEditor(
     content,
     contentType: 'markdown',
     editable: options.editable ?? true,
+    editorProps: {
+      attributes: {
+        'aria-label': 'Document editor'
+      }
+    },
     extensions: [
       StarterKit.configure({
         codeBlock: false, // Replaced by CodeBlockLowlight later
@@ -110,8 +115,8 @@ export function createWysiwygEditor(
 
   function getMarkdown(): string {
     // TipTap v3: @tiptap/markdown adds editor.getMarkdown() directly
-    if (typeof (editor as any).getMarkdown === 'function') {
-      return (editor as any).getMarkdown()
+    if (typeof editor.getMarkdown === 'function') {
+      return editor.getMarkdown()
     }
     // Fallback: return text content — this strips all formatting!
     console.error(

@@ -192,6 +192,9 @@ export const graphHoveredFilePath = writable<string | null>(null)
 /** Set of edge cluster IDs to filter (show only these). Empty set means show all. */
 export const graphEdgeFilter = writable<Set<number>>(new Set())
 
+/** Whether nodes without incoming or outgoing connections are highlighted. */
+export const graphUnconnectedHighlight = writable<boolean>(false)
+
 /** Whether semantic edge styling (thickness, color, dash) is enabled. */
 export const graphSemanticEdgesEnabled = writable<boolean>(true)
 
@@ -266,6 +269,13 @@ export async function loadGraphData(mode: 'replace' | 'refresh' = 'replace'): Pr
 
 /** Background graph re-fetch — the entry point for index-change consumers. */
 export function refreshGraphData(): Promise<void> {
+  // A freshly initialized collection can have an active Graph tab before its
+  // first index exists. There is no scene to patch in that state, so the
+  // first successful ingest must perform a replacement load. When Graph is
+  // not open, keep the cheap no-op and let its normal activation load data.
+  if (get(graphData) === null && get(graphViewActive)) {
+    return loadGraphData('replace')
+  }
   return loadGraphData('refresh')
 }
 
@@ -381,6 +391,11 @@ export function clearEdgeFilter(): void {
   graphEdgeFilter.set(new Set())
 }
 
+/** Toggle highlighting for nodes with zero incoming and outgoing connections. */
+export function toggleGraphUnconnectedHighlight(): void {
+  graphUnconnectedHighlight.update((active) => !active)
+}
+
 /** Toggle semantic edge styling on/off. */
 export function toggleSemanticEdges(): void {
   graphSemanticEdgesEnabled.set(!get(graphSemanticEdgesEnabled))
@@ -473,9 +488,23 @@ export function resetGraphState(): void {
   graphHighlightedFolder.set(null)
   graphHoveredFilePath.set(null)
   graphEdgeFilter.set(new Set())
+  graphUnconnectedHighlight.set(false)
   graphSemanticEdgesEnabled.set(true)
   graphEdgeWeakThreshold.set(0.3)
   // Per-tab state (graphLevel, graphColoringMode, graphPathFilter) resets
   // with workspace.reset() — no need to reset here.
   syncGraphStoresFromTab()
+}
+
+/**
+ * Reset graph data for a collection switch and preserve an active Graph tab.
+ * `wasGraphActive` must be captured before file/workspace state is reset.
+ */
+export async function resetGraphForCollectionSwitch(wasGraphActive: boolean): Promise<void> {
+  resetGraphState()
+  if (!wasGraphActive) return
+
+  workspace.switchToGraphTab()
+  syncGraphStoresFromTab()
+  await loadGraphData()
 }

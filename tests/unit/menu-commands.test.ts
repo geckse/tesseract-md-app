@@ -93,6 +93,10 @@ vi.mock('@renderer/stores/watcher', () => ({
 
 vi.mock('@renderer/stores/settings', () => ({ openSettingsSection: vi.fn() }))
 
+vi.mock('@renderer/stores/confirmation', () => ({
+  requestConfirmation: vi.fn().mockResolvedValue(true)
+}))
+
 vi.mock('@renderer/lib/new-note', () => ({ openNewNotePopup: vi.fn() }))
 
 vi.mock('@renderer/lib/export', () => ({
@@ -102,13 +106,11 @@ vi.mock('@renderer/lib/export', () => ({
 // window.api surface used by the dispatcher
 const mockShowItemInFolder = vi.fn().mockResolvedValue(undefined)
 const mockWriteToClipboard = vi.fn().mockResolvedValue(undefined)
-const mockConfirm = vi.fn(() => true)
 vi.stubGlobal('window', {
   api: {
     showItemInFolder: mockShowItemInFolder,
     writeToClipboard: mockWriteToClipboard
   },
-  confirm: mockConfirm,
   alert: vi.fn()
 })
 
@@ -144,6 +146,7 @@ import { toggleWatcher } from '@renderer/stores/watcher'
 import { openSettingsSection } from '@renderer/stores/settings'
 import { openNewNotePopup } from '@renderer/lib/new-note'
 import { exportActiveDocument } from '@renderer/lib/export'
+import { requestConfirmation } from '@renderer/stores/confirmation'
 
 const workspaceMock = workspace as unknown as {
   focusedDocumentTab: { id: string } | undefined
@@ -160,7 +163,7 @@ describe('handleMenuCommand', () => {
     graphViewActive.set(false)
     workspaceMock.focusedDocumentTab = { id: 'tab-1' }
     activeCollection.set({ id: 'col-1', name: 'Notes', path: '/vault' })
-    mockConfirm.mockReturnValue(true)
+    vi.mocked(requestConfirmation).mockResolvedValue(true)
   })
 
   it('routes file commands to the right actions', () => {
@@ -288,14 +291,19 @@ describe('handleMenuCommand', () => {
     expect(terminalStore.createTerminal).toHaveBeenCalledWith({ cwd: '/vault', title: 'Notes' })
   })
 
-  it('gates rebuild behind a confirm dialog', () => {
-    mockConfirm.mockReturnValue(false)
+  it('gates rebuild behind the shared confirmation dialog', async () => {
+    vi.mocked(requestConfirmation).mockResolvedValue(false)
     handleMenuCommand({ id: 'collection.rebuild' })
+    await Promise.resolve()
     expect(rebuildIndex).not.toHaveBeenCalled()
 
-    mockConfirm.mockReturnValue(true)
+    vi.mocked(requestConfirmation).mockResolvedValue(true)
     handleMenuCommand({ id: 'collection.rebuild' })
+    await Promise.resolve()
     expect(rebuildIndex).toHaveBeenCalled()
+    expect(requestConfirmation).toHaveBeenLastCalledWith(
+      expect.objectContaining({ confirmLabel: 'Rebuild Index', tone: 'danger' })
+    )
   })
 
   it('no-ops collection commands without an active collection', () => {

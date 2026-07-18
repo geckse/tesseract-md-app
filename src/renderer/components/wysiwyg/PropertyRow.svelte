@@ -201,7 +201,7 @@
   let booleanIcon = $derived(value === true ? 'check_box' : 'check_box_outline_blank')
 </script>
 
-<div class="pr" role="row">
+<div class="pr">
   {#if onTypeChange}
     <button
       class="pr-type-btn"

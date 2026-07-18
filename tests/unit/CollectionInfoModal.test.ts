@@ -97,6 +97,24 @@ describe('CollectionInfoModal', () => {
     expect(screen.queryByText('Notes')).toBeNull()
   })
 
+  it('renders unavailable legacy scoped metrics without inventing values', async () => {
+    collectionInfo.set({
+      ...sampleInfo,
+      scope: 'notes/',
+      is_whole_vault: false,
+      vector_count: null,
+      edge_count: null,
+      reindex_estimated_api_calls: null
+    })
+    infoScope.set('notes')
+    infoModalOpen.set(true)
+    render(CollectionInfoModal)
+    await tick()
+
+    expect(screen.getAllByText('—')).toHaveLength(2)
+    expect(screen.queryByText('(3 edge)')).toBeNull()
+  })
+
   it('shows an update hint and retries after an error', async () => {
     infoError.set('[CliExecutionError] unknown command info')
     infoModalOpen.set(true)

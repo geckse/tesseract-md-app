@@ -19,7 +19,7 @@ const baseTheme = EditorView.theme(
     '&': {
       backgroundColor: 'var(--color-canvas, #0a0a0a)',
       color: 'var(--color-text, #e4e4e7)',
-      fontFamily: "'Space Grotesk', system-ui, sans-serif",
+      fontFamily: "'Space Grotesk Variable', system-ui, sans-serif",
       fontSize: '0.875rem',
       lineHeight: '1.8'
     },
@@ -54,7 +54,7 @@ const baseTheme = EditorView.theme(
     },
 
     '.cm-lineNumbers .cm-gutterElement': {
-      fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+      fontFamily: "'JetBrains Mono Variable', ui-monospace, monospace",
       fontSize: '0.75rem'
     },
 
@@ -79,7 +79,7 @@ const baseTheme = EditorView.theme(
       flexWrap: 'wrap',
       gap: '4px',
       alignItems: 'center',
-      fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+      fontFamily: "'JetBrains Mono Variable', ui-monospace, monospace",
       fontSize: '12px'
     },
 
@@ -95,7 +95,7 @@ const baseTheme = EditorView.theme(
       borderRadius: '4px',
       padding: '3px 8px',
       fontSize: '12px',
-      fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+      fontFamily: "'JetBrains Mono Variable', ui-monospace, monospace",
       outline: 'none'
     },
 
@@ -110,7 +110,7 @@ const baseTheme = EditorView.theme(
       borderRadius: '4px',
       padding: '3px 8px',
       fontSize: '10px',
-      fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+      fontFamily: "'JetBrains Mono Variable', ui-monospace, monospace",
       cursor: 'pointer'
     },
 
@@ -186,7 +186,7 @@ const markdownHighlightStyle = HighlightStyle.define([
   // Code / monospace
   {
     tag: tags.monospace,
-    fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+    fontFamily: "'JetBrains Mono Variable', ui-monospace, monospace",
     color: 'var(--color-primary, #00E5FF)',
     backgroundColor: 'var(--color-primary-dim, rgba(0, 229, 255, 0.1))',
     borderRadius: '0.25rem'

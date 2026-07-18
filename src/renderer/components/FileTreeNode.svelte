@@ -211,7 +211,13 @@
   }
 </script>
 
-<div class="tree-node">
+<div
+  class="tree-node"
+  role="treeitem"
+  aria-level={depth + 1}
+  aria-expanded={node.is_dir ? isExpanded : undefined}
+  aria-selected={isSelected}
+>
   {#if isRenaming}
     <div class="tree-row renaming" style="padding-left: {12 + depth * 16}px;">
       {#if node.is_dir}
@@ -260,10 +266,6 @@
       oncontextmenu={handleContextMenu}
       ondragstart={handleDragStart}
       title={node.path}
-      role="treeitem"
-      aria-level={depth + 1}
-      aria-expanded={node.is_dir ? isExpanded : undefined}
-      aria-selected={isSelected}
     >
       {#if node.is_dir}
         <span class="material-symbols-outlined expand-icon" class:expanded={isExpanded}>
@@ -308,7 +310,7 @@
   {/if}
 
   {#if !noRecursiveRender && node.is_dir && isExpanded}
-    <div class="tree-children" transition:slide={{ duration: 150 }}>
+    <div class="tree-children" role="group" transition:slide={{ duration: 150 }}>
       {#each node.children as child (child.path)}
         <Self
           node={child}

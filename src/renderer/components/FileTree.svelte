@@ -41,6 +41,7 @@
     throttleScroll,
     type VirtualListState
   } from '../lib/virtual-list'
+  import { requestConfirmation } from '../stores/confirmation'
 
   interface FileTreeProps {
     onfileselect?: (detail: { path: string; forceNewTab?: boolean }) => void
@@ -570,7 +571,11 @@
         .fileInfo(`${currentActiveCollection.path}/${destPath}`)
         .catch(() => null)
       if (info) {
-        window.alert(`Cannot duplicate: "${destPath}" already exists.`)
+        await window.api.showMessage({
+          title: 'Cannot Duplicate File',
+          message: `"${destPath}" already exists.`,
+          type: 'warning'
+        })
         return
       }
       await window.api.copyFile(
@@ -585,7 +590,11 @@
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      window.alert(`Failed to duplicate "${srcPath}": ${msg}`)
+      await window.api.showMessage({
+        title: 'Duplicate Failed',
+        message: `Could not duplicate "${srcPath}".\n\n${msg}`,
+        type: 'error'
+      })
     }
   }
 
@@ -610,9 +619,12 @@
     closeContextMenu()
 
     const kind = isDir ? 'folder' : 'file'
-    const confirmed = window.confirm(
-      `Are you sure you want to delete "${name}"?\n\nThe ${kind} will be moved to the Trash.`
-    )
+    const confirmed = await requestConfirmation({
+      title: `Move ${name} to the Trash?`,
+      message: `The ${kind} will be removed from this collection and moved to the Trash.`,
+      confirmLabel: 'Move to Trash',
+      tone: 'danger'
+    })
     if (!confirmed) return
 
     const absolutePath = `${currentActiveCollection.path}/${path}`
@@ -656,7 +668,11 @@
       syncFileStoresFromTab()
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      window.alert(`Failed to delete "${name}": ${msg}`)
+      await window.api.showMessage({
+        title: 'Move to Trash Failed',
+        message: `Could not move "${name}" to the Trash.\n\n${msg}`,
+        type: 'error'
+      })
     }
   }
 
@@ -702,16 +718,18 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_no_noninteractive_tabindex a11y_no_static_element_interactions -->
+<!-- This delegated click listener only closes transient menus. -->
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
   class="file-tree-container"
+  role="region"
+  aria-label="Collection files"
   onclick={handleClickOutside}
-  onkeydown={handleKeyDown}
-  tabindex="0"
 >
   <!-- Header -->
   <div class="file-tree-header">
-    <h3 class="file-tree-title">Files</h3>
+    <h2 class="file-tree-title">Files</h2>
     <div class="header-actions">
       <div class="ingest-split-btn">
         <button
@@ -845,12 +863,15 @@
       <div
         class="tree-nodes-virtual"
         role="tree"
-        aria-label="File tree"
+        aria-label="Collection file tree"
+        onkeydown={handleKeyDown}
+        tabindex="0"
         style="height: {virtualState.totalHeight}px;"
       >
         {#each visibleNodes as { node, depth, flatIndex } (node.path)}
           <div
             class="virtual-node-wrapper"
+            role="presentation"
             style="transform: translateY({flatIndex * ITEM_HEIGHT}px); height: {ITEM_HEIGHT}px;"
           >
             <FileTreeNode

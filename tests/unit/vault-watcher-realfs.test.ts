@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest'
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -14,6 +14,18 @@ import type { VaultEventBatch } from '../../src/preload/api'
 
 let vw: VaultWatcher | null = null
 const cleanupDirs: string[] = []
+const previousPollingSetting = process.env.CHOKIDAR_USEPOLLING
+
+beforeAll(() => {
+  // Polling still exercises real chokidar and real filesystem events while
+  // remaining reliable in sandboxed macOS runners where FSEvents is withheld.
+  process.env.CHOKIDAR_USEPOLLING = 'true'
+})
+
+afterAll(() => {
+  if (previousPollingSetting === undefined) delete process.env.CHOKIDAR_USEPOLLING
+  else process.env.CHOKIDAR_USEPOLLING = previousPollingSetting
+})
 
 afterEach(async () => {
   if (vw) await vw.destroy()

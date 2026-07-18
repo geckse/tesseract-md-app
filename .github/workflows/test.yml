@@ -14,7 +14,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22.12
           cache: npm
           cache-dependency-path: package-lock.json
 
@@ -27,7 +27,7 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Unit tests
+      - name: Unit and integration tests
         run: npm test
 
   e2e:
@@ -39,7 +39,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22.12
           cache: npm
           cache-dependency-path: package-lock.json
 
@@ -50,8 +50,8 @@ jobs:
         run: npx electron-vite build
 
       # The raw mdvdb binary asset only exists once the CLI release is published.
-      # If the download fails (asset/release not there yet), skip e2e with a
-      # notice instead of failing the whole workflow.
+      # If the download fails (asset/release not there yet), CLI-dependent
+      # coverage self-skips while app-only Electron coverage still runs.
       - name: Download mdvdb CLI
         id: mdvdb
         continue-on-error: true
@@ -66,15 +66,18 @@ jobs:
           ./mdvdb --version
           echo "$RUNNER_TEMP/mdvdb-bin" >> "$GITHUB_PATH"
 
-      - name: Notice — e2e skipped (mdvdb binary unavailable)
+      - name: Notice — CLI-dependent coverage skipped (mdvdb binary unavailable)
         if: steps.mdvdb.outcome == 'failure'
-        run: echo "::notice title=e2e skipped::mdvdb CLI asset not downloadable from geckse/markdown-vdb (release not published yet?) — skipping Playwright e2e run."
+        run: echo "::notice title=CLI coverage skipped::mdvdb CLI asset not downloadable from geckse/markdown-vdb (release not published yet?) — app-only Playwright coverage will still run."
+
+      - name: Run integration tests with mdvdb
+        if: steps.mdvdb.outcome == 'success'
+        run: npm run test:integration
 
       # No `playwright install` needed: playwright.config.ts defines a single
       # 'electron' project driven via _electron.launch(), which uses the
       # Electron binary from node_modules — no Playwright browsers required.
       - name: Run e2e tests
-        if: steps.mdvdb.outcome == 'success'
         run: npm run test:e2e
 
   # First-time platform runs — allowed to fail while Windows/Linux support is
@@ -89,7 +92,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22.12
           cache: npm
           cache-dependency-path: package-lock.json
 
@@ -113,13 +116,12 @@ jobs:
           ./mdvdb.exe --version
           echo "$RUNNER_TEMP/mdvdb-bin" >> "$GITHUB_PATH"
 
-      - name: Notice — e2e skipped (mdvdb binary unavailable)
+      - name: Notice — CLI-dependent coverage skipped (mdvdb binary unavailable)
         if: steps.mdvdb.outcome == 'failure'
         shell: bash
-        run: echo "::notice title=e2e-win skipped::mdvdb CLI asset not downloadable from geckse/markdown-vdb (release not published yet?) — skipping Playwright e2e run."
+        run: echo "::notice title=CLI coverage skipped::mdvdb CLI asset not downloadable from geckse/markdown-vdb (release not published yet?) — app-only Playwright coverage will still run."
 
       - name: Run e2e tests
-        if: steps.mdvdb.outcome == 'success'
         run: npm run test:e2e
 
   e2e-linux:
@@ -132,7 +134,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22.12
           cache: npm
           cache-dependency-path: package-lock.json
 
@@ -156,10 +158,9 @@ jobs:
           ./mdvdb --version
           echo "$RUNNER_TEMP/mdvdb-bin" >> "$GITHUB_PATH"
 
-      - name: Notice — e2e skipped (mdvdb binary unavailable)
+      - name: Notice — CLI-dependent coverage skipped (mdvdb binary unavailable)
         if: steps.mdvdb.outcome == 'failure'
-        run: echo "::notice title=e2e-linux skipped::mdvdb CLI asset not downloadable from geckse/markdown-vdb (release not published yet?) — skipping Playwright e2e run."
+        run: echo "::notice title=CLI coverage skipped::mdvdb CLI asset not downloadable from geckse/markdown-vdb (release not published yet?) — app-only Playwright coverage will still run."
 
       - name: Run e2e tests
-        if: steps.mdvdb.outcome == 'success'
         run: xvfb-run --auto-servernum -- npm run test:e2e

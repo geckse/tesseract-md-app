@@ -5,7 +5,7 @@
  * Called once from the main process on app ready.
  */
 
-import { app, ipcMain, shell, clipboard, BrowserWindow } from 'electron'
+import { app, ipcMain, shell, clipboard, BrowserWindow, dialog } from 'electron'
 import { promises as fs } from 'node:fs'
 import { findCli, getCliVersion, execCommand, execRaw } from './cli'
 import { detectCli, installCli, checkLatestVersion } from './cli-install'
@@ -47,6 +47,7 @@ import type {
   PropertyOpRequest,
   OverlayFieldPatch
 } from '../preload/api'
+import type { NativeConfirmationOptions, NativeMessageOptions } from '../preload/api'
 import type { FrontmatterPatch } from './frontmatter'
 import { WatcherManager, type WatcherState } from './watcher'
 import { getVaultWatcher } from './vault-watcher'
@@ -71,6 +72,8 @@ import {
   confirmRemoveCollection,
   promptInitCollection
 } from './collections'
+import { createExampleCollection } from './example-collection'
+import { getCollectionInfo } from './collection-info'
 import { refreshAppMenu } from './menu'
 import {
   maybeSyncObsidianTopics,
@@ -97,7 +100,6 @@ import type {
   Schema,
   Config,
   DoctorResult,
-  VaultInfo,
   CollectionOutput
 } from '../renderer/types/cli'
 import type { SerializedError } from './errors'
@@ -202,6 +204,17 @@ export async function withWatcherPaused<T>(root: string, fn: () => Promise<T>): 
  * @param windowManager - The WindowManager for broadcasting events to all windows
  * @param ptyManager - PTY registry, used to rebind terminals during cross-window transfers
  */
+/**
+ * Register IPC required by the preload before its first page can paint.
+ * Keep this deliberately tiny: loading every feature handler before creating
+ * a window delays startup and has caused Electron automation races.
+ */
+export function registerStartupIpcHandlers(): void {
+  ipcMain.on('store:get-theme-sync', (event) => {
+    event.returnValue = getThemeMode()
+  })
+}
+
 export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: PtyManager): void {
   // Export (phase 43): Save a Copy… / Export ▸ via native save dialog
   registerExportHandlers()
@@ -417,7 +430,7 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
 
   // Vault/folder information
   ipcMain.handle('cli:info', (_event, root: string, path?: string) =>
-    wrapHandler(() => execCommand<VaultInfo>('info', path ? [path] : [], root))
+    wrapHandler(() => getCollectionInfo(root, path))
   )
 
   // Init
@@ -431,6 +444,49 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
       const ftsDir = path.join(root, '.markdownvdb', 'fts')
       await fs.rm(indexFile, { force: true })
       await fs.rm(ftsDir, { recursive: true, force: true })
+    })
+  )
+
+  // Native dialogs for simple message + action prompts. Complex workflows stay
+  // in renderer modals where richer content and interaction are required.
+  ipcMain.handle('dialog:confirm', (event, options: NativeConfirmationOptions) =>
+    wrapHandler(async () => {
+      const title = options.title || 'Please confirm'
+      const message = options.message || ''
+      const messageBoxOptions = {
+        type: options.tone === 'danger' ? ('warning' as const) : ('question' as const),
+        title,
+        message: title,
+        detail: message,
+        buttons: [options.cancelLabel || 'Cancel', options.confirmLabel || 'Continue'],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true
+      }
+      const parent = BrowserWindow.fromWebContents(event.sender)
+      const result = parent
+        ? await dialog.showMessageBox(parent, messageBoxOptions)
+        : await dialog.showMessageBox(messageBoxOptions)
+      return result.response === 1
+    })
+  )
+
+  ipcMain.handle('dialog:message', (event, options: NativeMessageOptions) =>
+    wrapHandler(async () => {
+      const title = options.title || 'Tesseract'
+      const messageBoxOptions = {
+        type: options.type ?? ('info' as const),
+        title,
+        message: title,
+        detail: options.message || '',
+        buttons: ['OK'],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true
+      }
+      const parent = BrowserWindow.fromWebContents(event.sender)
+      if (parent) await dialog.showMessageBox(parent, messageBoxOptions)
+      else await dialog.showMessageBox(messageBoxOptions)
     })
   )
 
@@ -458,6 +514,20 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
       // Obsidian vaults: derive topics from the user's tags/graph groups
       // (phase 44). Fire-and-forget — never blocks adding the collection.
       void maybeSyncObsidianTopics(collection, windowManager)
+      return collection
+    })
+  )
+
+  ipcMain.handle('collections:create-example', () =>
+    wrapHandler(async (): Promise<Collection> => {
+      // Real users get a visible Documents folder. Automation stays inside its
+      // disposable profile and must never write to a developer's Documents.
+      const baseDirectory =
+        process.env['TESSERACT_E2E'] === '1' ? app.getPath('userData') : app.getPath('documents')
+      const path = await createExampleCollection(baseDirectory)
+      const existing = getCollections().find((collection) => collection.path === path)
+      const collection = existing ?? addCollection(path)
+      refreshAppMenu()
       return collection
     })
   )
@@ -1221,11 +1291,6 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
       })
   )
 
-  // Synchronous theme read for flash prevention (preload calls this before DOM paints)
-  ipcMain.on('store:get-theme-sync', (event) => {
-    event.returnValue = getThemeMode()
-  })
-
   // Watcher management
   ipcMain.handle('watcher:start', (_event, root: string) =>
     wrapHandler(async () => {
@@ -1525,6 +1590,14 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
   ipcMain.handle('app:confirm-close', (event) =>
     wrapHandler(async () => {
       windowManager.confirmClose(event.sender.id)
+    })
+  )
+
+  // A dirty renderer declined the close confirmation. Cancel any application-
+  // level quit so closing the last window later does not unexpectedly quit.
+  ipcMain.handle('app:cancel-close', () =>
+    wrapHandler(async () => {
+      windowManager.cancelAppQuit()
     })
   )
 

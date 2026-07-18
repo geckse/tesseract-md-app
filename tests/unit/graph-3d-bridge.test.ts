@@ -7,7 +7,8 @@ import {
   nodeTooltipHtml,
   edgeTooltipHtml,
   edgeArrowColor,
-  computeDegreeMap
+  computeDegreeMap,
+  findUnconnectedNodeIds
 } from '@renderer/lib/graph-3d-bridge'
 import type { Graph3DNode, Graph3DLink, BuildGraph3DOptions } from '@renderer/lib/graph-3d-bridge'
 import type { GraphData, GraphNode, GraphEdge, GraphCluster } from '@renderer/types/cli'
@@ -115,6 +116,41 @@ describe('computeDegreeMap', () => {
     ]
     const map = computeDegreeMap(edges)
     expect(map.get('hub')).toBe(5)
+  })
+})
+
+// ─── findUnconnectedNodeIds ─────────────────────────────────────────
+
+describe('findUnconnectedNodeIds', () => {
+  it('finds nodes with neither incoming nor outgoing connections', () => {
+    const nodes = [
+      makeNode({ id: 'source' }),
+      makeNode({ id: 'target' }),
+      makeNode({ id: 'loose' })
+    ]
+    const edges = [makeEdge({ source: 'source', target: 'target' })]
+
+    expect(findUnconnectedNodeIds(nodes, edges)).toEqual(new Set(['loose']))
+  })
+
+  it('treats incoming-only, outgoing-only, and self-linked nodes as connected', () => {
+    const nodes = [
+      makeNode({ id: 'incoming' }),
+      makeNode({ id: 'outgoing' }),
+      makeNode({ id: 'self' })
+    ]
+    const edges = [
+      makeEdge({ source: 'outgoing', target: 'incoming' }),
+      makeEdge({ source: 'self', target: 'self' })
+    ]
+
+    expect(findUnconnectedNodeIds(nodes, edges).size).toBe(0)
+  })
+
+  it('returns every node when the graph has no edges', () => {
+    const nodes = [makeNode({ id: 'a' }), makeNode({ id: 'b' })]
+
+    expect(findUnconnectedNodeIds(nodes, [])).toEqual(new Set(['a', 'b']))
   })
 })
 

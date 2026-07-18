@@ -49,6 +49,22 @@ export interface RecentEntry {
   openedAt: number // Unix timestamp, updated on each open
 }
 
+/** A simple confirmation rendered with the operating system's native dialog. */
+export interface NativeConfirmationOptions {
+  title: string
+  message: string
+  confirmLabel?: string
+  cancelLabel?: string
+  tone?: 'default' | 'danger'
+}
+
+/** A simple one-action message rendered with the operating system's native dialog. */
+export interface NativeMessageOptions {
+  title: string
+  message: string
+  type?: 'info' | 'warning' | 'error'
+}
+
 /** A native menu command pushed from main via the `menu:command` channel (phase 43). */
 export interface MenuCommand {
   id: string
@@ -445,6 +461,7 @@ export interface MdvdbApi {
   // Collection management
   listCollections(): Promise<Collection[]>
   addCollection(): Promise<Collection | null>
+  createExampleCollection(): Promise<Collection>
   removeCollection(id: string): Promise<void>
   setActiveCollection(id: string): Promise<void>
   getActiveCollection(): Promise<Collection | null>
@@ -486,6 +503,10 @@ export interface MdvdbApi {
 
   // Clipboard operations
   writeToClipboard(text: string): Promise<void>
+
+  // Native simple dialogs (complex workflows remain renderer modals)
+  showConfirmation(options: NativeConfirmationOptions): Promise<boolean>
+  showMessage(options: NativeMessageOptions): Promise<void>
 
   // Single-file ingest
   ingestFile(root: string, filePath: string, options?: IngestOptions): Promise<IngestResult>
@@ -636,6 +657,7 @@ export interface MdvdbApi {
   onCloseRequest(callback: () => void): void
   removeCloseRequestListener(): void
   confirmClose(): Promise<void>
+  cancelClose(): Promise<void>
 
   // Cross-window tab transfer
   detachTab(tabData: TabTransferData): Promise<void>

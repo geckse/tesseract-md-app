@@ -349,8 +349,7 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="tab-bar" role="tablist" aria-label="Open tabs">
+<div class="tab-bar">
   <!-- Left scroll button -->
   {#if canScrollLeft}
     <button class="scroll-btn scroll-left" onclick={scrollLeft} aria-label="Scroll tabs left">
@@ -361,6 +360,9 @@
   <!-- Scrollable tab area -->
   <div
     class="tab-scroll-area"
+    role="tablist"
+    aria-label="Open tabs"
+    tabindex="-1"
     class:cross-window-drag={crossWindowDragOver}
     bind:this={scrollContainer}
     onscroll={updateScrollState}
@@ -373,6 +375,7 @@
     {#each documentTabs as tab (tab.id)}
       <div
         class="tab-drop-zone"
+        role="presentation"
         class:drag-left={dragOverTabId === tab.id && dragOverSide === 'left'}
         class:drag-right={dragOverTabId === tab.id && dragOverSide === 'right'}
         ondragover={(e) => handleDragOver(e, tab)}
@@ -391,19 +394,9 @@
       </div>
     {/each}
 
-    <!-- New tab button -->
-    <button
-      class="new-tab-btn"
-      onclick={() => oncreate?.()}
-      title="New file"
-      aria-label="Create new file"
-    >
-      <span class="material-symbols-outlined">add</span>
-    </button>
-
     <!-- Pinned graph tab -->
     {#if graphTab}
-      <div class="tab-drop-zone graph-tab-zone">
+      <div class="tab-drop-zone graph-tab-zone" role="presentation">
         <TabItem
           tab={graphTab}
           isActive={activeTabId === graphTab.id}
@@ -415,6 +408,15 @@
       </div>
     {/if}
   </div>
+
+  <button
+    class="new-tab-btn"
+    onclick={() => oncreate?.()}
+    title="New file"
+    aria-label="Create new file"
+  >
+    <span class="material-symbols-outlined">add</span>
+  </button>
 
   <!-- Right scroll button -->
   {#if canScrollRight}

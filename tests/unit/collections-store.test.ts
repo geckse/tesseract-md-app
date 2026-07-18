@@ -23,6 +23,7 @@ import {
   activeCollectionId,
   activeCollection,
   collectionStatus,
+  collectionDoctorResult,
   collectionInfo,
   infoModalOpen,
   infoLoading,
@@ -43,6 +44,7 @@ beforeEach(() => {
   collections.set([])
   activeCollectionId.set(null)
   collectionStatus.set(null)
+  collectionDoctorResult.set(null)
   collectionInfo.set(null)
   infoModalOpen.set(false)
   infoLoading.set(false)
@@ -155,6 +157,53 @@ describe('collections store', () => {
 
       expect(get(collectionStatus)).toBeNull()
     })
+
+    it('ignores stale status and Doctor results from the previous collection', async () => {
+      let resolveAlphaStatus!: (value: { document_count: number }) => void
+      let resolveBetaStatus!: (value: { document_count: number }) => void
+      let resolveAlphaDoctor!: (value: { healthy: boolean }) => void
+      let resolveBetaDoctor!: (value: { healthy: boolean }) => void
+      const alphaStatus = new Promise<{ document_count: number }>((resolve) => {
+        resolveAlphaStatus = resolve
+      })
+      const betaStatus = new Promise<{ document_count: number }>((resolve) => {
+        resolveBetaStatus = resolve
+      })
+      const alphaDoctor = new Promise<{ healthy: boolean }>((resolve) => {
+        resolveAlphaDoctor = resolve
+      })
+      const betaDoctor = new Promise<{ healthy: boolean }>((resolve) => {
+        resolveBetaDoctor = resolve
+      })
+
+      collections.set([col1, col2])
+      mockApi.setActiveCollection.mockResolvedValue(undefined)
+      mockApi.status.mockImplementation((path: string) =>
+        path === '/alpha' ? alphaStatus : betaStatus
+      )
+      mockApi.doctor.mockImplementation((path: string) =>
+        path === '/alpha' ? alphaDoctor : betaDoctor
+      )
+
+      await setActiveCollection('a')
+      await setActiveCollection('b')
+      resolveBetaStatus({ document_count: 22 })
+      resolveBetaDoctor({ healthy: true })
+
+      await vi.waitFor(() => {
+        expect(get(collectionStatus)).toEqual({ document_count: 22 })
+        expect(get(collectionDoctorResult)).toEqual({ healthy: true })
+      })
+
+      resolveAlphaStatus({ document_count: 11 })
+      resolveAlphaDoctor({ healthy: false })
+      await Promise.all([alphaStatus, alphaDoctor])
+      await Promise.resolve()
+
+      expect(get(activeCollectionId)).toBe('b')
+      expect(get(collectionStatus)).toEqual({ document_count: 22 })
+      expect(get(collectionDoctorResult)).toEqual({ healthy: true })
+    })
   })
 
   describe('activeCollection derived store', () => {
@@ -218,6 +267,38 @@ describe('collections store', () => {
 
       expect(get(collectionInfo)).toBeNull()
       expect(get(infoError)).toContain('unknown command info')
+      expect(get(infoLoading)).toBe(false)
+    })
+
+    it('ignores an older information response after the requested scope changes', async () => {
+      let resolveVault!: (value: { scope: string; file_count: number }) => void
+      let resolveNotes!: (value: { scope: string; file_count: number }) => void
+      const vaultRequest = new Promise<{ scope: string; file_count: number }>((resolve) => {
+        resolveVault = resolve
+      })
+      const notesRequest = new Promise<{ scope: string; file_count: number }>((resolve) => {
+        resolveNotes = resolve
+      })
+
+      collections.set([col1])
+      activeCollectionId.set('a')
+      mockApi.info.mockImplementation((_path: string, scope?: string) =>
+        scope === 'notes' ? notesRequest : vaultRequest
+      )
+
+      openInfoModal()
+      openInfoModal('notes')
+      resolveNotes({ scope: 'notes/', file_count: 2 })
+      await vi.waitFor(() =>
+        expect(get(collectionInfo)).toEqual({ scope: 'notes/', file_count: 2 })
+      )
+
+      resolveVault({ scope: '.', file_count: 99 })
+      await vaultRequest
+      await Promise.resolve()
+
+      expect(get(infoScope)).toBe('notes')
+      expect(get(collectionInfo)).toEqual({ scope: 'notes/', file_count: 2 })
       expect(get(infoLoading)).toBe(false)
     })
   })

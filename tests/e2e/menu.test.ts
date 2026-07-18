@@ -325,6 +325,18 @@ test.describe('Native App Menu — seeded vault flows', () => {
     await expect(doctorDialog).toContainText('Config loaded', { timeout: 15_000 })
     await expect(doctorDialog).toContainText(/\d+\/\d+ checks passed/)
 
+    // Fix hierarchy intentionally leaves the live buffer dirty. Exercise the
+    // renderer close guard and its native confirmation during shutdown. Stub
+    // the OS response so the automated run cannot wait behind a modal dialog.
+    await window.keyboard.press('Escape')
+    await expect(doctorDialog).not.toBeVisible()
+
+    await electronApp.evaluate(({ dialog }) => {
+      dialog.showMessageBox = (async () => ({
+        response: 1,
+        checkboxChecked: false
+      })) as typeof dialog.showMessageBox
+    })
     await electronApp.close()
   })
 })

@@ -32,8 +32,15 @@ export default ts.config(
           varsIgnorePattern: '^_'
         }
       ],
-      '@typescript-eslint/no-explicit-any': 'warn',
-      'no-console': ['warn', { allow: ['warn', 'error'] }]
+      '@typescript-eslint/no-explicit-any': 'error',
+      'no-console': ['error', { allow: ['warn', 'error'] }]
+    }
+  },
+  {
+    files: ['tests/**/*.{ts,js}', 'scripts/**/*.js'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
+      'no-console': 'off'
     }
   },
   {

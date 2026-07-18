@@ -72,6 +72,11 @@ vi.mock('../../src/main/collections', () => ({
   promptInitCollection: (...args: unknown[]) => mockPromptInitCollection(...args)
 }))
 
+const mockCreateExampleCollection = vi.fn()
+vi.mock('../../src/main/example-collection', () => ({
+  createExampleCollection: (...args: unknown[]) => mockCreateExampleCollection(...args)
+}))
+
 // Mock node:fs for fs:read-file, fs:write-file, and cli:reset-index handlers
 // (rename backs the atomic temp+rename write path in atomic-write.ts)
 const mockReadFile = vi.fn()
@@ -188,9 +193,11 @@ vi.mock('@electron-toolkit/utils', () => ({
 const mockShellOpenPath = vi.fn()
 const mockClipboardWriteText = vi.fn()
 const mockFromWebContents = vi.fn()
+const mockShowMessageBox = vi.fn()
 vi.mock('electron', () => ({
   app: {
-    getVersion: () => '1.0.0-test'
+    getVersion: () => '1.0.0-test',
+    getPath: vi.fn().mockReturnValue('/Users/test/Documents')
   },
   ipcMain: {
     handle: (...args: unknown[]) => mockHandle(...args),
@@ -202,6 +209,9 @@ vi.mock('electron', () => ({
   },
   clipboard: {
     writeText: (...args: unknown[]) => mockClipboardWriteText(...args)
+  },
+  dialog: {
+    showMessageBox: (...args: unknown[]) => mockShowMessageBox(...args)
   },
   BrowserWindow: {
     fromWebContents: (...args: unknown[]) => mockFromWebContents(...args)
@@ -220,6 +230,7 @@ function createMockWindowManager() {
   const mockIsPrimary = vi.fn().mockReturnValue(true)
   const mockUpdateTitleBarOverlay = vi.fn()
   const mockConfirmClose = vi.fn()
+  const mockCancelAppQuit = vi.fn()
   const mockClearCloseTimer = vi.fn()
   const mockIsPopup = vi.fn().mockReturnValue(false)
 
@@ -232,6 +243,7 @@ function createMockWindowManager() {
     isPrimary: mockIsPrimary,
     updateTitleBarOverlay: mockUpdateTitleBarOverlay,
     confirmClose: mockConfirmClose,
+    cancelAppQuit: mockCancelAppQuit,
     clearCloseTimer: mockClearCloseTimer,
     isPopup: mockIsPopup
   } as unknown as WindowManager
@@ -246,6 +258,7 @@ function createMockWindowManager() {
     mockCloseWindow,
     mockUpdateTitleBarOverlay,
     mockConfirmClose,
+    mockCancelAppQuit,
     mockClearCloseTimer,
     mockIsPopup
   }
@@ -267,6 +280,7 @@ beforeEach(() => {
   mockInitCollection.mockReset()
   mockConfirmRemoveCollection.mockReset()
   mockPromptInitCollection.mockReset()
+  mockCreateExampleCollection.mockReset()
   mockReadFile.mockReset()
   mockWriteFile.mockReset()
   mockRename.mockReset().mockResolvedValue(undefined)
@@ -289,6 +303,7 @@ beforeEach(() => {
   mockShellOpenPath.mockReset()
   mockClipboardWriteText.mockReset()
   mockFromWebContents.mockReset()
+  mockShowMessageBox.mockReset()
 })
 
 describe('registerIpcHandlers', () => {
@@ -316,6 +331,7 @@ describe('registerIpcHandlers', () => {
     expect(channels).toContain('cli:init')
     expect(channels).toContain('collections:list')
     expect(channels).toContain('collections:add')
+    expect(channels).toContain('collections:create-example')
     expect(channels).toContain('collections:remove')
     expect(channels).toContain('collections:set-active')
     expect(channels).toContain('collections:get-active')
@@ -328,6 +344,8 @@ describe('registerIpcHandlers', () => {
     expect(channels).toContain('watcher:status')
     expect(channels).toContain('shell:open-path')
     expect(channels).toContain('clipboard:write-text')
+    expect(channels).toContain('dialog:confirm')
+    expect(channels).toContain('dialog:message')
     expect(channels).toContain('updater:app-version')
     expect(channels).toContain('window:new')
     expect(channels).toContain('tab:detach')
@@ -383,7 +401,8 @@ describe('registerIpcHandlers', () => {
     expect(channels).toContain('export:pdf')
     // Dirty-close guard (data safety)
     expect(channels).toContain('app:confirm-close')
-    expect(channels).toHaveLength(125)
+    expect(channels).toContain('app:cancel-close')
+    expect(channels).toHaveLength(129)
   })
 })
 
@@ -829,6 +848,44 @@ describe('Collection IPC handlers', () => {
     })
   })
 
+  describe('collections:create-example', () => {
+    it('creates and registers a new example below the Documents folder', async () => {
+      const col = {
+        id: 'example-1',
+        name: 'Tesseract Example',
+        path: '/Users/test/Documents/Tesseract Example',
+        addedAt: 1,
+        lastOpenedAt: 1
+      }
+      mockCreateExampleCollection.mockResolvedValue(col.path)
+      mockGetCollections.mockReturnValue([])
+      mockAddCollection.mockReturnValue(col)
+
+      const result = await getHandler('collections:create-example')()
+
+      expect(mockCreateExampleCollection).toHaveBeenCalledWith('/Users/test/Documents')
+      expect(mockAddCollection).toHaveBeenCalledWith(col.path)
+      expect(result).toEqual(col)
+    })
+
+    it('reuses the registered collection when the example already exists', async () => {
+      const col = {
+        id: 'example-1',
+        name: 'Tesseract Example',
+        path: '/Users/test/Documents/Tesseract Example',
+        addedAt: 1,
+        lastOpenedAt: 1
+      }
+      mockCreateExampleCollection.mockResolvedValue(col.path)
+      mockGetCollections.mockReturnValue([col])
+
+      const result = await getHandler('collections:create-example')()
+
+      expect(mockAddCollection).not.toHaveBeenCalled()
+      expect(result).toEqual(col)
+    })
+  })
+
   describe('collections:remove', () => {
     it('removes collection when user confirms', async () => {
       mockGetCollections.mockReturnValue([{ id: 'x', name: 'proj', path: '/proj' }])
@@ -1032,6 +1089,73 @@ describe('clipboard:write-text IPC handler', () => {
     const handler = getHandler('clipboard:write-text')
     await handler(fakeEvent, '/proj/readme.md')
     expect(mockClipboardWriteText).toHaveBeenCalledWith('/proj/readme.md')
+  })
+})
+
+describe('native dialog IPC handlers', () => {
+  function getHandler(channel: string): (...args: unknown[]) => Promise<unknown> {
+    const { wm } = createMockWindowManager()
+    registerIpcHandlers(wm)
+    const call = mockHandle.mock.calls.find((c: unknown[]) => c[0] === channel)
+    if (!call) throw new Error(`No handler for channel: ${channel}`)
+    return call[1] as (...args: unknown[]) => Promise<unknown>
+  }
+
+  const fakeEvent = { sender: { id: 42 } }
+
+  it('parents a destructive confirmation and keeps the safe action as the default', async () => {
+    const parent = { id: 'parent-window' }
+    mockFromWebContents.mockReturnValue(parent)
+    mockShowMessageBox.mockResolvedValue({ response: 1, checkboxChecked: false })
+
+    const result = await getHandler('dialog:confirm')(fakeEvent, {
+      title: 'Discard unsaved changes?',
+      message: 'Your document will return to the last saved version.',
+      confirmLabel: 'Discard Changes',
+      cancelLabel: 'Keep Editing',
+      tone: 'danger'
+    })
+
+    expect(result).toBe(true)
+    expect(mockShowMessageBox).toHaveBeenCalledWith(
+      parent,
+      expect.objectContaining({
+        type: 'warning',
+        message: 'Discard unsaved changes?',
+        detail: 'Your document will return to the last saved version.',
+        buttons: ['Keep Editing', 'Discard Changes'],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true
+      })
+    )
+  })
+
+  it('returns false when the native confirmation is cancelled', async () => {
+    mockShowMessageBox.mockResolvedValue({ response: 0, checkboxChecked: false })
+
+    await expect(
+      getHandler('dialog:confirm')(fakeEvent, { title: 'Close tab?', message: 'Unsaved work.' })
+    ).resolves.toBe(false)
+  })
+
+  it('shows simple errors as native one-action messages', async () => {
+    mockShowMessageBox.mockResolvedValue({ response: 0, checkboxChecked: false })
+
+    await getHandler('dialog:message')(fakeEvent, {
+      title: 'Export Failed',
+      message: 'Permission denied',
+      type: 'error'
+    })
+
+    expect(mockShowMessageBox).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'error',
+        message: 'Export Failed',
+        detail: 'Permission denied',
+        buttons: ['OK']
+      })
+    )
   })
 })
 
@@ -1637,6 +1761,16 @@ describe('Close guard & titlebar overlay IPC handlers', () => {
     const result = await handler({ sender: { id: 42 } })
 
     expect(mockConfirmClose).toHaveBeenCalledWith(42)
+    expect(result).toBeUndefined()
+  })
+
+  it('app:cancel-close cancels a pending application quit', async () => {
+    const { wm, mockCancelAppQuit } = createMockWindowManager()
+    const handler = getHandlerFor(wm, 'app:cancel-close')
+
+    const result = await handler({ sender: { id: 42 } })
+
+    expect(mockCancelAppQuit).toHaveBeenCalledOnce()
     expect(result).toBeUndefined()
   })
 

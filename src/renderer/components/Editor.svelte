@@ -47,6 +47,7 @@
   import ConflictNotification from './ConflictNotification.svelte'
   import { dismissConflict } from '../stores/conflict'
   import { requestSaveAs } from '../stores/save-as'
+  import { requestConfirmation } from '../stores/confirmation'
 
   // ── Props ─────────────────────────────────────────────────────────────
   interface EditorProps {
@@ -749,10 +750,6 @@
     serializedPool.clear()
     accessOrder.length = 0
 
-    isDirty.set(false)
-    wordCount.set(0)
-    tokenCount.set(0)
-
     unsubCollection()
     unsubSave()
     unsubDiscard()
@@ -853,9 +850,12 @@
 
           insertText(CM_IMAGE_EXTS.has(ext) ? `![${name}](${relPath})` : `[${name}](${relPath})`)
         } else {
-          const confirmed = window.confirm(
-            `"${file.name}" is outside your collection. Copy it alongside the current file?`
-          )
+          const confirmed = await requestConfirmation({
+            title: `Copy ${file.name} into this collection?`,
+            message:
+              'The file is outside your collection. Tesseract can copy it alongside the current document before inserting the link.',
+            confirmLabel: 'Copy and Insert'
+          })
           if (!confirmed) continue
 
           const currentDir = currentFile.split('/').slice(0, -1).join('/')

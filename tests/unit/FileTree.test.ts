@@ -303,7 +303,7 @@ describe('FileTree component', () => {
     const onfolderopen = vi.fn()
 
     const { container } = render(FileTree, { props: { onfolderopen } })
-    const treeContainer = container.querySelector('.file-tree-container')!
+    const treeContainer = container.querySelector('[role="tree"]')!
 
     // The first flat node is the 'docs' directory; focus defaults to index 0
     await fireEvent.keyDown(treeContainer, { key: 'Enter' })

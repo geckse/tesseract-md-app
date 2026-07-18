@@ -16,6 +16,7 @@ describe('DARK_TOKENS', () => {
 
   it('has light text values', () => {
     expect(DARK_TOKENS['color-text']).toBe('#e4e4e7')
+    expect(DARK_TOKENS['color-text-dim']).toBe('#8b8b94')
     expect(DARK_TOKENS['color-text-white']).toBe('#ffffff')
   })
 
@@ -50,6 +51,7 @@ describe('LIGHT_TOKENS', () => {
 
   it('has dark text values', () => {
     expect(LIGHT_TOKENS['color-text']).toBe('#2c2c2e')
+    expect(LIGHT_TOKENS['color-text-dim']).toBe('#606060')
     expect(LIGHT_TOKENS['color-text-white']).toBe('#1a1a1c')
   })
 
