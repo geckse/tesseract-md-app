@@ -42,10 +42,21 @@ import {
 } from '../stores/editor'
 import { openQuickOpen } from '../stores/quickopen'
 import { searchOpen } from '../stores/search'
-import { graphViewActive, toggleGraphView } from '../stores/graph'
+import {
+  dispatchGraphMenuAction,
+  graphColoringMode,
+  graphLevel,
+  graphViewActive,
+  openGraphView,
+  setGraphLevel,
+  toggleGraphUnconnectedHighlight,
+  toggleGraphView,
+  type GraphMenuAction
+} from '../stores/graph'
 import { terminalStore } from '../stores/terminal.svelte'
 import {
   activeCollection,
+  activeCollectionId,
   setActiveCollection,
   addAndActivateCollection,
   openDoctorModal
@@ -88,6 +99,13 @@ const EXPORT_FORMATS: ReadonlySet<string> = new Set([
   'odt',
   'epub'
 ])
+
+const GRAPH_COLORING_MODES = new Set(['cluster', 'custom-cluster', 'folder', 'none'])
+
+function dispatchToFocusedGraph(action: GraphMenuAction): void {
+  if (workspace.focusedTab?.kind !== 'graph') return
+  dispatchGraphMenuAction(action)
+}
 
 /** Reveal a collection-relative file in the OS file manager. */
 async function revealCurrentFile(): Promise<void> {
@@ -160,6 +178,47 @@ export const menuCommandHandlers: Record<string, (payload?: unknown) => void> = 
   'view.zoom-in': () => zoomIn(),
   'view.zoom-out': () => zoomOut(),
   'view.zoom-reset': () => zoomReset(),
+
+  // Graph
+  'graph.open': () => {
+    openGraphView()
+    syncFileStoresFromTab()
+  },
+  'graph.open-popup': () => {
+    const collection = get(activeCollection)
+    if (!collection) return
+    void window.api.openPopup({
+      kind: 'graph',
+      collectionId: get(activeCollectionId) ?? undefined,
+      collectionPath: collection.path,
+      graphLevel: get(graphLevel),
+      graphColoringMode: get(graphColoringMode)
+    })
+  },
+  'graph.search': () => dispatchToFocusedGraph('search'),
+  'graph.recenter': () => dispatchToFocusedGraph('recenter'),
+  'graph.presentation-toggle': () => dispatchToFocusedGraph('presentation-toggle'),
+  'graph.presentation-reset': () => dispatchToFocusedGraph('presentation-reset'),
+  'graph.set-coloring': (payload) => {
+    if (workspace.focusedTab?.kind !== 'graph') return
+    const mode = (payload as { mode?: string } | undefined)?.mode
+    if (mode && GRAPH_COLORING_MODES.has(mode)) {
+      graphColoringMode.set(mode as 'cluster' | 'custom-cluster' | 'folder' | 'none')
+    }
+  },
+  'graph.set-level': (payload) => {
+    if (workspace.focusedTab?.kind !== 'graph') return
+    const level = (payload as { level?: string } | undefined)?.level
+    if (level === 'document' || level === 'chunk') setGraphLevel(level)
+  },
+  'graph.toggle-labels': () => dispatchToFocusedGraph('toggle-labels'),
+  'graph.toggle-lines': () => dispatchToFocusedGraph('toggle-lines'),
+  'graph.toggle-shapes': () => dispatchToFocusedGraph('toggle-shapes'),
+  'graph.toggle-unconnected': () => {
+    if (workspace.focusedTab?.kind === 'graph') toggleGraphUnconnectedHighlight()
+  },
+  'graph.screenshot': () => dispatchToFocusedGraph('screenshot'),
+  'graph.screenshot-transparent': () => dispatchToFocusedGraph('screenshot-transparent'),
 
   // Collection
   'collection.switch': (payload) => {

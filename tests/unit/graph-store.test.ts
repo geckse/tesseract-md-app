@@ -34,7 +34,10 @@ import {
   graphEdgeWeakThreshold,
   loadGraphData,
   refreshGraphData,
+  openGraphView,
   toggleGraphView,
+  dispatchGraphMenuAction,
+  onGraphMenuAction,
   selectGraphNode,
   resetGraphState,
   resetGraphForCollectionSwitch,
@@ -286,6 +289,35 @@ describe('graph store', () => {
 
       expect(get(graphViewActive)).toBe(false)
       expect(get(graphSelectedNode)).toBeNull()
+    })
+  })
+
+  describe('native Graph menu bridge', () => {
+    it('opens Graph idempotently without toggling an active graph away', () => {
+      activateCollection(collection)
+      mockApi.graphData.mockResolvedValue(sampleGraphData)
+
+      openGraphView()
+      expect(get(graphViewActive)).toBe(true)
+
+      graphData.set(sampleGraphData)
+      mockApi.graphData.mockClear()
+      openGraphView()
+      expect(get(graphViewActive)).toBe(true)
+      expect(mockApi.graphData).not.toHaveBeenCalled()
+    })
+
+    it('delivers repeated graph actions and stops after unsubscribe', () => {
+      const listener = vi.fn()
+      const unsubscribe = onGraphMenuAction(listener)
+
+      dispatchGraphMenuAction('recenter')
+      dispatchGraphMenuAction('recenter')
+      expect(listener).toHaveBeenCalledTimes(2)
+
+      unsubscribe()
+      dispatchGraphMenuAction('search')
+      expect(listener).toHaveBeenCalledTimes(2)
     })
   })
 

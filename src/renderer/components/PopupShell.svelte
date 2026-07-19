@@ -31,6 +31,7 @@
   import { reinitMermaid } from '../lib/mermaid-renderer'
   import { shortcutManager } from '../lib/shortcuts'
   import { openNewNotePopup } from '../lib/new-note'
+  import { handleMenuCommand } from '../lib/menu-commands'
   import { loadEditorFontSize, editorFontSize } from '../stores/ui'
   import type { EditorMode } from '../stores/editor'
   import type { PopupInitData, TabTransferData } from '../../preload/api'
@@ -89,6 +90,11 @@
   // ── Save As modal state ──────────────────────────────────────────
   let currentSaveAsTabId: string | null = $state(null)
   saveAsTabId.subscribe((v) => (currentSaveAsTabId = v))
+
+  /** Reapply this popup's cached Graph-menu snapshot when window focus returns. */
+  const refreshGraphMenuOnFocus = (): void => {
+    void window.api.setMenuContext({ active: true })
+  }
 
   // ── Lifecycle ─────────────────────────────────────────────────────
   onMount(() => {
@@ -154,6 +160,9 @@
     if (kind === 'graph') {
       syncGraphStoresFromTab()
       loadGraphData().catch(() => {})
+      // Main routes only graph-scoped native commands to graph popups.
+      window.api.onMenuCommand(handleMenuCommand)
+      window.addEventListener('focus', refreshGraphMenuOnFocus)
     }
 
     // Untitled notes: load the file tree so the Save As dialog can offer
@@ -278,6 +287,10 @@
       window.api.removePopupInitListener()
       window.api.removeFileSavedExternallyListener()
       window.api.removeCloseRequestListener()
+      if (kind === 'graph') {
+        window.api.removeMenuCommandListener()
+        window.removeEventListener('focus', refreshGraphMenuOnFocus)
+      }
       unsubTheme()
       unsubThemeTokens()
       unsubAccent()

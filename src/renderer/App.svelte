@@ -60,7 +60,7 @@
   import DiffView from './components/DiffView.svelte'
   import {
     graphViewActive,
-    toggleGraphView,
+    openGraphView,
     loadGraphData,
     resetGraphForCollectionSwitch
   } from './stores/graph'
@@ -249,8 +249,16 @@
       }, 50)
     })
 
-    // Native menu commands (File/Format/View/Collection/Help — phase 43)
+    // Native menu commands (File/Format/View/Graph/Collection/Help — phase 43)
     window.api.onMenuCommand(handleMenuCommand)
+
+    // Keep the app-global native menu tied to this window's focused tab.
+    const reportMenuContext = (active = get(graphViewActive)): void => {
+      void window.api.setMenuContext({ active })
+    }
+    const unsubGraphMenuContext = graphViewActive.subscribe((active) => reportMenuContext(active))
+    const reportMenuContextOnFocus = (): void => reportMenuContext()
+    window.addEventListener('focus', reportMenuContextOnFocus)
 
     // Register keyboard shortcuts
     const unregisterShortcuts = [
@@ -291,12 +299,12 @@
         }
       }),
 
-      // Cmd+G / Ctrl+G: Switch to graph tab in focused pane (toggle)
+      // Cmd+G / Ctrl+G: Open the focused pane's graph tab.
       shortcutManager.register({
         key: 'g',
         meta: true,
         handler: () => {
-          toggleGraphView()
+          openGraphView()
           syncFileStoresFromTab()
         }
       }),
@@ -630,6 +638,8 @@
       window.api.removeObsidianTopicsSyncedListener()
       window.api.removeMenuOpenRecentListener()
       window.api.removeMenuCommandListener()
+      window.removeEventListener('focus', reportMenuContextOnFocus)
+      unsubGraphMenuContext()
       window.api.removeFileSavedExternallyListener()
       unsub()
       unsubAccent()

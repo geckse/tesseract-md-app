@@ -71,6 +71,24 @@ export interface MenuCommand {
   payload?: unknown
 }
 
+/** Transient state used to keep the native Graph menu in sync with its focused view. */
+export interface GraphMenuContext {
+  active: boolean
+  ready: boolean
+  labelsVisible: boolean
+  linesVisible: boolean
+  shapesVisible: boolean
+  shapesAvailable: boolean
+  unconnectedHighlighted: boolean
+  unconnectedCount: number
+  hasSelection: boolean
+  presentationState: 'idle' | 'playing' | 'paused'
+  exportingScreenshot: boolean
+  level: 'document' | 'chunk'
+  coloringMode: 'cluster' | 'custom-cluster' | 'folder' | 'none'
+  topicsAvailable: boolean
+}
+
 /**
  * Broadcast from main via `topics:obsidian-synced` after an Obsidian vault
  * sync changed at least one topic (phase 44). The first sync of a fresh
@@ -592,6 +610,7 @@ export interface MdvdbApi {
   removeMenuOpenRecentListener(): void
   onMenuCommand(callback: (command: MenuCommand) => void): void
   removeMenuCommandListener(): void
+  setMenuContext(context: Partial<GraphMenuContext>): Promise<void>
 
   // Export (phase 43) — native save dialog, writes outside collection bounds
   exportSave(request: ExportSaveRequest): Promise<ExportResult>

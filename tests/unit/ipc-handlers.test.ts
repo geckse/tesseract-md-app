@@ -128,8 +128,12 @@ vi.mock('../../src/main/watcher', () => ({
 
 // Mock menu module
 const mockRefreshAppMenu = vi.fn()
+const mockUpdateWindowMenuContext = vi.fn()
+const mockClearWindowMenuContext = vi.fn()
 vi.mock('../../src/main/menu', () => ({
-  refreshAppMenu: (...args: unknown[]) => mockRefreshAppMenu(...args)
+  refreshAppMenu: (...args: unknown[]) => mockRefreshAppMenu(...args),
+  updateWindowMenuContext: (...args: unknown[]) => mockUpdateWindowMenuContext(...args),
+  clearWindowMenuContext: (...args: unknown[]) => mockClearWindowMenuContext(...args)
 }))
 
 // Mock Obsidian topic auto-import & sync (phase 44)
@@ -304,6 +308,8 @@ beforeEach(() => {
   mockClipboardWriteText.mockReset()
   mockFromWebContents.mockReset()
   mockShowMessageBox.mockReset()
+  mockUpdateWindowMenuContext.mockReset()
+  mockClearWindowMenuContext.mockReset()
 })
 
 describe('registerIpcHandlers', () => {
@@ -313,6 +319,7 @@ describe('registerIpcHandlers', () => {
 
     const channels = mockHandle.mock.calls.map((call: unknown[]) => call[0])
     expect(channels).toContain('cli:find')
+    expect(channels).toContain('menu:set-context')
     expect(channels).toContain('cli:version')
     expect(channels).toContain('cli:search')
     expect(channels).toContain('cli:status')
@@ -402,7 +409,7 @@ describe('registerIpcHandlers', () => {
     // Dirty-close guard (data safety)
     expect(channels).toContain('app:confirm-close')
     expect(channels).toContain('app:cancel-close')
-    expect(channels).toHaveLength(129)
+    expect(channels).toHaveLength(130)
   })
 })
 
@@ -417,6 +424,42 @@ describe('IPC handler argument passing', () => {
   }
 
   const fakeEvent = {} // IPC event stub
+
+  describe('menu:set-context', () => {
+    it('validates, stores, and clears graph menu state per renderer', async () => {
+      const handler = getHandler('menu:set-context')
+      const once = vi.fn()
+      const event = { sender: { id: 4242, once } }
+      const context = {
+        active: true,
+        ready: true,
+        presentationState: 'paused',
+        level: 'chunk',
+        coloringMode: 'folder',
+        unconnectedCount: 3
+      }
+
+      await handler(event, context)
+
+      expect(mockUpdateWindowMenuContext).toHaveBeenCalledWith(4242, context)
+      expect(once).toHaveBeenCalledWith('destroyed', expect.any(Function))
+      const destroyHandler = once.mock.calls[0][1] as () => void
+      destroyHandler()
+      expect(mockClearWindowMenuContext).toHaveBeenCalledWith(4242)
+    })
+
+    it('rejects malformed or unknown graph menu state', async () => {
+      const handler = getHandler('menu:set-context')
+      const event = { sender: { id: 4243, once: vi.fn() } }
+
+      const wrongType = await handler(event, { active: 'yes' })
+      const unknownField = await handler(event, { active: true, surprise: true })
+
+      expect(wrongType).toMatchObject({ error: true })
+      expect(unknownField).toMatchObject({ error: true })
+      expect(mockUpdateWindowMenuContext).not.toHaveBeenCalled()
+    })
+  })
 
   describe('cli:find', () => {
     it('calls findCli', async () => {

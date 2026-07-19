@@ -8,6 +8,7 @@ import { get } from 'svelte/store'
 vi.mock('@renderer/stores/workspace.svelte', () => ({
   workspace: {
     focusedDocumentTab: { id: 'tab-1' } as { id: string } | undefined,
+    focusedTab: { id: 'tab-1', kind: 'document' } as { id: string; kind: string } | undefined,
     createUntitledTab: vi.fn(),
     toggleSplit: vi.fn()
   }
@@ -57,7 +58,16 @@ vi.mock('@renderer/stores/search', async () => {
 
 vi.mock('@renderer/stores/graph', async () => {
   const { writable } = await import('svelte/store')
-  return { graphViewActive: writable(false), toggleGraphView: vi.fn() }
+  return {
+    graphViewActive: writable(false),
+    graphLevel: writable('document'),
+    graphColoringMode: writable('cluster'),
+    toggleGraphView: vi.fn(),
+    openGraphView: vi.fn(),
+    setGraphLevel: vi.fn(),
+    toggleGraphUnconnectedHighlight: vi.fn(),
+    dispatchGraphMenuAction: vi.fn()
+  }
 })
 
 vi.mock('@renderer/stores/terminal.svelte', () => ({
@@ -75,6 +85,7 @@ vi.mock('@renderer/stores/collections', async () => {
       name: 'Notes',
       path: '/vault'
     }),
+    activeCollectionId: writable<string | null>('col-1'),
     setActiveCollection: vi.fn().mockResolvedValue(undefined),
     addAndActivateCollection: vi.fn().mockResolvedValue(null),
     openDoctorModal: vi.fn()
@@ -106,10 +117,12 @@ vi.mock('@renderer/lib/export', () => ({
 // window.api surface used by the dispatcher
 const mockShowItemInFolder = vi.fn().mockResolvedValue(undefined)
 const mockWriteToClipboard = vi.fn().mockResolvedValue(undefined)
+const mockOpenPopup = vi.fn().mockResolvedValue(undefined)
 vi.stubGlobal('window', {
   api: {
     showItemInFolder: mockShowItemInFolder,
-    writeToClipboard: mockWriteToClipboard
+    writeToClipboard: mockWriteToClipboard,
+    openPopup: mockOpenPopup
   },
   alert: vi.fn()
 })
@@ -134,7 +147,16 @@ import {
 import { dispatchEditorCommand, requestSave, toggleEditorMode } from '@renderer/stores/editor'
 import { openQuickOpen } from '@renderer/stores/quickopen'
 import { searchOpen } from '@renderer/stores/search'
-import { graphViewActive, toggleGraphView } from '@renderer/stores/graph'
+import {
+  dispatchGraphMenuAction,
+  graphColoringMode,
+  graphLevel,
+  graphViewActive,
+  openGraphView,
+  setGraphLevel,
+  toggleGraphUnconnectedHighlight,
+  toggleGraphView
+} from '@renderer/stores/graph'
 import { terminalStore } from '@renderer/stores/terminal.svelte'
 import {
   activeCollection,
@@ -150,6 +172,7 @@ import { requestConfirmation } from '@renderer/stores/confirmation'
 
 const workspaceMock = workspace as unknown as {
   focusedDocumentTab: { id: string } | undefined
+  focusedTab: { id: string; kind: string } | undefined
   createUntitledTab: ReturnType<typeof vi.fn>
   toggleSplit: ReturnType<typeof vi.fn>
 }
@@ -161,7 +184,10 @@ describe('handleMenuCommand', () => {
     searchOpen.set(false)
     shortcutsModalOpen.set(false)
     graphViewActive.set(false)
+    graphLevel.set('document')
+    graphColoringMode.set('cluster')
     workspaceMock.focusedDocumentTab = { id: 'tab-1' }
+    workspaceMock.focusedTab = { id: 'tab-1', kind: 'document' }
     activeCollection.set({ id: 'col-1', name: 'Notes', path: '/vault' })
     vi.mocked(requestConfirmation).mockResolvedValue(true)
   })
@@ -197,6 +223,58 @@ describe('handleMenuCommand', () => {
     handleMenuCommand({ id: 'view.toggle-graph' })
     expect(toggleGraphView).toHaveBeenCalled()
     expect(syncFileStoresFromTab).toHaveBeenCalled()
+  })
+
+  it('opens the graph idempotently and can pop it into a new window', () => {
+    handleMenuCommand({ id: 'graph.open' })
+    expect(openGraphView).toHaveBeenCalledOnce()
+    expect(syncFileStoresFromTab).toHaveBeenCalled()
+
+    handleMenuCommand({ id: 'graph.open-popup' })
+    expect(mockOpenPopup).toHaveBeenCalledWith({
+      kind: 'graph',
+      collectionId: 'col-1',
+      collectionPath: '/vault',
+      graphLevel: 'document',
+      graphColoringMode: 'cluster'
+    })
+  })
+
+  it('routes native graph actions only to the focused graph pane', () => {
+    handleMenuCommand({ id: 'graph.search' })
+    expect(dispatchGraphMenuAction).not.toHaveBeenCalled()
+
+    workspaceMock.focusedTab = { id: 'graph-1', kind: 'graph' }
+    for (const [id, action] of [
+      ['graph.search', 'search'],
+      ['graph.recenter', 'recenter'],
+      ['graph.presentation-toggle', 'presentation-toggle'],
+      ['graph.presentation-reset', 'presentation-reset'],
+      ['graph.toggle-labels', 'toggle-labels'],
+      ['graph.toggle-lines', 'toggle-lines'],
+      ['graph.toggle-shapes', 'toggle-shapes'],
+      ['graph.screenshot', 'screenshot'],
+      ['graph.screenshot-transparent', 'screenshot-transparent']
+    ] as const) {
+      handleMenuCommand({ id })
+      expect(dispatchGraphMenuAction).toHaveBeenLastCalledWith(action)
+    }
+
+    handleMenuCommand({ id: 'graph.toggle-unconnected' })
+    expect(toggleGraphUnconnectedHighlight).toHaveBeenCalledOnce()
+  })
+
+  it('validates graph level and coloring payloads', () => {
+    workspaceMock.focusedTab = { id: 'graph-1', kind: 'graph' }
+    handleMenuCommand({ id: 'graph.set-level', payload: { level: 'chunk' } })
+    handleMenuCommand({ id: 'graph.set-coloring', payload: { mode: 'folder' } })
+    expect(setGraphLevel).toHaveBeenCalledWith('chunk')
+    expect(get(graphColoringMode)).toBe('folder')
+
+    handleMenuCommand({ id: 'graph.set-level', payload: { level: 'invalid' } })
+    handleMenuCommand({ id: 'graph.set-coloring', payload: { mode: 'invalid' } })
+    expect(setGraphLevel).toHaveBeenCalledOnce()
+    expect(get(graphColoringMode)).toBe('folder')
   })
 
   it('exports with a validated format payload', () => {

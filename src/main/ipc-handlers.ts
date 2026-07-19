@@ -74,7 +74,7 @@ import {
 } from './collections'
 import { createExampleCollection } from './example-collection'
 import { getCollectionInfo } from './collection-info'
-import { refreshAppMenu } from './menu'
+import { clearWindowMenuContext, refreshAppMenu, updateWindowMenuContext } from './menu'
 import {
   maybeSyncObsidianTopics,
   scheduleObsidianSync,
@@ -103,6 +103,7 @@ import type {
   CollectionOutput
 } from '../renderer/types/cli'
 import type { SerializedError } from './errors'
+import type { GraphMenuContext } from '../preload/api'
 import {
   CliNotFoundError,
   CliExecutionError,
@@ -114,6 +115,68 @@ import {
 
 /** Ingest timeout: 5 minutes */
 const INGEST_TIMEOUT_MS = 300_000
+
+const graphMenuBooleanKeys = new Set<keyof GraphMenuContext>([
+  'active',
+  'ready',
+  'labelsVisible',
+  'linesVisible',
+  'shapesVisible',
+  'shapesAvailable',
+  'unconnectedHighlighted',
+  'hasSelection',
+  'exportingScreenshot',
+  'topicsAvailable'
+])
+const graphMenuPresentationStates = new Set(['idle', 'playing', 'paused'])
+const graphMenuLevels = new Set(['document', 'chunk'])
+const graphMenuColoringModes = new Set(['cluster', 'custom-cluster', 'folder', 'none'])
+const menuContextSenders = new Set<number>()
+
+/** Validate the small, transient renderer snapshot used by the native Graph menu. */
+function validateGraphMenuContextUpdate(value: unknown): Partial<GraphMenuContext> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError('Menu context must be an object')
+  }
+
+  const update = value as Record<string, unknown>
+  const allowedKeys = new Set<string>([
+    ...graphMenuBooleanKeys,
+    'unconnectedCount',
+    'presentationState',
+    'level',
+    'coloringMode'
+  ])
+  for (const key of Object.keys(update)) {
+    if (!allowedKeys.has(key)) throw new TypeError(`Unknown menu context field: ${key}`)
+  }
+
+  for (const key of graphMenuBooleanKeys) {
+    if (key in update && typeof update[key] !== 'boolean') {
+      throw new TypeError(`Menu context ${key} must be a boolean`)
+    }
+  }
+  if (
+    'unconnectedCount' in update &&
+    (!Number.isInteger(update.unconnectedCount) || (update.unconnectedCount as number) < 0)
+  ) {
+    throw new TypeError('Menu context unconnectedCount must be a non-negative integer')
+  }
+  if (
+    'presentationState' in update &&
+    !graphMenuPresentationStates.has(update.presentationState as string)
+  ) {
+    throw new TypeError('Invalid graph presentation menu state')
+  }
+  if ('level' in update && !graphMenuLevels.has(update.level as string)) {
+    throw new TypeError('Invalid graph menu level')
+  }
+  if ('coloringMode' in update && !graphMenuColoringModes.has(update.coloringMode as string)) {
+    throw new TypeError('Invalid graph menu coloring mode')
+  }
+
+  return update as Partial<GraphMenuContext>
+}
 
 /**
  * Serialize any error into an IPC-safe object.
@@ -218,6 +281,21 @@ export function registerStartupIpcHandlers(): void {
 export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: PtyManager): void {
   // Export (phase 43): Save a Copy… / Export ▸ via native save dialog
   registerExportHandlers()
+
+  // Focused renderer state for contextual native Graph-menu enablement/checkmarks.
+  ipcMain.handle('menu:set-context', (event, value: unknown) =>
+    wrapHandler(async () => {
+      const update = validateGraphMenuContextUpdate(value)
+      updateWindowMenuContext(event.sender.id, update)
+      if (!menuContextSenders.has(event.sender.id)) {
+        menuContextSenders.add(event.sender.id)
+        event.sender.once('destroyed', () => {
+          menuContextSenders.delete(event.sender.id)
+          clearWindowMenuContext(event.sender.id)
+        })
+      }
+    })
+  )
 
   // CLI detection
   ipcMain.handle('cli:find', () => wrapHandler(() => findCli()))

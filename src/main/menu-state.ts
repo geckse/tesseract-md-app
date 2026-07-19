@@ -1,15 +1,16 @@
 /**
  * Menu state snapshot (phase 43).
  *
- * Everything the menu template needs, read synchronously from the
- * electron-store — no renderer round-trips. Kept separate from the
- * template so buildTemplate stays a pure, unit-testable function.
+ * Everything the menu template needs: persisted application state read
+ * synchronously from electron-store plus transient graph-view state reported
+ * by the renderer. Kept separate so buildTemplate stays pure and unit-testable.
  */
 
 import path from 'node:path'
 import { app } from 'electron'
 import { initStore, getCollections, getActiveCollection, getWatcherEnabled } from './store'
 import type { RecentEntry } from './store'
+import type { GraphMenuContext } from '../preload/api'
 
 /** A recent file entry joined with its collection, ready for display. */
 export interface MenuRecentEntry {
@@ -17,6 +18,24 @@ export interface MenuRecentEntry {
   filePath: string
   fileName: string
   collectionName: string
+}
+
+/** Safe initial state before a renderer reports the focused graph context. */
+export const DEFAULT_GRAPH_MENU_CONTEXT: GraphMenuContext = {
+  active: false,
+  ready: false,
+  labelsVisible: true,
+  linesVisible: true,
+  shapesVisible: true,
+  shapesAvailable: false,
+  unconnectedHighlighted: false,
+  unconnectedCount: 0,
+  hasSelection: false,
+  presentationState: 'idle',
+  exportingScreenshot: false,
+  level: 'document',
+  coloringMode: 'cluster',
+  topicsAvailable: false
 }
 
 /** All dynamic state the menu template renders from. */
@@ -30,13 +49,17 @@ export interface MenuState {
   /** Persisted watcher intent for the active collection. */
   watcherEnabled: boolean
   recents: MenuRecentEntry[]
+  /** Transient state reported by the focused graph view. */
+  graph: GraphMenuContext
 }
 
 /** Max entries in the Open Recent submenu. */
 export const MAX_RECENT_MENU_ITEMS = 15
 
-/** Snapshot the current menu state from the electron-store. */
-export function getMenuState(): MenuState {
+/** Snapshot persisted menu state and combine it with the supplied graph context. */
+export function getMenuState(
+  graphContext: GraphMenuContext = DEFAULT_GRAPH_MENU_CONTEXT
+): MenuState {
   const store = initStore()
   const collections = getCollections()
   const active = getActiveCollection()
@@ -64,6 +87,7 @@ export function getMenuState(): MenuState {
     activeCollectionId: active?.id ?? null,
     activeCollectionName: active?.name ?? null,
     watcherEnabled: active ? getWatcherEnabled(active.id) : false,
-    recents
+    recents,
+    graph: { ...graphContext }
   }
 }

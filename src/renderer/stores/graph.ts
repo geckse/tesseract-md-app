@@ -201,6 +201,32 @@ export const graphSemanticEdgesEnabled = writable<boolean>(true)
 /** Strength threshold below which edges are considered "weak" (rendered dashed). */
 export const graphEdgeWeakThreshold = writable<number>(0.3)
 
+/** Commands whose implementations live inside the focused GraphView instance. */
+export type GraphMenuAction =
+  | 'search'
+  | 'recenter'
+  | 'toggle-labels'
+  | 'toggle-lines'
+  | 'toggle-shapes'
+  | 'presentation-toggle'
+  | 'presentation-reset'
+  | 'screenshot'
+  | 'screenshot-transparent'
+
+type GraphMenuActionListener = (action: GraphMenuAction) => void
+const graphMenuActionListeners = new Set<GraphMenuActionListener>()
+
+/** Dispatch a native-menu action to mounted graph views. The focused view handles it. */
+export function dispatchGraphMenuAction(action: GraphMenuAction): void {
+  for (const listener of graphMenuActionListeners) listener(action)
+}
+
+/** Register a mounted GraphView as a native Graph-menu command target. */
+export function onGraphMenuAction(listener: GraphMenuActionListener): () => void {
+  graphMenuActionListeners.add(listener)
+  return () => graphMenuActionListeners.delete(listener)
+}
+
 // ─── Generation counter for async staleness ─────────────────────────
 
 /** Generation counter to discard stale async results. */
@@ -306,10 +332,17 @@ export function toggleGraphView(): void {
     graphOpenedNode.set(null)
     syncGraphStoresFromTab()
   } else {
+    openGraphView()
+  }
+}
+
+/** Open the focused pane's graph tab without toggling away when it is already active. */
+export function openGraphView(): void {
+  if (!get(graphViewActive)) {
     workspace.switchToGraphTab()
     syncGraphStoresFromTab()
-    loadGraphData()
   }
+  if (get(graphData) === null) void loadGraphData()
 }
 
 /** Set the graph detail level and reload data. */

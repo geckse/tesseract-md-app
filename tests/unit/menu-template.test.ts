@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { MenuItemConstructorOptions } from 'electron'
 import { buildTemplate, type MenuActions } from '../../src/main/menu-template'
-import type { MenuState } from '../../src/main/menu-state'
+import { DEFAULT_GRAPH_MENU_CONTEXT, type MenuState } from '../../src/main/menu-state'
+import type { GraphMenuContext } from '../../src/preload/api'
 
 function makeActions(): MenuActions {
   return {
@@ -30,8 +31,13 @@ function makeState(overrides: Partial<MenuState> = {}): MenuState {
     recents: [
       { collectionId: 'col-1', filePath: 'notes/a.md', fileName: 'a.md', collectionName: 'Notes' }
     ],
+    graph: makeGraphContext(),
     ...overrides
   }
+}
+
+function makeGraphContext(overrides: Partial<GraphMenuContext> = {}): GraphMenuContext {
+  return { ...DEFAULT_GRAPH_MENU_CONTEXT, ...overrides }
 }
 
 /** Depth-first search for a menu item by id. */
@@ -78,6 +84,7 @@ describe('buildTemplate', () => {
       'Edit',
       'Format',
       'View',
+      'Graph',
       'Collection',
       'windowMenu',
       'Help'
@@ -111,7 +118,8 @@ describe('buildTemplate', () => {
       'view.toggle-properties',
       'view.toggle-bottom-panel',
       'view.toggle-editor-mode',
-      'view.toggle-graph',
+      'graph.open',
+      'graph.search',
       'view.next-tab',
       'view.previous-tab',
       'view.split-editor'
@@ -158,6 +166,204 @@ describe('buildTemplate', () => {
         )
         expect(zItems).toEqual([])
       }
+    })
+  })
+
+  describe('Graph menu state', () => {
+    const graphLocalIds = [
+      'graph.search',
+      'graph.recenter',
+      'graph.presentation-toggle',
+      'graph.presentation-reset',
+      'graph.color.cluster',
+      'graph.color.custom-cluster',
+      'graph.color.folder',
+      'graph.color.none',
+      'graph.level.document',
+      'graph.level.chunk',
+      'graph.toggle-labels',
+      'graph.toggle-lines',
+      'graph.toggle-shapes',
+      'graph.toggle-unconnected',
+      'graph.screenshot',
+      'graph.screenshot-transparent'
+    ]
+
+    it('keeps graph entry points available while view-local actions wait for a ready graph', () => {
+      const template = buildTemplate(makeState(), actions)
+
+      expect(findById(template, 'graph.open')!.enabled).toBe(true)
+      expect(findById(template, 'graph.open-popup')!.enabled).toBe(true)
+      expect(findById(template, 'view.toggle-graph')).toBeNull()
+      for (const id of graphLocalIds) {
+        expect(findById(template, id)!.enabled, id).toBe(false)
+      }
+    })
+
+    it('disables graph entry points when no collection is active', () => {
+      const template = buildTemplate(
+        makeState({ activeCollectionId: null, activeCollectionName: null }),
+        actions
+      )
+
+      expect(findById(template, 'graph.open')!.enabled).toBe(false)
+      expect(findById(template, 'graph.open-popup')!.enabled).toBe(false)
+    })
+
+    it('reflects ready graph modes, levels, display flags, and availability', () => {
+      const template = buildTemplate(
+        makeState({
+          graph: makeGraphContext({
+            active: true,
+            ready: true,
+            labelsVisible: false,
+            linesVisible: false,
+            shapesVisible: false,
+            shapesAvailable: true,
+            unconnectedHighlighted: true,
+            unconnectedCount: 0,
+            level: 'chunk',
+            coloringMode: 'custom-cluster',
+            topicsAvailable: true
+          })
+        }),
+        actions
+      )
+
+      for (const id of [
+        'graph.search',
+        'graph.recenter',
+        'graph.presentation-toggle',
+        'graph.color.custom-cluster',
+        'graph.level.chunk',
+        'graph.toggle-labels',
+        'graph.toggle-lines',
+        'graph.toggle-shapes',
+        'graph.toggle-unconnected',
+        'graph.screenshot',
+        'graph.screenshot-transparent'
+      ]) {
+        expect(findById(template, id)!.enabled, id).toBe(true)
+      }
+
+      expect(findById(template, 'graph.color.custom-cluster')!.checked).toBe(true)
+      expect(findById(template, 'graph.level.chunk')!.checked).toBe(true)
+      expect(findById(template, 'graph.toggle-labels')!.checked).toBe(false)
+      expect(findById(template, 'graph.toggle-lines')!.checked).toBe(false)
+      expect(findById(template, 'graph.toggle-shapes')!.checked).toBe(false)
+      expect(findById(template, 'graph.toggle-unconnected')!.checked).toBe(true)
+      expect(findById(template, 'graph.presentation-reset')!.enabled).toBe(false)
+    })
+
+    it('disables unavailable topic, shape, and empty unconnected choices', () => {
+      const template = buildTemplate(
+        makeState({
+          graph: makeGraphContext({ active: true, ready: true })
+        }),
+        actions
+      )
+
+      expect(findById(template, 'graph.color.cluster')!.checked).toBe(true)
+      expect(findById(template, 'graph.level.document')!.checked).toBe(true)
+      expect(findById(template, 'graph.color.custom-cluster')!.enabled).toBe(false)
+      expect(findById(template, 'graph.toggle-shapes')!.enabled).toBe(false)
+      expect(findById(template, 'graph.toggle-unconnected')!.enabled).toBe(false)
+    })
+
+    it('uses state-specific presentation labels and reset availability', () => {
+      const cases: Array<{
+        context: Partial<GraphMenuContext>
+        label: string
+        resetEnabled: boolean
+      }> = [
+        { context: {}, label: 'Present Graph', resetEnabled: false },
+        {
+          context: { hasSelection: true },
+          label: 'Present from Selected Node',
+          resetEnabled: false
+        },
+        {
+          context: { presentationState: 'playing' },
+          label: 'Pause Presentation',
+          resetEnabled: true
+        },
+        {
+          context: { presentationState: 'paused' },
+          label: 'Continue Presentation',
+          resetEnabled: true
+        }
+      ]
+
+      for (const { context, label, resetEnabled } of cases) {
+        const template = buildTemplate(
+          makeState({
+            graph: makeGraphContext({ active: true, ready: true, ...context })
+          }),
+          actions
+        )
+        expect(findById(template, 'graph.presentation-toggle')!.label).toBe(label)
+        expect(findById(template, 'graph.presentation-reset')!.enabled).toBe(resetEnabled)
+      }
+    })
+
+    it('disables both screenshot actions while an export is in progress', () => {
+      const template = buildTemplate(
+        makeState({
+          graph: makeGraphContext({
+            active: true,
+            ready: true,
+            exportingScreenshot: true
+          })
+        }),
+        actions
+      )
+
+      expect(findById(template, 'graph.screenshot')!.enabled).toBe(false)
+      expect(findById(template, 'graph.screenshot-transparent')!.enabled).toBe(false)
+      expect(findById(template, 'graph.recenter')!.enabled).toBe(true)
+    })
+
+    it('dispatches graph commands and state-changing payloads', () => {
+      const template = buildTemplate(
+        makeState({
+          graph: makeGraphContext({
+            active: true,
+            ready: true,
+            shapesAvailable: true,
+            unconnectedCount: 2,
+            topicsAvailable: true
+          })
+        }),
+        actions
+      )
+      const click = (id: string): void => {
+        findById(template, id)!.click!(undefined as never, undefined as never, undefined as never)
+      }
+
+      for (const id of [
+        'graph.open',
+        'graph.open-popup',
+        'graph.search',
+        'graph.recenter',
+        'graph.presentation-toggle',
+        'graph.presentation-reset',
+        'graph.toggle-labels',
+        'graph.toggle-lines',
+        'graph.toggle-shapes',
+        'graph.toggle-unconnected',
+        'graph.screenshot',
+        'graph.screenshot-transparent'
+      ]) {
+        click(id)
+        expect(actions.sendCommand).toHaveBeenCalledWith(id, undefined)
+      }
+
+      click('graph.color.custom-cluster')
+      expect(actions.sendCommand).toHaveBeenCalledWith('graph.set-coloring', {
+        mode: 'custom-cluster'
+      })
+      click('graph.level.chunk')
+      expect(actions.sendCommand).toHaveBeenCalledWith('graph.set-level', { level: 'chunk' })
     })
   })
 

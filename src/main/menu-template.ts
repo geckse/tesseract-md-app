@@ -335,12 +335,6 @@ export function buildTemplate(
       ...rendererOwned('CmdOrCtrl+E'),
       click: cmd('view.toggle-editor-mode')
     },
-    {
-      id: 'view.toggle-graph',
-      label: 'Toggle Graph',
-      ...rendererOwned('CmdOrCtrl+G'),
-      click: cmd('view.toggle-graph')
-    },
     { type: 'separator' },
     {
       id: 'view.next-tab',
@@ -384,8 +378,183 @@ export function buildTemplate(
   )
   template.push({ label: 'View', submenu: viewSubmenu })
 
-  // ─── Collection ──────────────────────────────────────────────────────
   const hasActive = state.activeCollectionId !== null
+
+  // ─── Graph ───────────────────────────────────────────────────────────
+  const graphReady = state.graph.active && state.graph.ready
+  const presentationLabel =
+    state.graph.presentationState === 'playing'
+      ? 'Pause Presentation'
+      : state.graph.presentationState === 'paused'
+        ? 'Continue Presentation'
+        : state.graph.hasSelection
+          ? 'Present from Selected Node'
+          : 'Present Graph'
+
+  template.push({
+    label: 'Graph',
+    submenu: [
+      {
+        id: 'graph.open',
+        label: 'Open Graph',
+        enabled: hasActive,
+        ...rendererOwned('CmdOrCtrl+G'),
+        click: cmd('graph.open')
+      },
+      {
+        id: 'graph.open-popup',
+        label: 'Open Graph in New Window…',
+        enabled: hasActive,
+        click: cmd('graph.open-popup')
+      },
+      { type: 'separator' },
+      {
+        id: 'graph.search',
+        label: 'Search Graph…',
+        enabled: graphReady,
+        ...rendererOwned('CmdOrCtrl+F'),
+        click: cmd('graph.search')
+      },
+      {
+        id: 'graph.recenter',
+        label: 'Recenter Graph',
+        enabled: graphReady,
+        click: cmd('graph.recenter')
+      },
+      { type: 'separator' },
+      {
+        id: 'graph.presentation-toggle',
+        label: presentationLabel,
+        enabled: graphReady,
+        click: cmd('graph.presentation-toggle')
+      },
+      {
+        id: 'graph.presentation-reset',
+        label: 'Reset Presentation',
+        enabled: graphReady && state.graph.presentationState !== 'idle',
+        click: cmd('graph.presentation-reset')
+      },
+      { type: 'separator' },
+      {
+        id: 'graph.color-by-menu',
+        label: 'Color By',
+        enabled: graphReady,
+        submenu: [
+          {
+            id: 'graph.color.cluster',
+            label: 'Clusters',
+            type: 'radio',
+            checked: state.graph.coloringMode === 'cluster',
+            enabled: graphReady,
+            click: cmd('graph.set-coloring', { mode: 'cluster' })
+          },
+          {
+            id: 'graph.color.custom-cluster',
+            label: 'Topics',
+            type: 'radio',
+            checked: state.graph.coloringMode === 'custom-cluster',
+            enabled: graphReady && state.graph.topicsAvailable,
+            click: cmd('graph.set-coloring', { mode: 'custom-cluster' })
+          },
+          {
+            id: 'graph.color.folder',
+            label: 'Folders',
+            type: 'radio',
+            checked: state.graph.coloringMode === 'folder',
+            enabled: graphReady,
+            click: cmd('graph.set-coloring', { mode: 'folder' })
+          },
+          {
+            id: 'graph.color.none',
+            label: 'No Coloring',
+            type: 'radio',
+            checked: state.graph.coloringMode === 'none',
+            enabled: graphReady,
+            click: cmd('graph.set-coloring', { mode: 'none' })
+          }
+        ]
+      },
+      {
+        id: 'graph.content-level-menu',
+        label: 'Content Level',
+        enabled: graphReady,
+        submenu: [
+          {
+            id: 'graph.level.document',
+            label: 'Documents',
+            type: 'radio',
+            checked: state.graph.level === 'document',
+            enabled: graphReady,
+            click: cmd('graph.set-level', { level: 'document' })
+          },
+          {
+            id: 'graph.level.chunk',
+            label: 'Chunks',
+            type: 'radio',
+            checked: state.graph.level === 'chunk',
+            enabled: graphReady,
+            click: cmd('graph.set-level', { level: 'chunk' })
+          }
+        ]
+      },
+      {
+        id: 'graph.display-menu',
+        label: 'Display',
+        enabled: graphReady,
+        submenu: [
+          {
+            id: 'graph.toggle-labels',
+            label: 'Show Labels',
+            type: 'checkbox',
+            checked: state.graph.labelsVisible,
+            enabled: graphReady,
+            click: cmd('graph.toggle-labels')
+          },
+          {
+            id: 'graph.toggle-lines',
+            label: 'Show Connection Lines',
+            type: 'checkbox',
+            checked: state.graph.linesVisible,
+            enabled: graphReady,
+            click: cmd('graph.toggle-lines')
+          },
+          {
+            id: 'graph.toggle-shapes',
+            label: 'Show Cluster & Topic Shapes',
+            type: 'checkbox',
+            checked: state.graph.shapesVisible,
+            enabled: graphReady && state.graph.shapesAvailable,
+            click: cmd('graph.toggle-shapes')
+          },
+          {
+            id: 'graph.toggle-unconnected',
+            label: 'Highlight Unconnected Nodes',
+            type: 'checkbox',
+            checked: state.graph.unconnectedHighlighted,
+            enabled:
+              graphReady &&
+              (state.graph.unconnectedCount > 0 || state.graph.unconnectedHighlighted),
+            click: cmd('graph.toggle-unconnected')
+          }
+        ]
+      },
+      { type: 'separator' },
+      {
+        id: 'graph.screenshot',
+        label: 'Save Graph Screenshot…',
+        enabled: graphReady && !state.graph.exportingScreenshot,
+        click: cmd('graph.screenshot')
+      },
+      {
+        id: 'graph.screenshot-transparent',
+        label: 'Save Graph Screenshot with Transparent Background…',
+        enabled: graphReady && !state.graph.exportingScreenshot,
+        click: cmd('graph.screenshot-transparent')
+      }
+    ]
+  })
+
+  // ─── Collection ──────────────────────────────────────────────────────
   const switchSubmenu: MenuItemConstructorOptions[] = state.collections.map((collection) => ({
     id: `collection.switch.${collection.id}`,
     label: collection.name,

@@ -214,6 +214,7 @@ const api: MdvdbApi = {
   removeMenuCommandListener: () => {
     ipcRenderer.removeAllListeners('menu:command')
   },
+  setMenuContext: (context) => invoke('menu:set-context', context),
 
   // Export (phase 43) — native save dialog, outside collection bounds
   exportSave: (request) => invoke('export:save', request),
