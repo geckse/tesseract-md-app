@@ -3,8 +3,10 @@ import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js'
 
 import { buildGraphEnclosurePointCloud, type GraphEnclosurePoint } from './graph-enclosure'
 
+export type GraphHullId = number | string
+
 export interface GraphHullDefinition {
-  id: number
+  id: GraphHullId
   label: string
   color: string
   points: Array<GraphEnclosurePoint & { nodeId: string }>
@@ -18,7 +20,7 @@ export interface GraphHullUpdateOptions {
 }
 
 export interface GraphHullCentroid {
-  id: number
+  id: GraphHullId
   label: string
   x: number
   y: number
@@ -85,8 +87,8 @@ function disposeObject(object: THREE.Object3D): void {
 export class GraphHullLayer {
   readonly group = new THREE.Group()
 
-  private entries = new Map<number, HullEntry>()
-  private highlightedGroupId: number | null = null
+  private entries = new Map<GraphHullId, HullEntry>()
+  private highlightedGroupId: GraphHullId | null = null
 
   constructor() {
     this.group.name = 'clusterEnclosures'
@@ -101,7 +103,7 @@ export class GraphHullLayer {
   }
 
   /** Emphasize one legend-selected hull without rebuilding any geometry. */
-  setHighlightedGroup(groupId: number | null): void {
+  setHighlightedGroup(groupId: GraphHullId | null): void {
     this.highlightedGroupId = groupId
     for (const [id, entry] of this.entries) this.applyEntryEmphasis(id, entry)
   }
@@ -227,7 +229,7 @@ export class GraphHullLayer {
     }
   }
 
-  private applyEntryEmphasis(id: number, entry: HullEntry): void {
+  private applyEntryEmphasis(id: GraphHullId, entry: HullEntry): void {
     const factor =
       this.highlightedGroupId === null || this.highlightedGroupId === id
         ? 1

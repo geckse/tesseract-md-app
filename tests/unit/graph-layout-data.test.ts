@@ -74,6 +74,28 @@ describe('graph layout data bridge', () => {
     expect(graphTopologyRevision(topologyChanged)).not.toBe(first)
   })
 
+  it('makes revisions mode- and active-membership-aware', () => {
+    const data = structuredClone(graphData)
+    data.nodes[0].path = 'docs/a.md'
+    data.nodes[0].custom_cluster_id = 4
+    data.nodes[0].custom_cluster_ids = [4, 9]
+
+    const clusterRevision = graphTopologyRevision(data, 'cluster')
+    const topicRevision = graphTopologyRevision(data, 'custom-cluster')
+    const folderRevision = graphTopologyRevision(data, 'folder')
+    const noneRevision = graphTopologyRevision(data, 'none')
+
+    expect(new Set([clusterRevision, topicRevision, folderRevision, noneRevision]).size).toBe(4)
+
+    const secondaryTopicChanged = structuredClone(data)
+    secondaryTopicChanged.nodes[0].custom_cluster_ids = [4, 12]
+    expect(graphTopologyRevision(secondaryTopicChanged, 'custom-cluster')).toBe(topicRevision)
+
+    const primaryTopicChanged = structuredClone(data)
+    primaryTopicChanged.nodes[0].custom_cluster_id = 9
+    expect(graphTopologyRevision(primaryTopicChanged, 'custom-cluster')).not.toBe(topicRevision)
+  })
+
   it('keeps settled-position revisions stable when payload ordering changes', () => {
     const reordered = structuredClone(graphData)
     reordered.nodes.reverse()
@@ -97,6 +119,33 @@ describe('graph layout data bridge', () => {
       collisionStrength: 0,
       centerStrength: 0
     })
+  })
+
+  it('builds force groups and link distances from the selected view mode', () => {
+    const data = structuredClone(graph3DData)
+    data.nodes[0].path = 'docs/a.md'
+    data.nodes[1].path = 'docs/b.md'
+    data.nodes[0].custom_cluster_id = 7
+    data.nodes[0].custom_cluster_ids = [7, 8]
+    data.nodes[1].custom_cluster_id = 7
+    data.nodes[1].custom_cluster_ids = [7]
+
+    const topics = buildGraphLayoutInputs(data, new Map(), 'document', 'custom-cluster')
+    expect(topics.nodes.map((node) => node.clusterId)).toEqual(['topic:7', 'topic:7'])
+    expect(topics.links[0].distance).toBe(30)
+
+    data.nodes[1].custom_cluster_id = 8
+    const splitTopics = buildGraphLayoutInputs(data, new Map(), 'document', 'custom-cluster')
+    expect(splitTopics.nodes.map((node) => node.clusterId)).toEqual(['topic:7', 'topic:8'])
+    expect(splitTopics.links[0].distance).toBe(120)
+
+    const folders = buildGraphLayoutInputs(data, new Map(), 'chunk', 'folder')
+    expect(folders.nodes.map((node) => node.clusterId)).toEqual(['folder:docs', 'folder:docs'])
+    expect(folders.links[0].distance).toBe(20)
+
+    const ungrouped = buildGraphLayoutInputs(data, new Map(), 'document', 'none')
+    expect(ungrouped.nodes.map((node) => node.clusterId)).toEqual([null, null])
+    expect(ungrouped.links[0].distance).toBe(120)
   })
 
   it('packs and applies transferable position triples by stable node id', () => {

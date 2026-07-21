@@ -8,6 +8,7 @@ export interface GraphLayoutNodeInput {
   radius?: number
   /** Per-node many-body strength. Defaults to settings.chargeStrength. */
   charge?: number
+  /** Active spatial group for attraction; null disables grouping for this node. */
   clusterId?: string | number | null
 }
 

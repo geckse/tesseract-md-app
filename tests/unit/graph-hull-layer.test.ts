@@ -2,10 +2,14 @@ import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
 import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js'
 
-import { GraphHullLayer, type GraphHullDefinition } from '@renderer/lib/graph-hull-layer'
+import {
+  GraphHullLayer,
+  type GraphHullDefinition,
+  type GraphHullId
+} from '@renderer/lib/graph-hull-layer'
 import { buildGraphEnclosurePointCloud } from '@renderer/lib/graph-enclosure'
 
-function cluster(id: number, offset = 0): GraphHullDefinition {
+function cluster(id: GraphHullId, offset = 0): GraphHullDefinition {
   return {
     id,
     label: `Cluster ${id}`,
@@ -120,6 +124,24 @@ describe('GraphHullLayer', () => {
     expect(
       ((first.children[0] as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity
     ).toBeCloseTo(0.07)
+    layer.dispose()
+  })
+
+  it('supports named folder hulls and legend emphasis', () => {
+    const layer = new GraphHullLayer()
+    layer.update([cluster('docs'), cluster('(root)', 100)])
+
+    expect(layer.centroids().map((centroid) => centroid.id)).toEqual(['docs', '(root)'])
+    const docs = layer.group.getObjectByName('clusterEnclosure:docs') as THREE.Group
+    const root = layer.group.getObjectByName('clusterEnclosure:(root)') as THREE.Group
+
+    layer.setHighlightedGroup('docs')
+    expect(
+      ((docs.children[0] as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity
+    ).toBeCloseTo(0.07)
+    expect(
+      ((root.children[0] as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity
+    ).toBeCloseTo(0.07 * 0.12)
     layer.dispose()
   })
 

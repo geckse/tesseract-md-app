@@ -5,6 +5,7 @@ import type {
   GraphLayoutNodeInput,
   GraphLayoutSettings
 } from './graph-layout-protocol'
+import { graphGroupIdForMode, type GraphGroupingMode } from './graph-grouping'
 
 export interface GraphLayoutInputBundle {
   nodes: GraphLayoutNodeInput[]
@@ -38,12 +39,18 @@ function topologyItemHash(...parts: string[]): number {
   return hash >>> 0
 }
 
-/** Stable, order-independent topology revision; metadata/context changes are ignored. */
-export function graphTopologyRevision(data: GraphData): string {
+/**
+ * Stable, order-independent layout revision. Only topology and the grouping
+ * represented by the active view mode participate; visual metadata is ignored.
+ */
+export function graphTopologyRevision(
+  data: GraphData,
+  groupingMode: GraphGroupingMode = 'cluster'
+): string {
   let nodeSum = 0
   let nodeMix = 0
   for (const node of data.nodes) {
-    const hash = topologyItemHash(node.id, String(node.cluster_id ?? ''))
+    const hash = topologyItemHash(node.id, graphGroupIdForMode(node, groupingMode) ?? '')
     nodeSum = (nodeSum + hash) >>> 0
     nodeMix = (nodeMix ^ Math.imul(hash ^ 0x9e3779b9, 0x85ebca6b)) >>> 0
   }
@@ -57,7 +64,7 @@ export function graphTopologyRevision(data: GraphData): string {
   const digest = [nodeSum, nodeMix, edgeSum, edgeMix]
     .map((value) => value.toString(16).padStart(8, '0'))
     .join('')
-  return `${data.level}:${data.nodes.length}:${data.edges.length}:${digest}`
+  return `${data.level}:${groupingMode}:${data.nodes.length}:${data.edges.length}:${digest}`
 }
 
 export function graphLayoutSettings(level: GraphLevel): Partial<GraphLayoutSettings> {
@@ -97,9 +104,13 @@ export function graphLayoutSnapshotIntervalMs(nodeCount: number, linkCount: numb
 export function buildGraphLayoutInputs(
   data: Graph3DData,
   degreeMap: ReadonlyMap<string, number>,
-  level: GraphLevel
+  level: GraphLevel,
+  groupingMode: GraphGroupingMode = 'cluster'
 ): GraphLayoutInputBundle {
   const nodesById = new Map(data.nodes.map((node) => [node.id, node]))
+  const groupsById = new Map(
+    data.nodes.map((node) => [node.id, graphGroupIdForMode(node, groupingMode)])
+  )
   const documentLevel = level === 'document'
   const nodes = data.nodes.map<GraphLayoutNodeInput>((node) => {
     const degree = degreeMap.get(node.id) ?? 0
@@ -112,16 +123,15 @@ export function buildGraphLayoutInputs(
       // Preserve the original degree-sensitive hub repulsion. This is what
       // creates the recognizable radial spacing in the established graph view.
       charge: documentLevel ? -100 - degree * 10 : -100,
-      clusterId: node.cluster_id
+      clusterId: groupsById.get(node.id) ?? null
     }
   })
   const links = data.links.map<GraphLayoutLinkInput>((link) => {
     const source = nodesById.get(link.source)
     const target = nodesById.get(link.target)
-    const sameCluster =
-      source?.cluster_id != null &&
-      target?.cluster_id != null &&
-      source.cluster_id === target.cluster_id
+    const sourceGroup = source ? groupsById.get(source.id) : null
+    const targetGroup = target ? groupsById.get(target.id) : null
+    const sameCluster = sourceGroup != null && targetGroup != null && sourceGroup === targetGroup
     return {
       source: link.source,
       target: link.target,

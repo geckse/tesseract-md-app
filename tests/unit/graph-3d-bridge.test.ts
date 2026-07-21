@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import {
   buildGraph3DData,
+  computeGraphGroupCentroids,
   seedClusterPositions,
+  seedGroupedPositions,
   seedNearNeighbors,
   nodeSizeValue,
   nodeTooltipHtml,
@@ -777,6 +779,88 @@ describe('seedClusterPositions', () => {
   })
 })
 
+describe('mode-aware position seeding', () => {
+  function groupedNode(
+    id: string,
+    path: string,
+    clusterId: number | null,
+    topicId: number | null,
+    topicIds: number[] = topicId == null ? [] : [topicId]
+  ): Graph3DNode {
+    return {
+      id,
+      path,
+      label: null,
+      cluster_id: clusterId,
+      custom_cluster_id: topicId,
+      custom_cluster_ids: topicIds,
+      custom_cluster_scores: topicIds.map(() => 0.8),
+      chunk_index: null,
+      size: null,
+      val: 1,
+      color: '#fff'
+    }
+  }
+
+  it('seeds topics by primary membership and folders by top-level path', () => {
+    const topicNodes = [
+      groupedNode('a', 'docs/a.md', 1, 4, [4, 9]),
+      groupedNode('b', 'other/b.md', 2, 4),
+      groupedNode('c', 'docs/c.md', 1, 9)
+    ]
+    seedGroupedPositions(topicNodes, 'custom-cluster', 200)
+
+    const sameTopicDistance = Math.hypot(
+      topicNodes[0].x! - topicNodes[1].x!,
+      topicNodes[0].y! - topicNodes[1].y!,
+      topicNodes[0].z! - topicNodes[1].z!
+    )
+    expect(sameTopicDistance).toBeLessThan(55)
+
+    const folderNodes = topicNodes.map((node) => ({
+      ...node,
+      x: undefined,
+      y: undefined,
+      z: undefined
+    }))
+    seedGroupedPositions(folderNodes, 'folder', 200)
+    const sameFolderDistance = Math.hypot(
+      folderNodes[0].x! - folderNodes[2].x!,
+      folderNodes[0].y! - folderNodes[2].y!,
+      folderNodes[0].z! - folderNodes[2].z!
+    )
+    expect(sameFolderDistance).toBeLessThan(55)
+  })
+
+  it('leaves Unassigned topics ungrouped and computes mode-aware centroids', () => {
+    const nodes = [
+      groupedNode('root', 'root.md', null, null),
+      groupedNode('a', 'docs/a.md', 1, 4),
+      groupedNode('b', 'docs/b.md', 2, 4)
+    ]
+    nodes[0].x = 100
+    nodes[0].y = 100
+    nodes[0].z = 100
+    nodes[1].x = 10
+    nodes[1].y = 20
+    nodes[1].z = 30
+    nodes[2].x = 30
+    nodes[2].y = 40
+    nodes[2].z = 50
+
+    expect(computeGraphGroupCentroids(nodes, 'custom-cluster')).toEqual(
+      new Map([['topic:4', { x: 20, y: 30, z: 40 }]])
+    )
+    expect(computeGraphGroupCentroids(nodes, 'folder')).toEqual(
+      new Map([
+        ['folder:(root)', { x: 100, y: 100, z: 100 }],
+        ['folder:docs', { x: 20, y: 30, z: 40 }]
+      ])
+    )
+    expect(computeGraphGroupCentroids(nodes, 'none')).toEqual(new Map())
+  })
+})
+
 // ─── buildGraph3DData ───────────────────────────────────────────────
 
 describe('buildGraph3DData', () => {
@@ -1098,11 +1182,38 @@ describe('seedNearNeighbors', () => {
 
   it('falls back to the cluster centroid when no neighbors are positioned', () => {
     const n = newNode('new', 5)
-    const centroids = new Map([[5, { x: -10, y: 20, z: 30 }]])
+    const centroids = new Map([['cluster:5', { x: -10, y: 20, z: 30 }]])
     seedNearNeighbors([n], [], new Map(), centroids, 0)
     expect(n.x).toBe(-10)
     expect(n.y).toBe(20)
     expect(n.z).toBe(30)
+  })
+
+  it('falls back to primary-topic and folder centroids in those modes', () => {
+    const topicNode = newNode('topic-new')
+    topicNode.custom_cluster_id = 8
+    topicNode.custom_cluster_ids = [8, 3]
+    seedNearNeighbors(
+      [topicNode],
+      [],
+      new Map(),
+      new Map([['topic:8', { x: 5, y: 6, z: 7 }]]),
+      0,
+      'custom-cluster'
+    )
+    expect(topicNode).toMatchObject({ x: 5, y: 6, z: 7 })
+
+    const folderNode = newNode('folder-new')
+    folderNode.path = 'projects/folder-new.md'
+    seedNearNeighbors(
+      [folderNode],
+      [],
+      new Map(),
+      new Map([['folder:projects', { x: -5, y: -6, z: -7 }]]),
+      0,
+      'folder'
+    )
+    expect(folderNode).toMatchObject({ x: -5, y: -6, z: -7 })
   })
 
   it('falls back to near-origin when it has no neighbors or cluster', () => {

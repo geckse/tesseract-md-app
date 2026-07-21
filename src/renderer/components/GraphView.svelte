@@ -109,7 +109,11 @@
     GraphPresentationCameraController,
     type GraphPresentationCameraPose
   } from '../lib/graph-presentation-camera'
-  import { GraphHullLayer, type GraphHullDefinition } from '../lib/graph-hull-layer'
+  import {
+    GraphHullLayer,
+    type GraphHullDefinition,
+    type GraphHullId
+  } from '../lib/graph-hull-layer'
   import { GraphPerformanceCollector } from '../lib/graph-performance'
   import { GraphBatchedLayer, type GraphBatchedVisualState } from '../lib/graph-batched-layer'
   import { GraphLayoutWorkerClient } from '../lib/graph-layout-client'
@@ -163,7 +167,8 @@
   } from '../lib/graph-label-layout'
   import {
     buildGraph3DData,
-    seedClusterPositions,
+    computeGraphGroupCentroids,
+    seedGroupedPositions,
     seedNearNeighbors,
     computeDegreeMap,
     findUnconnectedNodeIds,
@@ -174,6 +179,7 @@
     type Graph3DLink,
     type Graph3DData
   } from '../lib/graph-3d-bridge'
+  import { graphTopLevelFolder, type GraphGroupId } from '../lib/graph-grouping'
 
   // ─── Props ─────────────────────────────────────────────────────────
 
@@ -425,8 +431,8 @@
   /** Degree map computed from current edges (used for force configuration). */
   let degreeMap: Map<string, number> = new Map()
 
-  /** Cluster centroids computed from seeded positions (used by cluster force). */
-  let clusterCentroids: Map<number, { x: number; y: number; z: number }> = new Map()
+  /** Current centroids used to seed incremental nodes in the selected grouping mode. */
+  let layoutGroupCentroids: Map<GraphGroupId, { x: number; y: number; z: number }> = new Map()
 
   /** Map from top-level folder name to assigned color. */
   let folderColorMap: Map<string, string> = $state(new Map())
@@ -602,7 +608,7 @@
   let presentationLastRevealAt = 0
   let presentationRevealTicks = 0
   let presentationNodesById = new Map<string, ForceNode>()
-  let presentationHullNodes = new Map<number, ForceNode[]>()
+  let presentationHullNodes = new Map<GraphHullId, ForceNode[]>()
   let presentationTargetPositions = new Map<string, { x: number; y: number; z: number }>()
   let presentationLayoutSnapshot: GraphPresentationLayoutSnapshot | null = null
   let presentationMotions = new Map<string, GraphPresentationMotion>()
@@ -1087,20 +1093,15 @@
 
   /** Cluster labels computed for the HTML overlay. */
   let clusterLabels: {
-    id: number
+    id: GraphHullId
     label: string
+    paletteIndex: number
     screenX: number
     screenY: number
     visible: boolean
   }[] = $state([])
 
   // ─── Helper Functions ───────────────────────────────────────────────
-
-  /** Extract the top-level folder from a path, or '(root)' if no folder. */
-  function getTopLevelFolder(path: string): string {
-    const idx = path.indexOf('/')
-    return idx >= 0 ? path.substring(0, idx) : '(root)'
-  }
 
   /** Whether we're currently in chunk mode. */
   function isChunkMode(): boolean {
@@ -1134,9 +1135,10 @@
     )
   }
 
-  function activeHullHighlightId(): number | null {
+  function activeHullHighlightId(): GraphHullId | null {
     if (currentColoringMode === 'cluster') return highlightedClusterId
     if (currentColoringMode === 'custom-cluster') return highlightedTopicId
+    if (currentColoringMode === 'folder') return currentHighlightedFolder
     return null
   }
 
@@ -1907,8 +1909,7 @@
     routeGraphMenuAction(action, {
       presentationActive,
       presentationPaused,
-      shapesAvailable:
-        currentColoringMode === 'cluster' || currentColoringMode === 'custom-cluster',
+      shapesAvailable: isHullMode(),
       search: openGraphSearch,
       recenter: recenterCamera,
       toggleLabels: toggleGraphLabels,
@@ -2005,7 +2006,7 @@
   function refreshPresentationEnclosures(
     timestamp: number,
     immediate = false,
-    affectedGroups?: ReadonlySet<number>,
+    affectedGroups?: ReadonlySet<GraphHullId>,
     forceExact = false
   ): void {
     if (!isHullMode()) return
@@ -2136,8 +2137,8 @@
     return true
   }
 
-  function advancePresentationMotions(elapsedMs: number): Set<number> {
-    const movedGroups = new Set<number>()
+  function advancePresentationMotions(elapsedMs: number): Set<GraphHullId> {
+    const movedGroups = new Set<GraphHullId>()
     const movedNodeIds: string[] = []
     let moved = false
     for (const [nodeId, motion] of presentationMotions) {
@@ -2166,7 +2167,7 @@
   /** Reveal the next adaptive batch and its now-connected edges. */
   function revealNextPresentationBatch(timestamp: number): boolean {
     const end = Math.min(presentationCursor + presentationBatchSize, presentationOrder.length)
-    const affectedGroups = new Set<number>()
+    const affectedGroups = new Set<GraphHullId>()
     const revealedNodeIds: string[] = []
     for (let i = presentationCursor; i < end; i++) {
       const step = presentationOrder[i]
@@ -2432,11 +2433,11 @@
     if (!layoutClient) layoutClient = new GraphLayoutWorkerClient()
     if (!unsubscribeLayout) unsubscribeLayout = layoutClient.subscribe(handleLayoutEvent)
 
-    layoutRevision = graphTopologyRevision(data)
+    layoutRevision = graphTopologyRevision(data, currentColoringMode)
     layoutNodeIds = graph3DData.nodes.map((node) => node.id)
     layoutNodesInVisualOrder = true
     layoutLastLabelUpdateAt = 0
-    const bundle = buildGraphLayoutInputs(graph3DData, degreeMap, currentLevel)
+    const bundle = buildGraphLayoutInputs(graph3DData, degreeMap, currentLevel, currentColoringMode)
     bundle.settings.alpha = initialAlpha
     const collectionIdentity = get(activeCollectionId) ?? get(activeCollection)?.path ?? 'unknown'
     layoutCacheKey = createGraphPositionCacheKey({
@@ -2449,6 +2450,7 @@
         // so positions produced by the contracted v1 layout are not reused as
         // a supposedly complete layout.
         engine: 'd3-force-3d-worker-v2',
+        groupingMode: currentColoringMode,
         clusterStrength: bundle.settings.clusterStrength ?? 0,
         chargeTheta: bundle.settings.chargeTheta ?? 1,
         linkStrength: bundle.settings.linkStrength ?? 0
@@ -2488,9 +2490,18 @@
     return completeCacheHit
   }
 
+  /** Rebuild only the force model when the visual grouping mode changes. */
+  function restartLayoutForColoringMode(): void {
+    if (!currentData || !currentGraph3DData) return
+    recomputeLayoutGroupCentroids(currentGraph3DData.nodes)
+    // Current coordinates become the transition seed unless this exact mode
+    // already has a complete settled snapshot in the persistent cache.
+    startWorkerLayout(currentData, currentGraph3DData, 0.65)
+  }
+
   /**
    * Convert GraphData to 3d-force-graph format and feed it to the graph.
-   * Seeds cluster positions before rendering for spatial separation.
+   * Seeds the selected grouping mode before rendering for spatial separation.
    */
   function feedData(data: GraphData) {
     if (!graph) return
@@ -2525,9 +2536,9 @@
     // Compute bidirectional edge pairs for arrow/particle color logic
     computeBidirectionalPairs(graph3DData.links)
 
-    // Seed cluster positions using Fibonacci sphere distribution
+    // Seed the selected grouping mode using a Fibonacci sphere distribution.
     const spreadRadius = currentLevel === 'chunk' ? 300 : 200
-    seedClusterPositions(graph3DData.nodes, data.clusters, spreadRadius)
+    seedGroupedPositions(graph3DData.nodes, currentColoringMode, spreadRadius)
 
     // Override with cached node positions if available (preserves layout across remounts)
     const cachedPositions = graphTabId ? nodePositionCache.get(graphTabId) : null
@@ -2544,8 +2555,8 @@
       nodePositionCache.delete(graphTabId!)
     }
 
-    // Compute cluster centroids from seeded positions
-    computeClusterCentroids(graph3DData.nodes)
+    // Capture active grouping centroids for incremental-node fallback placement.
+    recomputeLayoutGroupCentroids(graph3DData.nodes)
 
     // Compute degree map for force configuration
     degreeMap = computeDegreeMap(data.edges)
@@ -2557,7 +2568,7 @@
     currentGraph3DData = graph3DData
     nodeCount = graph3DData.nodes.length
     rebuildLiveGraphIndices()
-    const topologyChanged = graphTopologyRevision(data) !== layoutRevision
+    const topologyChanged = graphTopologyRevision(data, currentColoringMode) !== layoutRevision
     const completeCacheHit =
       !layoutClient || topologyChanged ? startWorkerLayout(data, graph3DData) : false
     replaceBatchedGraphData(graph3DData)
@@ -2683,6 +2694,10 @@
       )
     }
 
+    // Use the settled positions of surviving nodes as the fallback anchor for
+    // newly-added nodes in the currently selected grouping mode.
+    recomputeLayoutGroupCentroids(nodes)
+
     // 4. Add new nodes, seeded near their already-positioned neighbors
     if (delta.addedNodes.length) {
       const positions = new Map<string, { x: number; y: number; z: number }>()
@@ -2706,7 +2721,14 @@
         val: nodeSizeValue(currentLevel, degreeOfNode.get(node.id) ?? 0, node.size ?? 0, maxSize),
         color: '' // resolved live by the nodeColor accessor after refresh()
       }))
-      seedNearNeighbors(newNodes, linkPairs, positions, clusterCentroids)
+      seedNearNeighbors(
+        newNodes,
+        linkPairs,
+        positions,
+        layoutGroupCentroids,
+        25,
+        currentColoringMode
+      )
       nodes = nodes.concat(newNodes as ForceNode[])
     }
 
@@ -2752,13 +2774,13 @@
     // relax the changed topology from those existing coordinates.
     degreeMap = computeDegreeMap(next.edges)
     computeBidirectionalPairs(links)
-    recomputeLiveCentroids(nodes)
+    recomputeLayoutGroupCentroids(nodes)
     if (currentColoringMode === 'folder') rebuildFolderColorMap(nodes)
 
     currentGraph3DData = { nodes, links }
     nodeCount = nodes.length
     rebuildLiveGraphIndices()
-    if (graphTopologyRevision(next) !== layoutRevision) {
+    if (graphTopologyRevision(next, currentColoringMode) !== layoutRevision) {
       startWorkerLayout(next, currentGraph3DData, 0.25)
     }
     replaceBatchedGraphData(currentGraph3DData)
@@ -2810,46 +2832,16 @@
     nodePositionCache.set(graphTabId, positions)
   }
 
-  /**
-   * Compute cluster centroids from seeded node positions.
-   * Used by the cluster attraction force.
-   */
-  function computeClusterCentroids(nodes: Graph3DNode[]) {
-    const sums = new Map<number, { x: number; y: number; z: number; count: number }>()
-
-    for (const node of nodes) {
-      if (node.cluster_id == null) continue
-      const existing = sums.get(node.cluster_id)
-      if (existing) {
-        existing.x += node.x ?? 0
-        existing.y += node.y ?? 0
-        existing.z += node.z ?? 0
-        existing.count++
-      } else {
-        sums.set(node.cluster_id, {
-          x: node.x ?? 0,
-          y: node.y ?? 0,
-          z: node.z ?? 0,
-          count: 1
-        })
-      }
-    }
-
-    clusterCentroids = new Map()
-    for (const [id, sum] of sums) {
-      clusterCentroids.set(id, {
-        x: sum.x / sum.count,
-        y: sum.y / sum.count,
-        z: sum.z / sum.count
-      })
-    }
+  /** Refresh fallback anchors from the currently selected spatial grouping. */
+  function recomputeLayoutGroupCentroids(nodes: readonly Graph3DNode[]) {
+    layoutGroupCentroids = computeGraphGroupCentroids(nodes, currentColoringMode)
   }
 
   /** Rebuild the folder→color map from current nodes. */
   function rebuildFolderColorMap(nodes: Graph3DNode[]) {
     const folders = new Set<string>()
     for (const node of nodes) {
-      folders.add(getTopLevelFolder(node.path))
+      folders.add(graphTopLevelFolder(node.path))
     }
     const sorted = [...folders].sort()
     folderColorMap = new Map()
@@ -2873,18 +2865,22 @@
 
   /** Whether hull/enclosure rendering applies to the current coloring mode. */
   function isHullMode(): boolean {
-    return currentColoringMode === 'cluster' || currentColoringMode === 'custom-cluster'
+    return (
+      currentColoringMode === 'cluster' ||
+      currentColoringMode === 'custom-cluster' ||
+      currentColoringMode === 'folder'
+    )
   }
 
   /**
    * Grouping id for hulls/labels: auto cluster_id in cluster mode,
-   * PRIMARY topic (custom_cluster_id) in custom-cluster mode.
+   * PRIMARY topic in custom-cluster mode, or top-level folder in folder mode.
    * Null (unclustered / Unassigned) groups get no hull — desired.
    */
-  function hullGroupId(node: ForceNode): number | null {
-    return currentColoringMode === 'custom-cluster'
-      ? (node.custom_cluster_id ?? null)
-      : node.cluster_id
+  function hullGroupId(node: ForceNode): GraphHullId | null {
+    if (currentColoringMode === 'custom-cluster') return node.custom_cluster_id ?? null
+    if (currentColoringMode === 'folder') return graphTopLevelFolder(node.path)
+    return node.cluster_id
   }
 
   /** Palette used for hulls/labels in the current mode. */
@@ -2895,11 +2891,26 @@
   }
 
   /** Label for a hull group id from the current data (mode-aware). */
-  function hullLabel(id: number): string {
+  function hullLabel(id: GraphHullId): string {
+    if (currentColoringMode === 'folder') return String(id)
     if (currentColoringMode === 'custom-cluster') {
       return currentData?.custom_clusters?.find((c) => c.id === id)?.label ?? `Topic ${id}`
     }
     return currentData?.clusters.find((c) => c.id === id)?.label ?? `Cluster ${id}`
+  }
+
+  /** Palette slot shared by folder colors, hulls, and floating labels. */
+  function hullPaletteIndex(id: GraphHullId): number {
+    if (typeof id === 'number') return id
+    const index = [...folderColorMap.keys()].indexOf(id)
+    return index >= 0 ? index : 0
+  }
+
+  function hullColor(id: GraphHullId): string {
+    if (currentColoringMode === 'folder') {
+      return folderColorMap.get(String(id)) ?? paletteColor(currentClusterPalette, 0)
+    }
+    return paletteColor(hullPalette(), hullPaletteIndex(id))
   }
 
   /**
@@ -2907,17 +2918,16 @@
    * then add transparent nested hull meshes to the scene.
    * Also computes screen-projected cluster label positions for the HTML overlay.
    *
-   * Runs in both 'cluster' and 'custom-cluster' coloring modes; groups by
-   * cluster_id or PRIMARY topic id respectively.
+   * Runs in cluster, topic, and folder modes using their visible grouping.
    */
   function updateClusterSpheres(
     forceExact = false,
-    onlyGroupIds?: ReadonlySet<number>,
-    suppliedGroups?: ReadonlyMap<number, ForceNode[]>
+    onlyGroupIds?: ReadonlySet<GraphHullId>,
+    suppliedGroups?: ReadonlyMap<GraphHullId, ForceNode[]>
   ) {
     if (!graph) return
 
-    // Only show enclosures in cluster/custom-cluster coloring modes
+    // Only show enclosures in modes with an explicit visible grouping.
     if (!isHullMode()) {
       clearClusterMeshes()
       return
@@ -2937,10 +2947,10 @@
     const allNodes = getLiveGraphData().nodes as ForceNode[]
     const partial = onlyGroupIds !== undefined
 
-    // Group nodes by cluster_id (or primary topic id in custom-cluster mode).
+    // Group nodes by the id represented by the selected graph mode.
     // Presentation keeps its own revealed-members map so one reveal step does
     // not rescan every node just to update one or two shells.
-    const clusterNodes = new Map<number, ForceNode[]>()
+    const clusterNodes = new Map<GraphHullId, ForceNode[]>()
     if (suppliedGroups && onlyGroupIds) {
       for (const groupId of onlyGroupIds) {
         const members = suppliedGroups.get(groupId)
@@ -2971,10 +2981,10 @@
       graph.scene().add(clusterHullLayer.group)
     }
 
-    const definitions: GraphHullDefinition[] = [...clusterNodes].map(([clusterId, cnodes]) => ({
-      id: clusterId,
-      label: hullLabel(clusterId),
-      color: paletteColor(hullPalette(), clusterId),
+    const definitions: GraphHullDefinition[] = [...clusterNodes].map(([groupId, cnodes]) => ({
+      id: groupId,
+      label: hullLabel(groupId),
+      color: hullColor(groupId),
       points: cnodes.map((node) => ({
         nodeId: node.id,
         x: node.x ?? 0,
@@ -2997,8 +3007,7 @@
     if (rebuilt > 0) requestGraphRender()
     updateClusterLabelPositions()
 
-    // Also recompute cluster centroids for the attraction force
-    if (!partial) recomputeLiveCentroids(allNodes)
+    if (!partial) recomputeLayoutGroupCentroids(allNodes)
   }
 
   /**
@@ -3042,45 +3051,12 @@
       return {
         id: centroid.id,
         label: centroid.label,
+        paletteIndex: hullPaletteIndex(centroid.id),
         screenX: pos.x,
         screenY: pos.y,
         visible: pos.visible
       }
     })
-  }
-
-  /**
-   * Recompute live cluster centroids from current node positions.
-   * Updates the clusterCentroids map used by the cluster attraction force,
-   * so that the force targets track the actual cluster centers during simulation.
-   */
-  function recomputeLiveCentroids(nodes: ForceNode[]) {
-    const sums = new Map<number, { x: number; y: number; z: number; count: number }>()
-    for (const node of nodes) {
-      if (node.cluster_id == null) continue
-      const existing = sums.get(node.cluster_id)
-      if (existing) {
-        existing.x += node.x ?? 0
-        existing.y += node.y ?? 0
-        existing.z += node.z ?? 0
-        existing.count++
-      } else {
-        sums.set(node.cluster_id, {
-          x: node.x ?? 0,
-          y: node.y ?? 0,
-          z: node.z ?? 0,
-          count: 1
-        })
-      }
-    }
-
-    for (const [id, sum] of sums) {
-      clusterCentroids.set(id, {
-        x: sum.x / sum.count,
-        y: sum.y / sum.count,
-        z: sum.z / sum.count
-      })
-    }
   }
 
   /** Keep enclosure shells responsive without rebuilding them for every worker snapshot. */
@@ -3094,8 +3070,7 @@
     const graphData = getLiveGraphData()
     const nodes = graphData.nodes as ForceNode[]
 
-    // Recompute live centroids for the attraction force
-    recomputeLiveCentroids(nodes)
+    recomputeLayoutGroupCentroids(nodes)
 
     // Reveal beats already rebuild lightweight shells. Avoid duplicating that
     // geometry work on simulation ticks while presentation mode is active.
@@ -3207,9 +3182,10 @@
         highlightedTopicId = null
       }
       syncBatchedVisuals()
+      restartLayoutForColoringMode()
 
-      // Show cluster enclosure spheres in cluster + custom-cluster modes
-      if (v === 'cluster' || v === 'custom-cluster') {
+      // Show enclosure hulls in every explicitly grouped view mode.
+      if (isHullMode()) {
         updateClusterSpheres()
       } else {
         clearClusterMeshes()
@@ -3247,6 +3223,7 @@
     unsubHighlightedFolder = graphHighlightedFolder.subscribe((p) => {
       currentHighlightedFolder = p
       syncBatchedVisuals()
+      syncHullLegendHighlight()
       scheduleLabelUpdate()
     })
 
@@ -3325,7 +3302,7 @@
       if (currentColoringMode === 'folder' && currentGraph3DData) {
         rebuildFolderColorMap(currentGraph3DData.nodes)
       }
-      if (currentColoringMode === 'cluster') {
+      if (currentColoringMode === 'cluster' || currentColoringMode === 'folder') {
         updateClusterSpheres(true)
       }
       syncBatchedVisuals()
@@ -3660,7 +3637,7 @@
     if (!currentGraph3DData) return []
     const counts = new Map<string, number>()
     for (const node of currentGraph3DData.nodes) {
-      const folder = getTopLevelFolder(node.path)
+      const folder = graphTopLevelFolder(node.path)
       counts.set(folder, (counts.get(folder) ?? 0) + 1)
     }
     const items: { folder: string; color: string; count: number }[] = []
@@ -4230,8 +4207,7 @@
         labelsVisible: graphLabelsVisible,
         linesVisible: graphLinesVisible,
         shapesVisible: graphShapesVisible,
-        shapesAvailable:
-          currentColoringMode === 'cluster' || currentColoringMode === 'custom-cluster',
+        shapesAvailable: isHullMode(),
         unconnectedHighlighted: currentUnconnectedHighlight,
         unconnectedCount: unconnectedNodeIds.size,
         hasSelection: currentSelected !== null,
@@ -4486,8 +4462,8 @@
         </div>
       {/if}
 
-      <!-- Cluster/topic enclosure labels (screen-projected from 3D centroids) -->
-      {#if graphLabelsVisible && (currentColoringMode === 'cluster' || currentColoringMode === 'custom-cluster') && clusterLabels.length > 0}
+      <!-- Group enclosure labels (screen-projected from 3D centroids) -->
+      {#if graphLabelsVisible && isHullMode() && clusterLabels.length > 0}
         {#each clusterLabels as label}
           {#if label.visible}
             <div
@@ -4496,10 +4472,8 @@
                 label.id !== activeHullHighlightId()}
               data-graph-export-label
               style="left: {label.screenX}px; top: {label.screenY}px; color: {paletteTextColor(
-                currentColoringMode === 'custom-cluster'
-                  ? currentCustomClusterPalette
-                  : currentClusterPalette,
-                label.id,
+                hullPalette(),
+                label.paletteIndex,
                 getBackgroundColor()
               )}"
             >
@@ -4520,8 +4494,7 @@
         labelsVisible={graphLabelsVisible}
         linesVisible={graphLinesVisible}
         shapesVisible={graphShapesVisible}
-        shapesAvailable={currentColoringMode === 'cluster' ||
-          currentColoringMode === 'custom-cluster'}
+        shapesAvailable={isHullMode()}
         onsearch={openGraphSearch}
         ontogglelabels={toggleGraphLabels}
         ontogglelines={toggleGraphLines}

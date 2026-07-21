@@ -13,6 +13,12 @@ import {
 } from './edge-utils'
 import { paletteColor, type HarmonicPalette } from './harmonic-palette'
 import { linkKey } from './graph-delta'
+import {
+  graphGroupIdForMode,
+  graphTopLevelFolder,
+  type GraphGroupId,
+  type GraphGroupingMode
+} from './graph-grouping'
 
 // ─── Constants ───────────────────────────────────────────────────────
 
@@ -56,11 +62,11 @@ export interface Graph3DNode {
   val: number
   /** Hex color string for the node sphere. */
   color: string
-  /** Optional pre-seeded X position (set by seedClusterPositions). */
+  /** Optional pre-seeded X position (set by the active grouping mode). */
   x?: number
-  /** Optional pre-seeded Y position (set by seedClusterPositions). */
+  /** Optional pre-seeded Y position (set by the active grouping mode). */
   y?: number
-  /** Optional pre-seeded Z position (set by seedClusterPositions). */
+  /** Optional pre-seeded Z position (set by the active grouping mode). */
   z?: number
 }
 
@@ -90,8 +96,8 @@ export interface Graph3DData {
 
 // ─── Types ───────────────────────────────────────────────────────────
 
-/** Coloring mode controlling node color assignment. */
-export type ColoringMode = 'cluster' | 'custom-cluster' | 'folder' | 'none'
+/** Coloring mode controlling node color assignment and spatial grouping. */
+export type ColoringMode = GraphGroupingMode
 
 /** Options for buildGraph3DData conversion. */
 export interface BuildGraph3DOptions {
@@ -119,15 +125,6 @@ function fileColor(path: string, palette: HarmonicPalette): string {
     hash = ((hash << 5) - hash + path.charCodeAt(i)) | 0
   }
   return paletteColor(palette, Math.abs(hash))
-}
-
-/**
- * Extract the top-level folder from a file path.
- * Returns '(root)' for files without a directory separator.
- */
-function getTopLevelFolder(path: string): string {
-  const idx = path.indexOf('/')
-  return idx >= 0 ? path.substring(0, idx) : '(root)'
 }
 
 /**
@@ -179,7 +176,7 @@ export function nodeColorForMode(
   }
 
   if (mode === 'folder') {
-    return folderColorMap?.get(getTopLevelFolder(node.path)) ?? defaultColor
+    return folderColorMap?.get(graphTopLevelFolder(node.path)) ?? defaultColor
   }
 
   // 'none' mode: per-file hash color for chunks, default for documents
@@ -311,16 +308,17 @@ export function edgeArrowColor(
  *
  * Mutates the `x`, `y`, `z` fields of each node in place.
  */
-export function seedClusterPositions(
+function seedPositionsByGroup(
   nodes: Graph3DNode[],
-  clusters: GraphCluster[],
-  spreadRadius: number = 200
+  groupIds: readonly GraphGroupId[],
+  groupIdForNode: (node: Graph3DNode) => GraphGroupId | null,
+  spreadRadius: number
 ): void {
   if (nodes.length === 0) return
 
-  // Compute Fibonacci sphere centroids for each cluster
-  const clusterCentroids = new Map<number, { x: number; y: number; z: number }>()
-  const n = clusters.length
+  // Compute Fibonacci sphere centroids for each active layout group.
+  const groupCentroids = new Map<GraphGroupId, { x: number; y: number; z: number }>()
+  const n = groupIds.length
 
   if (n > 0) {
     const goldenAngle = Math.PI * (1 + Math.sqrt(5))
@@ -329,7 +327,7 @@ export function seedClusterPositions(
       const phi = Math.acos(1 - (2 * (i + 0.5)) / n)
       const theta = goldenAngle * i
 
-      clusterCentroids.set(clusters[i].id, {
+      groupCentroids.set(groupIds[i], {
         x: Math.cos(theta) * Math.sin(phi) * spreadRadius,
         y: Math.sin(theta) * Math.sin(phi) * spreadRadius,
         z: Math.cos(phi) * spreadRadius
@@ -337,18 +335,19 @@ export function seedClusterPositions(
     }
   }
 
-  // Place each node near its cluster centroid or near origin
+  // Place each node near its group centroid or near origin.
   const jitterScale = spreadRadius * 0.15
 
   for (const node of nodes) {
-    const centroid = node.cluster_id != null ? clusterCentroids.get(node.cluster_id) : undefined
+    const groupId = groupIdForNode(node)
+    const centroid = groupId == null ? undefined : groupCentroids.get(groupId)
 
     if (centroid) {
       node.x = centroid.x + (Math.random() - 0.5) * jitterScale
       node.y = centroid.y + (Math.random() - 0.5) * jitterScale
       node.z = centroid.z + (Math.random() - 0.5) * jitterScale
     } else {
-      // Unclustered: near origin with jitter
+      // Ungrouped: near origin with jitter.
       node.x = (Math.random() - 0.5) * jitterScale
       node.y = (Math.random() - 0.5) * jitterScale
       node.z = (Math.random() - 0.5) * jitterScale
@@ -356,20 +355,81 @@ export function seedClusterPositions(
   }
 }
 
+/** Pre-seed positions using the grouping represented by the selected graph mode. */
+export function seedGroupedPositions(
+  nodes: Graph3DNode[],
+  mode: GraphGroupingMode,
+  spreadRadius: number = 200
+): void {
+  const groupIds = [...new Set(nodes.map((node) => graphGroupIdForMode(node, mode)))].filter(
+    (groupId): groupId is GraphGroupId => groupId != null
+  )
+  groupIds.sort((left, right) => left.localeCompare(right, undefined, { numeric: true }))
+  seedPositionsByGroup(nodes, groupIds, (node) => graphGroupIdForMode(node, mode), spreadRadius)
+}
+
+/** Backward-compatible automatic-cluster seeding helper used by focused unit tests. */
+export function seedClusterPositions(
+  nodes: Graph3DNode[],
+  clusters: GraphCluster[],
+  spreadRadius: number = 200
+): void {
+  seedPositionsByGroup(
+    nodes,
+    clusters.map((cluster) => `cluster:${cluster.id}`),
+    (node) => graphGroupIdForMode(node, 'cluster'),
+    spreadRadius
+  )
+}
+
+/** Compute current centroids for the active spatial grouping. */
+export function computeGraphGroupCentroids(
+  nodes: readonly Graph3DNode[],
+  mode: GraphGroupingMode
+): Map<GraphGroupId, { x: number; y: number; z: number }> {
+  const sums = new Map<GraphGroupId, { x: number; y: number; z: number; count: number }>()
+  for (const node of nodes) {
+    const groupId = graphGroupIdForMode(node, mode)
+    if (groupId == null) continue
+    const existing = sums.get(groupId)
+    if (existing) {
+      existing.x += node.x ?? 0
+      existing.y += node.y ?? 0
+      existing.z += node.z ?? 0
+      existing.count++
+    } else {
+      sums.set(groupId, {
+        x: node.x ?? 0,
+        y: node.y ?? 0,
+        z: node.z ?? 0,
+        count: 1
+      })
+    }
+  }
+
+  return new Map(
+    [...sums].map(([groupId, sum]) => [
+      groupId,
+      { x: sum.x / sum.count, y: sum.y / sum.count, z: sum.z / sum.count }
+    ])
+  )
+}
+
 /**
  * Seed positions for newly-added nodes near their already-positioned
  * neighbors, so an incremental patch drops nodes in a sensible place instead
  * of at the origin. Mutates x/y/z in place. Precedence:
  *   1. average of up to 3 positioned link-neighbors + jitter
- *   2. else the node's cluster centroid + jitter
+ *   2. else the node's active layout-group centroid + jitter
  *   3. else origin + jitter
  */
 export function seedNearNeighbors(
   newNodes: Graph3DNode[],
   allLinks: { sourceId: string; targetId: string }[],
   positions: Map<string, { x: number; y: number; z: number }>,
-  clusterCentroids: Map<number, { x: number; y: number; z: number }>,
-  jitter: number = 25
+  groupCentroids: ReadonlyMap<GraphGroupId, { x: number; y: number; z: number }>,
+  jitter: number = 25,
+  mode: GraphGroupingMode = 'cluster'
 ): void {
   if (newNodes.length === 0) return
 
@@ -412,7 +472,8 @@ export function seedNearNeighbors(
       continue
     }
 
-    const centroid = node.cluster_id != null ? clusterCentroids.get(node.cluster_id) : undefined
+    const groupId = graphGroupIdForMode(node, mode)
+    const centroid = groupId == null ? undefined : groupCentroids.get(groupId)
     if (centroid) {
       node.x = centroid.x + jit()
       node.y = centroid.y + jit()
@@ -455,7 +516,7 @@ export function buildGraph3DData(data: GraphData, options: BuildGraph3DOptions):
   let folderColorMap: Map<string, string> | null = null
   if (options.coloringMode === 'folder') {
     folderColorMap = new Map<string, string>()
-    const folders = new Set(data.nodes.map((n) => getTopLevelFolder(n.path)))
+    const folders = new Set(data.nodes.map((n) => graphTopLevelFolder(n.path)))
     let i = 0
     for (const folder of folders) {
       folderColorMap.set(folder, paletteColor(options.clusterPalette, i))
