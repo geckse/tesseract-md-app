@@ -23,9 +23,12 @@ import {
   graphData,
   graphLoading,
   graphError,
+  graphDataDirty,
   graphSelectedNode,
+  graphOpenedNode,
   graphColoringMode,
   graphLevel,
+  graphPathFilter,
   setGraphLevel,
   graphHighlightedFolder,
   graphEdgeFilter,
@@ -35,6 +38,7 @@ import {
   loadGraphData,
   refreshGraphData,
   openGraphView,
+  openGraphViewForPath,
   toggleGraphView,
   dispatchGraphMenuAction,
   onGraphMenuAction,
@@ -65,9 +69,11 @@ function resetStores() {
   graphData.set(null)
   graphLoading.set(false)
   graphError.set(null)
+  graphDataDirty.set(false)
   graphSelectedNode.set(null)
+  graphOpenedNode.set(null)
   graphHighlightedFolder.set(null)
-  graphEdgeFilter.set(new Set())
+  graphEdgeFilter.set(null)
   graphUnconnectedHighlight.set(false)
   graphSemanticEdgesEnabled.set(true)
   graphEdgeWeakThreshold.set(0.3)
@@ -149,10 +155,10 @@ describe('graph store', () => {
 
     it('replacement-loads an active empty graph after the first ingest', async () => {
       activateCollection(collection)
+      mockApi.graphData.mockResolvedValue(sampleGraphData)
       activateGraphTab()
       graphData.set(null)
       graphError.set('Index not found')
-      mockApi.graphData.mockResolvedValue(sampleGraphData)
 
       await refreshGraphData()
 
@@ -185,7 +191,9 @@ describe('graph store', () => {
       // Start first load
       const firstLoad = loadGraphData()
 
-      // Start second load (supersedes first)
+      // Change the request identity so this load supersedes rather than
+      // deduplicates the pending document request.
+      graphLevel.set('chunk')
       const secondLoad = loadGraphData()
 
       // Resolve second
@@ -199,6 +207,81 @@ describe('graph store', () => {
 
       // Results should still be from second load
       expect(get(graphData)).toEqual(sampleGraphData)
+    })
+
+    it('deduplicates identical concurrent graph reads', async () => {
+      activateCollection(collection)
+
+      let resolveRequest: (value: unknown) => void
+      mockApi.graphData.mockReturnValue(
+        new Promise((resolve) => {
+          resolveRequest = resolve
+        })
+      )
+
+      const first = loadGraphData()
+      const second = loadGraphData()
+
+      expect(mockApi.graphData).toHaveBeenCalledTimes(1)
+      resolveRequest!(sampleGraphData)
+      await Promise.all([first, second])
+      expect(get(graphData)).toEqual(sampleGraphData)
+    })
+
+    it('coalesces an invalidation during replacement into one follow-up refresh', async () => {
+      activateCollection(collection)
+
+      let resolveReplacement: (value: unknown) => void
+      mockApi.graphData
+        .mockReturnValueOnce(
+          new Promise((resolve) => {
+            resolveReplacement = resolve
+          })
+        )
+        .mockResolvedValueOnce(sampleGraphData)
+
+      const replacement = loadGraphData()
+      activateGraphTab()
+      const invalidation = refreshGraphData()
+
+      expect(mockApi.graphData).toHaveBeenCalledTimes(1)
+      resolveReplacement!(sampleGraphData)
+      await Promise.all([replacement, invalidation])
+
+      await vi.waitFor(() => {
+        expect(mockApi.graphData).toHaveBeenCalledTimes(2)
+        expect(get(graphDataDirty)).toBe(false)
+      })
+    })
+
+    it('coalesces hidden invalidations into one refresh on graph activation', async () => {
+      activateCollection(collection)
+      graphData.set(sampleGraphData)
+      mockApi.graphData.mockResolvedValue(sampleGraphData)
+
+      await refreshGraphData()
+      await refreshGraphData()
+
+      expect(get(graphViewActive)).toBe(false)
+      expect(get(graphDataDirty)).toBe(true)
+      expect(mockApi.graphData).not.toHaveBeenCalled()
+
+      activateGraphTab()
+
+      await vi.waitFor(() => {
+        expect(mockApi.graphData).toHaveBeenCalledTimes(1)
+        expect(get(graphDataDirty)).toBe(false)
+      })
+    })
+
+    it('loads a cold graph when its tab becomes active', async () => {
+      activateCollection(collection)
+      mockApi.graphData.mockResolvedValue(sampleGraphData)
+
+      activateGraphTab()
+
+      await vi.waitFor(() => expect(get(graphData)).toEqual(sampleGraphData))
+      expect(mockApi.graphData).toHaveBeenCalledTimes(1)
     })
 
     it('restores and reloads an active graph after the workspace resets for a collection switch', async () => {
@@ -225,6 +308,30 @@ describe('graph store', () => {
       expect(get(graphViewActive)).toBe(true)
       expect(mockApi.graphData).toHaveBeenCalledWith('/next', 'document', undefined)
       expect(get(graphData)).toEqual(sampleGraphData)
+    })
+
+    it('opens the graph home pane and replacement-loads a folder-scoped graph', async () => {
+      activateCollection(collection)
+      mockApi.graphData.mockResolvedValue(sampleGraphData)
+      graphSelectedNode.set({ path: 'a.md', cluster_id: 0 })
+      graphOpenedNode.set({ path: 'a.md', cluster_id: 0 })
+
+      workspace.toggleSplit()
+      const graphPaneId = workspace.paneOrder[0]
+      const documentPaneId = workspace.paneOrder[1]
+      workspace.openTab('notes.md', documentPaneId)
+      workspace.setActivePane(documentPaneId)
+
+      await openGraphViewForPath('docs/api')
+
+      expect(workspace.activePaneId).toBe(graphPaneId)
+      expect(get(graphViewActive)).toBe(true)
+      expect(get(graphPathFilter)).toBe('docs/api')
+      expect(mockApi.graphData).toHaveBeenCalledTimes(1)
+      expect(mockApi.graphData).toHaveBeenCalledWith('/test', 'document', 'docs/api')
+      expect(get(graphData)).toEqual(sampleGraphData)
+      expect(get(graphSelectedNode)).toBeNull()
+      expect(get(graphOpenedNode)).toBeNull()
     })
 
     it('does not activate or load Graph when another view was active before switching', async () => {
@@ -357,7 +464,7 @@ describe('graph store', () => {
       expect(get(graphError)).toBeNull()
       expect(get(graphSelectedNode)).toBeNull()
       expect(get(graphHighlightedFolder)).toBeNull()
-      expect(get(graphEdgeFilter).size).toBe(0)
+      expect(get(graphEdgeFilter)).toBeNull()
       expect(get(graphUnconnectedHighlight)).toBe(false)
       expect(get(graphSemanticEdgesEnabled)).toBe(true)
       expect(get(graphEdgeWeakThreshold)).toBe(0.3)
@@ -443,45 +550,56 @@ describe('graph store', () => {
   })
 
   describe('toggleEdgeClusterFilter', () => {
-    it('adds cluster ID to empty filter set', () => {
-      toggleEdgeClusterFilter(0)
-      expect(get(graphEdgeFilter)).toEqual(new Set([0]))
+    const edgeClusterIds = [0, 1, 2]
+
+    it('starts with every edge type visible', () => {
+      expect(get(graphEdgeFilter)).toBeNull()
     })
 
-    it('adds multiple cluster IDs', () => {
-      toggleEdgeClusterFilter(0)
-      toggleEdgeClusterFilter(2)
-      expect(get(graphEdgeFilter)).toEqual(new Set([0, 2]))
+    it('hides the clicked edge type when all types are visible', () => {
+      toggleEdgeClusterFilter(0, edgeClusterIds)
+
+      expect(get(graphEdgeFilter)).toEqual(new Set([1, 2]))
     })
 
-    it('removes cluster ID if already present', () => {
-      toggleEdgeClusterFilter(0)
-      toggleEdgeClusterFilter(1)
-      toggleEdgeClusterFilter(0)
-      expect(get(graphEdgeFilter)).toEqual(new Set([1]))
+    it('can preserve an explicit hide-all state', () => {
+      toggleEdgeClusterFilter(0, edgeClusterIds)
+      toggleEdgeClusterFilter(1, edgeClusterIds)
+      toggleEdgeClusterFilter(2, edgeClusterIds)
+
+      expect(get(graphEdgeFilter)).toEqual(new Set())
     })
 
-    it('results in empty set when all removed', () => {
-      toggleEdgeClusterFilter(0)
-      toggleEdgeClusterFilter(0)
-      expect(get(graphEdgeFilter).size).toBe(0)
+    it('restores the all-visible sentinel after every edge type is enabled', () => {
+      graphEdgeFilter.set(new Set())
+
+      toggleEdgeClusterFilter(0, edgeClusterIds)
+      toggleEdgeClusterFilter(1, edgeClusterIds)
+      toggleEdgeClusterFilter(2, edgeClusterIds)
+
+      expect(get(graphEdgeFilter)).toBeNull()
+    })
+
+    it('toggles an individual visible type without reversing its meaning', () => {
+      toggleEdgeClusterFilter(0, edgeClusterIds)
+      toggleEdgeClusterFilter(0, edgeClusterIds)
+
+      expect(get(graphEdgeFilter)).toBeNull()
     })
   })
 
   describe('clearEdgeFilter', () => {
-    it('clears all edge cluster filters', () => {
-      toggleEdgeClusterFilter(0)
-      toggleEdgeClusterFilter(1)
-      toggleEdgeClusterFilter(2)
+    it('restores all edge types after filtering', () => {
+      toggleEdgeClusterFilter(0, [0, 1, 2])
 
       clearEdgeFilter()
 
-      expect(get(graphEdgeFilter).size).toBe(0)
+      expect(get(graphEdgeFilter)).toBeNull()
     })
 
-    it('is a no-op when already empty', () => {
+    it('is a no-op when every edge type is already visible', () => {
       clearEdgeFilter()
-      expect(get(graphEdgeFilter).size).toBe(0)
+      expect(get(graphEdgeFilter)).toBeNull()
     })
   })
 

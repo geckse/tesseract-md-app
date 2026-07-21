@@ -29,7 +29,8 @@ export function focusTrap(container: HTMLElement): { destroy: () => void } {
 
   // Focus the first focusable child (autofocus wins if present), else the container.
   const initial =
-    container.querySelector<HTMLElement>('[autofocus]') ?? focusableChildren(container)[0]
+    container.querySelector<HTMLElement>('[autofocus], [data-autofocus]') ??
+    focusableChildren(container)[0]
   if (initial) {
     initial.focus()
   } else {

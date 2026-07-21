@@ -12,6 +12,7 @@ import {
   FRONTMATTER_EDGE_COLOR
 } from './edge-utils'
 import { paletteColor, type HarmonicPalette } from './harmonic-palette'
+import { linkKey } from './graph-delta'
 
 // ─── Constants ───────────────────────────────────────────────────────
 
@@ -77,6 +78,8 @@ export interface Graph3DLink {
   color: string
   /** Line width derived from strength. */
   width: number
+  /** Stable compact multiset key reused by incremental refreshes. */
+  content_key?: string
 }
 
 /** Complete graph data formatted for 3d-force-graph. */
@@ -158,28 +161,29 @@ export function nodeColorForMode(
   folderColorMap: Map<string, string> | null,
   isChunk: boolean,
   palette: HarmonicPalette,
-  customPalette: HarmonicPalette
+  customPalette: HarmonicPalette,
+  defaultColor = getDefaultNodeColor()
 ): string {
   if (mode === 'cluster') {
     if (node.cluster_id != null) {
       return paletteColor(palette, node.cluster_id)
     }
-    return isChunk ? fileColor(node.path, palette) : getDefaultNodeColor()
+    return isChunk ? fileColor(node.path, palette) : defaultColor
   }
 
   if (mode === 'custom-cluster') {
     if (node.custom_cluster_id != null) {
       return paletteColor(customPalette, node.custom_cluster_id)
     }
-    return isChunk ? fileColor(node.path, palette) : getDefaultNodeColor()
+    return isChunk ? fileColor(node.path, palette) : defaultColor
   }
 
   if (mode === 'folder') {
-    return folderColorMap?.get(getTopLevelFolder(node.path)) ?? getDefaultNodeColor()
+    return folderColorMap?.get(getTopLevelFolder(node.path)) ?? defaultColor
   }
 
   // 'none' mode: per-file hash color for chunks, default for documents
-  return isChunk ? fileColor(node.path, palette) : getDefaultNodeColor()
+  return isChunk ? fileColor(node.path, palette) : defaultColor
 }
 
 /**
@@ -444,7 +448,8 @@ export function buildGraph3DData(data: GraphData, options: BuildGraph3DOptions):
   const degreeMap = computeDegreeMap(visibleEdges)
 
   // 3. Compute max values for normalization
-  const maxSize = Math.max(1, ...data.nodes.map((n) => n.size ?? 0))
+  let maxSize = 1
+  for (const node of data.nodes) maxSize = Math.max(maxSize, node.size ?? 0)
 
   // 4. Build folder color map if in folder mode
   let folderColorMap: Map<string, string> | null = null
@@ -459,6 +464,13 @@ export function buildGraph3DData(data: GraphData, options: BuildGraph3DOptions):
   }
 
   const isChunk = options.level === 'chunk'
+  const defaultNodeColor = getDefaultNodeColor()
+
+  const edgeContext = (edge: GraphEdge): string | null => {
+    if (edge.context_text != null) return edge.context_text
+    if (edge.context_index == null) return null
+    return data.contexts?.[edge.context_index] ?? null
+  }
 
   // 5. Map nodes to Graph3DNode format
   const nodes: Graph3DNode[] = data.nodes.map((node) => {
@@ -470,7 +482,8 @@ export function buildGraph3DData(data: GraphData, options: BuildGraph3DOptions):
       folderColorMap,
       isChunk,
       options.clusterPalette,
-      options.customClusterPalette
+      options.customClusterPalette,
+      defaultNodeColor
     )
 
     return {
@@ -495,7 +508,10 @@ export function buildGraph3DData(data: GraphData, options: BuildGraph3DOptions):
     target: edge.target,
     relationship_type: edge.relationship_type ?? null,
     strength: edge.strength ?? null,
-    context_text: edge.context_text ?? null,
+    // Compact graph responses intern full contexts. Assigning the shared
+    // string reference here preserves existing tooltips without duplicating
+    // the serialized text once per edge.
+    context_text: edgeContext(edge),
     edge_cluster_id: edge.edge_cluster_id ?? null,
     field: edge.field ?? null,
     color: isFrontmatterEdge(edge)
@@ -506,7 +522,8 @@ export function buildGraph3DData(data: GraphData, options: BuildGraph3DOptions):
           options.weakThreshold,
           options.edgePalette
         ),
-    width: edgeLinkWidth(edge.strength ?? 0.5)
+    width: edgeLinkWidth(edge.strength ?? 0.5),
+    content_key: linkKey(edge, data.contexts)
   }))
 
   return { nodes, links }

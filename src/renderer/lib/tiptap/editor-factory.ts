@@ -16,6 +16,7 @@ import { MermaidBlockExtension } from './mermaid-block-extension'
 import { LinkBubbleExtension } from './link-bubble-extension'
 import { TableUIExtension } from './table-ui-extension'
 import { ImageResolverExtension } from './image-resolver-extension'
+import { MediaEmbedExtension } from './media-embed-extension'
 
 const lowlight = createLowlight(commonGrammars)
 
@@ -91,6 +92,7 @@ export function createWysiwygEditor(
         inline: false,
         allowBase64: true
       }),
+      MediaEmbedExtension,
       TableKit,
       TableUIExtension,
       MermaidBlockExtension,

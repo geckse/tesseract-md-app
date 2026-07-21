@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte'
   import FileTreeNode from './FileTreeNode.svelte'
   import {
     fileTree,
@@ -24,7 +25,7 @@
   import { activeCollection, activeCollectionId, openInfoModal } from '../stores/collections'
   import { runIngest, ingestRunning } from '../stores/ingest'
   import { favorites, toggleFavorite, retargetFavoritesOnRename } from '../stores/favorites'
-  import { setGraphPathFilter, setGraphHighlightedFolder, graphViewActive } from '../stores/graph'
+  import { openGraphViewForPath, setGraphHighlightedFolder } from '../stores/graph'
   import { get } from 'svelte/store'
   import type { Collection } from '../../preload/api'
   import type {
@@ -102,16 +103,22 @@
   let newFileError = $state<string | null>(null)
 
   // Context menu state
+  let contextMenuOpen: boolean = $state(false)
   let contextMenuPath: string | null = $state(null)
   let contextMenuIsDir: boolean = $state(false)
   let contextMenuIsAsset: boolean = $state(false)
   let contextMenuMimeCategory: string | undefined = $state(undefined)
   let contextMenuPosition = $state({ x: 0, y: 0 })
+  let contextMenuElement: HTMLDivElement | null = $state(null)
   let reindexingFile: string | null = $state(null)
 
   // Keyboard navigation state
   let focusedNodeIndex: number = $state(-1)
   let treeContentElement: HTMLDivElement | null = $state(null)
+  let treeElement: HTMLDivElement | null = $state(null)
+  let treeHasFocus: boolean = $state(false)
+  let typeaheadQuery = ''
+  let lastTypeaheadAt = 0
 
   // Virtual list state
   const ITEM_HEIGHT = 28 // Fixed height for each tree row in pixels (matches FileTreeNode height)
@@ -170,76 +177,189 @@
     }))
   })
 
-  // Keyboard event handler
+  function treeItemId(path: string): string {
+    return `file-tree-item-${encodeURIComponent(path)}`
+  }
+
+  function focusNode(index: number): void {
+    if (flatNodes.length === 0) {
+      focusedNodeIndex = -1
+      return
+    }
+    focusedNodeIndex = Math.max(0, Math.min(index, flatNodes.length - 1))
+    scrollToFocusedNode()
+  }
+
+  function focusNodeByPath(path: string, focusTree = true): void {
+    const index = flatNodes.findIndex((node) => node.path === path)
+    if (index >= 0) focusNode(index)
+    if (focusTree) treeElement?.focus({ preventScroll: true })
+  }
+
+  function focusParentNode(index: number): void {
+    const currentNode = flatNodes[index]
+    if (!currentNode || currentNode.depth === 0) return
+    for (let candidate = index - 1; candidate >= 0; candidate--) {
+      if (flatNodes[candidate].depth < currentNode.depth) {
+        focusNode(candidate)
+        return
+      }
+    }
+  }
+
+  function handleTreeFocusOut(event: FocusEvent): void {
+    const nextTarget = event.relatedTarget
+    if (!(nextTarget instanceof Node) || !treeElement?.contains(nextTarget)) {
+      treeHasFocus = false
+    }
+  }
+
+  function openNode(node: FlatNode, forceNewTab = false): void {
+    if (node.isDir) {
+      handleFolderClick(node.path)
+      onfolderopen?.({ path: node.path })
+    } else if (node.isAsset) {
+      handleAssetSelect({
+        path: node.path,
+        mimeCategory: node.node.mimeCategory ?? 'other',
+        fileSize: node.node.fileSize
+      })
+    } else {
+      onfileselect?.({ path: node.path, forceNewTab })
+    }
+  }
+
+  function handleTypeahead(e: KeyboardEvent): boolean {
+    if (e.key.length !== 1 || e.altKey || e.ctrlKey || e.metaKey || e.key === ' ') return false
+    const now = Date.now()
+    typeaheadQuery = now - lastTypeaheadAt > 700 ? e.key : `${typeaheadQuery}${e.key}`
+    lastTypeaheadAt = now
+
+    const query = typeaheadQuery.toLocaleLowerCase()
+    const searchOrder = [
+      ...flatNodes.slice(focusedNodeIndex + 1),
+      ...flatNodes.slice(0, focusedNodeIndex + 1)
+    ]
+    const match = searchOrder.find((node) => node.node.name.toLocaleLowerCase().startsWith(query))
+    if (!match) return false
+    const index = flatNodes.findIndex((node) => node.path === match.path)
+    if (index < 0) return false
+    e.preventDefault()
+    focusNode(index)
+    return true
+  }
+
+  // Implements the WAI-ARIA tree keyboard pattern over the visible rows.
   function handleKeyDown(e: KeyboardEvent) {
     if ((!currentFileTree && !currentUnifiedTree) || flatNodes.length === 0) return
 
-    // Ignore if we're in a text input or menu
-    if (contextMenuPath || ingestMenuOpen) return
+    const target = e.target as HTMLElement | null
+    if (
+      contextMenuOpen ||
+      ingestMenuOpen ||
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLTextAreaElement
+    ) {
+      return
+    }
 
+    if (focusedNodeIndex < 0) focusedNodeIndex = 0
     const currentNode = flatNodes[focusedNodeIndex]
 
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault()
-        focusedNodeIndex = Math.min(focusedNodeIndex + 1, flatNodes.length - 1)
-        scrollToFocusedNode()
+        focusNode(focusedNodeIndex + 1)
         break
 
       case 'ArrowUp':
         e.preventDefault()
-        focusedNodeIndex = Math.max(focusedNodeIndex - 1, 0)
-        scrollToFocusedNode()
+        focusNode(focusedNodeIndex - 1)
         break
 
-      case 'ArrowRight':
+      case 'ArrowRight': {
         e.preventDefault()
-        if (currentNode && currentNode.isDir) {
-          if (!currentExpandedPaths.has(currentNode.path)) {
-            toggleExpanded(currentNode.path)
-          }
+        if (!currentNode?.isDir) break
+        if (!currentExpandedPaths.has(currentNode.path)) {
+          toggleExpanded(currentNode.path)
+        } else {
+          const firstChild = flatNodes[focusedNodeIndex + 1]
+          if (firstChild && firstChild.depth > currentNode.depth) focusNode(focusedNodeIndex + 1)
         }
         break
+      }
 
       case 'ArrowLeft':
         e.preventDefault()
-        if (currentNode && currentNode.isDir) {
-          if (currentExpandedPaths.has(currentNode.path)) {
-            toggleExpanded(currentNode.path)
-          }
+        if (currentNode?.isDir && currentExpandedPaths.has(currentNode.path)) {
+          toggleExpanded(currentNode.path)
+        } else {
+          focusParentNode(focusedNodeIndex)
         }
+        break
+
+      case 'Home':
+        e.preventDefault()
+        focusNode(0)
+        break
+
+      case 'End':
+        e.preventDefault()
+        focusNode(flatNodes.length - 1)
         break
 
       case 'Enter':
         e.preventDefault()
-        if (currentNode && currentNode.isDir) {
-          toggleExpanded(currentNode.path)
-          handleFolderClick(currentNode.path)
-          onfolderopen?.({ path: currentNode.path })
-        } else if (currentNode && currentNode.isAsset) {
-          handleAssetSelect({
-            path: currentNode.path,
-            mimeCategory: currentNode.node.mimeCategory ?? 'other',
-            fileSize: currentNode.node.fileSize
-          })
-        } else if (currentNode) {
-          onfileselect?.({ path: currentNode.path })
+        if (currentNode) openNode(currentNode, e.metaKey || e.ctrlKey)
+        break
+
+      case ' ':
+        e.preventDefault()
+        if (currentNode?.isDir) toggleExpanded(currentNode.path)
+        else if (currentNode) openNode(currentNode)
+        break
+
+      case 'F2':
+        e.preventDefault()
+        if (currentNode) startRename(currentNode.path, currentNode.isDir)
+        break
+
+      case 'ContextMenu':
+        e.preventDefault()
+        if (currentNode) void openContextMenuForFocusedNode(currentNode)
+        break
+
+      case 'F10':
+        if (e.shiftKey && currentNode) {
+          e.preventDefault()
+          void openContextMenuForFocusedNode(currentNode)
         }
         break
+
+      default:
+        handleTypeahead(e)
     }
   }
 
   function scrollToFocusedNode() {
     if (!treeContentElement || focusedNodeIndex < 0) return
 
-    // Calculate the scroll position for the focused node
-    const targetScrollTop = scrollToIndex(focusedNodeIndex, ITEM_HEIGHT, containerHeight, 'center')
+    const itemTop = focusedNodeIndex * ITEM_HEIGHT
+    const itemBottom = itemTop + ITEM_HEIGHT
+    const viewportTop = treeContentElement.scrollTop
+    const viewportBottom = viewportTop + containerHeight
+    let targetScrollTop = viewportTop
 
-    // Smooth scroll to the focused node
-    treeContentElement.scrollTo({
-      top: targetScrollTop,
-      behavior: 'smooth'
-    })
+    if (itemTop < viewportTop) {
+      targetScrollTop = scrollToIndex(focusedNodeIndex, ITEM_HEIGHT, containerHeight, 'start')
+    } else if (itemBottom > viewportBottom) {
+      targetScrollTop = scrollToIndex(focusedNodeIndex, ITEM_HEIGHT, containerHeight, 'end')
+    }
+
+    if (targetScrollTop !== viewportTop) {
+      treeContentElement.scrollTop = Math.max(0, targetScrollTop)
+      scrollTop = treeContentElement.scrollTop
+    }
   }
 
   // Throttled scroll handler for performance
@@ -267,10 +387,41 @@
         focusedNodeIndex = Math.max(0, flatNodes.length - 1)
       }
       if (focusedNodeIndex < 0 && flatNodes.length > 0) {
-        focusedNodeIndex = 0
+        const selectedIndex = currentSelectedFilePath
+          ? flatNodes.findIndex((node) => node.path === currentSelectedFilePath)
+          : -1
+        focusedNodeIndex = selectedIndex >= 0 ? selectedIndex : 0
       }
     }
   })
+
+  async function openContextMenu(
+    path: string,
+    isDir: boolean,
+    isAsset: boolean,
+    mimeCategory: string | undefined,
+    x: number,
+    y: number
+  ): Promise<void> {
+    contextMenuOpen = true
+    contextMenuPath = path
+    contextMenuIsDir = isDir
+    contextMenuIsAsset = isAsset
+    contextMenuMimeCategory = mimeCategory
+    contextMenuPosition = { x: Math.max(8, x), y: Math.max(8, y) }
+
+    await tick()
+    if (!contextMenuElement) return
+
+    const rect = contextMenuElement.getBoundingClientRect()
+    contextMenuPosition = {
+      x: Math.max(8, Math.min(contextMenuPosition.x, window.innerWidth - rect.width - 8)),
+      y: Math.max(8, Math.min(contextMenuPosition.y, window.innerHeight - rect.height - 8))
+    }
+    contextMenuElement
+      .querySelector<HTMLButtonElement>('.context-menu-item:not(:disabled)')
+      ?.focus()
+  }
 
   function handleNodeContextMenu(detail: {
     path: string
@@ -280,15 +431,83 @@
     x: number
     y: number
   }) {
-    contextMenuPath = detail.path
-    contextMenuIsDir = detail.isDir
-    contextMenuIsAsset = detail.isAsset
-    contextMenuMimeCategory = detail.mimeCategory
-    contextMenuPosition = { x: detail.x, y: detail.y }
+    focusNodeByPath(detail.path, false)
+    void openContextMenu(
+      detail.path,
+      detail.isDir,
+      detail.isAsset,
+      detail.mimeCategory,
+      detail.x,
+      detail.y
+    )
+  }
+
+  function handleTreeBackgroundContextMenu(event: MouseEvent): void {
+    event.preventDefault()
+    if (!currentActiveCollection) return
+    void openContextMenu('', true, false, undefined, event.clientX, event.clientY)
+  }
+
+  function handleTreeBackgroundKeyDown(event: KeyboardEvent): void {
+    if (event.target !== event.currentTarget) return
+    if (event.key !== 'ContextMenu' && !(event.key === 'F10' && event.shiftKey)) return
+    event.preventDefault()
+    const rect = treeContentElement?.getBoundingClientRect()
+    void openContextMenu('', true, false, undefined, rect?.left ?? 16, rect?.top ?? 16)
+  }
+
+  async function openContextMenuForFocusedNode(node: FlatNode): Promise<void> {
+    const item = document.getElementById(treeItemId(node.path))
+    const rect = item?.getBoundingClientRect()
+    await openContextMenu(
+      node.path,
+      node.isDir,
+      node.isAsset,
+      node.node.mimeCategory,
+      rect ? rect.left + 28 : 16,
+      rect ? rect.bottom : 16
+    )
   }
 
   function closeContextMenu() {
+    contextMenuOpen = false
     contextMenuPath = null
+  }
+
+  function handleContextMenuKeyDown(event: KeyboardEvent): void {
+    if (!contextMenuElement) return
+    const items = Array.from(
+      contextMenuElement.querySelectorAll<HTMLButtonElement>('.context-menu-item:not(:disabled)')
+    )
+    if (items.length === 0) return
+
+    const currentIndex = Math.max(0, items.indexOf(document.activeElement as HTMLButtonElement))
+    let nextIndex: number | null = null
+    switch (event.key) {
+      case 'ArrowDown':
+        nextIndex = (currentIndex + 1) % items.length
+        break
+      case 'ArrowUp':
+        nextIndex = (currentIndex - 1 + items.length) % items.length
+        break
+      case 'Home':
+        nextIndex = 0
+        break
+      case 'End':
+        nextIndex = items.length - 1
+        break
+      case 'Escape':
+      case 'Tab':
+        event.preventDefault()
+        closeContextMenu()
+        treeElement?.focus({ preventScroll: true })
+        return
+      default:
+        return
+    }
+    if (nextIndex === null) return
+    event.preventDefault()
+    items[nextIndex].focus()
   }
 
   function handleOpenInNewTab() {
@@ -382,10 +601,7 @@
     if (!contextMenuPath) return
     const path = contextMenuPath
     closeContextMenu()
-    setGraphPathFilter(path)
-    if (!get(graphViewActive)) {
-      graphViewActive.set(true)
-    }
+    void openGraphViewForPath(path)
   }
 
   function handleOpenAsTable() {
@@ -404,12 +620,18 @@
 
   // New file/folder creation
   function startNewFile(dirPath: string = '') {
+    if (dirPath) {
+      expandedPaths.update((paths) => new Set(paths).add(dirPath))
+    }
     newFileInput = { dirPath, type: 'file' }
     newFileInputValue = ''
     newFileError = null
   }
 
   function startNewFolder(dirPath: string = '') {
+    if (dirPath) {
+      expandedPaths.update((paths) => new Set(paths).add(dirPath))
+    }
     newFileInput = { dirPath, type: 'folder' }
     newFileInputValue = ''
     newFileError = null
@@ -422,17 +644,38 @@
     }
 
     const name = newFileInputValue.trim()
+    const validationError = validateNewEntryName(name)
+    if (validationError) {
+      newFileError = validationError
+      return
+    }
+
     try {
+      let createdPath: string | null
       if (newFileInput.type === 'file') {
-        await createNewFile(newFileInput.dirPath, name)
+        createdPath = await createNewFile(newFileInput.dirPath, name)
       } else {
-        await createNewDirectory(newFileInput.dirPath, name)
+        createdPath = await createNewDirectory(newFileInput.dirPath, name)
       }
       newFileInput = null
       newFileError = null
+      await tick()
+      if (createdPath) focusNodeByPath(createdPath)
     } catch (err) {
       newFileError = err instanceof Error ? err.message : String(err)
     }
+  }
+
+  function validateNewEntryName(name: string): string | null {
+    if (!name) return 'Enter a name'
+    if (name === '.' || name === '..') return 'Choose a different name'
+    // eslint-disable-next-line no-control-regex
+    if (/[<>:"/\\|?*\x00-\x1f]/.test(name)) return 'Name contains invalid characters'
+    if (/[. ]$/.test(name)) return 'Name cannot end with a dot or space'
+    if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i.test(name)) {
+      return 'That name is reserved by the operating system'
+    }
+    return null
   }
 
   function handleNewFileKeydown(e: KeyboardEvent) {
@@ -467,17 +710,21 @@
   let renameIsDir = $state(false)
   let renameError = $state<string | null>(null)
 
-  function handleContextMenuRename() {
-    if (!contextMenuPath) return
-    const path = contextMenuPath
-    const isDir = contextMenuIsDir
-    closeContextMenu()
+  function startRename(path: string, isDir: boolean): void {
     const baseName = path.split('/').pop() ?? path
     renamingPath = path
     renameIsDir = isDir
     // Files edit the name without extension (re-appended on commit, like FileNameEditor)
     renameInitial = isDir ? baseName : baseName.replace(/\.[^.]+$/, '')
     renameError = null
+  }
+
+  function handleContextMenuRename() {
+    if (!contextMenuPath) return
+    const path = contextMenuPath
+    const isDir = contextMenuIsDir
+    closeContextMenu()
+    startRename(path, isDir)
   }
 
   function cancelRename() {
@@ -708,7 +955,7 @@
         ingestMenuOpen = false
       }
     }
-    if (contextMenuPath) {
+    if (contextMenuOpen) {
       closeContextMenu()
     }
   }
@@ -811,7 +1058,45 @@
   {/if}
 
   <!-- Content -->
-  <div class="file-tree-content" bind:this={treeContentElement} onscroll={handleScroll}>
+  <div
+    class="file-tree-content"
+    role="region"
+    aria-label="File list"
+    bind:this={treeContentElement}
+    onscroll={handleScroll}
+    oncontextmenu={handleTreeBackgroundContextMenu}
+  >
+    {#if newFileInput && currentActiveCollection && !currentFileTreeLoading && !currentFileTreeError}
+      <div class="new-file-input-row" style="padding-left: 12px;">
+        <span class="material-symbols-outlined new-file-icon">
+          {newFileInput.type === 'file' ? 'note_add' : 'create_new_folder'}
+        </span>
+        {#if newFileInput.dirPath}
+          <span class="new-file-parent" title={newFileInput.dirPath}>{newFileInput.dirPath}/</span>
+        {/if}
+        <!-- svelte-ignore a11y_autofocus -->
+        <input
+          class="new-file-input"
+          class:has-error={!!newFileError}
+          type="text"
+          placeholder={newFileInput.type === 'file' ? 'filename.md' : 'folder name'}
+          bind:value={newFileInputValue}
+          onkeydown={handleNewFileKeydown}
+          onblur={() => commitNewFile()}
+          autofocus
+          aria-label={newFileInput.type === 'file' ? 'New file name' : 'New folder name'}
+          aria-invalid={newFileError ? 'true' : undefined}
+        />
+        {#if newFileError}
+          <span class="new-file-error" title={newFileError}>
+            <span class="material-symbols-outlined">error</span>
+          </span>
+        {/if}
+      </div>
+      {#if newFileError}
+        <div class="new-file-error-message" role="alert">{newFileError}</div>
+      {/if}
+    {/if}
     {#if !currentActiveCollection}
       <div class="empty-state">
         <span class="material-symbols-outlined empty-icon">folder_off</span>
@@ -831,40 +1116,30 @@
           Retry
         </button>
       </div>
-    {:else if currentFileTree && currentFileTree.root.children.length === 0}
-      <div class="empty-state">
+    {:else if currentUnifiedTree && currentUnifiedTree.children.length === 0}
+      <div
+        class="empty-state"
+        role="tree"
+        aria-label="Empty collection file tree"
+        tabindex="0"
+        onkeydown={handleTreeBackgroundKeyDown}
+      >
         <span class="material-symbols-outlined empty-icon">description</span>
         <span class="empty-text">No markdown files found</span>
       </div>
     {:else if currentUnifiedTree}
-      {#if newFileInput}
-        <div class="new-file-input-row" style="padding-left: 28px;">
-          <span class="material-symbols-outlined new-file-icon">
-            {newFileInput.type === 'file' ? 'note_add' : 'create_new_folder'}
-          </span>
-          <!-- svelte-ignore a11y_autofocus -->
-          <input
-            class="new-file-input"
-            class:has-error={!!newFileError}
-            type="text"
-            placeholder={newFileInput.type === 'file' ? 'filename.md' : 'folder name'}
-            bind:value={newFileInputValue}
-            onkeydown={handleNewFileKeydown}
-            onblur={() => commitNewFile()}
-            autofocus
-          />
-          {#if newFileError}
-            <span class="new-file-error" title={newFileError}>
-              <span class="material-symbols-outlined">error</span>
-            </span>
-          {/if}
-        </div>
-      {/if}
       <div
+        bind:this={treeElement}
         class="tree-nodes-virtual"
         role="tree"
         aria-label="Collection file tree"
+        aria-describedby="file-tree-keyboard-help"
+        aria-activedescendant={flatNodes[focusedNodeIndex]
+          ? treeItemId(flatNodes[focusedNodeIndex].path)
+          : undefined}
         onkeydown={handleKeyDown}
+        onfocusin={() => (treeHasFocus = true)}
+        onfocusout={handleTreeFocusOut}
         tabindex="0"
         style="height: {virtualState.totalHeight}px;"
       >
@@ -881,7 +1156,9 @@
               oncontextmenu={handleNodeContextMenu}
               onfolderclick={handleFolderClick}
               onfolderopen={(path) => onfolderopen?.({ path })}
-              focusedPath={flatNodes[focusedNodeIndex]?.path}
+              onnodefocus={(path) => focusNodeByPath(path)}
+              focusedPath={treeHasFocus ? flatNodes[focusedNodeIndex]?.path : undefined}
+              itemId={treeItemId(node.path)}
               {depth}
               noRecursiveRender={true}
               {currentSelectedFilePath}
@@ -895,121 +1172,139 @@
           </div>
         {/each}
       </div>
+      <span id="file-tree-keyboard-help" class="sr-only">
+        Use arrow keys to navigate, Enter to open, Space to expand or collapse folders, F2 to
+        rename, and Shift F10 for actions.
+      </span>
     {/if}
   </div>
 </div>
 
 <!-- File context menu -->
-{#if contextMenuPath}
+{#if contextMenuOpen}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="context-menu-overlay" onclick={closeContextMenu}>
     <div
+      bind:this={contextMenuElement}
       class="context-menu"
+      role="menu"
+      tabindex="-1"
+      aria-label={contextMenuPath ? `Actions for ${contextMenuPath}` : 'Collection actions'}
       style="left: {contextMenuPosition.x}px; top: {contextMenuPosition.y}px;"
       onclick={(e) => e.stopPropagation()}
+      oncontextmenu={(e) => e.preventDefault()}
+      onkeydown={handleContextMenuKeyDown}
     >
-      {#if !contextMenuIsDir && !contextMenuIsAsset}
-        <button class="context-menu-item" onclick={handleOpenInNewTab}>
-          <span class="material-symbols-outlined">tab</span>
-          Open in New Tab
-        </button>
-      {/if}
-      {#if !contextMenuIsDir}
-        <button class="context-menu-item" onclick={handleOpenInPopup}>
-          <span class="material-symbols-outlined">picture_in_picture_alt</span>
-          Open in Popup Window
-        </button>
-      {/if}
-      <button class="context-menu-item" onclick={handleRevealInFolder}>
-        <span class="material-symbols-outlined">folder_open</span>
-        {isMac ? 'Reveal in Finder' : 'Reveal in File Explorer'}
+      <button role="menuitem" class="context-menu-item" onclick={handleContextMenuNewFile}>
+        <span class="material-symbols-outlined">note_add</span>
+        New File
       </button>
-      {#if !contextMenuIsDir}
-        <button class="context-menu-item" onclick={handleOpenInEditor}>
-          <span class="material-symbols-outlined">open_in_new</span>
-          Open in Default App
-        </button>
-      {/if}
-      <div class="context-menu-separator"></div>
-      <button class="context-menu-item" onclick={handleCopyPath}>
-        <span class="material-symbols-outlined">content_copy</span>
-        Copy Path
+      <button role="menuitem" class="context-menu-item" onclick={handleContextMenuNewFolder}>
+        <span class="material-symbols-outlined">create_new_folder</span>
+        New Folder
       </button>
-      <button class="context-menu-item" onclick={handleCopyRelativePath}>
-        <span class="material-symbols-outlined">content_copy</span>
-        Copy Relative Path
-      </button>
-      {#if contextMenuIsAsset && !contextMenuIsDir}
-        <button class="context-menu-item" onclick={handleCopyMarkdownRef}>
-          <span class="material-symbols-outlined">link</span>
-          Copy Markdown Reference
-        </button>
-      {/if}
-      {#if contextMenuIsDir}
-        <div class="context-menu-separator"></div>
-        <button class="context-menu-item" onclick={handleOpenAsTable}>
-          <span class="material-symbols-outlined">table</span>
-          Open as Table
-        </button>
-        <button class="context-menu-item" onclick={handleContextMenuNewFile}>
-          <span class="material-symbols-outlined">note_add</span>
-          New File
-        </button>
-        <button class="context-menu-item" onclick={handleContextMenuNewFolder}>
-          <span class="material-symbols-outlined">create_new_folder</span>
-          New Folder
-        </button>
-        {#if !contextMenuIsAsset}
-          <div class="context-menu-separator"></div>
-          <button class="context-menu-item" onclick={handleShowInGraph}>
-            <span class="material-symbols-outlined">hub</span>
-            Show in Graph
-          </button>
-          <button class="context-menu-item" onclick={handleInformation}>
-            <span class="material-symbols-outlined">info</span>
-            Information
+      {#if contextMenuPath}
+        <div class="context-menu-separator" role="separator"></div>
+        {#if !contextMenuIsDir && !contextMenuIsAsset}
+          <button role="menuitem" class="context-menu-item" onclick={handleOpenInNewTab}>
+            <span class="material-symbols-outlined">tab</span>
+            Open in New Tab
           </button>
         {/if}
-      {/if}
-      {#if !contextMenuIsDir && !contextMenuIsAsset}
-        <div class="context-menu-separator"></div>
-        <button class="context-menu-item" onclick={handleToggleFavorite}>
-          <span class="material-symbols-outlined">
-            {isContextMenuFileFavorited() ? 'heart_minus' : 'heart_plus'}
-          </span>
-          {isContextMenuFileFavorited() ? 'Remove from Favorites' : 'Add to Favorites'}
+        {#if !contextMenuIsDir}
+          <button role="menuitem" class="context-menu-item" onclick={handleOpenInPopup}>
+            <span class="material-symbols-outlined">picture_in_picture_alt</span>
+            Open in Popup Window
+          </button>
+        {/if}
+        <button role="menuitem" class="context-menu-item" onclick={handleRevealInFolder}>
+          <span class="material-symbols-outlined">folder_open</span>
+          {isMac ? 'Reveal in Finder' : 'Reveal in File Explorer'}
         </button>
-        <div class="context-menu-separator"></div>
-        <button
-          class="context-menu-item"
-          onclick={handleReindexFile}
-          disabled={reindexingFile !== null}
-        >
-          <span
-            class="material-symbols-outlined"
-            class:spinning={reindexingFile === contextMenuPath}
+        {#if !contextMenuIsDir}
+          <button role="menuitem" class="context-menu-item" onclick={handleOpenInEditor}>
+            <span class="material-symbols-outlined">open_in_new</span>
+            Open in Default App
+          </button>
+        {/if}
+        <div class="context-menu-separator" role="separator"></div>
+        <button role="menuitem" class="context-menu-item" onclick={handleCopyPath}>
+          <span class="material-symbols-outlined">content_copy</span>
+          Copy Path
+        </button>
+        <button role="menuitem" class="context-menu-item" onclick={handleCopyRelativePath}>
+          <span class="material-symbols-outlined">content_copy</span>
+          Copy Relative Path
+        </button>
+        {#if contextMenuIsAsset && !contextMenuIsDir}
+          <button role="menuitem" class="context-menu-item" onclick={handleCopyMarkdownRef}>
+            <span class="material-symbols-outlined">link</span>
+            Copy Markdown Reference
+          </button>
+        {/if}
+        {#if contextMenuIsDir}
+          <div class="context-menu-separator" role="separator"></div>
+          <button role="menuitem" class="context-menu-item" onclick={handleOpenAsTable}>
+            <span class="material-symbols-outlined">table</span>
+            Open as Table
+          </button>
+          {#if !contextMenuIsAsset}
+            <div class="context-menu-separator" role="separator"></div>
+            <button role="menuitem" class="context-menu-item" onclick={handleShowInGraph}>
+              <span class="material-symbols-outlined">hub</span>
+              Show in Graph
+            </button>
+            <button role="menuitem" class="context-menu-item" onclick={handleInformation}>
+              <span class="material-symbols-outlined">info</span>
+              Information
+            </button>
+          {/if}
+        {/if}
+        {#if !contextMenuIsDir && !contextMenuIsAsset}
+          <div class="context-menu-separator" role="separator"></div>
+          <button role="menuitem" class="context-menu-item" onclick={handleToggleFavorite}>
+            <span class="material-symbols-outlined">
+              {isContextMenuFileFavorited() ? 'heart_minus' : 'heart_plus'}
+            </span>
+            {isContextMenuFileFavorited() ? 'Remove from Favorites' : 'Add to Favorites'}
+          </button>
+          <div class="context-menu-separator" role="separator"></div>
+          <button
+            role="menuitem"
+            class="context-menu-item"
+            onclick={handleReindexFile}
+            disabled={reindexingFile !== null}
           >
-            {reindexingFile === contextMenuPath ? 'sync' : 'refresh'}
-          </span>
-          {reindexingFile === contextMenuPath ? 'Reindexing...' : 'Reindex File'}
+            <span
+              class="material-symbols-outlined"
+              class:spinning={reindexingFile === contextMenuPath}
+            >
+              {reindexingFile === contextMenuPath ? 'sync' : 'refresh'}
+            </span>
+            {reindexingFile === contextMenuPath ? 'Reindexing...' : 'Reindex File'}
+          </button>
+        {/if}
+        <div class="context-menu-separator" role="separator"></div>
+        <button role="menuitem" class="context-menu-item" onclick={handleContextMenuRename}>
+          <span class="material-symbols-outlined">edit</span>
+          Rename
+        </button>
+        {#if !contextMenuIsDir}
+          <button role="menuitem" class="context-menu-item" onclick={handleDuplicate}>
+            <span class="material-symbols-outlined">file_copy</span>
+            Duplicate
+          </button>
+        {/if}
+        <button
+          role="menuitem"
+          class="context-menu-item context-menu-item-danger"
+          onclick={handleDelete}
+        >
+          <span class="material-symbols-outlined">delete</span>
+          Delete
         </button>
       {/if}
-      <div class="context-menu-separator"></div>
-      <button class="context-menu-item" onclick={handleContextMenuRename}>
-        <span class="material-symbols-outlined">edit</span>
-        Rename
-      </button>
-      {#if !contextMenuIsDir}
-        <button class="context-menu-item" onclick={handleDuplicate}>
-          <span class="material-symbols-outlined">file_copy</span>
-          Duplicate
-        </button>
-      {/if}
-      <button class="context-menu-item context-menu-item-danger" onclick={handleDelete}>
-        <span class="material-symbols-outlined">delete</span>
-        Delete
-      </button>
     </div>
   </div>
 {/if}
@@ -1240,6 +1535,7 @@
   .tree-nodes-virtual {
     position: relative;
     width: 100%;
+    outline: none;
   }
 
   .virtual-node-wrapper {
@@ -1314,6 +1610,8 @@
     border-radius: 8px;
     padding: 4px;
     min-width: 180px;
+    max-height: calc(100vh - 16px);
+    overflow-y: auto;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
     z-index: 101;
   }
@@ -1335,6 +1633,13 @@
   }
 
   .context-menu-item:hover {
+    background: var(--color-surface-darker, #0a0a0a);
+    color: var(--color-text-white, #fff);
+  }
+
+  .context-menu-item:focus-visible {
+    outline: 1px solid var(--color-primary, #00e5ff);
+    outline-offset: -1px;
     background: var(--color-surface-darker, #0a0a0a);
     color: var(--color-text-white, #fff);
   }
@@ -1378,6 +1683,16 @@
     flex-shrink: 0;
   }
 
+  .new-file-parent {
+    max-width: 45%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--color-text-dim, #71717a);
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
   .new-file-input {
     flex: 1;
     height: 22px;
@@ -1404,8 +1719,32 @@
     color: var(--color-error, #ef4444);
   }
 
+  .new-file-error-message {
+    padding: 0 12px 6px 40px;
+    color: var(--color-error, #ef4444);
+    font-size: 11px;
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
   /* Asset toggle */
   .active-toggle {
     color: var(--color-primary, #00e5ff) !important;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .context-menu-item {
+      transition: none;
+    }
   }
 </style>

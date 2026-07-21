@@ -183,6 +183,7 @@ export type EditorCommandId =
   | 'format.blockquote'
   | 'format.code-block'
   | 'format.link'
+  | 'format.media'
   | 'format.insert-table'
   | 'format.hr'
   | 'structure.toc'

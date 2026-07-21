@@ -387,6 +387,11 @@ export interface GraphEdge {
   strength?: number | null
   /** Context text excerpt describing the relationship. */
   context_text?: string | null
+  /**
+   * Zero-based index into the response-level GraphData.contexts string table.
+   * Present on compact CLI graph responses instead of context_text.
+   */
+  context_index?: number | null
   /** ID of the edge cluster this edge belongs to. */
   edge_cluster_id?: number | null
   /**
@@ -421,12 +426,21 @@ export interface GraphCluster {
 export interface GraphData {
   nodes: GraphNode[]
   edges: GraphEdge[]
+  /** Full, deduplicated edge contexts used by compact graph responses. */
+  contexts?: string[]
   clusters: GraphCluster[]
   level: GraphLevel
   /** Edge clusters discovered by semantic analysis. */
   edge_clusters?: GraphEdgeCluster[]
   /** User-defined custom clusters, if available. */
   custom_clusters?: GraphCluster[]
+}
+
+/** Versioned, wire-efficient graph contract returned by the Tesseract IPC bridge. */
+export interface CompactGraphData extends GraphData {
+  format: 'mdvdb.graph.compact'
+  version: 1
+  contexts: string[]
 }
 
 // ─── File Tree ───────────────────────────────────────────────────────

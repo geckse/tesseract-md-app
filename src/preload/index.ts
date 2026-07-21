@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import type { MdvdbApi } from './api'
+import type { ExportResult, ExportSaveRequest, MdvdbApi } from './api'
+import { toMessagePortBinaryPayload } from './binary-export'
 
 // Flash prevention: synchronously apply theme before any renderer CSS paints.
 // ipcRenderer.sendSync blocks until main replies, so data-theme is set before DOM renders.
@@ -41,6 +42,89 @@ function unwrapResult<T>(result: T): T {
 async function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
   const result = await ipcRenderer.invoke(channel, ...args)
   return unwrapResult(result) as T
+}
+
+/**
+ * Send binary exports to main through a MessagePort only after the save path
+ * is chosen. Electron 39 cannot transfer ArrayBuffer ownership across its DOM
+ * MessagePort → MessagePortMain bridge, so the supported payload is an exact
+ * Uint8Array sent through structured clone.
+ */
+function invokeBinaryExport(request: ExportSaveRequest): Promise<ExportResult> {
+  if (typeof request.content === 'string') {
+    return invoke('export:save', request)
+  }
+
+  const content = toMessagePortBinaryPayload(request.content)
+  const channel = new MessageChannel()
+
+  return new Promise<ExportResult>((resolve, reject) => {
+    let contentSent = false
+    const finish = (callback: () => void): void => {
+      channel.port1.onmessage = null
+      channel.port1.onmessageerror = null
+      channel.port1.close()
+      callback()
+    }
+
+    channel.port1.onmessage = (event: MessageEvent<unknown>) => {
+      const message = event.data
+      if (
+        typeof message === 'object' &&
+        message !== null &&
+        'type' in message &&
+        (message as { type?: unknown }).type === 'ready'
+      ) {
+        if (contentSent) {
+          finish(() => reject(new Error('The binary export requested its payload twice.')))
+          return
+        }
+        try {
+          contentSent = true
+          // Do not add `content.buffer` to a transfer list: Electron 39 turns
+          // transferred buffers into `null` at the MessagePortMain boundary.
+          channel.port1.postMessage(content)
+        } catch (error) {
+          finish(() => reject(error))
+        }
+        return
+      }
+
+      try {
+        if (
+          typeof message !== 'object' ||
+          message === null ||
+          !('type' in message) ||
+          (message as { type?: unknown }).type !== 'result' ||
+          !('value' in message)
+        ) {
+          throw new Error('The binary export returned an invalid response.')
+        }
+        const result = unwrapResult((message as { value: unknown }).value) as ExportResult
+        finish(() => resolve(result))
+      } catch (error) {
+        finish(() => reject(error))
+      }
+    }
+    channel.port1.onmessageerror = () => {
+      finish(() => reject(new Error('The binary export could not be transferred.')))
+    }
+    channel.port1.start()
+
+    try {
+      ipcRenderer.postMessage(
+        'export:save-binary',
+        {
+          defaultName: request.defaultName,
+          filters: request.filters,
+          byteLength: content.byteLength
+        },
+        [channel.port2]
+      )
+    } catch (error) {
+      finish(() => reject(error))
+    }
+  })
 }
 
 // Maps from user callback -> wrapped ipcRenderer handler so removeTerminal*Listener
@@ -217,7 +301,7 @@ const api: MdvdbApi = {
   setMenuContext: (context) => invoke('menu:set-context', context),
 
   // Export (phase 43) — native save dialog, outside collection bounds
-  exportSave: (request) => invoke('export:save', request),
+  exportSave: (request) => invokeBinaryExport(request),
   exportPdf: (request) => invoke('export:pdf', request),
 
   // CLI detection & installation

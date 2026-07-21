@@ -27,6 +27,7 @@ describe('ModeBar', () => {
 
     expect(container.querySelector('.mode-toggle-bar')).not.toBeNull()
     expect(getByRole('tablist', { name: 'Editor mode' })).not.toBeNull()
+    expect(getByRole('button', { name: 'Insert media' })).not.toBeNull()
   })
 
   it('renders nothing for graph tabs — GraphView owns its own level switcher', () => {

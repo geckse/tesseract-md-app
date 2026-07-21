@@ -35,9 +35,12 @@
   import { schema, fetchSchema } from '../stores/schema'
   import type { Schema } from '../types/cli'
   import BubbleMenu from './wysiwyg/BubbleMenu.svelte'
+  import MediaBubbleMenu from './wysiwyg/MediaBubbleMenu.svelte'
   import EditorContextMenu from './wysiwyg/EditorContextMenu.svelte'
   import LinkModal from './wysiwyg/LinkModal.svelte'
+  import InsertAssetDialog from './InsertAssetDialog.svelte'
   import { requestConfirmation } from '../stores/confirmation'
+  import type { MediaEmbed } from '../lib/media-embed'
 
   // ── Props ─────────────────────────────────────────────────────────────
   interface WysiwygEditorProps {
@@ -187,6 +190,35 @@
   function closeLinkModal() {
     linkModalOpen = false
     linkModalInitialQuery = ''
+  }
+
+  // ── Media picker ──────────────────────────────────────────────────────
+  let mediaDialogOpen = $state(false)
+  let mediaDialogInitial = $state<MediaEmbed | null>(null)
+
+  function openMediaEditor(media: MediaEmbed): void {
+    mediaDialogInitial = media
+    mediaDialogOpen = true
+  }
+
+  function insertMedia(editor: import('@tiptap/core').Editor, media: MediaEmbed): void {
+    editor
+      .chain()
+      .focus()
+      .insertContent(
+        media.kind === 'image'
+          ? { type: 'image', attrs: { src: media.src, alt: media.alt } }
+          : {
+              type: 'mediaEmbed',
+              attrs: { kind: media.kind, src: media.src, alt: media.alt }
+            }
+      )
+      .run()
+  }
+
+  function changeSelectedMedia(media: MediaEmbed): void {
+    if (activeEditor) insertMedia(activeEditor, media)
+    mediaDialogInitial = null
   }
 
   // ── Context Menu (driven by custom DOM event from table-ui-extension) ──
@@ -703,6 +735,12 @@
         // Reuse the existing LinkModal flow (same event the context menu fires)
         editor.view.dom.dispatchEvent(new CustomEvent('open-link-modal', { bubbles: true }))
         break
+      case 'format.media': {
+        const media = signal.payload as MediaEmbed | undefined
+        if (!media?.src) break
+        insertMedia(editor, media)
+        break
+      }
       case 'format.insert-table':
         editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
         break
@@ -1037,7 +1075,15 @@
     </div>
     {#if activeEditor}
       <BubbleMenu editor={activeEditor} />
+      <MediaBubbleMenu editor={activeEditor} onedit={openMediaEditor} />
     {/if}
+    <InsertAssetDialog
+      bind:visible={mediaDialogOpen}
+      currentFilePath={activeDocTab.filePath}
+      initialMedia={mediaDialogInitial}
+      onselect={changeSelectedMedia}
+      onclose={() => (mediaDialogInitial = null)}
+    />
     {#if linkModalOpen && activeEditor}
       <LinkModal
         editor={activeEditor}

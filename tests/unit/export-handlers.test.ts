@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import vm from 'node:vm'
 
 const mockHandle = vi.fn()
+const mockOn = vi.fn()
 const mockShowSaveDialog = vi.fn()
 const mockLoadFile = vi.fn().mockResolvedValue(undefined)
 const mockPrintToPDF = vi.fn().mockResolvedValue(Buffer.from('%PDF-fake'))
@@ -11,7 +13,8 @@ vi.mock('electron', () => ({
     getPath: vi.fn(() => '/tmp')
   },
   ipcMain: {
-    handle: (...args: unknown[]) => mockHandle(...args)
+    handle: (...args: unknown[]) => mockHandle(...args),
+    on: (...args: unknown[]) => mockOn(...args)
   },
   dialog: {
     showSaveDialog: (...args: unknown[]) => mockShowSaveDialog(...args)
@@ -45,6 +48,36 @@ function getHandler(channel: string): (...args: unknown[]) => Promise<unknown> {
   const call = mockHandle.mock.calls.find((c: unknown[]) => c[0] === channel)
   if (!call) throw new Error(`No handler for channel: ${channel}`)
   return call[1] as (...args: unknown[]) => Promise<unknown>
+}
+
+function getListener(channel: string): (...args: unknown[]) => void {
+  registerExportHandlers()
+  const call = mockOn.mock.calls.find((c: unknown[]) => c[0] === channel)
+  if (!call) throw new Error(`No listener for channel: ${channel}`)
+  return call[1] as (...args: unknown[]) => void
+}
+
+function fakeMessagePort() {
+  let messageListener: ((event: { data: unknown }) => void) | undefined
+  let closeListener: (() => void) | undefined
+  return {
+    once: vi.fn((event: string, listener: (value: never) => void) => {
+      if (event === 'message') {
+        messageListener = listener as unknown as (event: { data: unknown }) => void
+      } else if (event === 'close') {
+        closeListener = listener as unknown as () => void
+      }
+    }),
+    removeListener: vi.fn((event: string, listener: () => void) => {
+      if (event === 'close' && closeListener === listener) closeListener = undefined
+    }),
+    start: vi.fn(),
+    postMessage: vi.fn(),
+    close: vi.fn(),
+    deliver(data: unknown) {
+      messageListener?.({ data })
+    }
+  }
 }
 
 const fakeEvent = { sender: {} }
@@ -124,16 +157,203 @@ describe('export IPC handlers', () => {
       expect([...data]).toEqual([...bytes])
     })
 
-    it('applies the 10MB cap to binary content by byte length', async () => {
+    it('writes a binary ArrayBuffer created in a different V8 realm', async () => {
+      mockShowSaveDialog.mockResolvedValue({ canceled: false, filePath: '/exports/graph.png' })
       const handler = getHandler('export:save')
-      const result = (await handler(fakeEvent, {
+      const content = vm.runInNewContext(
+        'Uint8Array.from([0x89, 0x50, 0x4e, 0x47]).buffer'
+      ) as ArrayBuffer
+
+      const result = await handler(fakeEvent, {
+        defaultName: 'graph.png',
+        content,
+        filters: [{ name: 'PNG Image', extensions: ['png'] }]
+      })
+
+      expect(result).toEqual({ saved: true, path: '/exports/graph.png' })
+      expect([...(mockWriteFile.mock.calls[0]?.[1] as Buffer)]).toEqual([0x89, 0x50, 0x4e, 0x47])
+    })
+
+    it('allows large binary content beyond the text cap', async () => {
+      mockShowSaveDialog.mockResolvedValue({ canceled: false, filePath: '/exports/big.epub' })
+      const handler = getHandler('export:save')
+      const bytes = new Uint8Array(11 * 1024 * 1024)
+      const result = await handler(fakeEvent, {
         defaultName: 'big.epub',
-        content: new Uint8Array(11 * 1024 * 1024),
+        content: bytes,
         filters: [{ name: 'EPUB', extensions: ['epub'] }]
-      })) as { error?: boolean; message?: string }
-      expect(result.error).toBe(true)
-      expect(result.message).toContain('10MB')
+      })
+      expect(result).toEqual({ saved: true, path: '/exports/big.epub' })
+      const written = mockWriteFile.mock.calls[0]?.[1] as Buffer
+      expect(written.byteLength).toBe(bytes.byteLength)
+    })
+  })
+
+  describe('export:save-binary', () => {
+    it('waits until after the save dialog before requesting and writing the buffer', async () => {
+      let resolveDialog: ((value: { canceled: boolean; filePath: string }) => void) | undefined
+      mockShowSaveDialog.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolveDialog = resolve
+          })
+      )
+      const listener = getListener('export:save-binary')
+      const port = fakeMessagePort()
+      listener(
+        { sender: {}, ports: [port] },
+        {
+          defaultName: 'graph.png',
+          filters: [{ name: 'PNG Image', extensions: ['png'] }],
+          byteLength: 4
+        }
+      )
+
+      expect(port.postMessage).not.toHaveBeenCalled()
+      resolveDialog?.({ canceled: false, filePath: '/exports/graph.png' })
+      await vi.waitFor(() => expect(port.postMessage).toHaveBeenCalledWith({ type: 'ready' }))
+
+      const content = Uint8Array.from([0x89, 0x50, 0x4e, 0x47])
+      port.deliver(content)
+      await vi.waitFor(() =>
+        expect(port.postMessage).toHaveBeenCalledWith({
+          type: 'result',
+          value: { saved: true, path: '/exports/graph.png' }
+        })
+      )
+      const [path, data] = mockWriteFile.mock.calls[0] as [string, Buffer]
+      expect(path).toBe('/exports/graph.png')
+      expect([...data]).toEqual([0x89, 0x50, 0x4e, 0x47])
+      expect(port.close).toHaveBeenCalledOnce()
+    })
+
+    it('does not request the binary payload when the dialog is canceled', async () => {
+      mockShowSaveDialog.mockResolvedValue({ canceled: true, filePath: undefined })
+      const listener = getListener('export:save-binary')
+      const port = fakeMessagePort()
+      listener(
+        { sender: {}, ports: [port] },
+        {
+          defaultName: 'graph.png',
+          filters: [{ name: 'PNG Image', extensions: ['png'] }],
+          byteLength: 20 * 1024 * 1024
+        }
+      )
+
+      await vi.waitFor(() =>
+        expect(port.postMessage).toHaveBeenCalledWith({
+          type: 'result',
+          value: { saved: false }
+        })
+      )
+      expect(port.postMessage).not.toHaveBeenCalledWith({ type: 'ready' })
+      expect(mockWriteFile).not.toHaveBeenCalled()
+    })
+
+    it('rejects oversized metadata before showing a dialog or receiving bytes', async () => {
+      const listener = getListener('export:save-binary')
+      const port = fakeMessagePort()
+      listener(
+        { sender: {}, ports: [port] },
+        {
+          defaultName: 'huge.png',
+          filters: [{ name: 'PNG Image', extensions: ['png'] }],
+          byteLength: 257 * 1024 * 1024
+        }
+      )
+
+      await vi.waitFor(() =>
+        expect(port.postMessage).toHaveBeenCalledWith({
+          type: 'result',
+          value: expect.objectContaining({ error: true, message: expect.stringContaining('256MB') })
+        })
+      )
       expect(mockShowSaveDialog).not.toHaveBeenCalled()
+      expect(mockWriteFile).not.toHaveBeenCalled()
+    })
+
+    it('rejects a payload whose byte length differs from its metadata', async () => {
+      mockShowSaveDialog.mockResolvedValue({ canceled: false, filePath: '/exports/graph.png' })
+      const listener = getListener('export:save-binary')
+      const port = fakeMessagePort()
+      listener(
+        { sender: {}, ports: [port] },
+        {
+          defaultName: 'graph.png',
+          filters: [{ name: 'PNG Image', extensions: ['png'] }],
+          byteLength: 4
+        }
+      )
+      await vi.waitFor(() => expect(port.postMessage).toHaveBeenCalledWith({ type: 'ready' }))
+      port.deliver(new ArrayBuffer(3))
+
+      await vi.waitFor(() =>
+        expect(port.postMessage).toHaveBeenCalledWith({
+          type: 'result',
+          value: expect.objectContaining({
+            error: true,
+            message: expect.stringContaining('did not match')
+          })
+        })
+      )
+      expect(mockWriteFile).not.toHaveBeenCalled()
+    })
+
+    it('accepts Electron binary views and writes only their visible bytes', async () => {
+      mockShowSaveDialog.mockResolvedValue({ canceled: false, filePath: '/exports/graph.png' })
+      const listener = getListener('export:save-binary')
+      const port = fakeMessagePort()
+      listener(
+        { sender: {}, ports: [port] },
+        {
+          defaultName: 'graph.png',
+          filters: [{ name: 'PNG Image', extensions: ['png'] }],
+          byteLength: 4
+        }
+      )
+      await vi.waitFor(() => expect(port.postMessage).toHaveBeenCalledWith({ type: 'ready' }))
+
+      const transported = Buffer.from([0, 0x89, 0x50, 0x4e, 0x47, 0])
+      port.deliver(transported.subarray(1, 5))
+
+      await vi.waitFor(() =>
+        expect(port.postMessage).toHaveBeenCalledWith({
+          type: 'result',
+          value: { saved: true, path: '/exports/graph.png' }
+        })
+      )
+      const written = mockWriteFile.mock.calls[0]?.[1] as Buffer
+      expect([...written]).toEqual([0x89, 0x50, 0x4e, 0x47])
+    })
+
+    it('accepts an ArrayBuffer created in a different V8 realm', async () => {
+      mockShowSaveDialog.mockResolvedValue({ canceled: false, filePath: '/exports/graph.png' })
+      const listener = getListener('export:save-binary')
+      const port = fakeMessagePort()
+      listener(
+        { sender: {}, ports: [port] },
+        {
+          defaultName: 'graph.png',
+          filters: [{ name: 'PNG Image', extensions: ['png'] }],
+          byteLength: 4
+        }
+      )
+      await vi.waitFor(() => expect(port.postMessage).toHaveBeenCalledWith({ type: 'ready' }))
+
+      const foreignBuffer = vm.runInNewContext(
+        'Uint8Array.from([0x89, 0x50, 0x4e, 0x47]).buffer'
+      ) as ArrayBuffer
+      expect(foreignBuffer instanceof ArrayBuffer).toBe(false)
+      port.deliver(foreignBuffer)
+
+      await vi.waitFor(() =>
+        expect(port.postMessage).toHaveBeenCalledWith({
+          type: 'result',
+          value: { saved: true, path: '/exports/graph.png' }
+        })
+      )
+      const written = mockWriteFile.mock.calls[0]?.[1] as Buffer
+      expect([...written]).toEqual([0x89, 0x50, 0x4e, 0x47])
     })
   })
 

@@ -2,7 +2,7 @@
   import { onMount } from 'svelte'
   import Editor from './Editor.svelte'
   import WysiwygEditor from './WysiwygEditor.svelte'
-  import GraphView from './GraphView.svelte'
+  import LazyGraphView from './LazyGraphView.svelte'
   import TableView from './table/TableView.svelte'
   import Terminal from './Terminal.svelte'
   import { terminalStore } from '../stores/terminal.svelte'
@@ -13,7 +13,7 @@
   import { workspace } from '../stores/workspace.svelte'
   import { requestConfirmation } from '../stores/confirmation'
   import { syncFileStoresFromTab, loadFileTree } from '../stores/files'
-  import { loadGraphData, syncGraphStoresFromTab } from '../stores/graph'
+  import { syncGraphStoresFromTab } from '../stores/graph'
   import { setupVaultListener, teardownVaultListener } from '../stores/vault-events'
   import {
     setupFileSyncListener,
@@ -154,12 +154,11 @@
     contentReady = true
     syncFileStoresFromTab()
 
-    // Graph popups: the main window loads graph data from App.svelte, which
-    // doesn't run here — sync the derived graph stores to the popup's tab
-    // (level/coloring from URL params) and trigger the initial load ourselves.
+    // Graph popups do not run the main-window initialization path. Syncing the
+    // popup's active graph tab activates the lazy graph-store load using its
+    // level/coloring URL parameters.
     if (kind === 'graph') {
       syncGraphStoresFromTab()
-      loadGraphData().catch(() => {})
       // Main routes only graph-scoped native commands to graph popups.
       window.api.onMenuCommand(handleMenuCommand)
       window.addEventListener('focus', refreshGraphMenuOnFocus)
@@ -452,7 +451,7 @@
         </div>
       {:else if kind === 'graph'}
         <div class="content-region">
-          <GraphView paneId="popup-pane" />
+          <LazyGraphView paneId="popup-pane" />
         </div>
       {:else if kind === 'table' && tabId}
         <div class="content-region">

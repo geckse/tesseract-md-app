@@ -12,7 +12,17 @@ const mockApi = {
   removeCollection: vi.fn(),
   setActiveCollection: vi.fn(),
   status: vi.fn(),
-  info: vi.fn()
+  info: vi.fn(),
+  graphData: vi.fn(),
+  createFile: vi.fn(),
+  createDirectory: vi.fn(),
+  readFile: vi.fn(),
+  getCliVersion: vi.fn(),
+  getFile: vi.fn(),
+  backlinks: vi.fn(),
+  links: vi.fn(),
+  neighborhood: vi.fn(),
+  addRecent: vi.fn()
 }
 
 Object.defineProperty(globalThis, 'window', {
@@ -20,7 +30,13 @@ Object.defineProperty(globalThis, 'window', {
   writable: true
 })
 
-import { fileTree, fileTreeLoading, fileTreeError } from '../../src/renderer/stores/files'
+import {
+  assetTree,
+  expandedPaths,
+  fileTree,
+  fileTreeLoading,
+  fileTreeError
+} from '../../src/renderer/stores/files'
 import {
   collections,
   activeCollectionId,
@@ -28,8 +44,16 @@ import {
   infoScope
 } from '../../src/renderer/stores/collections'
 import { ingestRunning } from '../../src/renderer/stores/ingest'
+import {
+  graphData,
+  graphPathFilter,
+  graphViewActive,
+  syncGraphStoresFromTab
+} from '../../src/renderer/stores/graph'
+import { workspace } from '../../src/renderer/stores/workspace.svelte'
+import { cliFeatures } from '../../src/renderer/lib/cli-features.svelte'
 import FileTree from '@renderer/components/FileTree.svelte'
-import type { FileTree as FileTreeType } from '../../src/renderer/types/cli'
+import type { FileTree as FileTreeType, GraphData } from '../../src/renderer/types/cli'
 
 const sampleTree: FileTreeType = {
   root: {
@@ -84,7 +108,11 @@ function setActiveCollection() {
 }
 
 function resetStores() {
+  workspace.reset()
+  syncGraphStoresFromTab()
   fileTree.set(null)
+  assetTree.set(null)
+  expandedPaths.set(new Set())
   fileTreeLoading.set(false)
   fileTreeError.set(null)
   collections.set([])
@@ -92,11 +120,17 @@ function resetStores() {
   ingestRunning.set(false)
   infoModalOpen.set(false)
   infoScope.set(null)
+  graphData.set(null)
+  cliFeatures.reset()
 }
 
 beforeEach(() => {
   resetStores()
   vi.resetAllMocks()
+  mockApi.createFile.mockResolvedValue(undefined)
+  mockApi.createDirectory.mockResolvedValue(undefined)
+  mockApi.readFile.mockResolvedValue('')
+  mockApi.getCliVersion.mockResolvedValue('0.2.0')
 })
 
 describe('FileTree component', () => {
@@ -311,6 +345,138 @@ describe('FileTree component', () => {
     expect(onfolderopen).toHaveBeenCalledWith({ path: 'docs' })
   })
 
+  it('navigates visible rows with arrow keys and opens a file with Enter', async () => {
+    setActiveCollection()
+    fileTree.set(sampleTree)
+    const onfileselect = vi.fn()
+
+    const { container } = render(FileTree, { props: { onfileselect } })
+    const treeContainer = container.querySelector<HTMLElement>('[role="tree"]')!
+    treeContainer.focus()
+
+    await fireEvent.keyDown(treeContainer, { key: 'ArrowDown' })
+    await fireEvent.keyDown(treeContainer, { key: 'Enter' })
+
+    expect(onfileselect).toHaveBeenCalledWith({ path: 'new-file.md', forceNewTab: false })
+    expect(treeContainer.getAttribute('aria-activedescendant')).toContain('new-file.md')
+  })
+
+  it('uses ArrowRight for expansion and child navigation, then opens the child', async () => {
+    setActiveCollection()
+    fileTree.set(sampleTree)
+    const onfileselect = vi.fn()
+
+    const { container } = render(FileTree, { props: { onfileselect } })
+    const treeContainer = container.querySelector<HTMLElement>('[role="tree"]')!
+    treeContainer.focus()
+
+    await fireEvent.keyDown(treeContainer, { key: 'ArrowRight' })
+    await vi.waitFor(() => expect(screen.getByText('guide.md')).toBeTruthy())
+    await fireEvent.keyDown(treeContainer, { key: 'ArrowRight' })
+    await fireEvent.keyDown(treeContainer, { key: 'Enter' })
+
+    expect(onfileselect).toHaveBeenCalledWith({ path: 'docs/guide.md', forceNewTab: false })
+  })
+
+  it('opens the focused row context menu with Shift+F10 and navigates its actions', async () => {
+    setActiveCollection()
+    fileTree.set(sampleTree)
+
+    const { container } = render(FileTree)
+    const treeContainer = container.querySelector<HTMLElement>('[role="tree"]')!
+    treeContainer.focus()
+
+    await fireEvent.keyDown(treeContainer, { key: 'F10', shiftKey: true })
+
+    const newFileAction = screen.getByRole('menuitem', { name: /New File/ })
+    const newFolderAction = screen.getByRole('menuitem', { name: /New Folder/ })
+    expect(document.activeElement).toBe(newFileAction)
+
+    await fireEvent.keyDown(newFileAction, { key: 'ArrowDown' })
+    expect(document.activeElement).toBe(newFolderAction)
+  })
+
+  it('offers creation on a file and creates the new entry beside it', async () => {
+    setActiveCollection()
+    fileTree.set(sampleTree)
+
+    render(FileTree)
+    const readmeRow = screen.getByText('readme.md').closest('button')!
+    await fireEvent.contextMenu(readmeRow, { clientX: 20, clientY: 20 })
+
+    expect(screen.getByRole('menuitem', { name: /New File/ })).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: /New Folder/ })).toBeTruthy()
+
+    await fireEvent.click(screen.getByRole('menuitem', { name: /New Folder/ }))
+    const input = screen.getByRole('textbox', { name: 'New folder name' })
+    await fireEvent.input(input, { target: { value: 'readme-notes' } })
+    await fireEvent.keyDown(input, { key: 'Enter' })
+
+    await vi.waitFor(() =>
+      expect(mockApi.createDirectory).toHaveBeenCalledWith('/test/readme-notes')
+    )
+  })
+
+  it('creates a new file inside the right-clicked directory', async () => {
+    setActiveCollection()
+    fileTree.set(sampleTree)
+
+    render(FileTree)
+    const docsRow = screen.getByText('docs').closest('button')!
+    await fireEvent.contextMenu(docsRow, { clientX: 20, clientY: 20 })
+    await fireEvent.click(screen.getByRole('menuitem', { name: /New File/ }))
+
+    const input = screen.getByRole('textbox', { name: 'New file name' })
+    await fireEvent.input(input, { target: { value: 'keyboard-guide' } })
+    await fireEvent.keyDown(input, { key: 'Enter' })
+
+    await vi.waitFor(() => {
+      expect(mockApi.createFile).toHaveBeenCalledWith('/test/docs/keyboard-guide.md', '')
+    })
+  })
+
+  it('creates a root folder from the empty-tree background menu', async () => {
+    setActiveCollection()
+    fileTree.set({
+      root: { name: '.', path: '.', is_dir: true, state: null, children: [] },
+      total_files: 0,
+      indexed_count: 0,
+      modified_count: 0,
+      new_count: 0,
+      deleted_count: 0
+    })
+
+    const { container } = render(FileTree)
+    const content = container.querySelector<HTMLElement>('.file-tree-content')!
+    await fireEvent.contextMenu(content, { clientX: 24, clientY: 40 })
+    await fireEvent.click(screen.getByRole('menuitem', { name: /New Folder/ }))
+
+    const input = screen.getByRole('textbox', { name: 'New folder name' })
+    await fireEvent.input(input, { target: { value: 'notes' } })
+    await fireEvent.keyDown(input, { key: 'Enter' })
+
+    await vi.waitFor(() => expect(mockApi.createDirectory).toHaveBeenCalledWith('/test/notes'))
+  })
+
+  it('keeps the inline creator open and reports invalid names', async () => {
+    setActiveCollection()
+    fileTree.set(sampleTree)
+
+    render(FileTree)
+    const docsRow = screen.getByText('docs').closest('button')!
+    await fireEvent.contextMenu(docsRow, { clientX: 20, clientY: 20 })
+    await fireEvent.click(screen.getByRole('menuitem', { name: /New Folder/ }))
+
+    const input = screen.getByRole('textbox', { name: 'New folder name' })
+    await fireEvent.input(input, { target: { value: '../outside' } })
+    await fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect((await screen.findByRole('alert')).textContent).toContain(
+      'Name contains invalid characters'
+    )
+    expect(mockApi.createDirectory).not.toHaveBeenCalled()
+  })
+
   it('offers scoped Information from a Markdown directory menu', async () => {
     setActiveCollection()
     fileTree.set(sampleTree)
@@ -325,5 +491,35 @@ describe('FileTree component', () => {
     expect(get(infoModalOpen)).toBe(true)
     expect(get(infoScope)).toBe('docs')
     expect(mockApi.info).toHaveBeenCalledWith('/test', 'docs')
+  })
+
+  it('opens a Markdown directory as a scoped graph from a non-graph view', async () => {
+    const scopedGraphData: GraphData = {
+      nodes: [],
+      edges: [],
+      clusters: [],
+      level: 'document'
+    }
+
+    setActiveCollection()
+    fileTree.set(sampleTree)
+    workspace.openFile('readme.md')
+    syncGraphStoresFromTab()
+    mockApi.graphData.mockResolvedValue(scopedGraphData)
+
+    expect(get(graphViewActive)).toBe(false)
+
+    render(FileTree)
+    const docsRow = screen.getByText('docs').closest('button')!
+    await fireEvent.contextMenu(docsRow, { clientX: 20, clientY: 20 })
+    await fireEvent.click(screen.getByText('Show in Graph'))
+
+    await vi.waitFor(() => {
+      expect(mockApi.graphData).toHaveBeenCalledWith('/test', 'document', 'docs')
+    })
+    expect(get(graphViewActive)).toBe(true)
+    expect(get(graphPathFilter)).toBe('docs')
+    expect(workspace.focusedTab).toMatchObject({ kind: 'graph', graphPathFilter: 'docs' })
+    expect(get(graphData)).toEqual(scopedGraphData)
   })
 })

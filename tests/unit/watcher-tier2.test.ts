@@ -23,7 +23,14 @@ import {
   collectionStatus
 } from '../../src/renderer/stores/collections'
 import { fileTree } from '../../src/renderer/stores/files'
-import { graphData, graphDataSource, graphLevel } from '../../src/renderer/stores/graph'
+import {
+  graphData,
+  graphDataDirty,
+  graphDataSource,
+  graphLevel,
+  syncGraphStoresFromTab
+} from '../../src/renderer/stores/graph'
+import { workspace } from '../../src/renderer/stores/workspace.svelte'
 import type { FileTree, GraphData, WatchEventReport } from '../../src/renderer/types/cli'
 
 function tree(): FileTree {
@@ -81,10 +88,13 @@ beforeEach(() => {
   activeCollectionId.set('c1')
   collectionStatus.set(null)
   fileTree.set(tree())
+  workspace.reset()
+  syncGraphStoresFromTab()
   // Graph already loaded from a normal (cli) load
   graphLevel.set('document')
   graphDataSource.set('cli')
   graphData.set(graph(['note.md', 'other.md']))
+  graphDataDirty.set(false)
   mockApi.graphData.mockResolvedValue(graph(['note.md', 'other.md', 'created.md']))
 })
 
@@ -98,10 +108,16 @@ describe('Tier-2 watch-event integration (mdvdb reindex → app patch)', () => {
     expect(node?.state).toBe('indexed')
   })
 
-  it('re-fetches the graph after the debounce window', async () => {
+  it('defers a hidden graph refresh until the graph becomes active', async () => {
     handleWatcherEvent({ type: 'watch-event', data: report({ success: true }) })
     expect(mockApi.graphData).not.toHaveBeenCalled() // debounced
     await vi.advanceTimersByTimeAsync(900)
+    expect(get(graphDataDirty)).toBe(true)
+    expect(mockApi.graphData).not.toHaveBeenCalled()
+
+    workspace.switchToGraphTab()
+    syncGraphStoresFromTab()
+    await vi.waitFor(() => expect(mockApi.graphData).toHaveBeenCalledTimes(1))
     expect(mockApi.graphData).toHaveBeenCalledTimes(1)
     // The store received the fresh graph (which GraphView then diffs/patches)
     expect(get(graphData)!.nodes.map((n) => n.id)).toContain('created.md')

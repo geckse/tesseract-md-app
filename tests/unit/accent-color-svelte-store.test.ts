@@ -24,6 +24,8 @@ import {
   setGlobalAccentColor,
   setCollectionAccentColor
 } from '../../src/renderer/stores/accent-color'
+import { edgePalette, EDGE_PALETTE_SIZE } from '../../src/renderer/stores/palette'
+import { relativeLuminance } from '../../src/renderer/lib/color-utils'
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -62,6 +64,26 @@ describe('primaryVariants', () => {
     expect(variants.dim).toBe('rgba(255, 0, 0, 0.1)')
     expect(variants.glow).toBe('rgba(255, 0, 0, 0.4)')
     expect(variants.dark).toMatch(/^#[0-9a-f]{6}$/i)
+  })
+})
+
+describe('edgePalette', () => {
+  it('provides enough distinct, brightness-balanced slots for semantic edge IDs', () => {
+    const palette = get(edgePalette)
+    const luminances = palette.colors.map(relativeLuminance)
+
+    expect(palette.colors).toHaveLength(EDGE_PALETTE_SIZE)
+    expect(new Set(palette.colors).size).toBe(EDGE_PALETTE_SIZE)
+    expect(Math.max(...luminances) - Math.min(...luminances)).toBeLessThan(0.01)
+  })
+
+  it('regenerates every semantic slot from a collection accent override', () => {
+    const cyan = get(edgePalette).colors
+    collectionPrimaryColor.set('#FF4D4D')
+    const red = get(edgePalette).colors
+
+    expect(red).toHaveLength(EDGE_PALETTE_SIZE)
+    expect(red.every((color, index) => color !== cyan[index])).toBe(true)
   })
 })
 

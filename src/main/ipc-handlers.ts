@@ -8,6 +8,7 @@
 import { app, ipcMain, shell, clipboard, BrowserWindow, dialog } from 'electron'
 import { promises as fs } from 'node:fs'
 import { findCli, getCliVersion, execCommand, execRaw } from './cli'
+import { getGraphSnapshot } from './graph-snapshot-cache'
 import { detectCli, installCli, checkLatestVersion } from './cli-install'
 import { readConfig, writeConfigKey, deleteConfigKey } from './config-io'
 import {
@@ -96,7 +97,7 @@ import type {
   CustomClusterSummary,
   TopicDef,
   TopicUnassigned,
-  GraphData,
+  GraphLevel,
   Schema,
   Config,
   DoctorResult,
@@ -451,12 +452,9 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
   )
 
   // Graph data
-  ipcMain.handle('cli:graph', (_event, root: string, level?: string, path?: string) => {
-    const args: string[] = []
-    if (level) args.push('--level', level)
-    if (path) args.push('--path', path)
-    return wrapHandler(() => execCommand<GraphData>('graph', args, root))
-  })
+  ipcMain.handle('cli:graph', (_event, root: string, level?: GraphLevel, path?: string) =>
+    wrapHandler(() => getGraphSnapshot(root, level, path))
+  )
 
   // Schema
   ipcMain.handle('cli:schema', (_event, root: string, path?: string) => {

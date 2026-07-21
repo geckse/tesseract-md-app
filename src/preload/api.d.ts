@@ -13,7 +13,7 @@ import type {
   CustomClusterSummary,
   TopicDef,
   TopicUnassigned,
-  GraphData,
+  CompactGraphData,
   GraphLevel,
   Schema,
   Config,
@@ -104,12 +104,12 @@ export interface ObsidianTopicsSyncedEvent {
 
 /**
  * Request for `export:save` — export via native save dialog (phase 43).
- * `content` is a string for text formats (html/text/rtf/markdown) and a
- * Uint8Array for zip-container formats (docx/odt/epub).
+ * `content` is a string for text formats (html/text/rtf/markdown) and an
+ * ArrayBuffer or Uint8Array for binary formats (PNG/docx/odt/epub).
  */
 export interface ExportSaveRequest {
   defaultName: string
-  content: string | Uint8Array
+  content: string | ArrayBuffer | Uint8Array
   filters: { name: string; extensions: string[] }[]
 }
 
@@ -463,7 +463,7 @@ export interface MdvdbApi {
   onObsidianTopicsSynced(callback: (event: ObsidianTopicsSyncedEvent) => void): void
   removeObsidianTopicsSyncedListener(): void
   setConfigValue(root: string, key: string, value: string): Promise<void>
-  graphData(root: string, level?: GraphLevel, path?: string): Promise<GraphData>
+  graphData(root: string, level?: GraphLevel, path?: string): Promise<CompactGraphData>
   schema(root: string, path?: string): Promise<Schema>
   collection(
     root: string,

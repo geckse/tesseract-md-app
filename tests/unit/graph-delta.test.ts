@@ -80,6 +80,20 @@ describe('diffGraphData', () => {
     expect(delta.removedLinkKeys.get(linkKey(edge('a', 'b', { strength: 0.5 })))).toBe(1)
   })
 
+  it('compares compact edge contexts by value when string-table indices move', () => {
+    const prev: GraphData = {
+      ...graph([node('a'), node('b')], [edge('a', 'b', { context_index: 0 })]),
+      contexts: ['same context', 'unused']
+    }
+    const next: GraphData = {
+      ...graph([node('a'), node('b')], [edge('a', 'b', { context_index: 1 })]),
+      contexts: ['unused', 'same context']
+    }
+
+    expect(isEmptyDelta(diffGraphData(prev, next))).toBe(true)
+    expect(linkKey(prev.edges[0], prev.contexts)).toBe(linkKey(next.edges[0], next.contexts))
+  })
+
   it('removes links touching removed nodes', () => {
     const prev = graph([node('a'), node('b')], [edge('a', 'b')])
     const next = graph([node('a')])
@@ -106,7 +120,87 @@ describe('diffGraphData', () => {
       ...graph([node('a')]),
       clusters: [{ id: 1, label: 'Renamed', keywords: [], member_count: 3 }]
     }
-    expect(diffGraphData(prev, next).clustersChanged).toBe(true)
+    const delta = diffGraphData(prev, next)
+    expect(delta.clustersChanged).toBe(true)
+    expect(isEmptyDelta(delta)).toBe(false)
+  })
+
+  it('detects every automatic-cluster metadata field without topology changes', () => {
+    const base = {
+      id: 1,
+      label: 'One',
+      keywords: ['alpha'],
+      member_count: 3,
+      description: 'Automatic group',
+      threshold: 0.4,
+      parent_id: 9
+    }
+    const prev: GraphData = { ...graph([node('a')]), clusters: [base] }
+    const variants: GraphData['clusters'] = [
+      { ...base, id: 2 },
+      { ...base, label: 'Renamed' },
+      { ...base, keywords: ['beta'] },
+      { ...base, member_count: 4 },
+      { ...base, description: 'Changed description' },
+      { ...base, threshold: 0.8 },
+      { ...base, parent_id: 10 }
+    ]
+
+    for (const changed of variants) {
+      const delta = diffGraphData(prev, { ...prev, clusters: [changed] })
+      expect(delta.clustersChanged).toBe(true)
+      expect(isEmptyDelta(delta)).toBe(false)
+    }
+  })
+
+  it('detects custom-cluster metadata-only changes', () => {
+    const topic = {
+      id: 4,
+      label: 'Topic',
+      keywords: ['graph'],
+      member_count: 2,
+      description: 'Presentation material',
+      threshold: 0.35,
+      parent_id: null
+    }
+    const prev: GraphData = {
+      ...graph([node('a')]),
+      custom_clusters: [topic]
+    }
+    const variants: NonNullable<GraphData['custom_clusters']> = [
+      { ...topic, id: 5 },
+      { ...topic, label: 'Renamed topic' },
+      { ...topic, keywords: ['visualization'] },
+      { ...topic, member_count: 3 },
+      { ...topic, description: 'Changed description' },
+      { ...topic, threshold: 0.7 },
+      { ...topic, parent_id: 1 }
+    ]
+
+    for (const changed of variants) {
+      const delta = diffGraphData(prev, { ...prev, custom_clusters: [changed] })
+      expect(delta.clustersChanged).toBe(true)
+      expect(isEmptyDelta(delta)).toBe(false)
+    }
+  })
+
+  it('detects edge-cluster metadata-only changes', () => {
+    const relationship = { id: 7, label: 'References', count: 8 }
+    const prev: GraphData = {
+      ...graph([node('a')]),
+      edge_clusters: [relationship]
+    }
+    const variants: NonNullable<GraphData['edge_clusters']> = [
+      { ...relationship, id: 8 },
+      { ...relationship, label: 'Extends' },
+      { ...relationship, count: 9 }
+    ]
+
+    for (const changed of variants) {
+      const delta = diffGraphData(prev, { ...prev, edge_clusters: [changed] })
+      expect(delta.clustersChanged).toBe(true)
+      expect(isEmptyDelta(delta)).toBe(false)
+    }
   })
 })
 
@@ -137,5 +231,25 @@ describe('shouldPatch', () => {
     ])
     const delta = diffGraphData(prev, next)
     expect(shouldPatch(delta, big, big + GRAPH_PATCH_MAX_CHANGED + 1)).toBe(false)
+  })
+
+  it('rejects refresh patches that replace a large share of links', () => {
+    const nodes = [node('a'), node('b')]
+    const prev = graph(
+      nodes,
+      Array.from({ length: 100 }, (_, index) =>
+        edge('a', 'b', { relationship_type: `old-${index}` })
+      )
+    )
+    const next = graph(
+      nodes,
+      Array.from({ length: 100 }, (_, index) =>
+        edge('a', 'b', { relationship_type: `new-${index}` })
+      )
+    )
+    const delta = diffGraphData(prev, next)
+
+    expect(delta.changedLinkCount).toBe(200)
+    expect(shouldPatch(delta, 2, 2, 100, 100)).toBe(false)
   })
 })

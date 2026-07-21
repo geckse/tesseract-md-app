@@ -31,16 +31,14 @@ const BASE_RETRY_DELAY_MS = 1_000
 /** Max buffer size for stdout/stderr (10 MB) */
 const MAX_BUFFER = 10 * 1024 * 1024
 
-/** Graph JSON can include semantic context for every edge in a large vault. */
+/** Huge chunk topologies can exceed the default subprocess output ceiling. */
 const GRAPH_MAX_BUFFER = 256 * 1024 * 1024
-
-/** The graph UI only renders a short edge-context excerpt. */
-const GRAPH_CONTEXT_PREVIEW_LENGTH = 512
 
 /** Options for execCommand */
 export interface ExecCommandOptions {
   timeout?: number
   retries?: number
+  signal?: AbortSignal
 }
 
 /** Raw output from a CLI command */
@@ -73,27 +71,9 @@ function maxBufferForCommand(command: string): number {
   return command === 'graph' ? GRAPH_MAX_BUFFER : MAX_BUFFER
 }
 
-/**
- * Parse CLI JSON, bounding graph edge context before the result crosses Electron IPC.
- * The renderer displays at most 120 characters, so retaining entire multi-KB Markdown
- * paragraphs only multiplies memory and structured-clone cost for large collections.
- */
-function parseCommandJson<T>(command: string, output: string): T {
-  const reviver =
-    command === 'graph'
-      ? (key: string, value: unknown): unknown => {
-          if (
-            key === 'context_text' &&
-            typeof value === 'string' &&
-            value.length > GRAPH_CONTEXT_PREVIEW_LENGTH
-          ) {
-            return value.slice(0, GRAPH_CONTEXT_PREVIEW_LENGTH)
-          }
-          return value
-        }
-      : undefined
-
-  return JSON.parse(output, reviver) as T
+/** Parse CLI JSON without a reviver traversal over every graph property. */
+function parseCommandJson<T>(output: string): T {
+  return JSON.parse(output) as T
 }
 
 /** Prefer stderr, but keep Node execution failures useful when stderr is empty. */
@@ -251,7 +231,8 @@ export async function execCommand<T>(
       const result = await execFileAsync(cliPath, fullArgs, {
         timeout,
         maxBuffer,
-        env: { ...process.env }
+        env: { ...process.env },
+        signal: options?.signal
       })
       stdout = result.stdout
 
@@ -263,13 +244,13 @@ export async function execCommand<T>(
       // Parse JSON output — strip any non-JSON lines (e.g., tracing logs
       // that may leak into stdout on some platforms).
       try {
-        return parseCommandJson<T>(command, stdout)
+        return parseCommandJson<T>(stdout)
       } catch {
         // Try extracting the JSON object/array from the output
         const jsonMatch = stdout.match(/(\{[\s\S]*\}|\[[\s\S]*\])/)
         if (jsonMatch) {
           try {
-            return parseCommandJson<T>(command, jsonMatch[0])
+            return parseCommandJson<T>(jsonMatch[0])
           } catch {
             /* fall through to error */
           }
@@ -280,6 +261,8 @@ export async function execCommand<T>(
       }
     } catch (error: unknown) {
       const err = error as { killed?: boolean; code?: string; exitCode?: number; stderr?: string }
+
+      if (options?.signal?.aborted || err.code === 'ABORT_ERR') throw error
 
       // Don't retry parse errors or CliNotFoundError
       if (error instanceof CliParseError || error instanceof CliNotFoundError) {

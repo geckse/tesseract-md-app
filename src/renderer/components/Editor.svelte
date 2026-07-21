@@ -48,6 +48,7 @@
   import { dismissConflict } from '../stores/conflict'
   import { requestSaveAs } from '../stores/save-as'
   import { requestConfirmation } from '../stores/confirmation'
+  import { serializeMediaEmbed, type MediaEmbed } from '../lib/media-embed'
 
   // ── Props ─────────────────────────────────────────────────────────────
   interface EditorProps {
@@ -679,6 +680,17 @@
         view.dispatch({
           changes: { from: sel.from, to: sel.to, insert },
           selection: { anchor: urlStart, head: urlStart + 3 }
+        })
+        break
+      }
+      case 'format.media': {
+        const media = signal.payload as MediaEmbed | undefined
+        if (!media?.src) break
+        const selection = view.state.selection.main
+        const markdown = serializeMediaEmbed(media)
+        view.dispatch({
+          changes: { from: selection.from, to: selection.to, insert: markdown },
+          selection: { anchor: selection.from + markdown.length }
         })
         break
       }

@@ -33,12 +33,17 @@ import { createExampleCollection } from './example-collection'
 import { execCommand, findCli, getCliVersion } from './cli'
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { installLocalMediaProtocol, registerLocalMediaScheme } from './media-protocol'
 
 /** Singleton WindowManager for centralized multi-window lifecycle. */
 export const windowManager = new WindowManager()
 
 /** Singleton PtyManager for embedded terminal PTYs. */
 export const ptyManager = new PtyManager()
+
+// Custom streaming scheme for local audio/video. Privileges must be declared
+// before Electron is ready; the request handler is installed below.
+registerLocalMediaScheme()
 
 // Set the app name explicitly so macOS menu and About dialog show "Tesseract"
 // (in dev mode, Electron defaults to the package.json "name" field)
@@ -90,6 +95,7 @@ app
   .then(async () => {
     await prepareE2eExampleCollection()
     electronApp.setAppUserModelId('md.tesseract.app')
+    installLocalMediaProtocol()
 
     app.on('browser-window-created', (_, window) => {
       optimizer.watchWindowShortcuts(window, { escToCloseWindow: false, zoom: true })

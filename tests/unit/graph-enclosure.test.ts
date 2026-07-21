@@ -123,20 +123,20 @@ describe('buildGraphEnclosurePointCloud', () => {
 })
 
 describe('GraphView enclosure integration', () => {
-  it('uses the same faceted builder for normal and presentation shells', () => {
+  it('routes normal and presentation shells through the stable hull layer', () => {
     const source = readFileSync(
       resolve(__dirname, '../../src/renderer/components/GraphView.svelte'),
       'utf8'
     )
-    const start = source.indexOf('function updateClusterSpheres()')
+    const start = source.indexOf('function updateClusterSpheres(')
     const end = source.indexOf('function projectToScreen', start)
     const enclosureBuilder = source.slice(start, end)
 
     expect(start).toBeGreaterThan(-1)
     expect(end).toBeGreaterThan(start)
     expect(enclosureBuilder).toContain('visiblePresentationNodes(allNodes)')
-    expect(enclosureBuilder).toContain('buildGraphEnclosurePointCloud')
+    expect(enclosureBuilder).toContain('clusterHullLayer.update')
     expect(enclosureBuilder).not.toContain('SphereGeometry')
-    expect(enclosureBuilder).not.toContain('!presentationActive')
+    expect(source).toContain("from '../lib/graph-hull-layer'")
   })
 })

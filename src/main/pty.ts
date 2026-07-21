@@ -51,6 +51,18 @@ interface PtyEntry {
 /** Cap on buffered output per terminal (bytes of UTF-16 code units, roughly). */
 const SCROLLBACK_LIMIT = 200_000
 
+/**
+ * Presentation overrides from the Electron launch environment must not leak
+ * into an interactive PTY. They are commonly set by test runners, package
+ * scripts, and headless launchers, and would make child CLIs suppress their
+ * ANSI styling despite the PTY advertising true-color support.
+ *
+ * A caller can still opt into one of these variables explicitly through
+ * `PtySpawnOpts.env`; those overrides are merged after inherited values are
+ * removed.
+ */
+const INHERITED_COLOR_OVERRIDES = ['NO_COLOR', 'FORCE_COLOR', 'CLICOLOR', 'NODE_DISABLE_COLORS']
+
 /** Result of spawn() returned to the renderer */
 export interface PtySpawnResult {
   pid: number
@@ -99,6 +111,9 @@ export function buildPtyEnv(cwd: string, extra?: Record<string, string>): Record
   const env: Record<string, string> = {}
   for (const [k, v] of Object.entries(process.env)) {
     if (typeof v === 'string') env[k] = v
+  }
+  for (const key of INHERITED_COLOR_OVERRIDES) {
+    delete env[key]
   }
   env.TERM = 'xterm-256color'
   env.COLORTERM = 'truecolor'

@@ -462,24 +462,28 @@ describe('execCommand', () => {
     expect(opts.maxBuffer).toBe(256 * 1024 * 1024)
   })
 
-  it('bounds graph edge context before returning data', async () => {
+  it('preserves compact graph contexts without expanding them per edge', async () => {
     const context = 'x'.repeat(1_000)
     setupWhichAndExec(
       JSON.stringify({
+        format: 'mdvdb.graph.compact',
+        version: 1,
         nodes: [],
-        edges: [{ source: 'a.md', target: 'b.md', context_text: context }],
+        edges: [{ source: 'a.md', target: 'b.md', context_index: 0, field: null }],
+        contexts: [context],
         clusters: [],
         level: 'document'
       })
     )
 
-    const result = await execCommand<{ edges: Array<{ context_text: string }> }>(
-      'graph',
-      [],
-      '/tmp/project'
-    )
+    const result = await execCommand<{
+      edges: Array<{ context_index: number; context_text?: string }>
+      contexts: string[]
+    }>('graph', [], '/tmp/project')
 
-    expect(result.edges[0].context_text).toBe(context.slice(0, 512))
+    expect(result.contexts[0]).toBe(context)
+    expect(result.edges[0].context_index).toBe(0)
+    expect(result.edges[0].context_text).toBeUndefined()
   })
 
   it('returns undefined for empty stdout', async () => {

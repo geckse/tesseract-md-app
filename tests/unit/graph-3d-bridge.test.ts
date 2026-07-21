@@ -13,6 +13,7 @@ import {
 import type { Graph3DNode, Graph3DLink, BuildGraph3DOptions } from '@renderer/lib/graph-3d-bridge'
 import type { GraphData, GraphNode, GraphEdge, GraphCluster } from '@renderer/types/cli'
 import { generateHarmonicPalette } from '@renderer/lib/harmonic-palette'
+import { FRONTMATTER_EDGE_COLOR, UNCLUSTERED_EDGE_COLOR } from '@renderer/lib/edge-utils'
 
 // ─── Test Helpers ───────────────────────────────────────────────────
 
@@ -838,6 +839,39 @@ describe('buildGraph3DData', () => {
     expect(link.edge_cluster_id).toBe(1)
     expect(link.color).toBeDefined()
     expect(link.width).toBeGreaterThan(0)
+  })
+
+  it('preserves semantic colors and uses explicit neutral/frontmatter fallbacks', () => {
+    const data = makeGraphData({
+      nodes: [makeNode({ id: 'a' }), makeNode({ id: 'b' }), makeNode({ id: 'c' })],
+      edges: [
+        makeEdge({ source: 'a', target: 'b', edge_cluster_id: 0, strength: 0.1 }),
+        makeEdge({ source: 'b', target: 'c', edge_cluster_id: 1, strength: 0.9 }),
+        makeEdge({ source: 'c', target: 'a', edge_cluster_id: null }),
+        makeEdge({ source: 'a', target: 'c', edge_cluster_id: 1, field: 'related' })
+      ]
+    })
+
+    const result = buildGraph3DData(data, defaultOptions({ weakThreshold: 0.5 }))
+    expect(result.links.map((link) => link.color)).toEqual([
+      testEdgePalette.colors[0],
+      testEdgePalette.colors[1],
+      UNCLUSTERED_EDGE_COLOR,
+      FRONTMATTER_EDGE_COLOR
+    ])
+    expect(result.links[0].color).toMatch(/^#[0-9a-f]{6}$/i)
+  })
+
+  it('resolves compact edge contexts from the shared response string table', () => {
+    const data = makeGraphData({
+      nodes: [makeNode({ id: 'a' }), makeNode({ id: 'b' })],
+      contexts: ['Full relationship context'],
+      edges: [makeEdge({ source: 'a', target: 'b', context_index: 0 })]
+    })
+
+    const result = buildGraph3DData(data, defaultOptions())
+
+    expect(result.links[0].context_text).toBe('Full relationship context')
   })
 
   it('filters edges by edge cluster filter', () => {

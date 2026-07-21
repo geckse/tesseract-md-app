@@ -7,7 +7,7 @@
  * Produces visually cohesive palettes that adapt to any accent color and theme.
  */
 
-import { hexToHsl, hslToHex, contrastRatio } from './color-utils'
+import { hexToHsl, hslToHex, contrastRatio, relativeLuminance } from './color-utils'
 
 /** A generated harmonic color palette */
 export interface HarmonicPalette {
@@ -19,6 +19,8 @@ export interface HarmonicPalette {
   saturation: number
   /** Effective lightness used for generation (0-100, after clamping) */
   lightness: number
+  /** Optional common relative-luminance target for perceptually balanced colors. */
+  targetLuminance?: number
 }
 
 /** Minimum saturation floor for near-gray colors */
@@ -69,6 +71,49 @@ export function generateHarmonicPalette(
     baseHue: hsl.h,
     saturation: effectiveS,
     lightness: effectiveL
+  }
+}
+
+/**
+ * Balance an existing harmonic palette to a common perceived brightness.
+ *
+ * Equal HSL lightness is not equal perceived brightness: saturated green can
+ * be many times brighter than blue or magenta. That difference is especially
+ * destructive for thousands of translucent graph edges because the brightest
+ * hue wins every overlap. This keeps each color's hue, caps extreme chroma,
+ * and binary-searches HSL lightness until its WCAG relative luminance is near
+ * the requested target.
+ */
+export function balancePaletteLuminance(
+  palette: HarmonicPalette,
+  targetLuminance: number = 0.16,
+  maxSaturation: number = 82
+): HarmonicPalette {
+  const target = Math.max(0.02, Math.min(0.9, targetLuminance))
+  const saturationCap = Math.max(0, Math.min(100, maxSaturation))
+  const colors = palette.colors.map((color) => {
+    const hsl = hexToHsl(color)
+    const saturation = Math.min(hsl.s, saturationCap)
+    let low = 0
+    let high = 100
+
+    // Eighteen iterations are ample for an 8-bit output color while keeping
+    // the result deterministic across browsers and themes.
+    for (let step = 0; step < 18; step++) {
+      const lightness = (low + high) / 2
+      const candidate = hslToHex(hsl.h, saturation, lightness)
+      if (relativeLuminance(candidate) < target) low = lightness
+      else high = lightness
+    }
+
+    return hslToHex(hsl.h, saturation, (low + high) / 2)
+  })
+
+  return {
+    ...palette,
+    colors,
+    saturation: Math.min(palette.saturation, saturationCap),
+    targetLuminance: target
   }
 }
 

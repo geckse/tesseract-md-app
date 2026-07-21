@@ -129,7 +129,7 @@
     -webkit-app-region: drag;
     border-bottom: 1px solid var(--color-border, #27272a);
     z-index: 35;
-    padding: 0 12px 7px 12px;
+    padding: 0 12px;
     box-sizing: border-box;
   }
 

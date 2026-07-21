@@ -6,7 +6,8 @@ import {
   captureGraphPresentationLayout,
   createGraphPresentationRootSpawn,
   createGraphPresentationSpawn,
-  restoreGraphPresentationLayout
+  restoreGraphPresentationLayout,
+  shouldEndGraphPresentationForPointerTarget
 } from '@renderer/lib/graph-presentation'
 import type { GraphEdge, GraphNode } from '@renderer/types/cli'
 
@@ -77,6 +78,14 @@ describe('buildGraphPresentationOrder', () => {
     expect(buildGraphPresentationOrder(nodes, edges, 'missing').map((step) => step.nodeId)).toEqual(
       ['root', 'leaf']
     )
+  })
+})
+
+describe('presentation pointer ownership', () => {
+  it('keeps playback alive for empty-space camera gestures', () => {
+    expect(shouldEndGraphPresentationForPointerTarget(true, false)).toBe(false)
+    expect(shouldEndGraphPresentationForPointerTarget(true, true)).toBe(true)
+    expect(shouldEndGraphPresentationForPointerTarget(false, true)).toBe(false)
   })
 })
 

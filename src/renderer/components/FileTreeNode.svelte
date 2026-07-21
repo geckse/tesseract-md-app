@@ -23,7 +23,9 @@
     }) => void
     onfolderclick?: (folderPath: string) => void
     onfolderopen?: (folderPath: string) => void
+    onnodefocus?: (path: string) => void
     focusedPath?: string
+    itemId?: string
     noRecursiveRender?: boolean // If true, don't render children recursively (for virtual lists)
     currentSelectedFilePath?: string | null
     currentExpandedPaths?: Set<string>
@@ -44,7 +46,9 @@
     oncontextmenu: onctx,
     onfolderclick: onfc,
     onfolderopen: onfo,
+    onnodefocus: onnf,
     focusedPath,
+    itemId,
     noRecursiveRender = false,
     currentSelectedFilePath = null,
     currentExpandedPaths = new Set<string>(),
@@ -77,6 +81,7 @@
   /** Open a folder as a table view without toggling expansion. */
   function handleOpenAsTable(event: MouseEvent) {
     event.stopPropagation()
+    onnf?.(node.path)
     onfo?.(node.path)
   }
 
@@ -89,6 +94,7 @@
 
   function handleContextMenu(event: MouseEvent) {
     event.preventDefault()
+    event.stopPropagation()
     onctx?.({
       path: node.path,
       isDir: node.is_dir,
@@ -146,6 +152,7 @@
   }
 
   function handleClick() {
+    onnf?.(node.path)
     if (node.is_dir) {
       toggleExpanded(node.path)
       onfc?.(node.path)
@@ -212,8 +219,11 @@
 </script>
 
 <div
+  id={itemId}
   class="tree-node"
+  data-tree-node={node.path}
   role="treeitem"
+  aria-label={node.name}
   aria-level={depth + 1}
   aria-expanded={node.is_dir ? isExpanded : undefined}
   aria-selected={isSelected}
@@ -261,7 +271,9 @@
       class:directory={node.is_dir}
       style="padding-left: {12 + depth * 16}px;"
       draggable={!node.is_dir}
+      tabindex="-1"
       onclick={handleClick}
+      onfocus={() => onnf?.(node.path)}
       ondblclick={handleDblClick}
       oncontextmenu={handleContextMenu}
       ondragstart={handleDragStart}
@@ -303,6 +315,7 @@
       class="table-action"
       title="Open as table"
       aria-label="Open {node.name} as table"
+      tabindex="-1"
       onclick={handleOpenAsTable}
     >
       <span class="material-symbols-outlined">table</span>
@@ -320,6 +333,7 @@
           oncontextmenu={onctx}
           onfolderclick={onfc}
           onfolderopen={onfo}
+          onnodefocus={onnf}
           {focusedPath}
           {currentSelectedFilePath}
           {currentExpandedPaths}
@@ -406,6 +420,18 @@
   }
 
   .tree-row.active {
+    background: var(--color-primary-dim, rgba(0, 229, 255, 0.1));
+    color: var(--color-primary, #00e5ff);
+  }
+
+  .tree-row.focused {
+    outline: 1px solid var(--color-primary, #00e5ff);
+    outline-offset: -1px;
+    background: var(--overlay-hover, rgba(255, 255, 255, 0.05));
+    color: var(--color-text, #fafafa);
+  }
+
+  .tree-row.active.focused {
     background: var(--color-primary-dim, rgba(0, 229, 255, 0.1));
     color: var(--color-primary, #00e5ff);
   }
@@ -509,5 +535,11 @@
 
   .tree-children {
     /* No extra styling needed; depth is handled via padding */
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .expand-icon {
+      transition: none;
+    }
   }
 </style>

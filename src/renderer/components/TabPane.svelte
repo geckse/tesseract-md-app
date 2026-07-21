@@ -10,7 +10,7 @@
   import ModeBar from './ModeBar.svelte'
   import Editor from './Editor.svelte'
   import WysiwygEditor from './WysiwygEditor.svelte'
-  import GraphView from './GraphView.svelte'
+  import LazyGraphView from './LazyGraphView.svelte'
   import ImageViewer from './ImageViewer.svelte'
   import PdfViewer from './PdfViewer.svelte'
   import AssetInfoCard from './AssetInfoCard.svelte'
@@ -150,7 +150,7 @@
   <div class="tab-pane-content">
     {#if tabKind === 'graph'}
       <div class="content-region" role="main" aria-label="Graph view">
-        <GraphView {paneId} />
+        <LazyGraphView {paneId} />
       </div>
     {:else if tabKind === 'asset'}
       {@const assetTab = activeTab?.kind === 'asset' ? activeTab : null}

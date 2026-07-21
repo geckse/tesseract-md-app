@@ -30,7 +30,6 @@
   import type { ForceGraph3DInstance } from '3d-force-graph'
   import type { NodeObject, LinkObject } from 'three-forcegraph'
   import * as THREE from 'three'
-  import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js'
   import {
     graphData,
     graphLoading,
@@ -61,8 +60,7 @@
     type GraphMenuAction
   } from '../stores/graph'
   import type { GraphColoringMode } from '../stores/graph'
-  import type { GraphLevel } from '../types/cli'
-  import type { GraphNode, GraphData } from '../types/cli'
+  import type { GraphLevel, GraphNode, GraphData, GraphContextItem } from '../types/cli'
   import { selectedFilePath } from '../stores/files'
   import { openResolvedPathOtherPane } from '../lib/link-navigation'
   import { activeCollection, activeCollectionId } from '../stores/collections'
@@ -75,8 +73,26 @@
   import GraphPresentationControl from './GraphPresentationControl.svelte'
   import GraphBackgroundContextMenu from './GraphBackgroundContextMenu.svelte'
   import PopoverMenu, { type PopoverMenuItem } from './ui/PopoverMenu.svelte'
-  import { edgeClusterColor, isEdgeVisible, edgeLinkColor, edgeLinkWidth } from '../lib/edge-utils'
-  import { diffGraphData, shouldPatch, isEmptyDelta, type GraphDelta } from '../lib/graph-delta'
+  import {
+    edgeClusterColor,
+    isEdgeVisible,
+    edgeLinkColor,
+    edgeLinkWidth,
+    edgeIdleOpacity,
+    edgeScreenWidth,
+    edgeArrowOpacity,
+    isFrontmatterEdge,
+    FRONTMATTER_EDGE_COLOR,
+    UNCLUSTERED_EDGE_COLOR
+  } from '../lib/edge-utils'
+  import {
+    diffGraphData,
+    graphContextToken,
+    linkKey,
+    shouldPatch,
+    isEmptyDelta,
+    type GraphDelta
+  } from '../lib/graph-delta'
   import {
     advanceGraphPresentationMotion,
     buildGraphPresentationOrder,
@@ -84,11 +100,32 @@
     createGraphPresentationRootSpawn,
     createGraphPresentationSpawn,
     restoreGraphPresentationLayout,
+    shouldEndGraphPresentationForPointerTarget,
     type GraphPresentationLayoutSnapshot,
     type GraphPresentationMotion,
     type GraphPresentationStep
   } from '../lib/graph-presentation'
-  import { buildGraphEnclosurePointCloud } from '../lib/graph-enclosure'
+  import {
+    GraphPresentationCameraController,
+    type GraphPresentationCameraPose
+  } from '../lib/graph-presentation-camera'
+  import { GraphHullLayer, type GraphHullDefinition } from '../lib/graph-hull-layer'
+  import { GraphPerformanceCollector } from '../lib/graph-performance'
+  import { GraphBatchedLayer, type GraphBatchedVisualState } from '../lib/graph-batched-layer'
+  import { GraphLayoutWorkerClient } from '../lib/graph-layout-client'
+  import type { GraphLayoutEvent, GraphLayoutWorkerState } from '../lib/graph-layout-protocol'
+  import {
+    applyGraphLayoutPositions,
+    applyGraphLayoutPositionsInOrder,
+    buildGraphLayoutInputs,
+    graphTopologyRevision,
+    packGraphNodePositions
+  } from '../lib/graph-layout-data'
+  import {
+    createBrowserGraphPositionCache,
+    createGraphPositionCacheKey,
+    restoreGraphPositions
+  } from '../lib/graph-position-cache'
   import { captureGraphScreenshotPng, graphScreenshotDefaultName } from '../lib/graph-screenshot'
   import { routeGraphMenuAction } from '../lib/graph-menu-router'
   import { paletteColor, paletteTextColor, type HarmonicPalette } from '../lib/harmonic-palette'
@@ -102,9 +139,28 @@
     buildSearchScoreMap,
     buildGraphContextMap,
     computeSearchNodeOpacity,
-    computeEdgeSearchAlpha,
-    getNodePath
+    computeEdgeSearchAlpha
   } from '../lib/graph-search-utils'
+  import {
+    buildGraphSearchContextParents,
+    buildGraphSearchRevealPlan,
+    changedGraphSearchRevealNodeIds,
+    sampleGraphSearchReveal,
+    type GraphSearchRevealFrame,
+    type GraphSearchRevealPlan
+  } from '../lib/graph-search-animation'
+  import {
+    graphLegendLinkMatch,
+    graphNodeMatchesLegendHighlight,
+    type GraphLegendHighlight,
+    type GraphLegendLinkMatch
+  } from '../lib/graph-legend-filters'
+  import {
+    adaptiveGraphLabelBudget,
+    graphLinkPickIntervalMs,
+    selectReadableGraphLabels,
+    type GraphLabelCandidate
+  } from '../lib/graph-label-layout'
   import {
     buildGraph3DData,
     seedClusterPositions,
@@ -114,7 +170,6 @@
     nodeSizeValue,
     nodeColorForMode,
     edgeArrowColor,
-    edgeTooltipHtml,
     type Graph3DNode,
     type Graph3DLink,
     type Graph3DData
@@ -158,17 +213,189 @@
   /** Runtime controls exposed by 3d-force-graph when orbit controls are active. */
   interface GraphControls {
     target: THREE.Vector3
+    enabled?: boolean
     update?: () => void
+    addEventListener?: (type: string, listener: () => void) => void
+    removeEventListener?: (type: string, listener: () => void) => void
   }
-
-  // The library uses `false` to request its default node object, but its public
-  // TypeScript declaration only admits Object3D even though the runtime docs do.
-  const defaultNodeObject = false as unknown as THREE.Object3D
 
   // ─── State ──────────────────────────────────────────────────────────
 
   /** The 3d-force-graph instance. Created in onMount via dynamic import. */
   let graph: GraphInstance | null = $state.raw(null)
+  let graphInitPromise: Promise<void> | null = null
+  let destroyed = false
+
+  /** Bounded diagnostics exposed to DevTools as window.__tesseractGraphPerformance(). */
+  const graphPerformance = new GraphPerformanceCollector()
+  let graphPerformanceFrameId: number | null = null
+  let graphPerformanceLastRendererSample = 0
+  let graphPerformancePreviousFrame = 0
+  let stopLongTaskObserver: (() => void) | null = null
+  let graphDprRestoreTimer: ReturnType<typeof setTimeout> | null = null
+  let graphAutoFitTimer: ReturnType<typeof setTimeout> | null = null
+  let graphAnimationIdleTimer: ReturnType<typeof setTimeout> | null = null
+  let graphManualRenderFrameId: number | null = null
+  let graphHostAnimating = true
+  let graphCameraAnimationUntil = 0
+  let graphFeedGeneration = 0
+  let pendingAutoFitRevision: string | null = null
+
+  type GraphDiagnosticsWindow = Window & {
+    __tesseractGraphPerformance?: () => ReturnType<GraphPerformanceCollector['snapshot']>
+  }
+  const readGraphPerformance = () => graphPerformance.snapshot()
+
+  function sampleGraphPerformanceFrame(timestamp: number): void {
+    graphPerformanceFrameId = null
+    if (!graph || document.hidden || !graphHostAnimating) return
+    graphPerformance.recordFrame(timestamp)
+    if (graphPerformancePreviousFrame > 0) {
+      batchedLayer?.advanceParticles((timestamp - graphPerformancePreviousFrame) / 1000)
+    }
+    graphPerformancePreviousFrame = timestamp
+    if (timestamp - graphPerformanceLastRendererSample >= 1000) {
+      graphPerformanceLastRendererSample = timestamp
+      graphPerformance.recordRendererInfo(graph.renderer().info)
+    }
+    graphPerformanceFrameId = requestAnimationFrame(sampleGraphPerformanceFrame)
+  }
+
+  function startGraphPerformanceSampling(): void {
+    if (graphPerformanceFrameId === null && !document.hidden) {
+      graphPerformanceFrameId = requestAnimationFrame(sampleGraphPerformanceFrame)
+    }
+  }
+
+  function stopGraphPerformanceSampling(): void {
+    if (graphPerformanceFrameId !== null) cancelAnimationFrame(graphPerformanceFrameId)
+    graphPerformanceFrameId = null
+    graphPerformancePreviousFrame = 0
+    graphPerformance.resetFrameBaseline()
+  }
+
+  function setGraphInteractiveQuality(interactive: boolean): void {
+    if (!graph) return
+    if (graphDprRestoreTimer) {
+      clearTimeout(graphDprRestoreTimer)
+      graphDprRestoreTimer = null
+    }
+    const apply = () => {
+      if (!graph) return
+      const target = Math.min(window.devicePixelRatio || 1, interactive ? 1.25 : 2)
+      if (Math.abs(graph.renderer().getPixelRatio() - target) < 0.01) return
+      graph.renderer().setPixelRatio(target)
+      syncGraphSize()
+    }
+    if (interactive) apply()
+    else graphDprRestoreTimer = setTimeout(apply, 160)
+  }
+
+  function handleGraphControlsStart(): void {
+    claimPresentationCamera()
+    cancelPendingAutoFit()
+    setGraphInteractiveQuality(true)
+    wakeGraphAnimation()
+  }
+
+  function handleGraphControlsEnd(): void {
+    setGraphInteractiveQuality(layoutWorkerState === 'running' || presentationActive)
+    settleGraphAnimation(240)
+  }
+
+  function handleGraphControlsChange(): void {
+    scheduleLabelUpdate()
+    requestGraphRender()
+    // OrbitControls can keep emitting damped changes briefly after pointer-up.
+    // Extend the idle deadline from the latest change so the final camera pose
+    // is rendered, then let the host loop sleep again.
+    settleGraphAnimation(240)
+  }
+
+  function cancelPendingAutoFit(): void {
+    if (graphAutoFitTimer) clearTimeout(graphAutoFitTimer)
+    graphAutoFitTimer = null
+    pendingAutoFitRevision = null
+  }
+
+  function needsContinuousGraphAnimation(): boolean {
+    return (
+      !document.hidden &&
+      (layoutWorkerState === 'running' ||
+        (presentationActive && !presentationPaused) ||
+        draggingNode !== null ||
+        graphSearchRevealFrameId !== null ||
+        cameraLoopFrameId !== null ||
+        batchedLayer?.hasActiveParticles === true ||
+        performance.now() < graphCameraAnimationUntil)
+    )
+  }
+
+  function requestGraphRender(): void {
+    if (!graph || document.hidden || graphHostAnimating || graphManualRenderFrameId !== null) return
+    graphManualRenderFrameId = requestAnimationFrame(() => {
+      graphManualRenderFrameId = null
+      if (graph && !document.hidden) graph.renderer().render(graph.scene(), graph.camera())
+    })
+  }
+
+  function wakeGraphAnimation(durationMs = 0): void {
+    if (!graph || document.hidden) return
+    if (durationMs > 0) {
+      graphCameraAnimationUntil = Math.max(
+        graphCameraAnimationUntil,
+        performance.now() + durationMs + 80
+      )
+    }
+    if (graphAnimationIdleTimer) clearTimeout(graphAnimationIdleTimer)
+    graphAnimationIdleTimer = null
+    if (!graphHostAnimating) {
+      graph.resumeAnimation()
+      graphHostAnimating = true
+    }
+    startGraphPerformanceSampling()
+    if (durationMs > 0) settleGraphAnimation(durationMs + 100)
+  }
+
+  function settleGraphAnimation(delayMs = 180): void {
+    if (graphAnimationIdleTimer) clearTimeout(graphAnimationIdleTimer)
+    graphAnimationIdleTimer = setTimeout(() => {
+      graphAnimationIdleTimer = null
+      if (!graph || needsContinuousGraphAnimation()) {
+        const cameraRemaining = Math.max(0, graphCameraAnimationUntil - performance.now())
+        if (cameraRemaining > 0) settleGraphAnimation(cameraRemaining + 80)
+        return
+      }
+      graph.pauseAnimation()
+      graphHostAnimating = false
+      stopGraphPerformanceSampling()
+      requestGraphRender()
+    }, delayMs)
+  }
+
+  function handleGraphDocumentVisibility(): void {
+    if (document.hidden) {
+      resumeLayoutAfterVisibility = layoutWorkerState === 'running'
+      if (resumeLayoutAfterVisibility) layoutClient?.pause()
+      graph?.pauseAnimation()
+      graphHostAnimating = false
+      if (graphAnimationIdleTimer) clearTimeout(graphAnimationIdleTimer)
+      graphAnimationIdleTimer = null
+      if (graphManualRenderFrameId !== null) cancelAnimationFrame(graphManualRenderFrameId)
+      graphManualRenderFrameId = null
+      stopGraphPerformanceSampling()
+    } else {
+      if (resumeLayoutAfterVisibility) layoutClient?.start()
+      resumeLayoutAfterVisibility = false
+      if (needsContinuousGraphAnimation()) wakeGraphAnimation()
+      else {
+        requestGraphRender()
+        settleGraphAnimation()
+      }
+      startGraphPerformanceSampling()
+      scheduleLabelUpdate()
+    }
+  }
 
   /** Outer container div (used for ResizeObserver and overlay positioning). */
   let containerEl: HTMLDivElement | undefined = $state(undefined)
@@ -178,6 +405,22 @@
 
   /** Current 3D graph data fed to the graph instance. */
   let currentGraph3DData: Graph3DData | null = null
+  let lastFedData: GraphData | null = null
+
+  /** GPU-batched scene layer and off-main-thread force layout. */
+  let batchedLayer: GraphBatchedLayer | null = null
+  let layoutClient: GraphLayoutWorkerClient | null = null
+  let unsubscribeLayout: (() => void) | null = null
+  let layoutNodeIds: string[] = []
+  let layoutNodesInVisualOrder = false
+  let layoutLastLabelUpdateAt = 0
+  let layoutRevision = ''
+  let layoutCacheKey: string | null = null
+  let layoutWorkerState: GraphLayoutWorkerState = 'uninitialized'
+  let resumeLayoutAfterVisibility = false
+  const persistentPositionCache = createBrowserGraphPositionCache()
+  let liveNodesById = new Map<string, ForceNode>()
+  let adjacency = new Map<string, Set<string>>()
 
   /** Degree map computed from current edges (used for force configuration). */
   let degreeMap: Map<string, number> = new Map()
@@ -227,7 +470,7 @@
   let currentPathFilter: string | null = $state(null)
   let currentHighlightedFolder: string | null = $state(null)
   let _currentHoveredFilePath: string | null = $state(null)
-  let currentEdgeFilter: Set<number> = $state(new Set())
+  let currentEdgeFilter: Set<number> | null = $state(null)
   let currentUnconnectedHighlight = $state(false)
   let unconnectedNodeIds: Set<string> = $state(new Set())
   let _currentSemanticEdgesEnabled: boolean = $state(true)
@@ -288,6 +531,9 @@
     graphColoringMode.set(id as GraphColoringMode)
   }
 
+  // Legend row selections highlight their members without changing topology.
+  let highlightedClusterId: number | null = $state(null)
+
   // Highlighted topic (custom cluster) — legend row click highlights ALL
   // members of that topic (including secondary memberships) and dims the rest.
   let highlightedTopicId: number | null = $state(null)
@@ -300,11 +546,37 @@
 
   // Proximity labels: visible node labels when camera is close enough (document mode)
   let visibleLabels: { id: string; label: string; x: number; y: number }[] = $state([])
+  const proximityLabelNodes: Graph3DNode[] = []
+  const proximityLabelCandidates: GraphLabelCandidate[] = []
+  const graphLabelProjection = new THREE.Vector3()
 
-  /** Last known mouse client X coordinate for tooltip positioning. */
-  let lastMouseX = 0
-  /** Last known mouse client Y coordinate for tooltip positioning. */
-  let lastMouseY = 0
+  const graphRaycaster = new THREE.Raycaster()
+  const graphPointerNdc = new THREE.Vector2()
+  const graphDragPlane = new THREE.Plane()
+  const graphDragPoint = new THREE.Vector3()
+  const graphDragOffset = new THREE.Vector3()
+  const graphDragNodePosition = new THREE.Vector3()
+  const graphDragPlaneNormal = new THREE.Vector3()
+  let graphCanvas: HTMLCanvasElement | null = null
+  let graphPickFrameId: number | null = null
+  let graphPickTimer: ReturnType<typeof setTimeout> | null = null
+  let graphLastLinkPickAt = 0
+  let graphForceNextLinkPick = false
+  let pendingPickPoint: { x: number; y: number } | null = null
+  let pointerCandidate: {
+    node: ForceNode | null
+    x: number
+    y: number
+    pointerId: number
+  } | null = null
+  let draggingNode: ForceNode | null = null
+  let pendingGraphDragRelease: {
+    requestId: number
+    nodeId: string
+    x: number
+    y: number
+    z: number
+  } | null = null
 
   // Resize observer
   let resizeObs: ResizeObserver | null = null
@@ -330,13 +602,15 @@
   let presentationLastRevealAt = 0
   let presentationRevealTicks = 0
   let presentationNodesById = new Map<string, ForceNode>()
+  let presentationHullNodes = new Map<number, ForceNode[]>()
   let presentationTargetPositions = new Map<string, { x: number; y: number; z: number }>()
   let presentationLayoutSnapshot: GraphPresentationLayoutSnapshot | null = null
   let presentationMotions = new Map<string, GraphPresentationMotion>()
   let presentationAllRevealed = false
   let presentationLastMotionAt = 0
   let presentationLastEnclosureAt = 0
-  let presentationOriginalAlphaDecay: number | null = null
+  let presentationLayoutWasRunning = false
+  const presentationCamera = new GraphPresentationCameraController()
   let presentationStatusMessage = $state('')
 
   const PRESENTATION_INTERVAL_MS = 90
@@ -345,7 +619,8 @@
 
   // Label update animation frame
   let labelFrameId: number | null = null
-  let labelFrameCount = 0
+  const nodeLabelCache = new Map<string, string>()
+  let graphControls: GraphControls | null = null
 
   // ─── Keyboard Camera Controls State ─────────────────────────────────
   /** Set of currently held camera control keys. */
@@ -395,17 +670,156 @@
   /** Debounce timer for graph search input. */
   let graphSearchDebounceTimer: ReturnType<typeof setTimeout> | null = null
 
+  /** Relevance-first search reveal state. Plain maps avoid reactive mutation overhead per frame. */
+  let graphSearchRevealPlan: GraphSearchRevealPlan | null = null
+  let graphSearchRevealFrame: GraphSearchRevealFrame | null = null
+  let graphSearchRevealFrameId: number | null = null
+  let graphSearchRevealStartedAt = 0
+  let graphSearchRevealLastVisualAt = 0
+  let graphSearchRevealGeneration = 0
+  let graphSearchRevealLinkIndices = new Map<Graph3DLink, number>()
+  let graphSearchRevealLinkDirections = new Map<number, 1 | -1>()
+
   // ─── Graph Search Functions ─────────────────────────────────────────
+
+  function cancelGraphSearchReveal(renderFinalState: boolean = false): void {
+    graphSearchRevealGeneration++
+    if (graphSearchRevealFrameId !== null) cancelAnimationFrame(graphSearchRevealFrameId)
+    graphSearchRevealFrameId = null
+    graphSearchRevealPlan = null
+    graphSearchRevealFrame = null
+    graphSearchRevealLinkIndices = new Map()
+    graphSearchRevealLinkDirections = new Map()
+    graphSearchRevealLastVisualAt = 0
+    if (renderFinalState) syncBatchedVisuals()
+    settleGraphAnimation()
+  }
+
+  function finishGraphSearchReveal(generation: number): void {
+    if (generation !== graphSearchRevealGeneration) return
+    graphSearchRevealFrameId = null
+    graphSearchRevealPlan = null
+    graphSearchRevealFrame = null
+    graphSearchRevealLinkIndices = new Map()
+    graphSearchRevealLinkDirections = new Map()
+    graphSearchRevealLastVisualAt = 0
+    // Clear the animation mask before the final full update so the static
+    // search state exactly matches the long-standing highlight contract.
+    syncBatchedVisuals()
+    settleGraphAnimation()
+  }
+
+  function runGraphSearchRevealFrame(timestamp: number, generation: number): void {
+    graphSearchRevealFrameId = null
+    if (destroyed || generation !== graphSearchRevealGeneration) return
+    const plan = graphSearchRevealPlan
+    // This is deliberately the last frame uploaded to the GPU, rather than
+    // merely the last sampled RAF. Skipped throttle frames must accumulate so
+    // their final opacity/halo changes cannot disappear from the next upload.
+    const previousRendered = graphSearchRevealFrame
+    if (!plan || !previousRendered || !batchedLayer) return
+
+    const next = sampleGraphSearchReveal(plan, timestamp - graphSearchRevealStartedAt)
+    if (next.complete) {
+      // finishGraphSearchReveal performs the one terminal full update after
+      // clearing the trace mask. Avoid uploading the complete frame twice.
+      finishGraphSearchReveal(generation)
+      return
+    }
+
+    const phaseChanged = next.phase !== previousRendered.phase
+    // The global dimming pass is intentionally capped because it rewrites the
+    // whole graph. Once the tree walk starts, only the active nodes and their
+    // incident links change, so let requestAnimationFrame drive a smooth trace.
+    const visualInterval = next.phase === 'dimming' ? 1000 / 30 : 1000 / 55
+    const shouldUpdate = phaseChanged || timestamp - graphSearchRevealLastVisualAt >= visualInterval
+
+    if (shouldUpdate) {
+      graphSearchRevealFrame = next
+      graphSearchRevealLastVisualAt = timestamp
+      const visuals = graphBatchedVisualState()
+      if (next.phase === 'dimming' || phaseChanged) {
+        // Dimming touches the entire graph, but only for a short six-to-seven
+        // frame transition. The longer tree walk below stays strictly partial.
+        batchedLayer.updateVisuals(visuals)
+      } else {
+        const changedNodeIds = changedGraphSearchRevealNodeIds(plan, previousRendered, next)
+        if (changedNodeIds.size > 0) {
+          batchedLayer.updateVisualsForNodes(changedNodeIds, visuals)
+        }
+      }
+      requestGraphRender()
+    }
+    graphSearchRevealFrameId = requestAnimationFrame((nextTimestamp) =>
+      runGraphSearchRevealFrame(nextTimestamp, generation)
+    )
+  }
+
+  function startGraphSearchReveal(contextItems: GraphContextItem[]): void {
+    cancelGraphSearchReveal(false)
+    if (!currentGraph3DData || !batchedLayer) {
+      applySearchDimming()
+      return
+    }
+
+    const plan = buildGraphSearchRevealPlan(
+      currentGraph3DData.nodes,
+      currentGraph3DData.links,
+      graphSearchScores,
+      graphSearchContextScores,
+      buildGraphSearchContextParents(contextItems)
+    )
+    if (plan.steps.length === 0) {
+      applySearchDimming()
+      return
+    }
+
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+    if (reducedMotion) {
+      // Avoid flashing or delayed input while preserving the same final
+      // relevance-weighted search state as the animated path.
+      applySearchDimming()
+      return
+    }
+
+    graphSearchRevealPlan = plan
+    graphSearchRevealFrame = sampleGraphSearchReveal(plan, 0)
+    graphSearchRevealLinkIndices = new Map(
+      currentGraph3DData.links.map((link, index) => [link, index])
+    )
+    graphSearchRevealLinkDirections = new Map(
+      plan.connections.map((connection) => [connection.linkIndex, connection.direction])
+    )
+    graphSearchRevealStartedAt = performance.now()
+    graphSearchRevealLastVisualAt = graphSearchRevealStartedAt
+    const generation = ++graphSearchRevealGeneration
+
+    // First paint is unchanged; subsequent frames fade everything into the
+    // quiet search baseline before any result or connection enters.
+    batchedLayer.updateVisuals(graphBatchedVisualState())
+    batchedLayer.setParticleLinks(null)
+    wakeGraphAnimation()
+    requestGraphRender()
+    graphSearchRevealFrameId = requestAnimationFrame((timestamp) =>
+      runGraphSearchRevealFrame(timestamp, generation)
+    )
+  }
 
   /**
    * Handle graph search input with 400ms debounce and 2-char minimum.
    */
   function onGraphSearchInput(query: string): void {
     graphSearchQuery = query
+    // Invalidate both the pending backend result and any visual playback as
+    // soon as the query changes, not after the next debounce completes.
+    graphSearchGeneration++
 
     if (graphSearchDebounceTimer !== null) {
       clearTimeout(graphSearchDebounceTimer)
       graphSearchDebounceTimer = null
+    }
+    if (graphSearchRevealPlan || graphSearchRevealFrameId !== null) {
+      cancelGraphSearchReveal(query.length >= 2)
     }
 
     if (query.length < 2) {
@@ -414,6 +828,7 @@
       graphSearchResultCount = 0
       graphSearchLoading = false
       graphSearchError = null
+      syncBatchedVisuals()
       return
     }
 
@@ -428,6 +843,9 @@
    * Execute graph search with generation counter for stale result handling.
    */
   async function executeGraphSearch(query: string): Promise<void> {
+    if (graphSearchRevealPlan || graphSearchRevealFrameId !== null) {
+      cancelGraphSearchReveal(true)
+    }
     const collection = get(activeCollection)
     if (!collection) {
       graphSearchLoading = false
@@ -454,13 +872,15 @@
       graphSearchContextScores = contextScores
       graphSearchResultCount = result.total_results ?? result.results?.length ?? 0
       graphSearchError = null
-      applySearchDimming()
+      startGraphSearchReveal(result.graph_context ?? [])
     } catch (err) {
       if (generation !== graphSearchGeneration) return
+      cancelGraphSearchReveal(false)
       graphSearchError = err instanceof Error ? err.message : String(err)
       graphSearchScores = new Map()
       graphSearchContextScores = new Map()
       graphSearchResultCount = 0
+      syncBatchedVisuals()
     } finally {
       if (generation === graphSearchGeneration) {
         graphSearchLoading = false
@@ -476,6 +896,7 @@
       clearTimeout(graphSearchDebounceTimer)
       graphSearchDebounceTimer = null
     }
+    cancelGraphSearchReveal(false)
     graphSearchGeneration++
     graphSearchQuery = ''
     graphSearchScores = new Map()
@@ -485,7 +906,7 @@
     graphSearchError = null
     graphSearchVisible = false
     applySelectionDimming()
-    if (graph) graph.refresh()
+    syncBatchedVisuals()
   }
 
   /** Open and focus the graph search overlay. */
@@ -501,40 +922,93 @@
   /**
    * Update proximity labels: project node positions to screen,
    * show labels only for nodes within a distance threshold from camera.
-   * Runs every frame via requestAnimationFrame for smooth tracking during orbit.
+   * Scheduled on camera/layout changes for smooth tracking during orbit.
    */
-  function updateProximityLabels() {
-    labelFrameCount++
+  function scheduleLabelUpdate(): void {
+    if (labelFrameId !== null) return
+    labelFrameId = requestAnimationFrame(() => {
+      labelFrameId = null
+      updateProximityLabels()
+    })
+  }
 
-    if (!graph || isChunkMode()) {
-      if (visibleLabels.length > 0) visibleLabels = []
-      // Still update cluster labels every frame for smooth tracking
-      updateClusterLabelPositions()
-      labelFrameId = requestAnimationFrame(updateProximityLabels)
+  function publishVisibleLabels(labels: typeof visibleLabels): void {
+    if (
+      labels.length === visibleLabels.length &&
+      labels.every((label, index) => {
+        const previous = visibleLabels[index]
+        return (
+          previous?.id === label.id &&
+          Math.abs(previous.x - label.x) < 0.5 &&
+          Math.abs(previous.y - label.y) < 0.5
+        )
+      })
+    ) {
       return
     }
+    visibleLabels = labels
+  }
 
-    // Throttle DOM updates to ~20fps (every 3rd frame) — CSS transitions smooth the gaps
-    if (labelFrameCount % 3 !== 0) {
-      // Still update cluster labels every frame
+  /** Move only the grabbed label; a full proximity query would rebuild the O(V) picker grid. */
+  function updateDraggedNodeLabel(node: ForceNode): void {
+    if (!graph || !graphLabelsVisible || isChunkMode()) return
+    const index = visibleLabels.findIndex((label) => label.id === node.id)
+    if (index < 0) return
+    const screen = graph.graph2ScreenCoords(node.x ?? 0, node.y ?? 0, node.z ?? 0)
+    if (!screen) return
+    const current = visibleLabels[index]
+    if (Math.abs(current.x - screen.x) < 0.5 && Math.abs(current.y - screen.y) < 0.5) return
+    const next = visibleLabels.slice()
+    next[index] = { ...current, x: screen.x, y: screen.y }
+    visibleLabels = next
+  }
+
+  function graphLabelImportance(node: ForceNode, distanceSquared: number): number {
+    let importance = (degreeMap.get(node.id) ?? 0) * 1_000
+    importance += Math.max(0, node.val ?? 0) * 100
+    importance += 100_000 / Math.max(25, Math.sqrt(distanceSquared))
+
+    const directSearchScore = graphSearchScores.get(node.path)
+    const contextSearchScore = graphSearchContextScores.get(node.path)
+    if (directSearchScore !== undefined) importance += 10_000_000 + directSearchScore * 100_000
+    else if (contextSearchScore !== undefined)
+      importance += 5_000_000 + contextSearchScore * 100_000
+    if (neighborSet.has(node.id)) importance += 1_000_000
+    if (node.custom_cluster_ids?.includes(highlightedTopicId ?? Number.NaN)) importance += 500_000
+    if (hoveredNode?.id === node.id) importance += 500_000_000
+    if (currentSelected?.id === node.id) importance += 1_000_000_000
+    return importance
+  }
+
+  function updateProximityLabels(): void {
+    if (!graph || !graphLabelsVisible || isChunkMode()) {
+      if (visibleLabels.length > 0) visibleLabels = []
       updateClusterLabelPositions()
-      labelFrameId = requestAnimationFrame(updateProximityLabels)
       return
     }
 
     const camera = graph.camera()
-    if (!camera) {
-      labelFrameId = requestAnimationFrame(updateProximityLabels)
-      return
-    }
+    if (!camera) return
 
     const camPos = camera.position
-    const graphData = graph.graphData()
-    const nodes = graphData.nodes as ForceNode[]
+    let nodes: ForceNode[]
+    if (batchedLayer) {
+      batchedLayer.collectNodesWithinRadius(camPos, 350, proximityLabelNodes)
+      nodes = proximityLabelNodes as ForceNode[]
+    } else {
+      nodes = getLiveGraphData().nodes as ForceNode[]
+    }
 
     // Distance threshold: labels visible within this range from camera
-    const maxDist = 350
+    const maxDistSquared = 350 * 350
     const labels: typeof visibleLabels = []
+    const rendererElement = graph.renderer().domElement
+    const viewport = {
+      width: rendererElement.clientWidth,
+      height: rendererElement.clientHeight
+    }
+    const useAdaptiveLabels = (currentGraph3DData?.nodes.length ?? nodes.length) >= 1_500
+    proximityLabelCandidates.length = 0
 
     for (const node of nodes) {
       const nx = node.x ?? 0
@@ -544,28 +1018,60 @@
       const dx = camPos.x - nx
       const dy = camPos.y - ny
       const dz = camPos.z - nz
-      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
-
-      if (dist > maxDist) continue
-
-      const screenCoords = graph.graph2ScreenCoords(nx, ny, nz)
-      if (!screenCoords) continue
+      const distanceSquared = dx * dx + dy * dy + dz * dz
+      if (distanceSquared > maxDistSquared) continue
       if (presentationActive && !presentationVisibleNodeIds.has(node.id)) continue
 
       // Extract filename from path
-      const fileName = node.path?.split('/').pop() ?? node.id
+      let fileName = nodeLabelCache.get(node.id)
+      if (!fileName) {
+        const separator = node.path?.lastIndexOf('/') ?? -1
+        fileName = separator >= 0 ? node.path.slice(separator + 1) : (node.path ?? node.id)
+        nodeLabelCache.set(node.id, fileName)
+      }
 
-      labels.push({
-        id: node.id,
-        label: fileName,
-        x: screenCoords.x,
-        y: screenCoords.y
-      })
+      if (useAdaptiveLabels) {
+        graphLabelProjection.set(nx, ny, nz).project(camera)
+        if (
+          graphLabelProjection.z < -1 ||
+          graphLabelProjection.z > 1 ||
+          graphLabelProjection.x < -1 ||
+          graphLabelProjection.x > 1 ||
+          graphLabelProjection.y < -1 ||
+          graphLabelProjection.y > 1
+        ) {
+          continue
+        }
+        proximityLabelCandidates.push({
+          id: node.id,
+          label: fileName,
+          x: (graphLabelProjection.x * 0.5 + 0.5) * viewport.width,
+          y: (-graphLabelProjection.y * 0.5 + 0.5) * viewport.height,
+          importance: graphLabelImportance(node, distanceSquared)
+        })
+      } else {
+        const screenCoords = graph.graph2ScreenCoords(nx, ny, nz)
+        if (!screenCoords) continue
+        labels.push({
+          id: node.id,
+          label: fileName,
+          x: screenCoords.x,
+          y: screenCoords.y
+        })
+      }
     }
 
-    visibleLabels = labels
+    if (useAdaptiveLabels) {
+      const budget = adaptiveGraphLabelBudget(
+        viewport,
+        proximityLabelCandidates.length,
+        layoutWorkerState === 'running'
+      )
+      publishVisibleLabels(selectReadableGraphLabels(proximityLabelCandidates, viewport, budget))
+    } else {
+      publishVisibleLabels(labels)
+    }
     updateClusterLabelPositions()
-    labelFrameId = requestAnimationFrame(updateProximityLabels)
   }
 
   /** Whether WebGL is supported by the browser. Checked in onMount before graph init. */
@@ -573,11 +1079,11 @@
 
   // ─── Cluster Enclosure State ────────────────────────────────────────
 
-  /** THREE.js Group containing all cluster/topic enclosure meshes. */
-  let clusterMeshGroup: THREE.Group | null = null
+  /** Stable, dirty-cluster-only enclosure layer. */
+  let clusterHullLayer: GraphHullLayer | null = null
 
-  /** Tick counter for throttled enclosure updates during simulation. */
-  let engineTickCount = 0
+  /** Last worker snapshot time used to throttle enclosure updates. */
+  let lastHullLayoutUpdateAt = 0
 
   /** Cluster labels computed for the HTML overlay. */
   let clusterLabels: {
@@ -601,24 +1107,64 @@
     return currentLevel === 'chunk'
   }
 
+  /** Current node-group selection from the legend or file tree. */
+  function activeLegendHighlight(): GraphLegendHighlight | null {
+    if (currentColoringMode === 'cluster' && highlightedClusterId != null) {
+      return { kind: 'cluster', id: highlightedClusterId }
+    }
+    if (currentColoringMode === 'custom-cluster' && highlightedTopicId != null) {
+      return { kind: 'topic', id: highlightedTopicId }
+    }
+    if (currentHighlightedFolder) return { kind: 'folder', path: currentHighlightedFolder }
+    return null
+  }
+
+  function nodeMatchesLegendHighlight(node: ForceNode): boolean {
+    const highlight = activeLegendHighlight()
+    return highlight ? graphNodeMatchesLegendHighlight(node, highlight) : false
+  }
+
+  function linkLegendMatch(link: Graph3DLink): GraphLegendLinkMatch | null {
+    const highlight = activeLegendHighlight()
+    if (!highlight) return null
+    return graphLegendLinkMatch(
+      resolveLinkNode(link.source),
+      resolveLinkNode(link.target),
+      highlight
+    )
+  }
+
+  function activeHullHighlightId(): number | null {
+    if (currentColoringMode === 'cluster') return highlightedClusterId
+    if (currentColoringMode === 'custom-cluster') return highlightedTopicId
+    return null
+  }
+
+  function syncHullLegendHighlight(): void {
+    clusterHullLayer?.setHighlightedGroup(activeHullHighlightId())
+    requestGraphRender()
+  }
+
   /**
    * Compute node color dynamically based on the current coloring mode.
    * Called by the nodeColor accessor on each render/refresh so that
    * mode switches only require a graph.refresh() instead of full data rebuild.
    *
    * Delegates to the bridge's pure nodeColorForMode() (single source of
-   * truth shared with buildGraph3DData), plus the topic-highlight dimming:
-   * in custom-cluster mode with an active topic highlight, non-members of
-   * the highlighted topic fall back to the default node color.
+   * truth shared with buildGraph3DData), plus legend highlighting.
    */
-  function getNodeColor(node: ForceNode): string {
+  function getNodeColor(
+    node: ForceNode,
+    colors: { default: string; primary: string; muted: string }
+  ): string {
     const searchActive = graphSearchScores.size > 0 || graphSearchContextScores.size > 0
     if (currentUnconnectedHighlight && !searchActive) {
-      return unconnectedNodeIds.has(node.id) ? getPrimaryColor() : getMutedNodeColor()
+      return unconnectedNodeIds.has(node.id) ? colors.primary : colors.muted
     }
-    if (currentColoringMode === 'custom-cluster' && highlightedTopicId != null) {
-      const isMember = node.custom_cluster_ids?.includes(highlightedTopicId) ?? false
-      if (!isMember) return getDefaultNodeColor()
+    const legendHighlight = activeLegendHighlight()
+    if (!currentSelected && !searchActive && legendHighlight) {
+      if (!graphNodeMatchesLegendHighlight(node, legendHighlight)) return colors.muted
+      if (legendHighlight.kind === 'folder') return colors.primary
     }
     return nodeColorForMode(
       node,
@@ -626,21 +1172,38 @@
       folderColorMap,
       isChunkMode(),
       currentClusterPalette,
-      currentCustomClusterPalette
+      currentCustomClusterPalette,
+      colors.default
     )
+  }
+
+  /** Toggle an automatic cluster from the legend. */
+  function toggleClusterHighlight(id: number): void {
+    highlightedClusterId = highlightedClusterId === id ? null : id
+    syncBatchedVisuals()
+    syncHullLegendHighlight()
+  }
+
+  function clearClusterHighlight(): void {
+    if (highlightedClusterId == null) return
+    highlightedClusterId = null
+    syncBatchedVisuals()
+    syncHullLegendHighlight()
   }
 
   /** Toggle the highlighted topic (legend row click). Same id again clears. */
   function toggleTopicHighlight(id: number): void {
     highlightedTopicId = highlightedTopicId === id ? null : id
-    if (graph) graph.refresh()
+    syncBatchedVisuals()
+    syncHullLegendHighlight()
   }
 
   /** Clear the topic highlight filter. */
   function clearTopicHighlight(): void {
     if (highlightedTopicId == null) return
     highlightedTopicId = null
-    if (graph) graph.refresh()
+    syncBatchedVisuals()
+    syncHullLegendHighlight()
   }
 
   /** Read the default node color from CSS variable. */
@@ -711,6 +1274,29 @@
     return String(endpoint ?? '')
   }
 
+  function getLiveGraphData(): { nodes: ForceNode[]; links: ForceLink[] } {
+    return {
+      nodes: (currentGraph3DData?.nodes ?? []) as ForceNode[],
+      links: (currentGraph3DData?.links ?? []) as ForceLink[]
+    }
+  }
+
+  function rebuildLiveGraphIndices(): void {
+    const live = getLiveGraphData()
+    liveNodesById = new Map(live.nodes.map((node) => [node.id, node]))
+    adjacency = new Map(live.nodes.map((node) => [node.id, new Set<string>()]))
+    for (const link of live.links) {
+      const source = linkNodeId(link.source)
+      const target = linkNodeId(link.target)
+      adjacency.get(source)?.add(target)
+      adjacency.get(target)?.add(source)
+    }
+  }
+
+  function resolveLinkNode(endpoint: unknown): ForceNode | undefined {
+    return liveNodesById.get(linkNodeId(endpoint))
+  }
+
   /**
    * Compute the set of bidirectional edge pairs from the current links.
    * An edge A→B is bidirectional if B→A also exists.
@@ -733,22 +1319,14 @@
 
   /**
    * Get the directional arrow/particle color for a link.
-   * When a node is selected: directional coloring (cyan out, red in, green bidi).
-   * When no selection: use the link's own color so arrows match their edge.
+   * Idle arrows stay neutral so thousands of arrowheads do not bias the
+   * semantic edge palette. A selected node activates directional colors.
    */
   function getLinkArrowColor(link: ForceLink): string {
     const srcId = linkNodeId(link.source)
     const tgtId = linkNodeId(link.target)
     const selectedId = currentSelected?.id ?? null
 
-    // No selection → arrow matches the edge color (visible on dark background)
-    if (!selectedId) return link.color || '#aaaaaa'
-
-    // Not a neighbor of selected node → match edge color
-    const isNeighbor = srcId === selectedId || tgtId === selectedId
-    if (!isNeighbor) return link.color || '#aaaaaa'
-
-    // Neighbor edge → directional coloring
     const isBidi = bidirectionalPairs.has(`${srcId}->${tgtId}`)
     return edgeArrowColor(srcId, tgtId, selectedId, isBidi, currentArrowPalette)
   }
@@ -762,60 +1340,246 @@
    */
   function computeNeighborSet() {
     neighborSet = new Set()
-    if (!currentSelected || !graph) return
+    if (!currentSelected) return
+    neighborSet.add(currentSelected.id)
+    for (const neighbor of adjacency.get(currentSelected.id) ?? []) neighborSet.add(neighbor)
+  }
 
-    const graphD = graph.graphData()
-    const links = graphD.links as ForceLink[]
-    const selectedId = currentSelected.id
+  function graphSearchScoreForNode(node: Graph3DNode | undefined): number | undefined {
+    if (!node) return undefined
+    return graphSearchScores.get(node.path) ?? graphSearchContextScores.get(node.path)
+  }
 
-    neighborSet.add(selectedId)
+  function batchedNodeBaseOpacity(node: Graph3DNode): number {
+    if (currentSelected) return neighborSet.has(node.id) ? 0.95 : 0.15
+    const legendHighlight = activeLegendHighlight()
+    if (legendHighlight) {
+      return graphNodeMatchesLegendHighlight(node, legendHighlight) ? 0.96 : 0.1
+    }
+    if (currentUnconnectedHighlight) return unconnectedNodeIds.has(node.id) ? 1 : 0.16
+    return 0.9
+  }
 
-    for (const link of links) {
-      const srcId = linkNodeId(link.source)
-      const tgtId = linkNodeId(link.target)
-      if (srcId === selectedId) {
-        neighborSet.add(tgtId)
-      } else if (tgtId === selectedId) {
-        neighborSet.add(srcId)
+  function batchedNodeOpacity(node: Graph3DNode): number {
+    const searchScore = graphSearchScoreForNode(node)
+    if (graphSearchScores.size > 0 || graphSearchContextScores.size > 0) {
+      const reveal = graphSearchRevealFrame
+      if (reveal?.phase === 'dimming') {
+        return THREE.MathUtils.lerp(batchedNodeBaseOpacity(node), 0.05, reveal.dimProgress)
+      }
+      if (reveal && searchScore !== undefined) {
+        return THREE.MathUtils.lerp(
+          0.05,
+          computeSearchNodeOpacity(searchScore),
+          reveal.nodeProgress.get(node.id) ?? 0
+        )
+      }
+      return searchScore === undefined ? 0.05 : computeSearchNodeOpacity(searchScore)
+    }
+    return batchedNodeBaseOpacity(node)
+  }
+
+  function graphSearchLinkScores(link: Graph3DLink): {
+    source: ForceNode | undefined
+    target: ForceNode | undefined
+    sourceScore: number | undefined
+    targetScore: number | undefined
+  } {
+    const source = resolveLinkNode(link.source)
+    const target = resolveLinkNode(link.target)
+    return {
+      source,
+      target,
+      sourceScore: graphSearchScoreForNode(source),
+      targetScore: graphSearchScoreForNode(target)
+    }
+  }
+
+  function batchedLinkSearchColor(link: Graph3DLink): string {
+    const { sourceScore, targetScore } = graphSearchLinkScores(link)
+    if (sourceScore !== undefined && targetScore !== undefined) {
+      return `rgba(0, 220, 255, ${computeEdgeSearchAlpha(sourceScore, targetScore)})`
+    }
+    if (sourceScore !== undefined || targetScore !== undefined) return 'rgba(0, 220, 255, 0.08)'
+    return 'rgba(80, 80, 80, 0.02)'
+  }
+
+  function graphBatchedVisualState(): GraphBatchedVisualState {
+    const searchActive = graphSearchScores.size > 0 || graphSearchContextScores.size > 0
+    const normalLinkOpacity = (link: Graph3DLink): number => {
+      const semantic = _currentSemanticEdgesEnabled || isFrontmatterEdge(link)
+      if (searchActive) {
+        const reveal = graphSearchRevealFrame
+        if (reveal?.phase === 'dimming') {
+          const idle = edgeIdleOpacity(
+            link.strength ?? 0.5,
+            currentEdgeWeakThreshold,
+            isChunkMode(),
+            semantic
+          )
+          return THREE.MathUtils.lerp(idle, 0.02, reveal.dimProgress)
+        }
+        if (reveal?.phase === 'revealing') {
+          const { source, target, sourceScore, targetScore } = graphSearchLinkScores(link)
+          if ((sourceScore === undefined) !== (targetScore === undefined)) {
+            const relevantNode = sourceScore !== undefined ? source : target
+            const progress = relevantNode ? (reveal.nodeProgress.get(relevantNode.id) ?? 0) : 0
+            // batchedLinkSearchColor contributes alpha .08; this moves the
+            // one-ended context line smoothly from .02 to that final value.
+            return 0.25 + progress * 0.75
+          }
+        }
+        return 1
+      }
+      if (currentSelected) return 1
+      const idle = edgeIdleOpacity(
+        link.strength ?? 0.5,
+        currentEdgeWeakThreshold,
+        isChunkMode(),
+        semantic
+      )
+      const legendMatch = linkLegendMatch(link)
+      if (legendMatch === 'both') return Math.max(0.72, idle)
+      if (legendMatch === 'incident') return 0.38
+      if (legendMatch === 'none') return 0.035
+      return idle
+    }
+    const normalLinkWidth = (link: Graph3DLink): number => {
+      if (searchActive && graphSearchRevealFrame?.phase !== 'dimming') {
+        const { sourceScore, targetScore } = graphSearchLinkScores(link)
+        if (sourceScore !== undefined && targetScore !== undefined) {
+          return 1 + Math.min(sourceScore, targetScore) * 1.4
+        }
+        return sourceScore !== undefined || targetScore !== undefined ? 1.15 : 1
+      }
+      const semantic = _currentSemanticEdgesEnabled || isFrontmatterEdge(link)
+      const incident =
+        currentSelected != null &&
+        (link.source === currentSelected.id || link.target === currentSelected.id)
+      return edgeScreenWidth(link.width ?? 0.5, semantic, incident)
+    }
+    const graphColors = {
+      default: getDefaultNodeColor(),
+      primary: getPrimaryColor(),
+      muted: getMutedNodeColor()
+    }
+    return {
+      nodeColor: (node) => getNodeColor(node as ForceNode, graphColors),
+      nodeOpacity: batchedNodeOpacity,
+      nodeVisible: (node) => !presentationActive || presentationVisibleNodeIds.has(node.id),
+      nodeHalo: (node) => {
+        const revealProgress = graphSearchRevealFrame?.nodeProgress.get(node.id) ?? 0
+        if (revealProgress > 0 && revealProgress < 1) return true
+        if (!searchActive && activeLegendHighlight()) return nodeMatchesLegendHighlight(node)
+        return (degreeMap.get(node.id) ?? 0) >= 5 && batchedNodeOpacity(node) > 0.2
+      },
+      linkColor: (link) => {
+        if (searchActive) {
+          if (graphSearchRevealFrame?.phase === 'dimming') {
+            if (!_currentSemanticEdgesEnabled && !isFrontmatterEdge(link)) {
+              return UNCLUSTERED_EDGE_COLOR
+            }
+            return link.color
+          }
+          return batchedLinkSearchColor(link)
+        }
+        if (currentSelected) {
+          const incident = link.source === currentSelected.id || link.target === currentSelected.id
+          return incident ? getLinkArrowColor(link as ForceLink) : 'rgba(80, 80, 80, 0.04)'
+        }
+        if (linkLegendMatch(link) === 'none') return UNCLUSTERED_EDGE_COLOR
+        if (!_currentSemanticEdgesEnabled && !isFrontmatterEdge(link)) {
+          return UNCLUSTERED_EDGE_COLOR
+        }
+        return link.color
+      },
+      linkOpacity: normalLinkOpacity,
+      linkWidth: normalLinkWidth,
+      linkReveal: (link) => {
+        const reveal = graphSearchRevealFrame
+        if (!searchActive || reveal?.phase !== 'revealing') return 1
+        const { sourceScore, targetScore } = graphSearchLinkScores(link)
+        if (sourceScore === undefined || targetScore === undefined) return 1
+        const index = graphSearchRevealLinkIndices.get(link)
+        return index === undefined ? 1 : (reveal.linkProgress.get(index) ?? 0)
+      },
+      linkRevealDirection: (link) => {
+        const index = graphSearchRevealLinkIndices.get(link)
+        return index === undefined ? 1 : (graphSearchRevealLinkDirections.get(index) ?? 1)
+      },
+      linkVisible: (link) => {
+        if (!graphLinesVisible) return false
+        if (!isEdgeVisible(link, currentEdgeFilter)) return false
+        if (!presentationActive) return true
+        return (
+          presentationVisibleNodeIds.has(link.source) && presentationVisibleNodeIds.has(link.target)
+        )
+      },
+      arrowColor: (link) => getLinkArrowColor(link as ForceLink),
+      // Direction is a secondary overview cue and becomes primary only for a
+      // selected node. Keeping idle arrows close to line opacity prevents
+      // thousands of cones from washing the graph toward one palette hue.
+      arrowOpacity: (link) => edgeArrowOpacity(normalLinkOpacity(link), currentSelected != null),
+      arrowVisible: (link) => {
+        const searchHasFinishedDimming = searchActive && graphSearchRevealFrame?.phase !== 'dimming'
+        if (isChunkMode() || searchHasFinishedDimming || !graphLinesVisible) return false
+        if (
+          presentationActive &&
+          (!presentationVisibleNodeIds.has(link.source) ||
+            !presentationVisibleNodeIds.has(link.target))
+        ) {
+          return false
+        }
+        return (
+          !currentSelected ||
+          link.source === currentSelected.id ||
+          link.target === currentSelected.id
+        )
       }
     }
   }
 
-  /**
-   * Create a hub node THREE.Group with a sphere mesh and emissive glow halo.
-   * Hub nodes (degree >= 5) get a visible glow effect via emissive material + outer halo.
-   */
-  function createHubNodeObject(node: ForceNode, opacity: number): THREE.Group {
-    const color = getNodeColor(node)
-    const threeColor = new THREE.Color(color)
-    const radius = Math.cbrt(node.val) * 2 // Match nodeRelSize=2
+  function syncBatchedVisuals(): void {
+    if (!batchedLayer) return
+    batchedLayer.setLinesVisible(graphLinesVisible)
+    batchedLayer.updateVisuals(graphBatchedVisualState())
+    const searchActive = graphSearchScores.size > 0 || graphSearchContextScores.size > 0
+    batchedLayer.setParticleLinks(searchActive ? null : (currentSelected?.id ?? null))
+    syncParticleAnimationState()
+    requestGraphRender()
+  }
 
-    const group = new THREE.Group()
+  /** Keep the host RAF alive only while the selected-edge particle batch exists. */
+  function syncParticleAnimationState(): void {
+    if (batchedLayer?.hasActiveParticles) wakeGraphAnimation()
+    else settleGraphAnimation()
+  }
 
-    // Inner sphere: emissive glow instead of PointLight (PointLights exceed WebGL uniform
-    // limits when many hub nodes exist, causing shader compilation failures)
-    const geometry = new THREE.SphereGeometry(radius, 12, 8)
-    const material = new THREE.MeshPhongMaterial({
-      color: threeColor,
-      emissive: threeColor,
-      emissiveIntensity: opacity > 0.5 ? 0.4 : 0.1,
-      transparent: true,
-      opacity
-    })
-    const mesh = new THREE.Mesh(geometry, material)
-    group.add(mesh)
+  function replaceBatchedGraphData(data: Graph3DData): void {
+    if (!batchedLayer) return
+    batchedLayer.setLinesVisible(graphLinesVisible)
+    const visuals = graphBatchedVisualState()
+    if (!batchedLayer.replaceData(data, visuals)) batchedLayer.setData(data, visuals)
+    const searchActive = graphSearchScores.size > 0 || graphSearchContextScores.size > 0
+    batchedLayer.setParticleLinks(searchActive ? null : (currentSelected?.id ?? null))
+    syncParticleAnimationState()
+    requestGraphRender()
+  }
 
-    // Outer glow halo: slightly larger transparent sphere for visual glow effect
-    const glowGeometry = new THREE.SphereGeometry(radius * 1.4, 10, 6)
-    const glowMaterial = new THREE.MeshBasicMaterial({
-      color: threeColor,
-      transparent: true,
-      opacity: opacity > 0.5 ? 0.12 : 0.03,
-      depthWrite: false
-    })
-    group.add(new THREE.Mesh(glowGeometry, glowMaterial))
-
-    return group
+  function refreshBatchedLinkStyles(): void {
+    if (!currentGraph3DData) return
+    for (const link of currentGraph3DData.links) {
+      link.color = isFrontmatterEdge(link)
+        ? FRONTMATTER_EDGE_COLOR
+        : edgeLinkColor(
+            link.edge_cluster_id,
+            link.strength ?? 0.5,
+            currentEdgeWeakThreshold,
+            currentEdgePalette
+          )
+      link.width = edgeLinkWidth(link.strength ?? 0.5)
+    }
+    syncBatchedVisuals()
   }
 
   /**
@@ -834,105 +1598,7 @@
    *   - Clear linkMaterial override
    */
   function applySelectionDimming() {
-    if (!graph) return
-
-    // During active search, search dimming takes priority
-    if (graphSearchScores.size > 0 || graphSearchContextScores.size > 0) return
-
-    if (currentSelected && neighborSet.size > 0) {
-      // Dim non-neighbor nodes
-      graph.nodeOpacity(0.15)
-
-      // Keep linkOpacity high so arrows are visible — dim via linkColor instead
-      graph.linkOpacity(0.8)
-      graph.linkColor((link: ForceLink) => {
-        const srcId = linkNodeId(link.source)
-        const tgtId = linkNodeId(link.target)
-        if (srcId === currentSelected!.id || tgtId === currentSelected!.id) {
-          return getLinkArrowColor(link) // Bright directional color for neighbor edges
-        }
-        return 'rgba(80, 80, 80, 0.04)' // Nearly invisible for non-neighbor edges
-      })
-
-      // Arrows: only on neighbor edges, bright directional color
-      graph.linkDirectionalArrowLength((link: ForceLink) => {
-        if (isChunkMode()) return 0
-        const srcId = linkNodeId(link.source)
-        const tgtId = linkNodeId(link.target)
-        if (srcId === currentSelected!.id || tgtId === currentSelected!.id) return 6
-        return 0
-      })
-      graph.linkDirectionalArrowColor((link: ForceLink) => getLinkArrowColor(link))
-
-      // Particles: on neighbor edges
-      graph.linkDirectionalParticles((link: ForceLink) => {
-        const srcId = linkNodeId(link.source)
-        const tgtId = linkNodeId(link.target)
-        return srcId === currentSelected!.id || tgtId === currentSelected!.id ? 3 : 0
-      })
-
-      // Override nodeThreeObject: neighbor + hub nodes get custom objects at full opacity
-      graph.nodeThreeObject((node: ForceNode) => {
-        const degree = degreeMap.get(node.id) ?? 0
-        const isNeighbor = neighborSet.has(node.id)
-        const isHub = degree >= 5
-
-        if (!isNeighbor && !isHub) return defaultNodeObject // Use default sphere at 0.15 opacity
-
-        const targetOpacity = isNeighbor ? 0.9 : 0.15
-
-        if (isHub) {
-          return createHubNodeObject(node, targetOpacity)
-        }
-
-        // Non-hub neighbor: create sphere at full opacity
-        const color = getNodeColor(node)
-        const threeColor = new THREE.Color(color)
-        const radius = Math.cbrt(node.val) * 2
-
-        const group = new THREE.Group()
-        const geometry = new THREE.SphereGeometry(radius, 12, 8)
-        const material = new THREE.MeshLambertMaterial({
-          color: threeColor,
-          transparent: true,
-          opacity: targetOpacity
-        })
-        group.add(new THREE.Mesh(geometry, material))
-        return group
-      })
-
-      // Clear linkMaterial — dimming handled via linkColor + linkOpacity
-      graph.linkMaterial(null)
-    } else {
-      // No selection: restore default state
-      graph.nodeOpacity(0.85)
-      graph.linkOpacity(isChunkMode() ? 0.08 : 0.15)
-
-      // Restore link color to pre-computed values
-      graph.linkColor((link: ForceLink) => link.color)
-
-      // Restore arrows on all edges (document mode)
-      graph.linkDirectionalArrowLength((_link: ForceLink) => (isChunkMode() ? 0 : 6))
-      graph.linkDirectionalArrowColor((link: ForceLink) => getLinkArrowColor(link))
-
-      // Restore particle accessor (active only when selected)
-      graph.linkDirectionalParticles((link: ForceLink) => {
-        if (!currentSelected) return 0
-        const srcId = linkNodeId(link.source)
-        const tgtId = linkNodeId(link.target)
-        return srcId === currentSelected.id || tgtId === currentSelected.id ? 3 : 0
-      })
-
-      // Restore nodeThreeObject to hub-only mode
-      graph.nodeThreeObject((node: ForceNode) => {
-        const degree = degreeMap.get(node.id) ?? 0
-        if (degree < 5) return defaultNodeObject
-        return createHubNodeObject(node, 0.85)
-      })
-
-      // Clear linkMaterial override
-      graph.linkMaterial(null)
-    }
+    syncBatchedVisuals()
   }
 
   /**
@@ -940,216 +1606,7 @@
    * Highlights matched nodes (direct + context) and dims everything else.
    */
   function applySearchDimming() {
-    if (!graph) return
-
-    // Combine both score maps for edge lookups
-    const allScores = new Map<string, number>([...graphSearchScores, ...graphSearchContextScores])
-
-    // Global dim for unmatched nodes
-    graph.nodeOpacity(0.05)
-
-    // Keep link colors visible
-    graph.linkOpacity(0.8)
-
-    // Custom node rendering based on search scores
-    graph.nodeThreeObject((node: ForceNode) => {
-      const path = node.id
-      const score = graphSearchScores.get(path) ?? graphSearchContextScores.get(path)
-
-      if (score === undefined) return defaultNodeObject // Default sphere at 0.05 opacity
-
-      const opacity = computeSearchNodeOpacity(score)
-      const degree = degreeMap.get(node.id) ?? 0
-
-      // Hub nodes with high scores get emissive glow
-      if (degree >= 5 && score > 0.7) {
-        return createHubNodeObject(node, opacity)
-      }
-
-      // Regular matched node
-      const color = getNodeColor(node)
-      const threeColor = new THREE.Color(color)
-      const radius = Math.cbrt(node.val) * 2
-
-      const group = new THREE.Group()
-      const geometry = new THREE.SphereGeometry(radius, 12, 8)
-      const material = new THREE.MeshLambertMaterial({
-        color: threeColor,
-        transparent: true,
-        opacity
-      })
-      group.add(new THREE.Mesh(geometry, material))
-      return group
-    })
-
-    // Edge coloring based on endpoint match status
-    graph.linkColor((link: ForceLink) => {
-      const srcPath = getNodePath(link.source)
-      const tgtPath = getNodePath(link.target)
-      const srcScore = allScores.get(srcPath)
-      const tgtScore = allScores.get(tgtPath)
-
-      const srcMatched = srcScore !== undefined
-      const tgtMatched = tgtScore !== undefined
-
-      if (srcMatched && tgtMatched) {
-        const alpha = computeEdgeSearchAlpha(srcScore, tgtScore)
-        return `rgba(0, 220, 255, ${alpha})`
-      }
-      if (srcMatched || tgtMatched) {
-        return 'rgba(0, 220, 255, 0.08)'
-      }
-      return 'rgba(80, 80, 80, 0.02)'
-    })
-
-    // Disable arrows and particles during search
-    graph.linkDirectionalArrowLength(0)
-    graph.linkDirectionalParticles(0)
-
-    // Clear linkMaterial override
-    graph.linkMaterial(null)
-
-    graph.refresh()
-  }
-
-  // ─── Force Configuration ────────────────────────────────────────────
-
-  /**
-   * Create a custom d3-force-3d force that pulls nodes toward their cluster centroid.
-   * This replaces forceCenter, which fights cluster separation.
-   */
-  function createClusterForce(strength: number) {
-    let nodes: ForceNode[] = []
-
-    function force(alpha: number) {
-      for (const node of nodes) {
-        if (node.cluster_id == null) continue
-        const centroid = clusterCentroids.get(node.cluster_id)
-        if (!centroid) continue
-
-        const k = strength * alpha
-        node.vx = (node.vx ?? 0) + (centroid.x - (node.x ?? 0)) * k
-        node.vy = (node.vy ?? 0) + (centroid.y - (node.y ?? 0)) * k
-        node.vz = (node.vz ?? 0) + (centroid.z - (node.z ?? 0)) * k
-      }
-    }
-
-    force.initialize = function (_nodes: ForceNode[]) {
-      nodes = _nodes
-    }
-
-    return force
-  }
-
-  /**
-   * Configure cluster-aware forces on the 3d-force-graph instance.
-   * - Link distance varies by cluster membership
-   * - Charge is degree-dependent
-   * - Cluster attraction via custom forceX/Y/Z replacement
-   * - No forceCenter (fights cluster separation)
-   */
-  function configureForces(level: GraphLevel) {
-    if (!graph) return
-
-    const isDocument = level === 'document'
-
-    // Remove forceCenter — it fights cluster separation
-    graph.d3Force('center', null)
-
-    // Link force: cluster-aware distances
-    // Same cluster → tight, different clusters → push far apart
-    const linkForce = graph.d3Force('link')
-    if (linkForce) {
-      linkForce.distance((link: ForceLink) => {
-        const s = typeof link.source === 'object' ? link.source : null
-        const t = typeof link.target === 'object' ? link.target : null
-        const sameCluster =
-          s && t && s.cluster_id != null && t.cluster_id != null && s.cluster_id === t.cluster_id
-        if (isDocument) {
-          return sameCluster ? 30 : 120
-        }
-        // Chunk mode
-        return sameCluster ? 20 : 150
-      })
-      // Weaker link strength so cluster force dominates over edge pull
-      linkForce.strength(isDocument ? 0.2 : 0.15)
-    }
-
-    // Charge force: repulsion pushes nodes apart
-    const chargeForce = graph.d3Force('charge')
-    if (chargeForce) {
-      if (isDocument) {
-        // Degree-dependent: hubs push harder
-        chargeForce.strength((node: ForceNode) => {
-          const degree = degreeMap.get(node.id) ?? 0
-          return -100 - degree * 10
-        })
-        chargeForce.distanceMax(400)
-      } else {
-        // Chunk mode: uniform repulsion
-        chargeForce.strength(-100)
-        chargeForce.distanceMax(400)
-      }
-    }
-
-    // Cluster attraction: pulls nodes toward their cluster centroid
-    // Strong enough that clusters form tight groups despite repulsion
-    const clusterStrength = isDocument ? 0.15 : 0.25
-    graph.d3Force('cluster', createClusterForce(clusterStrength))
-
-    // Edge opacity: subtle hairlines. Chunk mode even more subtle.
-    if (!isDocument) {
-      graph.linkOpacity(0.08)
-    } else {
-      graph.linkOpacity(0.15)
-    }
-  }
-
-  // ─── Performance Safeguards ─────────────────────────────────────────
-
-  /**
-   * Apply performance safeguards based on current graph size.
-   *
-   * - Normal (≤500 nodes): full quality (nodeResolution 12, particles enabled, full edge labels)
-   * - Large (>500 nodes): reduced quality (nodeResolution 6, particles disabled, cooldownTime 3000ms)
-   * - Very large (>2000 nodes): minimal rendering (linkWidth 0 for thin lines, reduced nodeOpacity,
-   *   edge labels disabled on hover)
-   *
-   * Called in feedData() after computing nodeCount, before feeding data to the graph.
-   */
-  function applyPerformanceSafeguards() {
-    if (!graph) return
-
-    // All modes use hairline links (linkWidth=0 set at init)
-    if (nodeCount > 2000) {
-      // Very large graph: minimal rendering for WebGL performance
-      graph.nodeResolution(4)
-      graph.cooldownTime(3000)
-      graph.nodeOpacity(0.6)
-      graph.linkDirectionalParticles(0)
-      graph.linkLabel(() => '')
-    } else if (nodeCount > 500) {
-      // Large graph: reduced quality
-      graph.nodeResolution(6)
-      graph.cooldownTime(3000)
-      graph.linkDirectionalParticles(0)
-      graph.nodeOpacity(0.85)
-      graph.linkLabel((link: ForceLink) => edgeTooltipHtml(link as unknown as Graph3DLink))
-    } else {
-      // Normal graph: full quality settings
-      graph.nodeResolution(8)
-      graph.cooldownTime(5000)
-      graph.nodeOpacity(0.85)
-      // Restore particle accessor (active on selected node edges)
-      graph.linkDirectionalParticles((link: ForceLink) => {
-        if (!currentSelected) return 0
-        const srcId = linkNodeId(link.source)
-        const tgtId = linkNodeId(link.target)
-        return srcId === currentSelected.id || tgtId === currentSelected.id ? 2 : 0
-      })
-      // Restore edge labels
-      graph.linkLabel((link: ForceLink) => edgeTooltipHtml(link as unknown as Graph3DLink))
-    }
+    syncBatchedVisuals()
   }
 
   // ─── Camera Utilities ─────────────────────────────────────────────
@@ -1159,8 +1616,7 @@
    * Positions the camera at a distance proportional to the node's distance from origin,
    * looking at the node's position. Uses 1000ms transition duration.
    */
-  function focusCameraOnNode(node: ForceNode) {
-    if (!graph || suppressCameraFocus) return
+  function cameraPoseForNode(node: ForceNode): GraphPresentationCameraPose {
     const nx = node.x ?? 0
     const ny = node.y ?? 0
     const nz = node.z ?? 0
@@ -1172,11 +1628,23 @@
     // Scale factor to place camera behind/above the node relative to origin
     const distRatio = nodeDistFromOrigin > 0 ? 1 + distance / nodeDistFromOrigin : distance // Fallback for node at origin
 
+    return {
+      position: { x: nx * distRatio, y: ny * distRatio, z: nz * distRatio },
+      target: { x: nx, y: ny, z: nz }
+    }
+  }
+
+  function focusCameraOnNode(node: ForceNode) {
+    if (!graph || suppressCameraFocus) return
+    cancelPendingAutoFit()
+    const pose = cameraPoseForNode(node)
+
     graph.cameraPosition(
-      { x: nx * distRatio, y: ny * distRatio, z: nz * distRatio }, // Camera position
-      { x: nx, y: ny, z: nz }, // Look-at target
+      pose.position,
+      pose.target,
       1000 // 1000ms transition duration
     )
+    wakeGraphAnimation(1000)
   }
 
   // ─── Keyboard Camera Controls ───────────────────────────────────────
@@ -1203,6 +1671,7 @@
   function cameraControlLoop() {
     if (!graph || pressedCameraKeys.size === 0) {
       cameraLoopFrameId = null
+      settleGraphAnimation()
       return
     }
 
@@ -1272,6 +1741,9 @@
 
   /** Start the camera loop if not already running. */
   function startCameraLoop() {
+    claimPresentationCamera()
+    cancelPendingAutoFit()
+    wakeGraphAnimation()
     if (cameraLoopFrameId == null) {
       cameraLoopFrameId = requestAnimationFrame(cameraControlLoop)
     }
@@ -1284,16 +1756,68 @@
       cancelAnimationFrame(cameraLoopFrameId)
       cameraLoopFrameId = null
     }
+    settleGraphAnimation()
   }
 
   /** Recenter the camera to fit the entire graph in view. */
   function recenterCamera() {
+    claimPresentationCamera()
+    cancelPendingAutoFit()
+    zoomToBatchedGraph(600, 80)
+  }
+
+  function zoomToBatchedGraph(
+    duration = 600,
+    padding = 80,
+    filter: (node: ForceNode) => boolean = () => true
+  ): void {
     if (!graph) return
-    graph.zoomToFit(600, 80)
+    const pose = batchedGraphCameraPose(padding, filter)
+    if (!pose) return
+    graph.cameraPosition(pose.position, pose.target, duration)
+    wakeGraphAnimation(duration)
+  }
+
+  function batchedGraphCameraPose(
+    padding = 80,
+    filter: (node: ForceNode) => boolean = () => true
+  ): GraphPresentationCameraPose | null {
+    if (!graph) return null
+    const points = getLiveGraphData().nodes.filter(filter)
+    if (points.length === 0) return null
+    const bounds = new THREE.Box3()
+    for (const node of points) {
+      if (node.x == null || node.y == null || node.z == null) continue
+      bounds.expandByPoint(new THREE.Vector3(node.x, node.y, node.z))
+    }
+    if (bounds.isEmpty()) return null
+    const sphere = bounds.getBoundingSphere(new THREE.Sphere())
+    const camera = graph.camera()
+    const perspective = camera instanceof THREE.PerspectiveCamera ? camera : null
+    const halfFov = THREE.MathUtils.degToRad((perspective?.fov ?? 50) / 2)
+    const distance = Math.max(
+      60,
+      (sphere.radius / Math.max(Math.sin(halfFov), 0.1)) * (1 + padding / 500)
+    )
+    const currentTarget = (graph.controls() as Partial<GraphControls>).target
+    const currentPosition = graph.cameraPosition()
+    const direction = new THREE.Vector3(
+      currentPosition.x,
+      currentPosition.y,
+      currentPosition.z
+    ).sub(currentTarget ?? sphere.center)
+    if (direction.lengthSq() < 1e-6) direction.set(0, 0, 1)
+    direction.normalize()
+    const position = sphere.center.clone().addScaledVector(direction, distance)
+    return {
+      position: { x: position.x, y: position.y, z: position.z },
+      target: { x: sphere.center.x, y: sphere.center.y, z: sphere.center.z }
+    }
   }
 
   function toggleGraphLabels(): void {
     graphLabelsVisible = !graphLabelsVisible
+    scheduleLabelUpdate()
   }
 
   function toggleGraphLines(): void {
@@ -1303,11 +1827,9 @@
 
   function toggleGraphShapes(): void {
     graphShapesVisible = !graphShapesVisible
-    if (clusterMeshGroup) {
-      clusterMeshGroup.visible = graphShapesVisible
-    } else if (graphShapesVisible) {
-      updateClusterSpheres()
-    }
+    if (!graphShapesVisible) clusterHullLayer?.setVisible(false)
+    else updateClusterSpheres(true)
+    requestGraphRender()
   }
 
   function dismissBackgroundContextMenu(): void {
@@ -1348,13 +1870,20 @@
 
     graphScreenshotExporting = true
     try {
-      const png = await captureGraphScreenshotPng({
-        renderer: graph.renderer(),
-        scene: graph.scene(),
-        camera: graph.camera(),
-        overlayRoot: containerEl,
-        transparent
-      })
+      if (isHullMode() && graphShapesVisible) updateClusterSpheres(true)
+      updateProximityLabels()
+      const png = await graphPerformance.measure(
+        'graph.screenshot',
+        () =>
+          captureGraphScreenshotPng({
+            renderer: graph!.renderer(),
+            scene: graph!.scene(),
+            camera: graph!.camera(),
+            overlayRoot: containerEl!,
+            transparent
+          }),
+        { transparent }
+      )
       const collection = get(activeCollection)
       await window.api.exportSave({
         defaultName: graphScreenshotDefaultName(collection?.name, transparent),
@@ -1393,36 +1922,15 @@
     })
   }
 
-  function isPresentationNodeVisible(node: ForceNode): boolean {
-    return !presentationActive || presentationVisibleNodeIds.has(node.id)
-  }
-
-  function isPresentationLinkVisible(link: ForceLink): boolean {
-    if (!graphLinesVisible) return false
-    if (!presentationActive) return true
-    return (
-      presentationVisibleNodeIds.has(linkNodeId(link.source)) &&
-      presentationVisibleNodeIds.has(linkNodeId(link.target))
-    )
-  }
-
   function visiblePresentationNodes(nodes: ForceNode[]): ForceNode[] {
     return presentationActive
       ? nodes.filter((node) => presentationVisibleNodeIds.has(node.id))
       : nodes
   }
 
-  /** Re-digest graph visibility accessors after a presentation or line-state change. */
+  /** Update batched visibility attributes after presentation or line-state changes. */
   function applyGraphVisibility(): void {
-    if (!graph) return
-    if (presentationActive) {
-      graph.nodeVisibility(isPresentationNodeVisible)
-      graph.linkVisibility(isPresentationLinkVisible)
-    } else {
-      graph.nodeVisibility(true)
-      graph.linkVisibility(graphLinesVisible)
-    }
-    graph.refresh()
+    syncBatchedVisuals()
   }
 
   function setPresentationNodePosition(
@@ -1449,16 +1957,69 @@
         presentationLayoutSnapshot
       )
     }
-    graph?.refresh()
+    batchedLayer?.syncPositions()
+    scheduleLabelUpdate()
   }
 
-  function refreshPresentationEnclosures(timestamp: number, force = false): void {
+  function currentGraphCameraPose(): GraphPresentationCameraPose | null {
+    if (!graph || !graphControls?.target) return null
+    const position = graph.cameraPosition()
+    return {
+      position: { x: position.x, y: position.y, z: position.z },
+      target: {
+        x: graphControls.target.x,
+        y: graphControls.target.y,
+        z: graphControls.target.z
+      }
+    }
+  }
+
+  function beginPresentationCameraMotion(
+    destination: GraphPresentationCameraPose | null,
+    durationMs: number,
+    timestamp = performance.now()
+  ): void {
+    if (!destination || !presentationCamera.shouldAutoFrame) return
+    const current = currentGraphCameraPose()
+    if (!current) return
+    if (presentationCamera.beginAutoMotion(current, destination, timestamp, durationMs)) {
+      wakeGraphAnimation(durationMs)
+    }
+  }
+
+  function advancePresentationCamera(timestamp: number): void {
+    if (!graph) return
+    const frame = presentationCamera.advance(timestamp)
+    if (!frame) return
+    graph.cameraPosition(frame.position, frame.target, 0)
+    requestGraphRender()
+  }
+
+  /** Let user input own the camera without touching presentation playback. */
+  function claimPresentationCamera(): void {
+    if (!presentationActive || !presentationCamera.takeManualControl()) return
+    presentationStatusMessage =
+      'Camera auto-follow stopped. Graph presentation continues with manual camera control.'
+  }
+
+  function refreshPresentationEnclosures(
+    timestamp: number,
+    immediate = false,
+    affectedGroups?: ReadonlySet<number>,
+    forceExact = false
+  ): void {
     if (!isHullMode()) return
-    if (!force && timestamp - presentationLastEnclosureAt < PRESENTATION_ENCLOSURE_INTERVAL_MS) {
+    if (
+      !immediate &&
+      timestamp - presentationLastEnclosureAt < PRESENTATION_ENCLOSURE_INTERVAL_MS
+    ) {
       return
     }
     presentationLastEnclosureAt = timestamp
-    updateClusterSpheres()
+    // `immediate` bypasses only the presentation timer. The hull layer still
+    // performs its dirty-membership/movement test unless an exact refresh was
+    // explicitly requested (pause/screenshot), avoiding repeated hull work.
+    updateClusterSpheres(forceExact, affectedGroups, presentationHullNodes)
   }
 
   function finishGraphPresentation(fitAll: boolean, statusMessage?: string): void {
@@ -1467,12 +2028,13 @@
       presentationFrameId = null
     }
     restorePresentationLayout()
-    if (graph && presentationOriginalAlphaDecay !== null) {
-      graph.d3AlphaDecay(presentationOriginalAlphaDecay)
-    }
-    presentationOriginalAlphaDecay = null
+    if (presentationLayoutWasRunning) layoutClient?.start()
+    presentationLayoutWasRunning = false
+    presentationCamera.finish()
     presentationActive = false
     presentationPaused = false
+    setGraphInteractiveQuality(layoutWorkerState === 'running')
+    settleGraphAnimation()
     presentationVisibleNodeIds = new Set()
     presentationRevealedCount = 0
     presentationOrder = []
@@ -1484,12 +2046,13 @@
     presentationAllRevealed = false
     presentationMotions.clear()
     presentationNodesById.clear()
+    presentationHullNodes.clear()
     presentationTargetPositions.clear()
     presentationLayoutSnapshot = null
     if (statusMessage) presentationStatusMessage = statusMessage
     applyGraphVisibility()
     if (isHullMode()) updateClusterSpheres()
-    if (fitAll && graph) graph.zoomToFit(800, 80)
+    if (fitAll) zoomToBatchedGraph(800, 80)
   }
 
   function endGraphPresentation(): void {
@@ -1500,16 +2063,9 @@
     finishGraphPresentation(true, 'Graph presentation reset. All nodes are visible.')
   }
 
-  /** Stop any in-flight camera tween at its current presentation position. */
+  /** Stop the cancellable presentation camera motion at its current position. */
   function freezePresentationCamera(): void {
-    if (!graph) return
-    const position = graph.cameraPosition()
-    const target = (graph.controls() as Partial<GraphControls>).target
-    graph.cameraPosition(
-      position,
-      target ? { x: target.x, y: target.y, z: target.z } : undefined,
-      0
-    )
+    presentationCamera.cancelMotion()
   }
 
   function pauseGraphPresentation(): void {
@@ -1522,17 +2078,19 @@
     presentationLastRevealAt = 0
     presentationLastMotionAt = 0
     freezePresentationCamera()
-    refreshPresentationEnclosures(performance.now(), true)
+    refreshPresentationEnclosures(performance.now(), true, undefined, true)
+    settleGraphAnimation()
     presentationStatusMessage = `Graph presentation paused at ${presentationRevealedCount} of ${presentationTotal}.`
   }
 
   function continueGraphPresentation(): void {
     if (!presentationActive || !presentationPaused) return
     presentationPaused = false
+    wakeGraphAnimation()
     presentationLastRevealAt = 0
     presentationLastMotionAt = 0
     if (presentationAllRevealed && presentationMotions.size === 0) {
-      finishGraphPresentation(true, 'Graph presentation complete.')
+      finishGraphPresentation(presentationCamera.shouldAutoFrame, 'Graph presentation complete.')
       return
     }
     presentationStatusMessage = `Graph presentation continued at ${presentationRevealedCount} of ${presentationTotal}.`
@@ -1578,7 +2136,9 @@
     return true
   }
 
-  function advancePresentationMotions(elapsedMs: number): boolean {
+  function advancePresentationMotions(elapsedMs: number): Set<number> {
+    const movedGroups = new Set<number>()
+    const movedNodeIds: string[] = []
     let moved = false
     for (const [nodeId, motion] of presentationMotions) {
       const node = presentationNodesById.get(nodeId)
@@ -1589,37 +2149,63 @@
       const next = advanceGraphPresentationMotion(motion, elapsedMs)
       setPresentationNodePosition(node, next.position, next.velocity)
       moved = true
+      movedNodeIds.push(node.id)
+      const groupId = hullGroupId(node)
+      if (groupId != null) movedGroups.add(groupId)
       if (next.settled) presentationMotions.delete(nodeId)
       else presentationMotions.set(nodeId, next)
     }
-    if (moved) graph?.refresh()
-    return moved
+    if (moved) {
+      batchedLayer?.syncNodePositionsById(movedNodeIds)
+      requestGraphRender()
+      scheduleLabelUpdate()
+    }
+    return movedGroups
   }
 
   /** Reveal the next adaptive batch and its now-connected edges. */
   function revealNextPresentationBatch(timestamp: number): boolean {
     const end = Math.min(presentationCursor + presentationBatchSize, presentationOrder.length)
-    const nextVisible = new Set(presentationVisibleNodeIds)
+    const affectedGroups = new Set<number>()
+    const revealedNodeIds: string[] = []
     for (let i = presentationCursor; i < end; i++) {
       const step = presentationOrder[i]
-      nextVisible.add(step.nodeId)
+      // Svelte's reactive Set instruments add/delete, so mutating in place is
+      // observable without cloning every previously revealed id each beat.
+      presentationVisibleNodeIds.add(step.nodeId)
+      revealedNodeIds.push(step.nodeId)
       seedPresentationNode(step, presentationNodesById)
+      const node = presentationNodesById.get(step.nodeId)
+      if (node) {
+        const groupId = hullGroupId(node)
+        if (groupId != null) {
+          affectedGroups.add(groupId)
+          const members = presentationHullNodes.get(groupId)
+          if (members) members.push(node)
+          else presentationHullNodes.set(groupId, [node])
+        }
+      }
     }
     presentationCursor = end
-    presentationVisibleNodeIds = nextVisible
     presentationRevealedCount = end
     presentationRevealTicks++
-    graph?.refresh()
-    refreshPresentationEnclosures(timestamp, true)
+    batchedLayer?.updateVisualsForNodes(revealedNodeIds, graphBatchedVisualState())
+    requestGraphRender()
+    scheduleLabelUpdate()
+    refreshPresentationEnclosures(timestamp, true, affectedGroups)
     return end >= presentationOrder.length
   }
 
   function runGraphPresentationFrame(timestamp: number): void {
     presentationFrameId = null
     if (!presentationActive || presentationPaused) return
+    advancePresentationCamera(timestamp)
     const elapsedMs = presentationLastMotionAt === 0 ? 16 : timestamp - presentationLastMotionAt
     presentationLastMotionAt = timestamp
-    if (advancePresentationMotions(elapsedMs)) refreshPresentationEnclosures(timestamp)
+    const movedGroups = advancePresentationMotions(elapsedMs)
+    if (movedGroups.size > 0) {
+      refreshPresentationEnclosures(timestamp, false, movedGroups)
+    }
     if (presentationLastRevealAt === 0) presentationLastRevealAt = timestamp
 
     if (
@@ -1634,9 +2220,14 @@
         !presentationAllRevealed &&
         presentationRevealTicks >= 12 &&
         (presentationRevealTicks - 12) % 8 === 0 &&
-        graph
+        graph &&
+        presentationCamera.shouldAutoFrame
       ) {
-        graph.zoomToFit(500, 100, (node: ForceNode) => presentationVisibleNodeIds.has(node.id))
+        beginPresentationCameraMotion(
+          batchedGraphCameraPose(100, (node) => presentationVisibleNodeIds.has(node.id)),
+          500,
+          timestamp
+        )
       }
     }
 
@@ -1645,7 +2236,10 @@
       presentationFrameId = requestAnimationFrame(() => {
         presentationFrameId = null
         if (presentationActive && !presentationPaused) {
-          finishGraphPresentation(true, 'Graph presentation complete.')
+          finishGraphPresentation(
+            presentationCamera.shouldAutoFrame,
+            'Graph presentation complete.'
+          )
         }
       })
       return
@@ -1658,8 +2252,7 @@
     if (presentationActive || !graph || !currentData || currentData.nodes.length === 0) return
 
     const selectedStartId = currentSelected?.id ?? null
-    const edgeFilter = currentEdgeFilter.size > 0 ? currentEdgeFilter : null
-    const visibleEdges = currentData.edges.filter((edge) => isEdgeVisible(edge, edgeFilter))
+    const visibleEdges = currentData.edges.filter((edge) => isEdgeVisible(edge, currentEdgeFilter))
     const order = buildGraphPresentationOrder(currentData.nodes, visibleEdges, selectedStartId)
     if (order.length === 0) return
 
@@ -1672,12 +2265,12 @@
     contextMenuNode = null
     backgroundContextMenuOpen = false
 
-    const liveNodes = graph.graphData().nodes as ForceNode[]
-    // Stop the underlying full-graph simulation while presentation springs
-    // animate only revealed nodes toward this canonical snapshot.
-    presentationOriginalAlphaDecay = graph.d3AlphaDecay()
-    graph.d3AlphaDecay(1)
+    const liveNodes = getLiveGraphData().nodes
+    // Pause worker snapshots while presentation springs animate this canonical layout.
+    presentationLayoutWasRunning = layoutWorkerState === 'running'
+    layoutClient?.pause()
     presentationNodesById = new Map(liveNodes.map((node) => [node.id, node]))
+    presentationHullNodes = new Map()
     presentationLayoutSnapshot = captureGraphPresentationLayout(liveNodes)
     presentationTargetPositions = presentationLayoutSnapshot.positions
 
@@ -1693,28 +2286,30 @@
     presentationRevealTicks = 0
     presentationAllRevealed = false
     presentationMotions.clear()
+    presentationCamera.begin()
     presentationActive = true
     presentationPaused = false
+    setGraphInteractiveQuality(true)
+    wakeGraphAnimation()
     presentationStatusMessage = selectedStartId
       ? 'Graph presentation started from the selected node.'
       : 'Graph presentation started from the most root-like node.'
     applyGraphVisibility()
+    if (isHullMode()) updateClusterSpheres()
 
     const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
     if (reducedMotion) {
       presentationVisibleNodeIds = new Set(order.map((step) => step.nodeId))
       presentationRevealedCount = order.length
-      graph.refresh()
+      syncBatchedVisuals()
       if (isHullMode()) updateClusterSpheres()
       finishGraphPresentation(false, 'Graph presentation complete.')
       return
     }
 
     presentationAllRevealed = revealNextPresentationBatch(performance.now())
-    const firstNode = (graph.graphData().nodes as ForceNode[]).find(
-      (node) => node.id === order[0].nodeId
-    )
-    if (firstNode) focusCameraOnNode(firstNode)
+    const firstNode = getLiveGraphData().nodes.find((node) => node.id === order[0].nodeId)
+    if (firstNode) beginPresentationCameraMotion(cameraPoseForNode(firstNode), 1_000)
     presentationFrameId = requestAnimationFrame(runGraphPresentationFrame)
   }
 
@@ -1724,19 +2319,198 @@
 
   // ─── Data Feeding ───────────────────────────────────────────────────
 
+  function handleLayoutEvent(event: GraphLayoutEvent): void {
+    if (event.type === 'error') {
+      console.warn('Graph layout worker failed:', event.message)
+      pendingGraphDragRelease = null
+      layoutWorkerState = 'paused'
+      setGraphInteractiveQuality(false)
+      settleGraphAnimation()
+      return
+    }
+    if (event.type === 'state') {
+      // Worker messages are ordered. Once the release request is acknowledged,
+      // every later snapshot includes the final pin/unpin position and no
+      // renderer-side override is necessary.
+      if (pendingGraphDragRelease?.requestId === event.requestId) {
+        pendingGraphDragRelease = null
+      }
+      layoutWorkerState = event.state
+      if (document.hidden && event.state === 'running') {
+        resumeLayoutAfterVisibility = true
+        layoutClient?.pause()
+      }
+      setGraphInteractiveQuality(
+        event.state === 'running' || presentationActive || draggingNode !== null
+      )
+      if (event.state === 'running') wakeGraphAnimation()
+      else settleGraphAnimation()
+      return
+    }
+    if (event.revision !== layoutRevision || !currentGraph3DData) return
+    if (presentationActive) return
+
+    const positionOverride = draggingNode
+      ? {
+          nodeId: draggingNode.id,
+          x: draggingNode.x ?? 0,
+          y: draggingNode.y ?? 0,
+          z: draggingNode.z ?? 0
+        }
+      : pendingGraphDragRelease
+
+    if (event.type === 'ready') {
+      layoutNodeIds = event.nodeIds
+      layoutNodesInVisualOrder =
+        event.nodeIds.length === currentGraph3DData.nodes.length &&
+        event.nodeIds.every((nodeId, index) => nodeId === currentGraph3DData.nodes[index].id)
+    }
+    const applied = layoutNodesInVisualOrder
+      ? applyGraphLayoutPositionsInOrder(
+          currentGraph3DData.nodes,
+          event.positions,
+          positionOverride
+        )
+      : applyGraphLayoutPositions(liveNodesById, layoutNodeIds, event.positions, positionOverride)
+    if (applied === 0) return
+    const updateArrows =
+      batchedLayer?.hasVisibleArrows === true &&
+      (event.type === 'ready' ||
+        event.settled ||
+        currentGraph3DData.links.length < 10_000 ||
+        event.sequence % 3 === 0)
+    graphPerformance.measureSync(
+      'graph.sync-layout-buffers',
+      () => {
+        batchedLayer?.syncPositions(updateArrows, event.linkPositions)
+        // Packed worker endpoints may be one pointer frame behind. Refresh
+        // only the protected node's incident links from the local drag position.
+        // Do not queue a one-node matrix range after the complete node upload:
+        // Three would then upload only that partial range and freeze every
+        // force-driven neighbor on the GPU.
+        if (positionOverride) {
+          batchedLayer?.syncIncidentLinkPositionsByNodeIds([positionOverride.nodeId])
+        }
+      },
+      {
+        nodes: currentGraph3DData.nodes.length,
+        links: currentGraph3DData.links.length,
+        arrows: updateArrows,
+        packedLinks: event.linkPositions?.length === currentGraph3DData.links.length * 6
+      }
+    )
+    requestGraphRender()
+    const labelNow = performance.now()
+    if (
+      !draggingNode &&
+      (event.type === 'ready' || event.settled || labelNow - layoutLastLabelUpdateAt >= 160)
+    ) {
+      layoutLastLabelUpdateAt = labelNow
+      scheduleLabelUpdate()
+    }
+    handleEngineTick()
+
+    if (event.type === 'snapshot' && event.settled) {
+      if (persistentPositionCache && layoutCacheKey) {
+        persistentPositionCache.set(layoutCacheKey, {
+          version: 1,
+          nodeIds: [...layoutNodeIds],
+          positions: event.positions.slice(),
+          createdAt: Date.now()
+        })
+      }
+      handleEngineStop()
+    }
+  }
+
+  function startWorkerLayout(data: GraphData, graph3DData: Graph3DData, initialAlpha = 1): boolean {
+    pendingGraphDragRelease = null
+    layoutWorkerState = 'uninitialized'
+    // Keep the worker process warm across topology refreshes. Re-initialize its
+    // force engine in place with the stable node coordinates instead of paying
+    // worker startup/module parse cost for every added or removed note.
+    if (!layoutClient) layoutClient = new GraphLayoutWorkerClient()
+    if (!unsubscribeLayout) unsubscribeLayout = layoutClient.subscribe(handleLayoutEvent)
+
+    layoutRevision = graphTopologyRevision(data)
+    layoutNodeIds = graph3DData.nodes.map((node) => node.id)
+    layoutNodesInVisualOrder = true
+    layoutLastLabelUpdateAt = 0
+    const bundle = buildGraphLayoutInputs(graph3DData, degreeMap, currentLevel)
+    bundle.settings.alpha = initialAlpha
+    const collectionIdentity = get(activeCollectionId) ?? get(activeCollection)?.path ?? 'unknown'
+    layoutCacheKey = createGraphPositionCacheKey({
+      collectionId: collectionIdentity,
+      graphLevel: currentLevel,
+      revision: layoutRevision,
+      scope: currentPathFilter,
+      settings: {
+        // v2 restores the established force contract. Keep it in the cache key
+        // so positions produced by the contracted v1 layout are not reused as
+        // a supposedly complete layout.
+        engine: 'd3-force-3d-worker-v2',
+        clusterStrength: bundle.settings.clusterStrength ?? 0,
+        chargeTheta: bundle.settings.chargeTheta ?? 1,
+        linkStrength: bundle.settings.linkStrength ?? 0
+      }
+    })
+
+    const initialPositions = packGraphNodePositions(graph3DData.nodes)
+    const cached = persistentPositionCache?.get(layoutCacheKey)
+    let completeCacheHit = false
+    if (cached) {
+      const restored = restoreGraphPositions(layoutNodeIds, cached)
+      completeCacheHit = restored.matchedNodeCount === layoutNodeIds.length
+      for (let index = 0; index < layoutNodeIds.length; index++) {
+        const offset = index * 3
+        const x = restored.positions[offset]
+        const y = restored.positions[offset + 1]
+        const z = restored.positions[offset + 2]
+        if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) continue
+        initialPositions[offset] = x
+        initialPositions[offset + 1] = y
+        initialPositions[offset + 2] = z
+        const node = graph3DData.nodes[index]
+        node.x = x
+        node.y = y
+        node.z = z
+      }
+    }
+
+    layoutClient.initialize({
+      revision: layoutRevision,
+      nodes: bundle.nodes,
+      links: bundle.links,
+      settings: bundle.settings,
+      initialPositions,
+      autoStart: !completeCacheHit
+    })
+    return completeCacheHit
+  }
+
   /**
    * Convert GraphData to 3d-force-graph format and feed it to the graph.
    * Seeds cluster positions before rendering for spatial separation.
    */
   function feedData(data: GraphData) {
     if (!graph) return
+    if (lastFedData === data && currentGraph3DData) return
+    cancelPendingAutoFit()
+    const feedGeneration = ++graphFeedGeneration
+    const feedSpan = graphPerformance.beginSpan('graph.feed-data', {
+      level: data.level,
+      nodes: data.nodes.length,
+      links: data.edges.length
+    })
     if (presentationActive) {
       finishGraphPresentation(false, 'Graph presentation cancelled because the graph changed.')
     }
 
     const options = {
       coloringMode: currentColoringMode,
-      edgeFilter: currentEdgeFilter.size > 0 ? currentEdgeFilter : null,
+      // Keep complete topology in the worker; edge filters only alter the
+      // batched visibility attribute so layouts never restart for a toggle.
+      edgeFilter: null,
       weakThreshold: currentEdgeWeakThreshold,
       level: currentLevel,
       clusterPalette: currentClusterPalette,
@@ -1744,7 +2518,9 @@
       edgePalette: currentEdgePalette
     }
 
-    const graph3DData = buildGraph3DData(data, options)
+    const graph3DData = graphPerformance.measureSync('graph.bridge-data', () =>
+      buildGraph3DData(data, options)
+    )
 
     // Compute bidirectional edge pairs for arrow/particle color logic
     computeBidirectionalPairs(graph3DData.links)
@@ -1762,25 +2538,10 @@
           node.x = cached.x
           node.y = cached.y
           node.z = cached.z
-          // Pin positions so force simulation doesn't disturb the restored layout
-          const forceNode = node as ForceNode
-          forceNode.fx = cached.x
-          forceNode.fy = cached.y
-          forceNode.fz = cached.z
         }
       }
       // Clear the cache after restoring (one-time use)
       nodePositionCache.delete(graphTabId!)
-      // Unpin nodes after simulation has a chance to initialize with these positions
-      setTimeout(() => {
-        if (!graph) return
-        const gd = graph.graphData()
-        for (const node of gd.nodes as ForceNode[]) {
-          node.fx = undefined
-          node.fy = undefined
-          node.fz = undefined
-        }
-      }, 200)
     }
 
     // Compute cluster centroids from seeded positions
@@ -1795,37 +2556,39 @@
     // Store reference
     currentGraph3DData = graph3DData
     nodeCount = graph3DData.nodes.length
-
-    // Apply performance safeguards before feeding data (adjusts resolution, particles, etc.)
-    applyPerformanceSafeguards()
-
-    // Configure forces before feeding data
-    configureForces(currentLevel)
-
-    // Pause animation during data swap to prevent OrbitControls/DragControls
-    // pointer race conditions (accessing stale node positions during graphData update)
-    graph.pauseAnimation()
-
-    // Feed data to 3d-force-graph
-    graph.graphData({
-      nodes: graph3DData.nodes as ForceNode[],
-      links: graph3DData.links as ForceLink[]
-    })
-
-    // Resume after data is set
-    graph.resumeAnimation()
+    rebuildLiveGraphIndices()
+    const topologyChanged = graphTopologyRevision(data) !== layoutRevision
+    const completeCacheHit =
+      !layoutClient || topologyChanged ? startWorkerLayout(data, graph3DData) : false
+    replaceBatchedGraphData(graph3DData)
+    nodeLabelCache.clear()
+    scheduleLabelUpdate()
 
     // Restore saved camera state or zoom to fit after layout settles
     const cameraToRestore = pendingCameraRestore
     pendingCameraRestore = null
+    pendingAutoFitRevision = cameraToRestore ? null : layoutRevision
+    const runGuardedCameraAction = (action: () => void): void => {
+      if (destroyed || feedGeneration !== graphFeedGeneration) return
+      action()
+    }
     if (cameraToRestore) {
-      setTimeout(() => {
-        graph?.cameraPosition(cameraToRestore.position, cameraToRestore.target, 0)
+      graphAutoFitTimer = setTimeout(() => {
+        graphAutoFitTimer = null
+        runGuardedCameraAction(() =>
+          graph?.cameraPosition(cameraToRestore.position, cameraToRestore.target, 0)
+        )
       }, 100)
     } else {
-      setTimeout(() => {
-        graph?.zoomToFit(400, 50)
-      }, 600)
+      graphAutoFitTimer = setTimeout(
+        () => {
+          graphAutoFitTimer = null
+          if (pendingAutoFitRevision !== layoutRevision) return
+          runGuardedCameraAction(() => zoomToBatchedGraph(400, 50))
+          if (completeCacheHit) pendingAutoFitRevision = null
+        },
+        completeCacheHit ? 100 : 350
+      )
     }
 
     // Restore selected node if cached (suppress camera focus — camera is already restored)
@@ -1844,21 +2607,22 @@
         })
       }
     }
+    lastFedData = data
+    feedSpan.end({ outcome: 'success' })
   }
-
-  /** How long added-node anchors stay pinned after an incremental patch. */
-  const PATCH_PIN_MS = 1500
 
   /** Content key for a live link (endpoints may be resolved node objects). */
   function liveLinkKey(link: ForceLink): string {
+    if (link.content_key) return link.content_key
     return [
       linkNodeId(link.source),
       linkNodeId(link.target),
       link.relationship_type ?? '',
       link.strength ?? '',
-      link.context_text ?? '',
-      link.edge_cluster_id ?? ''
-    ].join(' ')
+      graphContextToken(link.context_text),
+      link.edge_cluster_id ?? '',
+      link.field ?? ''
+    ].join('\0')
   }
 
   /**
@@ -1870,17 +2634,20 @@
    */
   function applyGraphDelta(next: GraphData, delta: GraphDelta) {
     if (!graph) return
+    const deltaSpan = graphPerformance.beginSpan('graph.apply-delta', {
+      addedNodes: delta.addedNodes.length,
+      removedNodes: delta.removedNodeIds.size,
+      addedLinks: delta.addedLinks.length,
+      removedLinks: delta.removedLinkKeys.size
+    })
 
-    graph.pauseAnimation()
-
-    const gd = graph.graphData()
+    const gd = getLiveGraphData()
     const liveNodes = gd.nodes as ForceNode[]
     const liveLinks = gd.links as ForceLink[]
 
-    const edgeFilter = currentEdgeFilter.size > 0 ? currentEdgeFilter : null
-    const visibleNextEdges = next.edges.filter((e) => isEdgeVisible(e, edgeFilter))
-    const degreeOfNode = computeDegreeMap(visibleNextEdges)
-    const maxSize = Math.max(1, ...next.nodes.map((n) => n.size ?? 0))
+    const degreeOfNode = computeDegreeMap(next.edges)
+    let maxSize = 1
+    for (const node of next.nodes) maxSize = Math.max(maxSize, node.size ?? 0)
 
     // 1. Remove deleted nodes and any link touching them
     const removed = delta.removedNodeIds
@@ -1924,7 +2691,7 @@
           positions.set(n.id, { x: n.x, y: n.y, z: n.z })
         }
       }
-      const linkPairs = visibleNextEdges.map((e) => ({ sourceId: e.source, targetId: e.target }))
+      const linkPairs = next.edges.map((e) => ({ sourceId: e.source, targetId: e.target }))
 
       const newNodes: Graph3DNode[] = delta.addedNodes.map((node) => ({
         id: node.id,
@@ -1962,32 +2729,27 @@
         target: edge.target,
         relationship_type: edge.relationship_type ?? null,
         strength: edge.strength ?? null,
-        context_text: edge.context_text ?? null,
+        context_text:
+          edge.context_text ??
+          (edge.context_index == null ? null : (next.contexts?.[edge.context_index] ?? null)),
         edge_cluster_id: edge.edge_cluster_id ?? null,
-        color: edgeLinkColor(
-          edge.edge_cluster_id,
-          edge.strength ?? 0.5,
-          currentEdgeWeakThreshold,
-          currentEdgePalette
-        ),
-        width: edgeLinkWidth(edge.strength ?? 0.5)
+        field: edge.field,
+        color: isFrontmatterEdge(edge)
+          ? FRONTMATTER_EDGE_COLOR
+          : edgeLinkColor(
+              edge.edge_cluster_id,
+              edge.strength ?? 0.5,
+              currentEdgeWeakThreshold,
+              currentEdgePalette
+            ),
+        width: edgeLinkWidth(edge.strength ?? 0.5),
+        content_key: linkKey(edge, next.contexts)
       }))
       links = links.concat(newLinks as ForceLink[])
     }
 
-    // 6. Pin pre-existing nodes so the reheat relaxes gently instead of scattering
-    const addedIds = new Set(delta.addedNodes.map((n) => n.id))
-    for (const node of nodes) {
-      if (addedIds.has(node.id)) continue
-      if (node.fx != null) continue // mid-drag — leave it
-      if (node.x != null) {
-        node.fx = node.x
-        node.fy = node.y
-        node.fz = node.z
-      }
-    }
-
-    // 7. Swap the (mutated) arrays back in; force sim reheats, pins hold layout
+    // 6. Swap stable objects back into the batched layer and let the worker
+    // relax the changed topology from those existing coordinates.
     degreeMap = computeDegreeMap(next.edges)
     computeBidirectionalPairs(links)
     recomputeLiveCentroids(nodes)
@@ -1995,23 +2757,11 @@
 
     currentGraph3DData = { nodes, links }
     nodeCount = nodes.length
-    applyPerformanceSafeguards()
-    configureForces(currentLevel)
-
-    graph.graphData({ nodes, links })
-    graph.resumeAnimation()
-
-    // 8. Unpin the anchors after the reheat has mostly cooled
-    setTimeout(() => {
-      if (!graph) return
-      const cur = graph.graphData().nodes as ForceNode[]
-      for (const node of cur) {
-        if (addedIds.has(node.id)) continue
-        node.fx = undefined
-        node.fy = undefined
-        node.fz = undefined
-      }
-    }, PATCH_PIN_MS)
+    rebuildLiveGraphIndices()
+    if (graphTopologyRevision(next) !== layoutRevision) {
+      startWorkerLayout(next, currentGraph3DData, 0.25)
+    }
+    replaceBatchedGraphData(currentGraph3DData)
 
     // 9. Reconcile selection/hover state against removed nodes
     if (currentSelected && removed.has(currentSelected.id)) {
@@ -2031,8 +2781,9 @@
     // Cluster shells rebuild from current positions/cluster ids
     if (isHullMode()) updateClusterSpheres()
 
-    // Re-evaluate color + hub accessors (coalesces with the graphData digest)
-    graph.refresh()
+    scheduleLabelUpdate()
+    lastFedData = next
+    deltaSpan.end({ outcome: 'success' })
   }
 
   /**
@@ -2051,7 +2802,7 @@
       }
     }
     const positions = new Map<string, { x: number; y: number; z: number }>()
-    for (const node of graph.graphData().nodes as ForceNode[]) {
+    for (const node of getLiveGraphData().nodes) {
       if (node.x != null && node.y != null && node.z != null) {
         positions.set(node.id, { x: node.x, y: node.y, z: node.z })
       }
@@ -2114,22 +2865,10 @@
    * Called before recomputing them or when switching away from cluster mode.
    */
   function clearClusterMeshes() {
-    if (clusterMeshGroup && graph) {
-      // Dispose all geometries and materials in the group
-      clusterMeshGroup.traverse((child) => {
-        if (child instanceof THREE.Mesh) {
-          child.geometry.dispose()
-          if (Array.isArray(child.material)) {
-            child.material.forEach((m) => m.dispose())
-          } else {
-            child.material.dispose()
-          }
-        }
-      })
-      graph.scene().remove(clusterMeshGroup)
-      clusterMeshGroup = null
-    }
+    clusterHullLayer?.dispose()
+    clusterHullLayer = null
     clusterLabels = []
+    requestGraphRender()
   }
 
   /** Whether hull/enclosure rendering applies to the current coloring mode. */
@@ -2171,131 +2910,95 @@
    * Runs in both 'cluster' and 'custom-cluster' coloring modes; groups by
    * cluster_id or PRIMARY topic id respectively.
    */
-  function updateClusterSpheres() {
+  function updateClusterSpheres(
+    forceExact = false,
+    onlyGroupIds?: ReadonlySet<number>,
+    suppliedGroups?: ReadonlyMap<number, ForceNode[]>
+  ) {
     if (!graph) return
 
-    // Remove previous meshes
-    clearClusterMeshes()
-
     // Only show enclosures in cluster/custom-cluster coloring modes
-    if (!isHullMode()) return
+    if (!isHullMode()) {
+      clearClusterMeshes()
+      return
+    }
 
-    const graphData = graph.graphData()
-    const allNodes = graphData.nodes as ForceNode[]
-    const nodes = visiblePresentationNodes(allNodes)
-    if (nodes.length === 0) return
+    // Keep the cached layer but skip all grouping/QuickHull work while shapes
+    // are hidden. Re-enabling forces one exact refresh from current positions.
+    if (!graphShapesVisible) {
+      clusterHullLayer?.setVisible(false)
+      return
+    }
+    // Reuse the cached hulls after Shapes is toggled back on. The previous
+    // implementation only set visibility while constructing a new layer, so
+    // an existing layer remained hidden indefinitely.
+    clusterHullLayer?.setVisible(true)
 
-    // Group nodes by cluster_id (or primary topic id in custom-cluster mode)
+    const allNodes = getLiveGraphData().nodes as ForceNode[]
+    const partial = onlyGroupIds !== undefined
+
+    // Group nodes by cluster_id (or primary topic id in custom-cluster mode).
+    // Presentation keeps its own revealed-members map so one reveal step does
+    // not rescan every node just to update one or two shells.
     const clusterNodes = new Map<number, ForceNode[]>()
-    for (const node of nodes) {
-      const groupId = hullGroupId(node)
-      if (groupId == null) continue
-      const existing = clusterNodes.get(groupId)
-      if (existing) {
-        existing.push(node)
-      } else {
-        clusterNodes.set(groupId, [node])
+    if (suppliedGroups && onlyGroupIds) {
+      for (const groupId of onlyGroupIds) {
+        const members = suppliedGroups.get(groupId)
+        if (members?.length) clusterNodes.set(groupId, members)
+      }
+    } else {
+      const visibleNodes = visiblePresentationNodes(allNodes)
+      for (const node of visibleNodes) {
+        const groupId = hullGroupId(node)
+        if (groupId == null || (onlyGroupIds && !onlyGroupIds.has(groupId))) continue
+        const existing = clusterNodes.get(groupId)
+        if (existing) existing.push(node)
+        else clusterNodes.set(groupId, [node])
       }
     }
 
-    if (clusterNodes.size === 0) return
+    let groupedNodeCount = 0
+    for (const members of clusterNodes.values()) groupedNodeCount += members.length
+    if (groupedNodeCount === 0) {
+      clusterHullLayer?.update([], { partial })
+      if (!partial) clusterLabels = []
+      return
+    }
 
-    // Create a group to hold all cluster meshes
-    clusterMeshGroup = new THREE.Group()
-    clusterMeshGroup.name = 'clusterEnclosures'
-    clusterMeshGroup.visible = graphShapesVisible
+    if (!clusterHullLayer) {
+      clusterHullLayer = new GraphHullLayer()
+      clusterHullLayer.setVisible(graphShapesVisible)
+      graph.scene().add(clusterHullLayer.group)
+    }
 
-    const newLabels: typeof clusterLabels = []
-
-    for (const [clusterId, cnodes] of clusterNodes) {
-      // Compute centroid
-      let cx = 0,
-        cy = 0,
-        cz = 0
-      for (const n of cnodes) {
-        cx += n.x ?? 0
-        cy += n.y ?? 0
-        cz += n.z ?? 0
-      }
-      cx /= cnodes.length
-      cy /= cnodes.length
-      cz /= cnodes.length
-
-      const clusterColor = new THREE.Color(paletteColor(hullPalette(), clusterId))
-
-      // ── Volumetric convex hull: shape-conforming multi-shell + Fresnel ──
-      // Normal and presentation modes deliberately share this exact builder.
-      // Degenerate 1–3 point groups receive faceted tetrahedral thickness,
-      // rather than the large nested spheres that previously formed blobs.
-      const nodePoints = cnodes.map((node) => ({
+    const definitions: GraphHullDefinition[] = [...clusterNodes].map(([clusterId, cnodes]) => ({
+      id: clusterId,
+      label: hullLabel(clusterId),
+      color: paletteColor(hullPalette(), clusterId),
+      points: cnodes.map((node) => ({
+        nodeId: node.id,
         x: node.x ?? 0,
         y: node.y ?? 0,
         z: node.z ?? 0
       }))
-      function enclosureGeometry(scale: number, fixedPadding: number): ConvexGeometry {
-        const points = buildGraphEnclosurePointCloud(nodePoints, scale, fixedPadding).map(
-          (point) => new THREE.Vector3(point.x, point.y, point.z)
-        )
-        return new ConvexGeometry(points)
-      }
-
-      // Shell 1: dense inner core (40% scale from centroid)
-      const coreGeo = enclosureGeometry(0.5, 5)
-      const coreMat = new THREE.MeshBasicMaterial({
-        color: clusterColor,
-        transparent: true,
-        opacity: 0.07,
-        side: THREE.BackSide,
-        depthWrite: false
-      })
-      const coreMesh = new THREE.Mesh(coreGeo, coreMat)
-      clusterMeshGroup.add(coreMesh)
-
-      // Shell 2: mid-density layer (80% scale + padding)
-      const midGeo = enclosureGeometry(0.9, 10)
-      const midMat = new THREE.MeshBasicMaterial({
-        color: clusterColor,
-        transparent: true,
-        opacity: 0.045,
-        side: THREE.BackSide,
-        depthWrite: false
-      })
-      const midMesh = new THREE.Mesh(midGeo, midMat)
-      clusterMeshGroup.add(midMesh)
-
-      // Shell 3: outer boundary (full extent + generous padding)
-      const outerGeo = enclosureGeometry(1, 25)
-      const outerMat = new THREE.MeshBasicMaterial({
-        color: clusterColor,
-        transparent: true,
-        opacity: 0.025,
-        side: THREE.BackSide,
-        depthWrite: false
-      })
-      const outerMesh = new THREE.Mesh(outerGeo, outerMat)
-      clusterMeshGroup.add(outerMesh)
-
-      // No Fresnel rim — all shells use flat MeshBasicMaterial for uniform
-      // appearance from every camera angle (no lighting, no view-dependent shading).
-
-      // Compute screen position for the cluster label
-      const labelPos = projectToScreen(cx, cy, cz)
-
-      // Find cluster/topic label from current data (mode-aware)
-      newLabels.push({
-        id: clusterId,
-        label: hullLabel(clusterId),
-        screenX: labelPos.x,
-        screenY: labelPos.y,
-        visible: labelPos.visible
-      })
-    }
-
-    graph.scene().add(clusterMeshGroup)
-    clusterLabels = newLabels
+    }))
+    const hullSpan = graphPerformance.beginSpan('graph.update-hulls', {
+      clusters: definitions.length,
+      nodes: groupedNodeCount,
+      exact: forceExact
+    })
+    const rebuilt = clusterHullLayer.update(definitions, {
+      force: forceExact,
+      movementThreshold: presentationActive ? 2 : 6,
+      partial
+    })
+    clusterHullLayer.setHighlightedGroup(activeHullHighlightId())
+    hullSpan.end({ rebuilt })
+    if (rebuilt > 0) requestGraphRender()
+    updateClusterLabelPositions()
 
     // Also recompute cluster centroids for the attraction force
-    recomputeLiveCentroids(allNodes)
+    if (!partial) recomputeLiveCentroids(allNodes)
   }
 
   /**
@@ -2332,47 +3035,18 @@
    * Called during camera movement or simulation ticks.
    */
   function updateClusterLabelPositions() {
-    if (!graph || !isHullMode() || !clusterMeshGroup) return
+    if (!graph || !isHullMode() || !clusterHullLayer) return
 
-    const graphData = graph.graphData()
-    const nodes = visiblePresentationNodes(graphData.nodes as ForceNode[])
-
-    // Recompute centroids from current positions (mode-aware grouping)
-    const centroids = new Map<number, { x: number; y: number; z: number; count: number }>()
-    for (const node of nodes) {
-      const groupId = hullGroupId(node)
-      if (groupId == null) continue
-      const existing = centroids.get(groupId)
-      if (existing) {
-        existing.x += node.x ?? 0
-        existing.y += node.y ?? 0
-        existing.z += node.z ?? 0
-        existing.count++
-      } else {
-        centroids.set(groupId, {
-          x: node.x ?? 0,
-          y: node.y ?? 0,
-          z: node.z ?? 0,
-          count: 1
-        })
-      }
-    }
-
-    const updatedLabels: typeof clusterLabels = []
-    for (const [clusterId, sum] of centroids) {
-      const cx = sum.x / sum.count
-      const cy = sum.y / sum.count
-      const cz = sum.z / sum.count
-      const pos = projectToScreen(cx, cy, cz)
-      updatedLabels.push({
-        id: clusterId,
-        label: hullLabel(clusterId),
+    clusterLabels = clusterHullLayer.centroids().map((centroid) => {
+      const pos = projectToScreen(centroid.x, centroid.y, centroid.z)
+      return {
+        id: centroid.id,
+        label: centroid.label,
         screenX: pos.x,
         screenY: pos.y,
         visible: pos.visible
-      })
-    }
-    clusterLabels = updatedLabels
+      }
+    })
   }
 
   /**
@@ -2409,17 +3083,15 @@
     }
   }
 
-  /**
-   * Handle engine tick: throttled cluster sphere + centroid updates.
-   * Called on every simulation tick; only updates every ~30 ticks for performance.
-   */
+  /** Keep enclosure shells responsive without rebuilding them for every worker snapshot. */
   function handleEngineTick() {
-    engineTickCount++
-    if (engineTickCount % 30 !== 0) return
     if (!isHullMode()) return
     if (!graph) return
+    const now = performance.now()
+    if (now - lastHullLayoutUpdateAt < 250) return
+    lastHullLayoutUpdateAt = now
 
-    const graphData = graph.graphData()
+    const graphData = getLiveGraphData()
     const nodes = graphData.nodes as ForceNode[]
 
     // Recompute live centroids for the attraction force
@@ -2440,8 +3112,15 @@
    * Handle engine stop: final cluster sphere update when simulation completes.
    */
   function handleEngineStop() {
+    scheduleLabelUpdate()
     if ((!presentationActive || presentationPaused) && isHullMode() && graph) {
-      updateClusterSpheres()
+      updateClusterSpheres(true)
+    }
+    if (pendingAutoFitRevision === layoutRevision) {
+      if (graphAutoFitTimer) clearTimeout(graphAutoFitTimer)
+      graphAutoFitTimer = null
+      pendingAutoFitRevision = null
+      zoomToBatchedGraph(500, 60)
     }
   }
 
@@ -2450,54 +3129,7 @@
    * Avoids recreating meshes on every tick — just repositions and rescales them.
    */
   function updateClusterSphereMeshPositions(nodes: ForceNode[]) {
-    if (!clusterMeshGroup) return
-
-    // Group nodes by cluster_id to compute current centroids and radii
-    const clusterData = new Map<number, { cx: number; cy: number; cz: number; maxDist: number }>()
-    const clusterSums = new Map<number, { x: number; y: number; z: number; count: number }>()
-
-    for (const node of nodes) {
-      if (node.cluster_id == null) continue
-      const existing = clusterSums.get(node.cluster_id)
-      if (existing) {
-        existing.x += node.x ?? 0
-        existing.y += node.y ?? 0
-        existing.z += node.z ?? 0
-        existing.count++
-      } else {
-        clusterSums.set(node.cluster_id, {
-          x: node.x ?? 0,
-          y: node.y ?? 0,
-          z: node.z ?? 0,
-          count: 1
-        })
-      }
-    }
-
-    for (const [id, sum] of clusterSums) {
-      const cx = sum.x / sum.count
-      const cy = sum.y / sum.count
-      const cz = sum.z / sum.count
-      clusterData.set(id, { cx, cy, cz, maxDist: 0 })
-    }
-
-    // Compute max distances
-    for (const node of nodes) {
-      if (node.cluster_id == null) continue
-      const data = clusterData.get(node.cluster_id)
-      if (!data) continue
-      const dx = (node.x ?? 0) - data.cx
-      const dy = (node.y ?? 0) - data.cy
-      const dz = (node.z ?? 0) - data.cz
-      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
-      if (dist > data.maxDist) data.maxDist = dist
-    }
-
-    // The mesh group has pairs of meshes: [fill, wire] for each cluster
-    // They're in the same order as the iteration over clusterNodes in updateClusterSpheres
-    // Instead of tracking order, we use mesh userData to match cluster IDs.
-    // For now, just do a full rebuild since it's only every ~30 ticks.
-    // This is simpler and avoids ordering issues.
+    if (!clusterHullLayer || nodes.length === 0) return
     updateClusterSpheres()
   }
 
@@ -2506,18 +3138,23 @@
   function setupStoreSubscriptions() {
     // Data changes → rebuild graph (or lazily initialize if graph doesn't exist yet)
     unsubData = graphData.subscribe(async (d) => {
+      if (graphSearchRevealPlan || graphSearchRevealFrameId !== null) {
+        cancelGraphSearchReveal(true)
+      }
       if (presentationActive) {
         finishGraphPresentation(false, 'Graph presentation cancelled because the graph changed.')
       }
       const prev = currentData
       currentData = d
       unconnectedNodeIds = d ? findUnconnectedNodeIds(d.nodes, d.edges) : new Set()
-      if (graph && currentUnconnectedHighlight) graph.refresh()
+      if (currentUnconnectedHighlight) syncBatchedVisuals()
       if (d && d.nodes.length > 0 && !graph && webglSupported) {
         // graphContainerEl is always mounted, but may need a tick for bind:this
         await tick()
+        if (destroyed) return
         if (graphContainerEl && !graph) {
           await initializeGraph()
+          if (destroyed || !graph) return
           syncGraphSize()
           feedData(d)
           if (graphSearchVisible && graphSearchQuery.length >= 2) {
@@ -2534,12 +3171,14 @@
           prev != null &&
           prev.level === d.level
         if (canPatch && prev) {
-          const edgeFilter = currentEdgeFilter.size > 0 ? currentEdgeFilter : null
-          const delta = diffGraphData(prev, d, (e) => isEdgeVisible(e, edgeFilter))
+          const delta = diffGraphData(prev, d)
           if (isEmptyDelta(delta)) {
+            lastFedData = d
             return
           }
-          if (shouldPatch(delta, prev.nodes.length, d.nodes.length)) {
+          if (
+            shouldPatch(delta, prev.nodes.length, d.nodes.length, prev.edges.length, d.edges.length)
+          ) {
             applyGraphDelta(d, delta)
             return
           }
@@ -2560,13 +3199,14 @@
       if (v === 'folder' && currentGraph3DData) {
         rebuildFolderColorMap(currentGraph3DData.nodes)
       }
-      // Topic highlight only applies to custom-cluster mode
+      // Group highlights only apply to their corresponding coloring mode.
+      if (v !== 'cluster') {
+        highlightedClusterId = null
+      }
       if (v !== 'custom-cluster') {
         highlightedTopicId = null
       }
-      // nodeColor accessor reads currentColoringMode dynamically,
-      // so a refresh is enough — no full data rebuild needed
-      if (graph) graph.refresh()
+      syncBatchedVisuals()
 
       // Show cluster enclosure spheres in cluster + custom-cluster modes
       if (v === 'cluster' || v === 'custom-cluster') {
@@ -2581,12 +3221,12 @@
       currentSelected = n
       computeNeighborSet()
       applySelectionDimming()
-      if (graph) graph.refresh()
+      if (batchedLayer?.hasActiveParticles) wakeGraphAnimation()
+      else settleGraphAnimation()
 
       // Optional camera focus animation on node select
       if (n && graph) {
-        const gd = graph.graphData()
-        const forceNode = (gd.nodes as ForceNode[]).find((nd) => nd.id === n.id)
+        const forceNode = liveNodesById.get(n.id)
         if (forceNode && forceNode.x != null) {
           focusCameraOnNode(forceNode)
         }
@@ -2606,6 +3246,8 @@
     // Folder highlight
     unsubHighlightedFolder = graphHighlightedFolder.subscribe((p) => {
       currentHighlightedFolder = p
+      syncBatchedVisuals()
+      scheduleLabelUpdate()
     })
 
     // Search result hover highlight
@@ -2613,27 +3255,28 @@
       _currentHoveredFilePath = p
     })
 
-    // Edge filter → rebuild data (filters edges)
+    // Edge filters are visual state; topology/layout stays stable.
     unsubEdgeFilter = graphEdgeFilter.subscribe((f) => {
       currentEdgeFilter = f
-      if (currentData && graph) feedData(currentData)
+      syncBatchedVisuals()
     })
 
     // Unconnected-node highlight → recolor in place without disturbing layout.
     unsubUnconnectedHighlight = graphUnconnectedHighlight.subscribe((active) => {
       currentUnconnectedHighlight = active
-      if (graph) graph.refresh()
+      syncBatchedVisuals()
     })
 
-    // Semantic edge toggle → rebuild data
+    // Semantic edge toggle → switch the existing GPU attributes in place.
     unsubSemanticEdges = graphSemanticEdgesEnabled.subscribe((v) => {
       _currentSemanticEdgesEnabled = v
+      syncBatchedVisuals()
     })
 
-    // Weak edge threshold → rebuild data (affects edge colors)
+    // Weak edge threshold only updates shared link color attributes.
     unsubEdgeWeakThreshold = graphEdgeWeakThreshold.subscribe((v) => {
       currentEdgeWeakThreshold = v
-      if (currentData && graph) feedData(currentData)
+      refreshBatchedLinkStyles()
     })
 
     // Loading state → when loading clears with data ready, initialize graph
@@ -2643,8 +3286,10 @@
       // wait for Svelte to render the {:else} block then initialize
       if (!v && currentData && currentData.nodes.length > 0 && !graph && webglSupported) {
         await tick()
+        if (destroyed) return
         if (graphContainerEl && !graph) {
           await initializeGraph()
+          if (destroyed || !graph) return
           syncGraphSize()
           feedData(currentData)
         }
@@ -2654,7 +3299,7 @@
       currentError = v
     })
 
-    // Level change → reconfigure forces for new level
+    // Level changes load a new graph; its worker settings are configured in feedData.
     // setGraphLevel() calls loadGraphData(), which triggers graphData subscription
     // → feedData() rebuilds graph data with level-appropriate sizing and forces.
     // Document mode: degree-based node sizing, wider link distances, arrows (subtask 3-2)
@@ -2663,9 +3308,6 @@
       const prevLevel = currentLevel
       currentLevel = v
       if (prevLevel !== v && graph) {
-        // Pre-configure forces so any in-flight simulation uses correct params
-        // (feedData will reconfigure again when new data arrives)
-        configureForces(v)
         if (graphSearchVisible && graphSearchQuery.length >= 2) {
           executeGraphSearch(graphSearchQuery)
         }
@@ -2684,27 +3326,27 @@
         rebuildFolderColorMap(currentGraph3DData.nodes)
       }
       if (currentColoringMode === 'cluster') {
-        updateClusterSpheres()
+        updateClusterSpheres(true)
       }
-      if (graph) graph.refresh()
+      syncBatchedVisuals()
     })
 
     unsubCustomClusterPalette = customClusterPalette.subscribe((p) => {
       currentCustomClusterPalette = p
       if (currentColoringMode === 'custom-cluster') {
-        updateClusterSpheres()
-        if (graph) graph.refresh()
+        updateClusterSpheres(true)
+        syncBatchedVisuals()
       }
     })
 
     unsubEdgePalette = edgePalette.subscribe((p) => {
       currentEdgePalette = p
-      if (currentData && graph) feedData(currentData)
+      refreshBatchedLinkStyles()
     })
 
     unsubArrowPalette = arrowPalette.subscribe((p) => {
       currentArrowPalette = p
-      if (graph) graph.refresh()
+      syncBatchedVisuals()
     })
   }
 
@@ -2721,6 +3363,9 @@
     if (rect.width > 0 && rect.height > 0) {
       graph.width(rect.width)
       graph.height(rect.height)
+      batchedLayer?.setViewport(rect.width, rect.height)
+      scheduleLabelUpdate()
+      requestGraphRender()
     }
   }
 
@@ -2741,8 +3386,6 @@
    * Also updates tooltip coordinates while a node or edge is hovered.
    */
   function handleMouseMove(e: MouseEvent) {
-    lastMouseX = e.clientX
-    lastMouseY = e.clientY
     if (hoveredNode || hoveredEdge) {
       tooltipX = e.clientX
       tooltipY = e.clientY
@@ -2807,6 +3450,7 @@
       }
       selectGraphNode(null)
       setGraphHighlightedFolder(null)
+      clearClusterHighlight()
       clearTopicHighlight()
       hoveredNode = null
       hoveredEdge = null
@@ -2844,7 +3488,7 @@
   function navigateToConnectedNode(key: string) {
     if (!currentSelected || !graph) return
 
-    const graphD = graph.graphData()
+    const graphD = getLiveGraphData()
     const nodes = graphD.nodes as ForceNode[]
     const links = graphD.links as ForceLink[]
 
@@ -3054,8 +3698,276 @@
 
   /** Check if a given edge cluster is currently filtered out. */
   function isEdgeClusterFiltered(clusterId: number): boolean {
-    if (currentEdgeFilter.size === 0) return false
+    if (currentEdgeFilter === null) return false
     return !currentEdgeFilter.has(clusterId)
+  }
+
+  /** Toggle one edge type without rebuilding the graph or disturbing its layout. */
+  function toggleLegendEdgeCluster(clusterId: number): void {
+    toggleEdgeClusterFilter(
+      clusterId,
+      getEdgeClusters().map((cluster) => cluster.id)
+    )
+  }
+
+  // ─── Batched Picking & Dragging ──────────────────────────────────────
+
+  function setGraphRay(clientX: number, clientY: number): void {
+    if (!graph || !graphCanvas) return
+    const rect = graphCanvas.getBoundingClientRect()
+    graphPointerNdc.set(
+      ((clientX - rect.left) / Math.max(rect.width, 1)) * 2 - 1,
+      -((clientY - rect.top) / Math.max(rect.height, 1)) * 2 + 1
+    )
+    graphRaycaster.params.Line = { threshold: 2 }
+    graphRaycaster.setFromCamera(graphPointerNdc, graph.camera())
+  }
+
+  function pickBatchedNode(clientX: number, clientY: number): ForceNode | null {
+    if (!batchedLayer) return null
+    setGraphRay(clientX, clientY)
+    return batchedLayer.pickNode(graphRaycaster) as ForceNode | null
+  }
+
+  function updateBatchedHover(clientX: number, clientY: number, forceLinkPick = false): void {
+    if (!batchedLayer || presentationActive || draggingNode) {
+      hoveredNode = null
+      hoveredEdge = null
+      return
+    }
+    setGraphRay(clientX, clientY)
+    const node = batchedLayer.pickNode(graphRaycaster) as ForceNode | null
+    hoveredNode = node
+    if (node) {
+      hoveredEdge = null
+      if (graphPickTimer !== null) clearTimeout(graphPickTimer)
+      graphPickTimer = null
+    } else {
+      const linkPickInterval = graphLinkPickIntervalMs(
+        layoutWorkerState === 'running',
+        currentGraph3DData?.links.length ?? 0
+      )
+      const now = performance.now()
+      const remaining = linkPickInterval - (now - graphLastLinkPickAt)
+      if (!forceLinkPick && remaining > 0) {
+        if (graphPickTimer === null) {
+          graphPickTimer = setTimeout(() => {
+            graphPickTimer = null
+            graphForceNextLinkPick = true
+            scheduleBatchedHoverFrame()
+          }, remaining)
+        }
+      } else {
+        if (graphPickTimer !== null) clearTimeout(graphPickTimer)
+        graphPickTimer = null
+        graphLastLinkPickAt = now
+        hoveredEdge = batchedLayer.pickLink(graphRaycaster) as ForceLink | null
+      }
+    }
+    if (node || hoveredEdge) {
+      tooltipX = clientX
+      tooltipY = clientY
+    }
+  }
+
+  function scheduleBatchedHoverFrame(): void {
+    if (graphPickFrameId !== null) return
+    graphPickFrameId = requestAnimationFrame(() => {
+      graphPickFrameId = null
+      const point = pendingPickPoint
+      const forceLinkPick = graphForceNextLinkPick
+      graphForceNextLinkPick = false
+      if (point) updateBatchedHover(point.x, point.y, forceLinkPick)
+    })
+  }
+
+  function scheduleBatchedHover(clientX: number, clientY: number): void {
+    pendingPickPoint = { x: clientX, y: clientY }
+    // Node broad-phase picking remains frame-responsive. Only the much more
+    // expensive link-grid rebuild is throttled while a huge layout is moving.
+    scheduleBatchedHoverFrame()
+  }
+
+  function selectBatchedNode(node: ForceNode): void {
+    if (presentationActive) endGraphPresentation()
+    const graphNode = toGraphNode(node)
+    if (currentSelected?.id === node.id) {
+      openResolvedPathOtherPane(node.path)
+    } else {
+      selectGraphNode(graphNode)
+      openGraphNode(graphNode)
+    }
+    contextMenuNode = null
+    backgroundContextMenuOpen = false
+  }
+
+  function postGraphDragPin(node: ForceNode): void {
+    // Pointer events are already coalesced by Chromium. Forward the newest
+    // coordinate immediately so physics does not trail the visible node by an
+    // additional requestAnimationFrame before the worker's own frame pacing.
+    layoutClient?.pin(node.id, node.x ?? 0, node.y ?? 0, node.z ?? 0, 0.3)
+  }
+
+  function onBatchedPointerDown(event: PointerEvent): void {
+    if (event.button !== 0) return
+    const node = pickBatchedNode(event.clientX, event.clientY)
+    // Empty-space pointer gestures belong to OrbitControls. Keep the reveal
+    // animation alive and let the controls-start event claim only the camera.
+    if (shouldEndGraphPresentationForPointerTarget(presentationActive, node !== null)) {
+      endGraphPresentation()
+    }
+    if (node && graphControls) graphControls.enabled = false
+    pointerCandidate = { node, x: event.clientX, y: event.clientY, pointerId: event.pointerId }
+  }
+
+  function onBatchedPointerMove(event: PointerEvent): void {
+    const candidate = pointerCandidate
+    if (candidate?.node) {
+      const moved = Math.hypot(event.clientX - candidate.x, event.clientY - candidate.y)
+      if (!draggingNode && moved >= 3 && graph) {
+        draggingNode = candidate.node
+        setGraphInteractiveQuality(true)
+        wakeGraphAnimation()
+        const nodePosition = graphDragNodePosition.set(
+          candidate.node.x ?? 0,
+          candidate.node.y ?? 0,
+          candidate.node.z ?? 0
+        )
+        graph.camera().getWorldDirection(graphDragPlaneNormal)
+        graphDragPlane.setFromNormalAndCoplanarPoint(graphDragPlaneNormal, nodePosition)
+        // Match THREE DragControls: preserve where on the sphere the pointer
+        // grabbed it instead of snapping the node center under the cursor.
+        setGraphRay(candidate.x, candidate.y)
+        if (graphRaycaster.ray.intersectPlane(graphDragPlane, graphDragPoint)) {
+          graphDragOffset.copy(graphDragPoint).sub(nodePosition)
+        } else {
+          graphDragOffset.set(0, 0, 0)
+        }
+        graphCanvas?.setPointerCapture(event.pointerId)
+      }
+      if (draggingNode) {
+        event.preventDefault()
+        setGraphRay(event.clientX, event.clientY)
+        if (graphRaycaster.ray.intersectPlane(graphDragPlane, graphDragPoint)) {
+          graphDragPoint.sub(graphDragOffset)
+          draggingNode.x = graphDragPoint.x
+          draggingNode.y = graphDragPoint.y
+          draggingNode.z = graphDragPoint.z
+          postGraphDragPin(draggingNode)
+          batchedLayer?.syncNodePositionsById([draggingNode.id])
+          requestGraphRender()
+          updateDraggedNodeLabel(draggingNode)
+        }
+        return
+      }
+    }
+    scheduleBatchedHover(event.clientX, event.clientY)
+  }
+
+  function onBatchedPointerUp(event: PointerEvent): void {
+    const candidate = pointerCandidate
+    pointerCandidate = null
+    if (draggingNode) {
+      const node = draggingNode
+      const releaseRequestId = layoutClient?.unpin(node.id, true)
+      if (releaseRequestId !== undefined) {
+        pendingGraphDragRelease = {
+          requestId: releaseRequestId,
+          nodeId: node.id,
+          x: node.x ?? 0,
+          y: node.y ?? 0,
+          z: node.z ?? 0
+        }
+      }
+      draggingNode = null
+      if (graphControls) graphControls.enabled = true
+      if (graphCanvas?.hasPointerCapture(event.pointerId)) {
+        graphCanvas.releasePointerCapture(event.pointerId)
+      }
+      updateClusterSpheres()
+      scheduleLabelUpdate()
+      setGraphInteractiveQuality(true)
+      settleGraphAnimation()
+      return
+    }
+    if (event.type === 'pointercancel' || !candidate || candidate.pointerId !== event.pointerId) {
+      if (candidate?.node && graphControls) graphControls.enabled = true
+      return
+    }
+    const moved = Math.hypot(event.clientX - candidate.x, event.clientY - candidate.y)
+    if (candidate.node && graphControls) graphControls.enabled = true
+    if (moved >= 3) return
+    if (candidate.node) {
+      selectBatchedNode(candidate.node)
+      return
+    }
+    if (event.button === 0) {
+      selectGraphNode(null)
+      setGraphHighlightedFolder(null)
+      clearClusterHighlight()
+      clearTopicHighlight()
+      contextMenuNode = null
+      backgroundContextMenuOpen = false
+    }
+  }
+
+  function onBatchedContextMenu(event: MouseEvent): void {
+    event.preventDefault()
+    const node = pickBatchedNode(event.clientX, event.clientY)
+    if (node) {
+      if (presentationActive) endGraphPresentation()
+      backgroundContextMenuOpen = false
+      contextMenuNode = node
+      contextMenuX = event.clientX
+      contextMenuY = event.clientY
+      return
+    }
+    contextMenuNode = null
+    hoveredNode = null
+    hoveredEdge = null
+    positionBackgroundContextMenu(event)
+    backgroundContextMenuOpen = true
+  }
+
+  function onBatchedPointerLeave(): void {
+    if (draggingNode) return
+    pendingPickPoint = null
+    graphForceNextLinkPick = false
+    if (graphPickTimer !== null) clearTimeout(graphPickTimer)
+    graphPickTimer = null
+    hoveredNode = null
+    hoveredEdge = null
+  }
+
+  function setupBatchedInteractions(): void {
+    if (!graph) return
+    graphCanvas = graph.renderer().domElement
+    graphCanvas.addEventListener('pointerdown', onBatchedPointerDown)
+    graphCanvas.addEventListener('pointermove', onBatchedPointerMove)
+    graphCanvas.addEventListener('pointerup', onBatchedPointerUp)
+    graphCanvas.addEventListener('pointercancel', onBatchedPointerUp)
+    graphCanvas.addEventListener('pointerleave', onBatchedPointerLeave)
+    graphCanvas.addEventListener('contextmenu', onBatchedContextMenu)
+  }
+
+  function teardownBatchedInteractions(): void {
+    if (graphPickFrameId !== null) cancelAnimationFrame(graphPickFrameId)
+    graphPickFrameId = null
+    if (graphPickTimer !== null) clearTimeout(graphPickTimer)
+    graphPickTimer = null
+    graphForceNextLinkPick = false
+    pendingPickPoint = null
+    pendingGraphDragRelease = null
+    pointerCandidate = null
+    draggingNode = null
+    if (!graphCanvas) return
+    graphCanvas.removeEventListener('pointerdown', onBatchedPointerDown)
+    graphCanvas.removeEventListener('pointermove', onBatchedPointerMove)
+    graphCanvas.removeEventListener('pointerup', onBatchedPointerUp)
+    graphCanvas.removeEventListener('pointercancel', onBatchedPointerUp)
+    graphCanvas.removeEventListener('pointerleave', onBatchedPointerLeave)
+    graphCanvas.removeEventListener('contextmenu', onBatchedContextMenu)
+    graphCanvas = null
   }
 
   // ─── Graph Initialization ────────────────────────────────────────────
@@ -3065,11 +3977,32 @@
    * Called lazily when graphContainerEl becomes available (after data loads
    * and Svelte renders the {:else} block with the container div).
    */
-  async function initializeGraph() {
-    if (!graphContainerEl || graph) return
+  async function initializeGraph(): Promise<void> {
+    if (graph) return
+    if (!graphInitPromise) {
+      graphInitPromise = initializeGraphNow().finally(() => {
+        graphInitPromise = null
+      })
+    }
+    await graphInitPromise
+  }
+
+  async function initializeGraphNow(): Promise<void> {
+    if (!graphContainerEl || graph || destroyed) return
+    const targetContainer = graphContainerEl
+    const initializeSpan = graphPerformance.beginSpan('graph.initialize')
 
     // Dynamic import for Electron compatibility (avoids SSR/Node.js issues)
     const ForceGraph3DModule = await import('3d-force-graph')
+    if (
+      destroyed ||
+      graph ||
+      graphContainerEl !== targetContainer ||
+      !targetContainer.isConnected
+    ) {
+      initializeSpan.end({ outcome: 'cancelled' })
+      return
+    }
     const ForceGraph3D = ForceGraph3DModule.default
 
     // Get container dimensions before init (3d-force-graph defaults to window size)
@@ -3080,7 +4013,7 @@
     // Initialize 3d-force-graph with PRD configuration values
     graph = new ForceGraph3D(graphContainerEl, {
       controlType: 'orbit',
-      rendererConfig: { antialias: true, alpha: true }
+      rendererConfig: { antialias: true, alpha: true, powerPreference: 'high-performance' }
     })
       .width(initWidth)
       .height(initHeight)
@@ -3089,168 +4022,42 @@
           '#0a0a0b'
       )
       .showNavInfo(false)
-      .nodeOpacity(0.85)
-      .linkOpacity(0.15)
-      .warmupTicks(100)
-      .cooldownTime(5000)
-      .d3AlphaDecay(0.02)
-      .d3VelocityDecay(0.4)
-      // Small dot-like nodes: nodeRelSize controls px³ per val unit
-      // Low value = tiny particle-like dots (Cosmograph style)
-      .nodeRelSize(2)
-      .nodeResolution(8)
-      // Node sizing: val field drives sphere volume
-      .nodeVal((node: ForceNode) => node.val)
-      .nodeVisibility(true)
-      // Node color: dynamic accessor reads current coloring mode on each render
-      .nodeColor((node: ForceNode) => getNodeColor(node))
-      // Link color: pre-computed by buildGraph3DData (edge cluster palette, weak edges at low opacity)
-      .linkColor((link: ForceLink) => link.color)
-      .linkVisibility(graphLinesVisible)
-      // Link width: 0 = ThreeJS Line (constant 1px hairline, very fast)
-      .linkWidth(0)
-      // Frontmatter relation edges (phase 42) are distinguished by color only:
-      // FRONTMATTER_EDGE_COLOR applied in buildGraph3DData. linkLineDash is a
-      // 2D force-graph API — it does not exist on 3d-force-graph.
-      // Directional arrows: visible in document mode, hidden in chunk mode (symmetric similarity)
-      .linkDirectionalArrowLength((_link: ForceLink) => (isChunkMode() ? 0 : 6))
-      .linkDirectionalArrowRelPos(1)
-      .linkDirectionalArrowResolution(4)
-      .linkDirectionalArrowColor((link: ForceLink) => getLinkArrowColor(link))
-      // Directional particles: animate on selected node's neighbor edges
-      .linkDirectionalParticles((link: ForceLink) => {
-        if (!currentSelected) return 0
-        const srcId = linkNodeId(link.source)
-        const tgtId = linkNodeId(link.target)
-        return srcId === currentSelected.id || tgtId === currentSelected.id ? 2 : 0
-      })
-      .linkDirectionalParticleSpeed(0.006)
-      .linkDirectionalParticleWidth(1)
-      .linkDirectionalParticleResolution(6)
-      .linkDirectionalParticleColor(() => '#ffffff')
-      // Custom particle object: additive-blended sphere that glows like light
-      .linkDirectionalParticleThreeObject(() => {
-        const geo = new THREE.SphereGeometry(0.2, 6, 4)
-        const mat = new THREE.MeshBasicMaterial({
-          color: 0xffffff,
-          transparent: true,
-          opacity: 1,
-          blending: THREE.AdditiveBlending,
-          depthWrite: false
-        })
-        return new THREE.Mesh(geo, mat)
-      })
-      // Hub node glow: custom THREE.Group with emissive sphere + halo for high-degree nodes (degree >= 5)
-      // Returns false for low-degree nodes to use default sphere rendering.
-      .nodeThreeObject((node: ForceNode) => {
-        const degree = degreeMap.get(node.id) ?? 0
-        if (degree < 5) return defaultNodeObject
-        return createHubNodeObject(node, 0.9)
-      })
-      // Disable built-in tooltips — we use custom HTML overlays instead
-      .nodeLabel(() => '')
-      .linkLabel(() => '') as GraphInstance
+      .warmupTicks(0)
+      .cooldownTicks(0)
+      .nodeVisibility(false)
+      .linkVisibility(false)
+      .linkDirectionalArrowLength(0)
+      .linkDirectionalParticles(0)
+      .enablePointerInteraction(false) as GraphInstance
 
-    // ─── Event Handlers ──────────────────────────────────────────────
+    // 3d-force-graph remains the camera/OrbitControls/render-loop host. All
+    // topology, force work, rendering and picking live in the worker-backed
+    // batched layer, so the host scene never allocates per-node/link objects.
+    graph.graphData({ nodes: [], links: [] })
+    graph.renderer().setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
+    batchedLayer = new GraphBatchedLayer()
+    batchedLayer.setViewport(initWidth, initHeight)
+    graph.scene().add(batchedLayer.group)
+    setupBatchedInteractions()
 
-    // Node click: first click selects + shows inline preview, second click opens as document tab
-    graph.onNodeClick((node: ForceNode, _event: MouseEvent) => {
-      if (presentationActive) endGraphPresentation()
-      const graphNode = toGraphNode(node)
-      if (currentSelected && currentSelected.id === node.id) {
-        // Second click on same node: open as document tab (or a fresh popup
-        // window when this graph is popped out — no panes to open into here)
-        openResolvedPathOtherPane(node.path)
-      } else {
-        // First click: select and show inline preview
-        selectGraphNode(graphNode)
-        openGraphNode(graphNode)
-      }
-      // Close context menu if open
-      contextMenuNode = null
-      backgroundContextMenuOpen = false
-    })
-
-    // Background click: clear selection and context menu
-    graph.onBackgroundClick((_event: MouseEvent) => {
-      if (presentationActive) endGraphPresentation()
-      selectGraphNode(null)
-      contextMenuNode = null
-      backgroundContextMenuOpen = false
-    })
-
-    // Right-click on node: show context menu at click position
-    graph.onNodeRightClick((node: ForceNode, event: MouseEvent) => {
-      event.preventDefault()
-      if (presentationActive) endGraphPresentation()
-      backgroundContextMenuOpen = false
-      contextMenuNode = node
-      contextMenuX = event.clientX
-      contextMenuY = event.clientY
-    })
-
-    // Right-click on empty graph space: show graph-level actions without
-    // changing the current selection or camera.
-    graph.onBackgroundRightClick((event: MouseEvent) => {
-      event.preventDefault()
-      contextMenuNode = null
-      hoveredNode = null
-      hoveredEdge = null
-      positionBackgroundContextMenu(event)
-      backgroundContextMenuOpen = true
-    })
-
-    // Node hover: update hovered node state for tooltip display
-    graph.onNodeHover((node: ForceNode | null) => {
-      if (presentationActive) {
-        hoveredNode = null
-        return
-      }
-      hoveredNode = node
-      if (node) {
-        tooltipX = lastMouseX
-        tooltipY = lastMouseY
-      }
-    })
-
-    // Link hover: update hovered edge state for edge tooltip display
-    graph.onLinkHover((link: ForceLink | null) => {
-      if (presentationActive) {
-        hoveredEdge = null
-        return
-      }
-      hoveredEdge = link
-      if (link) {
-        tooltipX = lastMouseX
-        tooltipY = lastMouseY
-      }
-    })
-
-    // Node drag end: unpin node so simulation can reposition it
-    graph.onNodeDragEnd((node: ForceNode) => {
-      node.fx = undefined
-      node.fy = undefined
-      node.fz = undefined
-    })
-
-    // Engine tick: throttled cluster sphere + centroid updates during simulation
-    graph.onEngineTick(handleEngineTick)
-
-    // Engine stop: final cluster sphere update when simulation completes
-    graph.onEngineStop(handleEngineStop)
-
-    // Configure cluster-aware forces
-    configureForces(currentLevel)
-
-    // Start proximity label update loop
-    if (labelFrameId === null) {
-      labelFrameId = requestAnimationFrame(updateProximityLabels)
-    }
+    // Labels are camera/layout driven; no permanent requestAnimationFrame scan.
+    graphControls = graph.controls() as GraphControls
+    graphControls.addEventListener?.('change', handleGraphControlsChange)
+    graphControls.addEventListener?.('start', handleGraphControlsStart)
+    graphControls.addEventListener?.('end', handleGraphControlsEnd)
+    scheduleLabelUpdate()
+    startGraphPerformanceSampling()
+    initializeSpan.end({ outcome: 'success' })
   }
 
   // ─── Lifecycle ──────────────────────────────────────────────────────
 
   onMount(() => {
+    destroyed = false
+    stopLongTaskObserver = graphPerformance.observeLongTasks()
+    ;(window as GraphDiagnosticsWindow).__tesseractGraphPerformance = readGraphPerformance
+    document.addEventListener('visibilitychange', handleGraphDocumentVisibility)
+
     // Check WebGL support before anything else
     if (!checkWebGLSupport()) {
       webglSupported = false
@@ -3281,6 +4088,11 @@
   })
 
   onDestroy(() => {
+    destroyed = true
+    graphSearchGeneration++
+    cancelGraphSearchReveal(false)
+    graphFeedGeneration++
+    cancelPendingAutoFit()
     // Never persist a half-spawned presentation layout across remounts.
     if (presentationActive) finishGraphPresentation(false)
 
@@ -3299,7 +4111,7 @@
         cameraStateCache.set(graphTabId, { position: pos, target })
 
         // Save node positions from force simulation
-        const gd = graph.graphData()
+        const gd = getLiveGraphData()
         const positions = new Map<string, { x: number; y: number; z: number }>()
         for (const node of gd.nodes as ForceNode[]) {
           if (node.id != null && node.x != null && node.y != null && node.z != null) {
@@ -3332,12 +4144,39 @@
       cancelAnimationFrame(labelFrameId)
       labelFrameId = null
     }
+    stopGraphPerformanceSampling()
+    if (graphDprRestoreTimer) clearTimeout(graphDprRestoreTimer)
+    graphDprRestoreTimer = null
+    if (graphAnimationIdleTimer) clearTimeout(graphAnimationIdleTimer)
+    graphAnimationIdleTimer = null
+    if (graphManualRenderFrameId !== null) cancelAnimationFrame(graphManualRenderFrameId)
+    graphManualRenderFrameId = null
+    stopLongTaskObserver?.()
+    stopLongTaskObserver = null
+    document.removeEventListener('visibilitychange', handleGraphDocumentVisibility)
+    const diagnosticsWindow = window as GraphDiagnosticsWindow
+    if (diagnosticsWindow.__tesseractGraphPerformance === readGraphPerformance) {
+      delete diagnosticsWindow.__tesseractGraphPerformance
+    }
+
+    teardownBatchedInteractions()
+    unsubscribeLayout?.()
+    unsubscribeLayout = null
+    layoutClient?.dispose()
+    layoutClient = null
+    layoutWorkerState = 'uninitialized'
+    batchedLayer?.dispose()
+    batchedLayer = null
 
     // Clean up cluster sphere meshes before disposing graph
     clearClusterMeshes()
 
     // Dispose 3d-force-graph (cleans up ThreeJS renderer, scene, controls)
     if (graph) {
+      graphControls?.removeEventListener?.('change', handleGraphControlsChange)
+      graphControls?.removeEventListener?.('start', handleGraphControlsStart)
+      graphControls?.removeEventListener?.('end', handleGraphControlsEnd)
+      graphControls = null
       graph._destructor()
       graph = null
     }
@@ -3653,6 +4492,8 @@
           {#if label.visible}
             <div
               class="cluster-label"
+              class:cluster-label-muted={activeHullHighlightId() != null &&
+                label.id !== activeHullHighlightId()}
               data-graph-export-label
               style="left: {label.screenX}px; top: {label.screenY}px; color: {paletteTextColor(
                 currentColoringMode === 'custom-cluster'
@@ -3815,7 +4656,7 @@
         </div>
       {/if}
 
-      <!-- Legend: display-only key for the active view mode (mode switching lives in the top-left dropdown) -->
+      <!-- Legend filters for the active view mode (mode switching lives in the top-left dropdown) -->
       {#if (currentColoringMode === 'cluster' && getClusters().length > 0) || (currentColoringMode === 'custom-cluster' && getCustomClusters().length > 0) || (currentColoringMode === 'folder' && folderColorMap.size > 0)}
         <div class="graph-legend">
           <div class="legend-header">
@@ -3840,12 +4681,32 @@
             <div class="legend-items">
               {#if currentColoringMode === 'cluster'}
                 {#each getClusters() as cluster}
-                  <div class="legend-item">
+                  <button
+                    class="legend-item legend-item-clickable"
+                    class:legend-item-active={highlightedClusterId === cluster.id}
+                    onclick={() => toggleClusterHighlight(cluster.id)}
+                    title={highlightedClusterId === cluster.id
+                      ? `Clear ${cluster.label} highlight`
+                      : `Highlight all members of ${cluster.label}`}
+                  >
                     <span class="legend-dot" style="background: {cluster.color}"></span>
                     <span class="legend-label">{cluster.label}</span>
                     <span class="legend-count">{cluster.member_count}</span>
-                  </div>
+                  </button>
                 {/each}
+                {#if highlightedClusterId != null}
+                  <button
+                    class="legend-clear-filter"
+                    onclick={clearClusterHighlight}
+                    title="Clear cluster highlight"
+                    style="margin-top: 4px; width: 100%;"
+                  >
+                    <span class="material-symbols-outlined" style="font-size: 14px;"
+                      >filter_alt_off</span
+                    >
+                    <span style="font-size: 10px;">Clear</span>
+                  </button>
+                {/if}
               {:else if currentColoringMode === 'custom-cluster'}
                 {#each getCustomClusters() as cluster}
                   <button
@@ -3914,7 +4775,7 @@
                 <div class="legend-separator"></div>
                 <div class="legend-section-title">
                   <span>Edge Types</span>
-                  {#if currentEdgeFilter.size > 0}
+                  {#if currentEdgeFilter !== null}
                     <button
                       class="legend-clear-filter"
                       onclick={clearEdgeFilter}
@@ -3928,7 +4789,7 @@
                   <button
                     class="legend-item legend-item-clickable"
                     class:legend-item-muted={isEdgeClusterFiltered(ec.id)}
-                    onclick={() => toggleEdgeClusterFilter(ec.id)}
+                    onclick={() => toggleLegendEdgeCluster(ec.id)}
                     title={isEdgeClusterFiltered(ec.id)
                       ? `Show ${ec.label} edges`
                       : `Hide ${ec.label} edges`}
@@ -4068,6 +4929,10 @@
       left 60ms linear,
       top 60ms linear;
     z-index: 5;
+  }
+
+  .cluster-label-muted {
+    opacity: 0.12;
   }
 
   .graph-empty {

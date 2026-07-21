@@ -58,12 +58,7 @@
     applyDiskContentToTab
   } from './stores/file-sync'
   import DiffView from './components/DiffView.svelte'
-  import {
-    graphViewActive,
-    openGraphView,
-    loadGraphData,
-    resetGraphForCollectionSwitch
-  } from './stores/graph'
+  import { graphViewActive, openGraphView, resetGraphForCollectionSwitch } from './stores/graph'
   import {
     goBack,
     goForward,
@@ -137,10 +132,10 @@
     // Load collections first, then restore tab session once the active collection is known.
     // restoreSession() validates file existence via the preload API, so it needs an active collection.
     loadCollections().then(async () => {
-      // Load file tree, asset tree, and graph data for the active collection
+      // Load the navigation trees for the active collection. Graph data stays
+      // cold until a graph tab is restored or explicitly activated.
       loadFileTree().catch(() => {})
       loadAssetTree().catch(() => {})
-      loadGraphData().catch(() => {})
       try {
         const session = await window.api.getWindowSession()
         if (session) {

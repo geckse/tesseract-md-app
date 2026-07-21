@@ -8,7 +8,11 @@
 
 import { derived } from 'svelte/store'
 import { primaryVariants } from './accent-color'
-import { generateHarmonicPalette, type HarmonicPalette } from '../lib/harmonic-palette'
+import {
+  balancePaletteLuminance,
+  generateHarmonicPalette,
+  type HarmonicPalette
+} from '../lib/harmonic-palette'
 
 /**
  * 12-color palette for cluster nodes, folder coloring, and file hash colors.
@@ -30,12 +34,18 @@ export const customClusterPalette = derived<typeof primaryVariants, HarmonicPale
   ($v) => generateHarmonicPalette($v.primary, 12, 9)
 )
 
+/** Enough stable slots for the CLI's semantic edge taxonomy without modulo collisions. */
+export const EDGE_PALETTE_SIZE = 24
+
 /**
- * 8-color palette for edge clusters.
- * Offset by 3 to skip the arrow palette slots.
+ * Dedicated palette for semantic edge clusters.
+ *
+ * It starts after the arrow and 12-node-cluster slots, so equal numeric IDs do
+ * not reuse the same hue. Perceptual luminance balancing prevents green/yellow
+ * relationships from overpowering blue/magenta ones in dense overviews.
  */
 export const edgePalette = derived<typeof primaryVariants, HarmonicPalette>(primaryVariants, ($v) =>
-  generateHarmonicPalette($v.primary, 8, 3)
+  balancePaletteLuminance(generateHarmonicPalette($v.primary, EDGE_PALETTE_SIZE, 15))
 )
 
 /** 3-color palette for directional arrows (outgoing, incoming, bidirectional) */

@@ -1,11 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import {
   generateHarmonicPalette,
+  balancePaletteLuminance,
   paletteColor,
   paletteTextColor,
   type HarmonicPalette
 } from '@renderer/lib/harmonic-palette'
-import { hexToHsl, contrastRatio } from '@renderer/lib/color-utils'
+import { hexToHsl, contrastRatio, relativeLuminance } from '@renderer/lib/color-utils'
 
 describe('generateHarmonicPalette', () => {
   it('returns the correct number of colors', () => {
@@ -170,6 +171,33 @@ describe('paletteColor', () => {
 
   it('handles zero index', () => {
     expect(paletteColor(palette, 0)).toBe('#AA0000')
+  })
+})
+
+describe('balancePaletteLuminance', () => {
+  it('keeps harmonic hues while removing the green/blue brightness bias', () => {
+    const source = generateHarmonicPalette('#00E5FF', 24, 15)
+    const balanced = balancePaletteLuminance(source)
+    const luminances = balanced.colors.map(relativeLuminance)
+
+    expect(balanced.colors).toHaveLength(24)
+    expect(Math.max(...luminances) - Math.min(...luminances)).toBeLessThan(0.01)
+    for (let index = 0; index < source.colors.length; index++) {
+      const before = hexToHsl(source.colors[index]).h
+      const after = hexToHsl(balanced.colors[index]).h
+      const difference = Math.abs(before - after)
+      expect(Math.min(difference, 360 - difference)).toBeLessThan(3)
+    }
+  })
+
+  it('caps extreme saturation and records the target luminance', () => {
+    const balanced = balancePaletteLuminance(generateHarmonicPalette('#00E5FF', 8), 0.2, 70)
+    expect(balanced.targetLuminance).toBe(0.2)
+    expect(balanced.saturation).toBeLessThanOrEqual(70)
+    for (const color of balanced.colors) {
+      expect(relativeLuminance(color)).toBeCloseTo(0.2, 2)
+      expect(hexToHsl(color).s).toBeLessThanOrEqual(71)
+    }
   })
 })
 

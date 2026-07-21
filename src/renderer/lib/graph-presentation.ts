@@ -58,6 +58,14 @@ interface NodeDegrees {
   outgoing: number
 }
 
+/** Empty-space orbit gestures keep playback alive; node interaction may end it. */
+export function shouldEndGraphPresentationForPointerTarget(
+  presentationActive: boolean,
+  hasNodeTarget: boolean
+): boolean {
+  return presentationActive && hasNodeTarget
+}
+
 const PRESENTATION_SPAWN_DISTANCE = 8
 const PRESENTATION_SPAWN_IMPULSE = 24
 const PRESENTATION_SPRING_STRENGTH = 85

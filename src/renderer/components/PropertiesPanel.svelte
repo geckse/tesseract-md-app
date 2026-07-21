@@ -19,11 +19,10 @@
   import { scrollToLine, activeHeadingIndex, isDirty } from '../stores/editor'
   import { isFavorited, toggleFavorite } from '../stores/favorites'
   import {
-    graphViewActive,
     graphSelectedNode,
     graphOpenedNode,
     openGraphWithNeighborhood,
-    loadGraphData
+    openGraphView
   } from '../stores/graph'
   import type {
     DocumentInfo,
@@ -172,8 +171,7 @@
       openGraphWithNeighborhood(currentFilePath, nh)
     } else {
       // No local neighborhood — open full graph with this file selected
-      graphViewActive.set(true)
-      loadGraphData()
+      openGraphView()
       const node = {
         id: currentFilePath,
         path: currentFilePath,

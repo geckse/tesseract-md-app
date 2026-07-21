@@ -200,6 +200,39 @@ test.describe('Native App Menu', () => {
 
     await electronApp.close()
   })
+
+  test('exports a renderer ArrayBuffer through the real Electron binary channel', async () => {
+    const outputDir = mkdtempSync(join(tmpdir(), 'tesseract-binary-export-e2e-'))
+    const outputPath = join(outputDir, 'graph.png')
+    const electronApp = await launchIsolated()
+
+    try {
+      const window = await electronApp.firstWindow()
+      await window.waitForLoadState('domcontentloaded')
+
+      await electronApp.evaluate(({ dialog }, filePath) => {
+        dialog.showSaveDialog = (async () => ({
+          canceled: false,
+          filePath
+        })) as typeof dialog.showSaveDialog
+      }, outputPath)
+
+      const result = await window.evaluate(async () => {
+        const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47]).buffer
+        return window.api.exportSave({
+          defaultName: 'graph.png',
+          content: png,
+          filters: [{ name: 'PNG Image', extensions: ['png'] }]
+        })
+      })
+
+      expect(result).toEqual({ saved: true, path: outputPath })
+      expect([...readFileSync(outputPath)]).toEqual([0x89, 0x50, 0x4e, 0x47])
+    } finally {
+      await electronApp.close()
+      rmSync(outputDir, { recursive: true, force: true })
+    }
+  })
 })
 
 /**

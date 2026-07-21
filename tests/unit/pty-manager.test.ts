@@ -383,4 +383,38 @@ describe('buildPtyEnv', () => {
     const env = buildPtyEnv('/my/collection', { FOO: 'bar' })
     expect(env.FOO).toBe('bar')
   })
+
+  it('does not inherit launcher overrides that suppress CLI ANSI styling', () => {
+    const inherited = {
+      NO_COLOR: process.env.NO_COLOR,
+      FORCE_COLOR: process.env.FORCE_COLOR,
+      CLICOLOR: process.env.CLICOLOR,
+      NODE_DISABLE_COLORS: process.env.NODE_DISABLE_COLORS
+    }
+    process.env.NO_COLOR = '1'
+    process.env.FORCE_COLOR = '0'
+    process.env.CLICOLOR = '0'
+    process.env.NODE_DISABLE_COLORS = '1'
+
+    try {
+      const env = buildPtyEnv('/my/collection')
+      expect(env.NO_COLOR).toBeUndefined()
+      expect(env.FORCE_COLOR).toBeUndefined()
+      expect(env.CLICOLOR).toBeUndefined()
+      expect(env.NODE_DISABLE_COLORS).toBeUndefined()
+      expect(env.TERM).toBe('xterm-256color')
+      expect(env.COLORTERM).toBe('truecolor')
+    } finally {
+      for (const [key, value] of Object.entries(inherited)) {
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
+    }
+  })
+
+  it('honors explicit per-terminal color overrides', () => {
+    const env = buildPtyEnv('/my/collection', { NO_COLOR: '1', FORCE_COLOR: '0' })
+    expect(env.NO_COLOR).toBe('1')
+    expect(env.FORCE_COLOR).toBe('0')
+  })
 })

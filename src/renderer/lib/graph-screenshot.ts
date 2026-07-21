@@ -28,8 +28,14 @@ export function graphScreenshotDefaultName(
   return `${baseName}${transparent ? ' (transparent)' : ''}.png`
 }
 
-/** Encode a canvas as PNG bytes suitable for the sandboxed export IPC. */
-export function canvasToPngBytes(canvas: HTMLCanvasElement): Promise<Uint8Array> {
+/**
+ * Encode a canvas as a transferable PNG buffer for the sandboxed export IPC.
+ *
+ * Blob.arrayBuffer() already produces the representation Electron's binary
+ * export channel needs. Returning that buffer directly avoids wrapping (and
+ * later copying) a potentially large screenshot through another typed array.
+ */
+export function canvasToPngBytes(canvas: HTMLCanvasElement): Promise<ArrayBuffer> {
   return new Promise((resolve, reject) => {
     canvas.toBlob((blob) => {
       if (!blob) {
@@ -37,10 +43,7 @@ export function canvasToPngBytes(canvas: HTMLCanvasElement): Promise<Uint8Array>
         return
       }
 
-      blob
-        .arrayBuffer()
-        .then((buffer) => resolve(new Uint8Array(buffer)))
-        .catch(reject)
+      blob.arrayBuffer().then(resolve).catch(reject)
     }, 'image/png')
   })
 }
@@ -127,7 +130,7 @@ export async function captureGraphScreenshotPng({
   camera,
   overlayRoot,
   transparent
-}: GraphScreenshotOptions): Promise<Uint8Array> {
+}: GraphScreenshotOptions): Promise<ArrayBuffer> {
   const sourceCanvas = renderer.domElement
   if (sourceCanvas.width <= 0 || sourceCanvas.height <= 0) {
     throw new Error('The graph is not ready to capture yet.')

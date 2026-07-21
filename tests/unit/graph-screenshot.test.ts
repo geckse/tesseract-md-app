@@ -55,9 +55,8 @@ describe('graph screenshot helpers', () => {
     const canvas = document.createElement('canvas')
     canvas.toBlob = vi.fn((callback) => callback(pngBlob()))
 
-    await expect(canvasToPngBytes(canvas)).resolves.toEqual(
-      Uint8Array.from([0x89, 0x50, 0x4e, 0x47])
-    )
+    const encoded = await canvasToPngBytes(canvas)
+    expect([...new Uint8Array(encoded)]).toEqual([0x89, 0x50, 0x4e, 0x47])
 
     canvas.toBlob = vi.fn((callback) => callback(null))
     await expect(canvasToPngBytes(canvas)).rejects.toThrow('could not be encoded as PNG')
@@ -150,7 +149,7 @@ describe('graph screenshot helpers', () => {
       transparent: true
     })
 
-    expect(result).toEqual(Uint8Array.from([1, 2, 3]))
+    expect([...new Uint8Array(result)]).toEqual([1, 2, 3])
     expect(renderer.setClearColor).toHaveBeenNthCalledWith(1, expect.any(Color), 0)
     expect(renderer.setClearColor).toHaveBeenLastCalledWith(expect.any(Color), 1)
     expect(renderer.render).toHaveBeenCalledTimes(2)

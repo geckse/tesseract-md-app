@@ -223,6 +223,7 @@ vi.mock('electron', () => ({
 }))
 
 import { registerIpcHandlers } from '../../src/main/ipc-handlers'
+import { clearGraphSnapshotCache } from '../../src/main/graph-snapshot-cache'
 
 /** Create a mock WindowManager with all required methods */
 function createMockWindowManager() {
@@ -269,6 +270,7 @@ function createMockWindowManager() {
 }
 
 beforeEach(() => {
+  clearGraphSnapshotCache()
   mockHandle.mockReset()
   mockFindCli.mockReset()
   mockGetCliVersion.mockReset()
@@ -732,6 +734,32 @@ describe('IPC handler argument passing', () => {
       await handler(fakeEvent, '/tmp/project')
 
       expect(mockExecCommand).toHaveBeenCalledWith('clusters', [], '/tmp/project')
+    })
+  })
+
+  describe('cli:graph', () => {
+    it('requests and returns the compact versioned graph contract', async () => {
+      const compact = {
+        format: 'mdvdb.graph.compact',
+        version: 1,
+        nodes: [],
+        edges: [],
+        contexts: ['full context remains interned'],
+        clusters: [],
+        level: 'chunk'
+      }
+      mockExecCommand.mockResolvedValue(compact)
+      const handler = getHandler('cli:graph')
+
+      const result = await handler(fakeEvent, '/tmp/project', 'chunk', 'docs/')
+
+      expect(result).toBe(compact)
+      expect(mockExecCommand).toHaveBeenCalledWith(
+        'graph',
+        ['--compact', '--level', 'chunk', '--path', 'docs/'],
+        '/tmp/project',
+        { signal: expect.any(AbortSignal) }
+      )
     })
   })
 

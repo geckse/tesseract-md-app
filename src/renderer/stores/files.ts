@@ -17,7 +17,7 @@ import { recordNavigation, syncNavigationStoresFromTab } from './navigation'
 import { syncGraphStoresFromTab } from './graph'
 import { workspace } from './workspace.svelte'
 import { mergeTreeNodes } from '../lib/tree-merge'
-import { clearGraphStateCache } from '../components/GraphView.svelte'
+import { clearLoadedGraphStateCache } from '../lib/graph-view-loader'
 // Lazy import to avoid circular dependency (favorites.ts imports selectedFilePath from here)
 const lazyTrackRecent = (...args: Parameters<typeof import('./favorites').trackRecent>) =>
   import('./favorites').then((m) => m.trackRecent(...args))
@@ -364,7 +364,7 @@ export function resetFileState(): void {
   expandedPaths.set(new Set())
   resetVaultTreeRouting()
   clearProperties()
-  clearGraphStateCache()
+  clearLoadedGraphStateCache()
   syncFileStoresFromTab()
 }
 

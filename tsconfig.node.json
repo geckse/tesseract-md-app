@@ -6,7 +6,7 @@
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "target": "ESNext",
-    "lib": ["ESNext"],
+    "lib": ["ESNext", "DOM"],
     "outDir": "./out/tsconfig.node.tsbuildinfo",
     "types": ["node"],
     "strict": true,

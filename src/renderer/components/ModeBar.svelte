@@ -2,11 +2,13 @@
   import { get } from 'svelte/store'
   import { workspace } from '../stores/workspace.svelte'
   import type { TabState } from '../stores/workspace.svelte'
-  import { editorMode, requestSave, requestDiscard } from '../stores/editor'
+  import { editorMode, requestSave, requestDiscard, dispatchEditorCommand } from '../stores/editor'
   import { isDirty } from '../stores/editor'
   import { fileContent } from '../stores/files'
   import { renderMarkdown } from '../lib/markdown-render'
   import { requestConfirmation } from '../stores/confirmation'
+  import InsertAssetDialog from './InsertAssetDialog.svelte'
+  import type { MediaEmbed } from '../lib/media-embed'
 
   interface ModeBarProps {
     paneId: string
@@ -26,6 +28,11 @@
 
   let copyDropdownOpen = $state(false)
   let copyFeedback = $state<string | null>(null)
+  let mediaDialogOpen = $state(false)
+
+  function handleMediaSelect(media: MediaEmbed): void {
+    dispatchEditorCommand('format.media', media)
+  }
 
   function closeCopyDropdown() {
     copyDropdownOpen = false
@@ -108,6 +115,15 @@
       </button>
     </div>
     <div class="mode-toggle-spacer">
+      <button
+        class="media-button"
+        onclick={() => (mediaDialogOpen = true)}
+        title="Insert media"
+        aria-label="Insert media"
+      >
+        <span class="material-symbols-outlined" aria-hidden="true">add_photo_alternate</span>
+        <span>Media</span>
+      </button>
       <div class="copy-dropdown-wrapper">
         <button class="copy-split-button" onclick={copyAsMarkdown} title="Copy as Markdown">
           {#if copyFeedback}
@@ -154,6 +170,11 @@
       {/if}
     </div>
   </div>
+  <InsertAssetDialog
+    bind:visible={mediaDialogOpen}
+    currentFilePath={activeTab?.filePath}
+    onselect={handleMediaSelect}
+  />
 {/if}
 
 <style>
@@ -205,6 +226,30 @@
   .mode-tab.active {
     background: var(--color-surface, #161617);
     color: var(--color-primary, #00e5ff);
+  }
+
+  .media-button {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    color: var(--color-text-dim, #71717a);
+    background: transparent;
+    border: 1px solid var(--color-border, #27272a);
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+  }
+
+  .media-button:hover {
+    color: var(--color-text, #e4e4e7);
+    background: var(--color-surface, #161617);
+  }
+
+  .media-button .material-symbols-outlined {
+    font-size: 15px;
   }
 
   /* ── Save button ──────────────────────────────── */

@@ -10,6 +10,7 @@ import type {
 import { activeCollection } from './collections'
 import { workspace, saveDefaultGraphColoringMode } from './workspace.svelte'
 import type { GraphTab, GraphColoringMode } from './workspace.svelte'
+import { toggleVisibleEdgeCluster } from '../lib/graph-legend-filters'
 
 // Re-export the type for backward compat (consumers import it from graph.ts)
 export type { GraphColoringMode }
@@ -36,6 +37,9 @@ const _graphSync = writable(0)
  */
 export function syncGraphStoresFromTab(): void {
   _graphSync.update((n) => n + 1)
+  if (get(graphViewActive) && (get(graphData) === null || get(graphDataDirty))) {
+    void ensureGraphDataForActiveView()
+  }
 }
 
 // ─── Helper: find the focused pane's graph tab ──────────────────────
@@ -43,7 +47,7 @@ export function syncGraphStoresFromTab(): void {
 /** Get the graph tab for the currently focused pane. */
 function getFocusedGraphTab(): GraphTab | undefined {
   const pane = workspace.focusedPane
-  if (!pane) return undefined
+  if (!pane?.graphTabId) return undefined
   const tab = workspace.tabs[pane.graphTabId]
   if (tab && tab.kind === 'graph') return tab
   return undefined
@@ -177,6 +181,13 @@ export const graphLoading = writable<boolean>(false)
 /** Error message if graph data loading failed. */
 export const graphError = writable<string | null>(null)
 
+/**
+ * Whether the CLI-backed graph snapshot is stale because its collection index
+ * changed while Graph View was inactive. Multiple invalidations collapse into
+ * one refresh when the graph is next activated.
+ */
+export const graphDataDirty = writable<boolean>(false)
+
 /** Currently selected node in the graph (highlighted, no side panel). */
 export const graphSelectedNode = writable<GraphNode | null>(null)
 
@@ -189,8 +200,8 @@ export const graphHighlightedFolder = writable<string | null>(null)
 /** File path hovered in search results — transient highlight for graph view. */
 export const graphHoveredFilePath = writable<string | null>(null)
 
-/** Set of edge cluster IDs to filter (show only these). Empty set means show all. */
-export const graphEdgeFilter = writable<Set<number>>(new Set())
+/** Visible edge-cluster IDs. `null` means all; an empty set means hide every typed edge. */
+export const graphEdgeFilter = writable<Set<number> | null>(null)
 
 /** Whether nodes without incoming or outgoing connections are highlighted. */
 export const graphUnconnectedHighlight = writable<boolean>(false)
@@ -232,6 +243,21 @@ export function onGraphMenuAction(listener: GraphMenuActionListener): () => void
 /** Generation counter to discard stale async results. */
 let loadGeneration = 0
 
+/** Monotonic invalidation counter, used to detect changes during an in-flight read. */
+let dirtyGeneration = 0
+
+interface InFlightGraphLoad {
+  key: string
+  mode: 'replace' | 'refresh'
+  promise: Promise<void>
+}
+
+/** The latest request; identical concurrent reads share its promise. */
+let inFlightGraphLoad: InFlightGraphLoad | null = null
+
+/** Avoid scheduling more than one follow-up refresh microtask. */
+let followUpRefreshQueued = false
+
 // ─── Actions ────────────────────────────────────────────────────────
 
 /**
@@ -243,66 +269,125 @@ let loadGeneration = 0
  * views are never overwritten — GraphView diffs the result and patches the
  * scene incrementally instead of rebuilding.
  */
-export async function loadGraphData(mode: 'replace' | 'refresh' = 'replace'): Promise<void> {
+export function loadGraphData(mode: 'replace' | 'refresh' = 'replace'): Promise<void> {
   const collection = get(activeCollection)
   if (!collection) {
     graphLoading.set(false)
-    return
+    return Promise.resolve()
   }
 
   if (mode === 'refresh') {
     // Nothing loaded yet → nothing to patch; the next replace-load covers it.
-    if (get(graphData) === null) return
+    if (get(graphData) === null) return Promise.resolve()
     // Never replace a transient neighborhood view with the full graph.
-    if (get(graphDataSource) === 'adhoc') return
+    if (get(graphDataSource) === 'adhoc') return Promise.resolve()
+  }
+
+  const level = get(graphLevel)
+  const pathFilter = get(graphPathFilter)
+  const requestKey = `${collection.id}\0${collection.path}\0${level}\0${pathFilter ?? ''}`
+  if (inFlightGraphLoad?.key === requestKey) {
+    if (inFlightGraphLoad.mode === mode) return inFlightGraphLoad.promise
+    // An index invalidation that lands during a replacement read is serviced
+    // by one follow-up refresh. Do not run the same CLI request twice now.
+    if (inFlightGraphLoad.mode === 'replace' && mode === 'refresh') {
+      return inFlightGraphLoad.promise
+    }
   }
 
   const generation = ++loadGeneration
+  const dirtyAtStart = dirtyGeneration
 
   if (mode === 'replace') {
     graphLoading.set(true)
     graphError.set(null)
   }
 
-  try {
-    const level = get(graphLevel)
-    const pathFilter = get(graphPathFilter)
-    const data = await window.api.graphData(collection.path, level, pathFilter ?? undefined)
+  const request = {
+    key: requestKey,
+    mode,
+    promise: Promise.resolve()
+  } satisfies InFlightGraphLoad
+  inFlightGraphLoad = request
 
-    // Ignore stale results
-    if (generation !== loadGeneration) return
+  const promise = (async (): Promise<void> => {
+    let loadedSuccessfully = false
+    try {
+      const data = await window.api.graphData(collection.path, level, pathFilter ?? undefined)
 
-    graphLoadMode.set(mode)
-    graphDataSource.set('cli')
-    graphData.set(data)
-    graphError.set(null)
-  } catch (err) {
-    if (generation !== loadGeneration) return
-    if (mode === 'refresh') {
-      // A transient CLI failure during agent churn must not blank a working
-      // view; the next debounced refresh retries.
-      console.warn('Background graph refresh failed:', err)
-      return
+      // Ignore stale results
+      if (generation !== loadGeneration) return
+
+      graphLoadMode.set(mode)
+      graphDataSource.set('cli')
+      graphData.set(data)
+      graphError.set(null)
+      loadedSuccessfully = true
+
+      // Do not clear an invalidation that arrived after this request began.
+      graphDataDirty.set(dirtyGeneration !== dirtyAtStart)
+    } catch (err) {
+      if (generation !== loadGeneration) return
+      if (mode === 'refresh') {
+        // A transient CLI failure during agent churn must not blank a working
+        // view; the next debounced refresh or activation retries.
+        console.warn('Background graph refresh failed:', err)
+        return
+      }
+      graphError.set(err instanceof Error ? err.message : String(err))
+      graphData.set(null)
+    } finally {
+      if (generation === loadGeneration && mode === 'replace') {
+        graphLoading.set(false)
+      }
+      if (inFlightGraphLoad === request) {
+        inFlightGraphLoad = null
+      }
+      if (loadedSuccessfully && get(graphDataDirty)) {
+        queueFollowUpRefresh()
+      }
     }
-    graphError.set(err instanceof Error ? err.message : String(err))
-    graphData.set(null)
-  } finally {
-    if (generation === loadGeneration && mode === 'replace') {
-      graphLoading.set(false)
-    }
-  }
+  })()
+  request.promise = promise
+  return promise
 }
 
 /** Background graph re-fetch — the entry point for index-change consumers. */
 export function refreshGraphData(): Promise<void> {
+  dirtyGeneration++
+  graphDataDirty.set(true)
+
+  // Keep hidden graph tabs cheap: watcher/ingest bursts collapse into one
+  // authoritative refresh on the next activation.
+  if (!get(graphViewActive)) return Promise.resolve()
+
   // A freshly initialized collection can have an active Graph tab before its
   // first index exists. There is no scene to patch in that state, so the
-  // first successful ingest must perform a replacement load. When Graph is
-  // not open, keep the cheap no-op and let its normal activation load data.
-  if (get(graphData) === null && get(graphViewActive)) {
+  // first successful ingest must perform a replacement load.
+  if (get(graphData) === null) {
     return loadGraphData('replace')
   }
   return loadGraphData('refresh')
+}
+
+/** Load or refresh the graph only when its tab is the active view. */
+function ensureGraphDataForActiveView(): Promise<void> {
+  if (!get(graphViewActive)) return Promise.resolve()
+  if (get(graphData) === null) return loadGraphData('replace')
+  if (get(graphDataDirty) && get(graphDataSource) === 'cli') {
+    return loadGraphData('refresh')
+  }
+  return Promise.resolve()
+}
+
+/** Coalesce invalidations that land while a graph request is in flight. */
+function queueFollowUpRefresh(): void {
+  if (followUpRefreshQueued) return
+  followUpRefreshQueued = true
+  queueMicrotask(() => {
+    followUpRefreshQueued = false
+    void ensureGraphDataForActiveView()
+  })
 }
 
 /**
@@ -342,7 +427,21 @@ export function openGraphView(): void {
     workspace.switchToGraphTab()
     syncGraphStoresFromTab()
   }
-  if (get(graphData) === null) void loadGraphData()
+  void ensureGraphDataForActiveView()
+}
+
+/**
+ * Open Graph scoped to a folder in one atomic tab-model operation.
+ *
+ * Switching first is essential: graphPathFilter is owned by the pane that
+ * contains the pinned Graph tab, which may not be the currently focused pane.
+ */
+export function openGraphViewForPath(path: string): Promise<void> {
+  workspace.switchToGraphTab()
+  graphPathFilter.set(path)
+  graphSelectedNode.set(null)
+  graphOpenedNode.set(null)
+  return loadGraphData('replace')
 }
 
 /** Set the graph detail level and reload data. */
@@ -407,21 +506,19 @@ export function setGraphHighlightedFolder(path: string | null): void {
   graphHighlightedFolder.set(current === path ? null : path)
 }
 
-/** Toggle an edge cluster ID in the filter set. If present, remove it; if absent, add it. */
-export function toggleEdgeClusterFilter(clusterId: number): void {
-  const current = get(graphEdgeFilter)
-  const next = new Set(current)
-  if (next.has(clusterId)) {
-    next.delete(clusterId)
-  } else {
-    next.add(clusterId)
-  }
-  graphEdgeFilter.set(next)
+/** Toggle visibility of one edge type while preserving an explicit hide-all state. */
+export function toggleEdgeClusterFilter(
+  clusterId: number,
+  availableClusterIds: Iterable<number>
+): void {
+  graphEdgeFilter.set(
+    toggleVisibleEdgeCluster(get(graphEdgeFilter), availableClusterIds, clusterId)
+  )
 }
 
 /** Clear all edge cluster filters (show all edges). */
 export function clearEdgeFilter(): void {
-  graphEdgeFilter.set(new Set())
+  graphEdgeFilter.set(null)
 }
 
 /** Toggle highlighting for nodes with zero incoming and outgoing connections. */
@@ -511,16 +608,20 @@ export function openGraphWithNeighborhood(
 /** Reset all graph state. */
 export function resetGraphState(): void {
   loadGeneration++
+  dirtyGeneration++
+  inFlightGraphLoad = null
+  followUpRefreshQueued = false
   graphData.set(null)
   graphLoadMode.set('replace')
   graphDataSource.set('cli')
   graphLoading.set(false)
   graphError.set(null)
+  graphDataDirty.set(false)
   graphSelectedNode.set(null)
   graphOpenedNode.set(null)
   graphHighlightedFolder.set(null)
   graphHoveredFilePath.set(null)
-  graphEdgeFilter.set(new Set())
+  graphEdgeFilter.set(null)
   graphUnconnectedHighlight.set(false)
   graphSemanticEdgesEnabled.set(true)
   graphEdgeWeakThreshold.set(0.3)

@@ -16,8 +16,22 @@ import path from 'node:path'
 import type { SerializedError } from './errors'
 import type { ExportSaveRequest, ExportPdfRequest, ExportResult } from '../preload/api'
 
-/** Guard against runaway payloads (matches the CLI bridge's 10MB buffer). */
-const MAX_EXPORT_BYTES = 10 * 1024 * 1024
+/** Text/HTML is structured-cloned over invoke, so keep its original tight cap. */
+const MAX_TEXT_EXPORT_BYTES = 10 * 1024 * 1024
+
+/**
+ * Binary exports use a transferred MessagePort and may legitimately be much
+ * larger than text (for example a high-DPI graph PNG). Keep a generous but
+ * finite ceiling so a compromised renderer cannot make main retain unbounded
+ * memory. The bytes are not sent until after the user picks a path.
+ */
+const MAX_BINARY_EXPORT_BYTES = 256 * 1024 * 1024
+
+interface BinaryExportMetadata {
+  defaultName: string
+  filters: { name: string; extensions: string[] }[]
+  byteLength: number
+}
 
 /**
  * Local error wrapper matching ipc-handlers' wrapHandler shape (importing
@@ -33,6 +47,97 @@ function wrap<T>(fn: () => Promise<T>): Promise<T | SerializedError> {
 
 function ownerWindow(sender: Electron.WebContents): BrowserWindow | undefined {
   return BrowserWindow.fromWebContents(sender) ?? undefined
+}
+
+function parseBinaryExportMetadata(value: unknown): BinaryExportMetadata {
+  if (typeof value !== 'object' || value === null) {
+    throw new Error('Invalid binary export request')
+  }
+
+  const request = value as Partial<BinaryExportMetadata>
+  if (
+    typeof request.defaultName !== 'string' ||
+    request.defaultName.length === 0 ||
+    request.defaultName.length > 1024 ||
+    !Number.isSafeInteger(request.byteLength) ||
+    (request.byteLength ?? -1) < 0 ||
+    !Array.isArray(request.filters) ||
+    request.filters.length > 16 ||
+    !request.filters.every(
+      (filter) =>
+        typeof filter === 'object' &&
+        filter !== null &&
+        typeof filter.name === 'string' &&
+        filter.name.length <= 256 &&
+        Array.isArray(filter.extensions) &&
+        filter.extensions.length <= 32 &&
+        filter.extensions.every(
+          (extension) => typeof extension === 'string' && extension.length <= 32
+        )
+    )
+  ) {
+    throw new Error('Invalid binary export request')
+  }
+
+  if (request.byteLength! > MAX_BINARY_EXPORT_BYTES) {
+    throw new Error('Binary export too large (over 256MB)')
+  }
+
+  return request as BinaryExportMetadata
+}
+
+function binaryBuffer(content: ArrayBuffer | Uint8Array): Buffer {
+  if (Object.prototype.toString.call(content) === '[object ArrayBuffer]') {
+    return Buffer.from(content as ArrayBuffer)
+  }
+  return Buffer.from(content.buffer, content.byteOffset, content.byteLength)
+}
+
+function binaryExportBuffer(value: unknown): Buffer | null {
+  // Use the intrinsic tag instead of instanceof so a buffer originating in a
+  // different V8 realm is still accepted.
+  if (Object.prototype.toString.call(value) === '[object ArrayBuffer]') {
+    return Buffer.from(value as ArrayBuffer)
+  }
+
+  // Electron deserializes binary values received by MessagePortMain as a
+  // Uint8Array/Buffer on some release lines even when the renderer posted an
+  // ArrayBuffer. Accept any byte view and preserve its exact visible slice.
+  if (ArrayBuffer.isView(value)) {
+    return Buffer.from(value.buffer, value.byteOffset, value.byteLength)
+  }
+
+  return null
+}
+
+function receiveBinaryBuffer(port: Electron.MessagePortMain): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const handleClose = (): void => reject(new Error('The binary export was interrupted.'))
+    port.once('close', handleClose)
+    port.once('message', (message) => {
+      port.removeListener('close', handleClose)
+      const content = binaryExportBuffer(message.data)
+      if (!content) {
+        reject(new Error('Invalid binary export payload'))
+        return
+      }
+      resolve(content)
+    })
+    port.start()
+  })
+}
+
+function respondOnPort(
+  port: Electron.MessagePortMain,
+  value: ExportResult | SerializedError
+): void {
+  try {
+    port.postMessage({ type: 'result', value })
+  } catch {
+    // The renderer may have closed while a save dialog was open.
+  } finally {
+    port.close()
+  }
 }
 
 async function pickSavePath(
@@ -80,17 +185,45 @@ async function renderHtmlToPdf(html: string): Promise<Buffer> {
   }
 }
 
-/** Register `export:save` and `export:pdf`. Called from registerIpcHandlers. */
+/** Register text, deferred-binary, and PDF export channels. */
 export function registerExportHandlers(): void {
+  ipcMain.on('export:save-binary', (event, metadata: unknown) => {
+    const port = event.ports[0]
+    if (!port) return
+
+    void wrap<ExportResult>(async () => {
+      const request = parseBinaryExportMetadata(metadata)
+      const filePath = await pickSavePath(
+        ownerWindow(event.sender),
+        request.defaultName,
+        request.filters
+      )
+      if (!filePath) return { saved: false }
+
+      // Ask preload to send the bytes only after the save dialog succeeds;
+      // canceled exports never copy the potentially large PNG into main.
+      port.postMessage({ type: 'ready' })
+      const content = await receiveBinaryBuffer(port)
+      if (content.byteLength !== request.byteLength) {
+        throw new Error('Binary export payload size did not match its request')
+      }
+
+      await fs.writeFile(filePath, content)
+      return { saved: true, path: filePath }
+    }).then((result) => respondOnPort(port, result))
+  })
+
   ipcMain.handle('export:save', (event, request: ExportSaveRequest) =>
     wrap<ExportResult>(async () => {
       // Binary content (docx/odt/epub zip containers) arrives as a
       // structured-clone Uint8Array; text formats as a string.
       const isBinary = typeof request.content !== 'string'
       const size = isBinary
-        ? (request.content as Uint8Array).byteLength
+        ? (request.content as ArrayBuffer | Uint8Array).byteLength
         : Buffer.byteLength(request.content as string, 'utf-8')
-      if (size > MAX_EXPORT_BYTES) {
+      const maxBytes = isBinary ? MAX_BINARY_EXPORT_BYTES : MAX_TEXT_EXPORT_BYTES
+      if (size > maxBytes) {
+        if (isBinary) throw new Error('Binary export too large (over 256MB)')
         throw new Error('Export too large (over 10MB)')
       }
       const filePath = await pickSavePath(
@@ -100,7 +233,7 @@ export function registerExportHandlers(): void {
       )
       if (!filePath) return { saved: false }
       if (isBinary) {
-        await fs.writeFile(filePath, Buffer.from(request.content as Uint8Array))
+        await fs.writeFile(filePath, binaryBuffer(request.content as ArrayBuffer | Uint8Array))
       } else {
         await fs.writeFile(filePath, request.content as string, 'utf-8')
       }
@@ -110,7 +243,7 @@ export function registerExportHandlers(): void {
 
   ipcMain.handle('export:pdf', (event, request: ExportPdfRequest) =>
     wrap<ExportResult>(async () => {
-      if (Buffer.byteLength(request.html, 'utf-8') > MAX_EXPORT_BYTES) {
+      if (Buffer.byteLength(request.html, 'utf-8') > MAX_TEXT_EXPORT_BYTES) {
         throw new Error('Export too large (over 10MB)')
       }
       const filePath = await pickSavePath(ownerWindow(event.sender), request.defaultName, [

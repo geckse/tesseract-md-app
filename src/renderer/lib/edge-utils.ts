@@ -67,6 +67,9 @@ export function isFrontmatterEdge(edge: { field?: string | null }): boolean {
  */
 export const FRONTMATTER_EDGE_COLOR = '#8b7cf6'
 
+/** Neutral fallback for legacy/unclassified edges — never a semantic palette slot. */
+export const UNCLUSTERED_EDGE_COLOR = '#687385'
+
 /**
  * Compute the 3D link width for an edge based on its strength.
  *
@@ -79,31 +82,68 @@ export function edgeLinkWidth(strength: number): number {
 }
 
 /**
- * Compute the 3D link color for an edge based on its cluster ID and weakness.
+ * Compute the 3D link color for an edge based on its semantic cluster ID.
  *
  * Returns the edge cluster palette color from `edgeClusterColor()`.
- * For edges with no cluster ID, returns the last palette color.
- * For weak edges (strength below threshold), returns an rgba() string at ~25% opacity
- * to visually de-emphasize them. Uses rgba() because THREE.Color does not support
- * 8-digit hex (e.g. #RRGGBBAA).
+ * Edges with no cluster ID use a neutral fallback instead of borrowing an
+ * arbitrary palette slot. Strength is deliberately handled separately by
+ * `edgeStrengthOpacity()` so weak-edge alpha is not multiplied twice by the
+ * batched renderer's idle opacity.
  */
 export function edgeLinkColor(
   edgeClusterId: number | null | undefined,
-  strength: number,
-  weakThreshold: number,
+  _strength: number,
+  _weakThreshold: number,
   palette: HarmonicPalette
 ): string {
-  const baseColor =
-    edgeClusterId != null
-      ? edgeClusterColor(edgeClusterId, palette)
-      : paletteColor(palette, palette.colors.length - 1)
+  return edgeClusterId != null ? edgeClusterColor(edgeClusterId, palette) : UNCLUSTERED_EDGE_COLOR
+}
 
-  if (strength < weakThreshold) {
-    const r = parseInt(baseColor.slice(1, 3), 16)
-    const g = parseInt(baseColor.slice(3, 5), 16)
-    const b = parseInt(baseColor.slice(5, 7), 16)
-    return `rgba(${r}, ${g}, ${b}, 0.25)`
-  }
+/**
+ * Continuous strength visibility used on top of the graph's idle opacity.
+ *
+ * The floor guarantees that every filtered-in edge remains legible in an
+ * overview. The user-configured weak threshold remains the visual knee, but
+ * there is no abrupt pop and no edge reaches zero opacity.
+ */
+export function edgeStrengthOpacity(strength: number, weakThreshold: number): number {
+  const safeStrength = Number.isFinite(strength) ? strength : 0.5
+  const safeThreshold = Number.isFinite(weakThreshold) ? weakThreshold : 0.3
+  const value = Math.max(0, Math.min(1, safeStrength))
+  const threshold = Math.max(0, Math.min(1, safeThreshold))
+  const floor = 0.58
+  const knee = 0.78
 
-  return baseColor
+  if (threshold <= 0) return knee + (1 - knee) * value
+  if (value < threshold) return floor + (knee - floor) * (value / threshold)
+  if (threshold >= 1) return knee
+  return knee + (1 - knee) * ((value - threshold) / (1 - threshold))
+}
+
+/** Final idle alpha for a visible overview edge (before explicit UI dimming states). */
+export function edgeIdleOpacity(
+  strength: number,
+  weakThreshold: number,
+  chunkMode: boolean,
+  semanticStyling: boolean = true
+): number {
+  const baseOpacity = chunkMode ? 0.1 : 0.17
+  return semanticStyling ? baseOpacity * edgeStrengthOpacity(strength, weakThreshold) : baseOpacity
+}
+
+/** Map the stored semantic width to a restrained, CSS-pixel overview width. */
+export function edgeScreenWidth(
+  semanticWidth: number,
+  semanticStyling: boolean,
+  selectedIncident: boolean
+): number {
+  const width = Number.isFinite(semanticWidth) ? semanticWidth : 0.5
+  const normalized = semanticStyling ? Math.max(0, Math.min(1, (width - 0.5) / 2.5)) : 0
+  return selectedIncident ? 1.35 + normalized * 1.15 : 1 + normalized * 0.8
+}
+
+/** Keep idle direction subordinate; selected directions remain presentation-ready. */
+export function edgeArrowOpacity(lineOpacity: number, hasSelection: boolean): number {
+  if (hasSelection) return 0.95
+  return Math.min(0.24, Math.max(0, lineOpacity) * 1.25)
 }
