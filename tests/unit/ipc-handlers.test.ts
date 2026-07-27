@@ -369,6 +369,8 @@ describe('registerIpcHandlers', () => {
     expect(channels).toContain('store:set-primary-color')
     expect(channels).toContain('store:get-collection-color')
     expect(channels).toContain('store:set-collection-color')
+    expect(channels).toContain('schema:get-value-colors')
+    expect(channels).toContain('schema:set-value-color')
     expect(channels).toContain('store:get-theme')
     expect(channels).toContain('store:set-theme')
     expect(channels).toContain('store:get-collection-theme')
@@ -411,7 +413,7 @@ describe('registerIpcHandlers', () => {
     // Dirty-close guard (data safety)
     expect(channels).toContain('app:confirm-close')
     expect(channels).toContain('app:cancel-close')
-    expect(channels).toHaveLength(130)
+    expect(channels).toHaveLength(132)
   })
 })
 

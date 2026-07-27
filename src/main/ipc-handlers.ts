@@ -49,6 +49,7 @@ import type {
   OverlayFieldPatch
 } from '../preload/api'
 import type { NativeConfirmationOptions, NativeMessageOptions } from '../preload/api'
+import type { PropertyValueColorSelection } from '../shared/value-colors'
 import type { FrontmatterPatch } from './frontmatter'
 import { WatcherManager, type WatcherState } from './watcher'
 import { getVaultWatcher } from './vault-watcher'
@@ -935,6 +936,34 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
       wrapHandler(async () => {
         const m = await import('./property-ops')
         return m.updateOverlayField(collectionId, scope, key, patch)
+      })
+  )
+
+  // Synced Select/Tags value-color annotations in `.markdownvdb.schema.yml`.
+  ipcMain.handle('schema:get-value-colors', (_event, collectionId: string, scope: string | null) =>
+    wrapHandler(async () => {
+      const collection = getCollections().find((item) => item.id === collectionId)
+      if (!collection) throw new Error(`Collection not found: ${collectionId}`)
+      const { readOverlayValueColors } = await import('./schema-overlay')
+      return readOverlayValueColors(collection.path, scope)
+    })
+  )
+
+  ipcMain.handle(
+    'schema:set-value-color',
+    (
+      _event,
+      collectionId: string,
+      scope: string | null,
+      field: string,
+      value: string,
+      selection: PropertyValueColorSelection | null
+    ) =>
+      wrapHandler(async () => {
+        const collection = getCollections().find((item) => item.id === collectionId)
+        if (!collection) throw new Error(`Collection not found: ${collectionId}`)
+        const { setOverlayValueColor } = await import('./schema-overlay')
+        return setOverlayValueColor(collection.path, scope, field, value, selection)
       })
   )
 

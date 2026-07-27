@@ -21,6 +21,8 @@ export interface CellProps {
   root?: string
   /** Collection id (recents lookup in the picker); optional. */
   collectionId?: string | null
+  /** Schema-overlay scope for presentation annotations (`null` = global fields). */
+  scope?: string | null
 }
 
 /** Missing / cleared frontmatter values render as an em-dash placeholder. */

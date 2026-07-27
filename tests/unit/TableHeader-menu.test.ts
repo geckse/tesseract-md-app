@@ -22,7 +22,19 @@ vi.mock('../../src/renderer/stores/table.svelte', () => ({
       groupBy: null,
       collapsedGroups: []
     }),
-    columnWidth: () => 140
+    columnWidth: () => 140,
+    collectionIdFor: () => 'collection-1',
+    state: () => ({
+      data: {
+        rows: [
+          {
+            frontmatter: {
+              tags: ['urgent', 'finance']
+            }
+          }
+        ]
+      }
+    })
   }
 }))
 
@@ -60,12 +72,38 @@ const relationColumn: CollectionColumn = {
   relation_target: 'clients'
 }
 
+const selectColumn: CollectionColumn = {
+  ...statusColumn,
+  allowed_values: ['drafted', 'published']
+}
+
+const tagsColumn: CollectionColumn = {
+  ...statusColumn,
+  name: 'tags',
+  field_type: 'List'
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   cliFeatures.reset()
   cliFeatures.version = '0.2.0'
   Object.defineProperty(globalThis, 'window', {
-    value: Object.assign(globalThis.window ?? {}, { api: {} }),
+    value: Object.assign(globalThis.window ?? {}, {
+      api: {
+        getPropertyValueColors: vi.fn().mockResolvedValue({}),
+        setPropertyValueColor: vi
+          .fn()
+          .mockImplementation(
+            (
+              _collectionId: string,
+              _scope: string | null,
+              field: string,
+              value: string,
+              selection: { palette: 'accent' | 'neutral'; slot: number }
+            ) => Promise.resolve({ [field]: { [value]: selection } })
+          )
+      }
+    }),
     writable: true,
     configurable: true
   })
@@ -159,5 +197,33 @@ describe('TableHeader column menu (phase 41)', () => {
       allowedValues: null,
       target: 'groups'
     })
+  })
+
+  it('offers accent and neutral synced palette colors in Property settings', async () => {
+    renderHeader([selectColumn])
+    await fireEvent.click(screen.getByRole('button', { name: 'Column options for status' }))
+    await fireEvent.mouseDown(screen.getByRole('menuitem', { name: /Property settings/ }))
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Choose color for drafted' }))
+    expect(screen.getAllByRole('button', { name: /Accent color/ })).toHaveLength(24)
+    expect(screen.getAllByRole('button', { name: /Neutral color/ })).toHaveLength(12)
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Neutral color 12' }))
+    expect(window.api.setPropertyValueColor).toHaveBeenCalledWith(
+      'collection-1',
+      'docs',
+      'status',
+      'drafted',
+      { palette: 'neutral', slot: 11 }
+    )
+  })
+
+  it('discovers current Tags values for Property settings color controls', async () => {
+    renderHeader([tagsColumn])
+    await fireEvent.click(screen.getByRole('button', { name: 'Column options for tags' }))
+    await fireEvent.mouseDown(screen.getByRole('menuitem', { name: /Property settings/ }))
+
+    expect(screen.getByRole('button', { name: 'Choose color for urgent' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Choose color for finance' })).toBeTruthy()
   })
 })

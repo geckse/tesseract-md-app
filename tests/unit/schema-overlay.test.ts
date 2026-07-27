@@ -7,6 +7,8 @@ import { parse as parseYaml } from 'yaml'
 import {
   upsertOverlayField,
   renameOverlayField,
+  readOverlayValueColors,
+  setOverlayValueColor,
   MalformedOverlayError,
   OVERLAY_FILENAME
 } from '../../src/main/schema-overlay'
@@ -77,6 +79,30 @@ describe('upsertOverlayField', () => {
     expect(parsed.scopes.docs.fields.status).toEqual({ field_type: 'string' })
   })
 
+  it('treats clearing annotations on a missing scoped field as a no-op', async () => {
+    await writeFile(
+      join(root, OVERLAY_FILENAME),
+      'fields:\n  client:\n    field_type: relation\n    target: clients\nscopes:\n  invoices:\n    fields:\n      status:\n        field_type: string\n',
+      'utf-8'
+    )
+
+    await upsertOverlayField(root, 'invoices', 'client', {
+      description: null,
+      required: null,
+      allowedValues: null,
+      target: 'clients'
+    })
+
+    const parsed = parseYaml(await readOverlay())
+    expect(parsed.fields.client).toEqual({
+      field_type: 'relation',
+      target: 'clients'
+    })
+    expect(parsed.scopes.invoices.fields.client).toEqual({
+      target: 'clients'
+    })
+  })
+
   it('rejects trailing-slash and empty scope keys', async () => {
     await expect(upsertOverlayField(root, 'docs/', 'a', { fieldType: 'string' })).rejects.toThrow(
       /trailing slash/
@@ -119,6 +145,130 @@ describe('renameOverlayField', () => {
   it('returns false (and writes nothing) when there is no overlay entry', async () => {
     expect(await renameOverlayField(root, 'docs', 'status', 'state')).toBe(false)
     await expect(access(join(root, OVERLAY_FILENAME))).rejects.toThrow()
+  })
+})
+
+describe('Select/Tags value colors', () => {
+  it('persists palette slots beside a scoped field without disturbing its schema annotations', async () => {
+    await writeFile(
+      join(root, OVERLAY_FILENAME),
+      '# synced schema\nscopes:\n  invoices:\n    fields:\n      status:\n        field_type: string\n        allowed_values: [draft, paid]\n',
+      'utf-8'
+    )
+
+    await setOverlayValueColor(root, 'invoices', 'status', 'draft', {
+      palette: 'accent',
+      slot: 2
+    })
+    await setOverlayValueColor(root, 'invoices', 'status', 'paid', {
+      palette: 'accent',
+      slot: 23
+    })
+
+    const raw = await readOverlay()
+    const parsed = parseYaml(raw)
+    expect(raw).toContain('# synced schema')
+    expect(parsed.scopes.invoices.fields.status).toEqual({
+      field_type: 'string',
+      allowed_values: ['draft', 'paid'],
+      value_colors: { draft: 2, paid: 23 }
+    })
+  })
+
+  it('layers global and matching folder-scope colors like the schema overlay', async () => {
+    await writeFile(
+      join(root, OVERLAY_FILENAME),
+      [
+        'fields:',
+        '  status:',
+        '    value_colors:',
+        '      draft: 1',
+        '      paid: 2',
+        'scopes:',
+        '  invoices:',
+        '    fields:',
+        '      status:',
+        '        value_colors:',
+        '          paid: 8',
+        '      tags:',
+        '        value_colors:',
+        '          urgent: 4',
+        ''
+      ].join('\n'),
+      'utf-8'
+    )
+
+    await expect(readOverlayValueColors(root, 'invoices/2026')).resolves.toEqual({
+      status: {
+        draft: { palette: 'accent', slot: 1 },
+        paid: { palette: 'accent', slot: 8 }
+      },
+      tags: { urgent: { palette: 'accent', slot: 4 } }
+    })
+  })
+
+  it('persists and resolves neutral brightness slots', async () => {
+    await setOverlayValueColor(root, 'invoices', 'status', 'archived', {
+      palette: 'neutral',
+      slot: 11
+    })
+
+    const parsed = parseYaml(await readOverlay())
+    expect(parsed.scopes.invoices.fields.status.value_colors.archived).toBe('neutral:11')
+    await expect(readOverlayValueColors(root, 'invoices')).resolves.toEqual({
+      status: { archived: { palette: 'neutral', slot: 11 } }
+    })
+  })
+
+  it('restores automatic color by removing only the selected value annotation', async () => {
+    await upsertOverlayField(root, 'invoices', 'status', {
+      fieldType: 'string',
+      allowedValues: ['draft']
+    })
+    await setOverlayValueColor(root, 'invoices', 'status', 'draft', {
+      palette: 'accent',
+      slot: 3
+    })
+    await setOverlayValueColor(root, 'invoices', 'status', 'draft', null)
+
+    const parsed = parseYaml(await readOverlay())
+    expect(parsed.scopes.invoices.fields.status).toEqual({
+      field_type: 'string',
+      allowed_values: ['draft']
+    })
+  })
+
+  it('rejects malformed value_colors instead of overwriting user YAML', async () => {
+    const raw = 'scopes:\n  invoices:\n    fields:\n      status:\n        value_colors: invalid\n'
+    await writeFile(join(root, OVERLAY_FILENAME), raw, 'utf-8')
+
+    await expect(
+      setOverlayValueColor(root, 'invoices', 'status', 'draft', {
+        palette: 'accent',
+        slot: 3
+      })
+    ).rejects.toThrow(/Expected YAML collection/)
+    expect(await readOverlay()).toBe(raw)
+  })
+
+  it('validates palette slot bounds', async () => {
+    await expect(
+      setOverlayValueColor(root, null, 'status', 'draft', { palette: 'accent', slot: 24 })
+    ).rejects.toThrow(/Invalid accent/)
+    await expect(
+      setOverlayValueColor(root, null, 'status', 'draft', { palette: 'neutral', slot: 12 })
+    ).rejects.toThrow(/Invalid neutral/)
+  })
+
+  it('ignores malformed or out-of-range stored palette values', async () => {
+    await writeFile(
+      join(root, OVERLAY_FILENAME),
+      'fields:\n  status:\n    value_colors:\n      good: neutral:4\n      bad: neutral:12\n      unknown: warm:2\n',
+      'utf-8'
+    )
+    await expect(readOverlayValueColors(root, null)).resolves.toEqual({
+      status: { good: { palette: 'neutral', slot: 4 } }
+    })
   })
 })
 

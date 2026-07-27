@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/svelte'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, fireEvent, waitFor } from '@testing-library/svelte'
 
 // Mock window.api before importing components (cells import the table store for valueToString).
 // Keep the real jsdom window — floating-ui needs its DOM classes for instanceof checks.
@@ -7,7 +7,9 @@ const mockApi = {
   collection: vi.fn(),
   updateFrontmatter: vi.fn(),
   readFile: vi.fn(),
-  ingestFile: vi.fn()
+  ingestFile: vi.fn(),
+  getPropertyValueColors: vi.fn(),
+  setPropertyValueColor: vi.fn()
 }
 
 Object.defineProperty(window, 'api', { value: mockApi, writable: true })
@@ -19,7 +21,15 @@ import ListCell from '@renderer/components/table/cells/ListCell.svelte'
 import DateCell from '@renderer/components/table/cells/DateCell.svelte'
 import MixedCell from '@renderer/components/table/cells/MixedCell.svelte'
 import TitleCell from '@renderer/components/table/cells/TitleCell.svelte'
+import { resetPropertyValueColors } from '@renderer/stores/value-colors'
 import type { CollectionColumn, CollectionRow, JsonValue } from '../../src/renderer/types/cli'
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  resetPropertyValueColors()
+  mockApi.getPropertyValueColors.mockResolvedValue({})
+  mockApi.setPropertyValueColor.mockResolvedValue({})
+})
 
 function col(
   field_type: CollectionColumn['field_type'],
@@ -140,6 +150,59 @@ describe('StringCell', () => {
       render(StringCell, { props })
 
       expect(screen.getByText('draft').classList.contains('select-chip')).toBe(true)
+      expect(screen.getByText('draft').getAttribute('style')).toContain('--value-color:')
+    })
+
+    it('lets the user pick a synced theme-palette color from the chip', async () => {
+      mockApi.setPropertyValueColor.mockResolvedValue({
+        field: { draft: { palette: 'accent', slot: 2 } }
+      })
+      const { props } = cellProps('String', 'draft', {
+        ...allowed,
+        collectionId: 'collection-1',
+        scope: 'invoices'
+      })
+      render(StringCell, { props })
+
+      await fireEvent.contextMenu(screen.getByText('draft'))
+      expect(screen.getByRole('dialog', { name: 'Choose color for draft' })).toBeTruthy()
+
+      await fireEvent.click(screen.getByLabelText('Accent color 3'))
+      await waitFor(() =>
+        expect(mockApi.setPropertyValueColor).toHaveBeenCalledWith(
+          'collection-1',
+          'invoices',
+          'field',
+          'draft',
+          { palette: 'accent', slot: 2 }
+        )
+      )
+    })
+
+    it('lets the user choose a neutral brightness step', async () => {
+      mockApi.setPropertyValueColor.mockResolvedValue({
+        field: { draft: { palette: 'neutral', slot: 5 } }
+      })
+      const { props } = cellProps('String', 'draft', {
+        ...allowed,
+        collectionId: 'collection-1',
+        scope: 'invoices'
+      })
+      render(StringCell, { props })
+
+      await fireEvent.contextMenu(screen.getByText('draft'))
+      expect(screen.getAllByRole('button', { name: /Neutral color/ })).toHaveLength(12)
+      await fireEvent.click(screen.getByLabelText('Neutral color 6'))
+
+      await waitFor(() =>
+        expect(mockApi.setPropertyValueColor).toHaveBeenCalledWith(
+          'collection-1',
+          'invoices',
+          'field',
+          'draft',
+          { palette: 'neutral', slot: 5 }
+        )
+      )
     })
 
     it('opens a listbox popover when editing and commits the picked option', async () => {
@@ -249,6 +312,9 @@ describe('ListCell', () => {
 
     expect(screen.getByText('a')).toBeTruthy()
     expect(screen.getByText('b')).toBeTruthy()
+    expect(screen.getByText('a').getAttribute('style')).not.toBe(
+      screen.getByText('b').getAttribute('style')
+    )
   })
 
   it('adds a chip on Enter and commits the array on Enter with empty input', async () => {

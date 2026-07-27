@@ -117,6 +117,25 @@
     return d === 'asc' ? 'ascending' : d === 'desc' ? 'descending' : 'none'
   }
 
+  /** Distinct current values exposed in Property Settings for Tags color choices. */
+  function colorValuesFor(column: CollectionColumn): string[] {
+    if (column.allowed_values?.length) return column.allowed_values
+    if (column.field_type !== 'List') return []
+
+    const seen = new Set<string>()
+    for (const row of tableStore.state(tabId).data?.rows ?? []) {
+      const raw = row.frontmatter?.[column.name]
+      if (!Array.isArray(raw)) continue
+      for (const value of raw) {
+        if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+          const text = String(value).trim()
+          if (text) seen.add(text)
+        }
+      }
+    }
+    return [...seen].slice(0, 100)
+  }
+
   /** Cycle a column's sort: none → asc → desc → none. */
   function cycleSort(name: string): void {
     const current = sortDir(name)
@@ -260,6 +279,10 @@
     description={menuColumn.description}
     required={menuColumn.required}
     allowedValues={menuColumn.allowed_values}
+    collectionId={tableStore.collectionIdFor(tabId) ?? null}
+    colorValues={colorValuesFor(menuColumn)}
+    valueColorsEnabled={menuColumn.field_type === 'List' ||
+      (menuColumn.allowed_values?.length ?? 0) > 0}
     isRelation={menuColumn.field_type === 'Relation'}
     relationTarget={menuColumn.relation_target}
     onclose={() => {

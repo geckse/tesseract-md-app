@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Component } from 'svelte'
   import { tableStore } from '../../stores/table.svelte'
+  import { workspace } from '../../stores/workspace.svelte'
   import type { CollectionColumn, CollectionRow, JsonValue } from '../../types/cli'
   import type { CellProps } from './cells/types'
   import TitleCell from './cells/TitleCell.svelte'
@@ -40,6 +41,10 @@
   let editingCol = $state<string | null>(null)
 
   const readOnly = $derived(row.state === 'deleted')
+  const schemaScope = $derived.by(() => {
+    const tab = workspace.tabs[tabId]
+    return tab?.kind === 'table' && tab.folderPath !== '' ? tab.folderPath : null
+  })
 
   // Lazily augment `new` (unindexed) rows so their on-disk frontmatter is editable.
   $effect(() => {
@@ -140,6 +145,7 @@
         relations={row.relations?.[col.name]}
         root={tableStore.rootFor(tabId)}
         collectionId={tableStore.collectionIdFor(tabId)}
+        scope={schemaScope}
       />
       {#if cs.saving}
         <span class="saving-dot" aria-hidden="true"></span>

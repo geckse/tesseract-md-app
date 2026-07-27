@@ -1078,6 +1078,7 @@
         schema={currentSchema}
         filePath={activeDocTab.filePath}
         collectionPath={currentActiveCollection?.path ?? ''}
+        collectionId={currentActiveCollection?.id ?? null}
         isUntitled={activeDocTab.isUntitled}
         onFileRenamed={handleFileRenamed}
       />

@@ -3,6 +3,16 @@
   import { cliFeatures } from '../../lib/cli-features.svelte'
   import { formatRelationValue } from '../../lib/relation-format'
   import { openResolvedPath } from '../../lib/link-navigation'
+  import type { PropertyValueColorSelection } from '../../../shared/value-colors'
+  import { automaticValueColorSlot, valueColorSelectionStyle } from '../../lib/value-colors'
+  import { resolvedTheme } from '../../stores/theme'
+  import {
+    loadPropertyValueColors,
+    neutralValueColorPalette,
+    propertyValueColorOverrides,
+    valueColorOverride,
+    valueColorPalette
+  } from '../../stores/value-colors'
   import AutocompleteDropdown from './AutocompleteDropdown.svelte'
   import DatePicker from './DatePicker.svelte'
   import DateTimePicker from './DateTimePicker.svelte'
@@ -43,6 +53,8 @@
     relationValues?: RelationValue[]
     /** Phase 42: collection root (relation picker needs it for CLI calls). */
     collectionPath?: string
+    /** Active collection id (synced Select/Tags value colors). */
+    collectionId?: string | null
   }
 
   let {
@@ -57,7 +69,8 @@
     onRename,
     settingsScope,
     relationValues,
-    collectionPath
+    collectionPath,
+    collectionId = null
   }: Props = $props()
 
   // ── Phase 41: type change / rename / settings affordances ─────────────
@@ -142,6 +155,46 @@
   let showDateTimePicker = $state(false)
   let dateAnchor = $state<HTMLElement | null>(null)
   let newTagInput = $state('')
+
+  $effect(() => {
+    void loadPropertyValueColors(collectionId, settingsScope ?? null)
+  })
+
+  function automaticColorSlot(option: string): number {
+    return automaticValueColorSlot(rowKey, option, schemaField?.allowed_values)
+  }
+
+  function propertyValueColorStyle(option: string): string {
+    const selection: PropertyValueColorSelection = valueColorOverride(
+      $propertyValueColorOverrides,
+      collectionId,
+      settingsScope ?? null,
+      rowKey,
+      option
+    ) ?? { palette: 'accent', slot: automaticColorSlot(option) }
+    return valueColorSelectionStyle(
+      $valueColorPalette,
+      $neutralValueColorPalette,
+      selection,
+      $resolvedTheme
+    )
+  }
+
+  const propertyColorValues = $derived.by(() => {
+    if (fieldType === 'select') return schemaField?.allowed_values ?? []
+    if (fieldType !== 'tags') return []
+
+    const values = new Set(schemaField?.sample_values ?? [])
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean') {
+          const text = String(item).trim()
+          if (text) values.add(text)
+        }
+      }
+    }
+    return [...values].slice(0, 100)
+  })
 
   // Value autocomplete
   let showValueAc = $state(false)
@@ -360,6 +413,7 @@
       {@const currentVal = String(value ?? '')}
       <select
         class="pr-val pr-select"
+        style={currentVal ? propertyValueColorStyle(currentVal) : undefined}
         aria-label="{rowKey} value"
         onchange={(e) => onValueChange((e.target as HTMLSelectElement).value)}
       >
@@ -373,7 +427,7 @@
     {:else if fieldType === 'tags'}
       <div class="pr-tags">
         {#each Array.isArray(value) ? value : [] as tag, i}
-          <span class="pr-tag">
+          <span class="pr-tag" style={propertyValueColorStyle(String(tag))}>
             {String(tag)}
             <button class="pr-tag-remove" onclick={() => removeTag(i)} aria-label="Remove tag"
               >&times;</button
@@ -573,6 +627,9 @@
       description={schemaField?.description ?? null}
       required={schemaField?.required ?? false}
       allowedValues={schemaField?.allowed_values ?? null}
+      {collectionId}
+      colorValues={propertyColorValues}
+      valueColorsEnabled={fieldType === 'select' || fieldType === 'tags'}
       isRelation={fieldType === 'relation'}
       relationTarget={schemaField?.relation_target ?? null}
       onclose={() => (showSettings = false)}
@@ -729,15 +786,18 @@
 
   .pr-select {
     appearance: none;
+    background-color: color-mix(in srgb, var(--value-color-base) 14%, transparent);
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
     background-position: right 6px center;
+    border-color: color-mix(in srgb, var(--value-color) 42%, transparent);
+    color: var(--value-color);
     padding-right: 22px;
     cursor: pointer;
   }
   .pr-select:hover,
   .pr-select:focus {
-    border-color: var(--color-border-hover, #3f3f46);
+    border-color: color-mix(in srgb, var(--value-color) 68%, transparent);
   }
 
   .pr-textarea {
@@ -821,20 +881,20 @@
     gap: 3px;
     padding: 2px 8px;
     border-radius: 9999px;
-    border: 1px solid var(--color-primary-glow, rgba(0, 229, 255, 0.25));
-    background: transparent;
-    color: var(--color-primary, #00e5ff);
+    border: 1px solid color-mix(in srgb, var(--value-color) 42%, transparent);
+    background: color-mix(in srgb, var(--value-color-base) 14%, transparent);
+    color: var(--value-color);
     font-size: 10px;
     font-family: var(--font-mono, 'JetBrains Mono'), monospace;
     transition: border-color 150ms ease;
   }
   .pr-tag:hover {
-    border-color: var(--color-primary-glow, rgba(0, 229, 255, 0.5));
+    border-color: color-mix(in srgb, var(--value-color) 68%, transparent);
   }
   .pr-tag-remove {
     background: none;
     border: none;
-    color: var(--color-primary, #00e5ff);
+    color: inherit;
     cursor: pointer;
     padding: 0;
     font-size: 12px;

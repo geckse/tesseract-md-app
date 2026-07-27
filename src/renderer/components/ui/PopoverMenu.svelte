@@ -3,6 +3,8 @@
     id: string
     label: string
     icon?: string
+    /** Optional semantic color swatch rendered before the label. */
+    color?: string
     /** Renders a check mark when true; use for single-select and multi-check menus. */
     checked?: boolean
     disabled?: boolean
@@ -157,6 +159,8 @@
     >
       {#if item.icon}
         <span class="material-symbols-outlined pm-icon">{item.icon}</span>
+      {:else if item.color}
+        <span class="pm-color" style="--item-color: {item.color}"></span>
       {/if}
       <span class="pm-label">{item.label}</span>
       {#if item.checked}
@@ -241,6 +245,15 @@
   .pm-icon {
     font-size: 16px;
     color: var(--color-text-dim);
+  }
+
+  .pm-color {
+    width: 10px;
+    height: 10px;
+    flex: none;
+    border-radius: var(--radius-full, 9999px);
+    background: var(--item-color);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--item-color) 65%, var(--color-border));
   }
 
   .pm-item.active .pm-icon {

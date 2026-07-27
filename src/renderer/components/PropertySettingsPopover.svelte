@@ -4,7 +4,22 @@
   import { propertyOps } from '../stores/property-ops.svelte'
   import { cliFeatures } from '../lib/cli-features.svelte'
   import { focusTrap } from '../lib/focus-trap'
+  import type { PropertyValueColorSelection } from '../../shared/value-colors'
+  import {
+    automaticValueColorSlot,
+    valueColorSelectionColor,
+    valueColorSelectionStyle
+  } from '../lib/value-colors'
+  import { resolvedTheme } from '../stores/theme'
+  import {
+    loadPropertyValueColors,
+    neutralValueColorPalette,
+    propertyValueColorOverrides,
+    valueColorOverride,
+    valueColorPalette
+  } from '../stores/value-colors'
   import Button from './ui/Button.svelte'
+  import ValueColorPicker from './table/ValueColorPicker.svelte'
 
   interface Props {
     anchorEl: HTMLElement
@@ -15,6 +30,12 @@
     description?: string | null
     required?: boolean
     allowedValues?: string[] | null
+    /** Collection context used to read/write synced value-color annotations. */
+    collectionId?: string | null
+    /** Existing Tags values (Select values come from allowedValues). */
+    colorValues?: string[]
+    /** Show value-color controls even when the field currently has no values. */
+    valueColorsEnabled?: boolean
     /** Phase 42: whether the field is a relation (shows the target-folder input). */
     isRelation?: boolean
     /** Phase 42: current overlay-declared target folder to prefill. */
@@ -29,6 +50,9 @@
     description: initialDescription = null,
     required: initialRequired = false,
     allowedValues: initialAllowed = null,
+    collectionId = null,
+    colorValues: initialColorValues = [],
+    valueColorsEnabled = false,
     isRelation = false,
     relationTarget: initialTarget = null,
     onclose
@@ -48,10 +72,58 @@
   let newValue = $state('')
   let saving = $state(false)
   let error = $state<string | null>(null)
+  let colorPicker: { anchorEl: HTMLElement; value: string } | null = $state(null)
 
   const showTargetField = $derived(isRelation && cliFeatures.supportsRelations)
+  const colorOptions = $derived.by(() => {
+    const source = initialAllowed !== null || values.length > 0 ? values : initialColorValues
+    return [...new Set(source.map((value) => value.trim()).filter(Boolean))]
+  })
+  const showValueColors = $derived(valueColorsEnabled || colorOptions.length > 0)
 
   let popEl = $state<HTMLDivElement | undefined>(undefined)
+
+  $effect(() => {
+    void loadPropertyValueColors(collectionId, scope)
+  })
+
+  function automaticColorSlot(value: string): number {
+    const allowed = initialAllowed !== null || values.length > 0 ? values : null
+    return automaticValueColorSlot(fieldKey, value, allowed)
+  }
+
+  function effectiveColorSelection(value: string): PropertyValueColorSelection {
+    return (
+      valueColorOverride($propertyValueColorOverrides, collectionId, scope, fieldKey, value) ?? {
+        palette: 'accent',
+        slot: automaticColorSlot(value)
+      }
+    )
+  }
+
+  function colorStyle(value: string): string {
+    return valueColorSelectionStyle(
+      $valueColorPalette,
+      $neutralValueColorPalette,
+      effectiveColorSelection(value),
+      $resolvedTheme
+    )
+  }
+
+  function swatchColor(value: string): string {
+    return valueColorSelectionColor(
+      $valueColorPalette,
+      $neutralValueColorPalette,
+      effectiveColorSelection(value)
+    )
+  }
+
+  function openColorPicker(event: MouseEvent, value: string): void {
+    if (!collectionId) return
+    event.preventDefault()
+    event.stopPropagation()
+    colorPicker = { anchorEl: event.currentTarget as HTMLElement, value }
+  }
 
   function addValue(): void {
     const trimmed = newValue.trim()
@@ -104,7 +176,8 @@
     if (e.key === 'Escape') {
       e.preventDefault()
       e.stopPropagation()
-      onclose()
+      if (colorPicker) colorPicker = null
+      else onclose()
     }
   }
 
@@ -206,6 +279,30 @@
     </div>
   </div>
 
+  {#if showValueColors}
+    <div class="psp-field">
+      <span class="psp-label">Value colors</span>
+      {#if colorOptions.length > 0}
+        <div class="psp-color-list">
+          {#each colorOptions as option (option)}
+            <div class="psp-color-row">
+              <button
+                class="psp-color-button"
+                style="--swatch: {swatchColor(option)}"
+                aria-label="Choose color for {option}"
+                title="Choose color for {option}"
+                onclick={(event) => openColorPicker(event, option)}
+              ></button>
+              <span class="psp-color-value" style={colorStyle(option)}>{option}</span>
+            </div>
+          {/each}
+        </div>
+      {:else}
+        <span class="psp-hint">Add an allowed value or use a tag to configure its color.</span>
+      {/if}
+    </div>
+  {/if}
+
   {#if error}
     <p class="psp-error" role="alert">{error}</p>
   {/if}
@@ -216,6 +313,18 @@
       {saving ? 'Saving…' : 'Save'}
     </Button>
   </div>
+
+  {#if colorPicker && collectionId}
+    <ValueColorPicker
+      anchorEl={colorPicker.anchorEl}
+      {collectionId}
+      {scope}
+      field={fieldKey}
+      value={colorPicker.value}
+      automaticSlot={automaticColorSlot(colorPicker.value)}
+      onclose={() => (colorPicker = null)}
+    />
+  {/if}
 </div>
 
 <style>
@@ -338,6 +447,68 @@
     outline: none;
   }
 
+  .psp-color-list {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    max-height: 132px;
+    overflow-y: auto;
+    padding: 2px 1px;
+    scrollbar-width: thin;
+  }
+
+  .psp-color-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    min-height: 24px;
+  }
+
+  .psp-color-button {
+    width: 18px;
+    height: 18px;
+    flex: none;
+    padding: 0;
+    border: 2px solid var(--color-surface, #161617);
+    border-radius: 9999px;
+    background: var(--swatch);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--swatch) 70%, var(--color-border));
+    cursor: pointer;
+    transition:
+      transform 150ms ease,
+      box-shadow 150ms ease;
+  }
+
+  .psp-color-button:hover,
+  .psp-color-button:focus-visible {
+    transform: scale(1.12);
+    box-shadow:
+      0 0 0 2px var(--color-primary),
+      0 0 0 3px var(--color-surface);
+    outline: none;
+  }
+
+  .psp-color-value {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 1px 7px;
+    border: 1px solid color-mix(in srgb, var(--value-color) 42%, transparent);
+    border-radius: 9999px;
+    background: color-mix(in srgb, var(--value-color-base) 14%, transparent);
+    color: var(--value-color);
+    font-size: 10px;
+    font-family: var(--font-mono, 'JetBrains Mono'), monospace;
+  }
+
+  .psp-hint {
+    color: var(--color-text-faint, #52525b);
+    font-size: 10px;
+    line-height: 1.4;
+  }
+
   .psp-error {
     font-size: 11px;
     color: var(--color-error, #ef4444);
@@ -352,7 +523,8 @@
 
   @media (prefers-reduced-motion: reduce) {
     .psp-input,
-    .psp-chip-remove {
+    .psp-chip-remove,
+    .psp-color-button {
       transition: none;
     }
   }

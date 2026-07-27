@@ -25,6 +25,9 @@ import type {
   WatchEventReport,
   MimeCategory
 } from '../renderer/types/cli'
+import type { PropertyValueColors, PropertyValueColorSelection } from '../shared/value-colors'
+
+export type { PropertyValueColors, PropertyValueColorSelection } from '../shared/value-colors'
 
 /** A collection (project folder) managed by the app. */
 export interface Collection {
@@ -579,6 +582,16 @@ export interface MdvdbApi {
     key: string,
     patch: OverlayFieldPatch
   ): Promise<void>
+  /** Read theme-palette slots persisted beside fields in `.markdownvdb.schema.yml`. */
+  getPropertyValueColors(collectionId: string, scope: string | null): Promise<PropertyValueColors>
+  /** Set one synced value-color slot; null restores its automatic assignment. */
+  setPropertyValueColor(
+    collectionId: string,
+    scope: string | null,
+    field: string,
+    value: string,
+    selection: PropertyValueColorSelection | null
+  ): Promise<PropertyValueColors>
   /** Subscribe to property-op progress events. Returns an unsubscribe function. */
   onPropertyOpProgress(callback: (progress: PropertyOpProgress) => void): () => void
 

@@ -14,6 +14,7 @@
     schema: Schema | null
     filePath: string
     collectionPath: string
+    collectionId?: string | null
     isUntitled?: boolean
     onFileRenamed: (newPath: string) => void
   }
@@ -24,6 +25,7 @@
     schema,
     filePath,
     collectionPath,
+    collectionId = null,
     isUntitled = false,
     onFileRenamed
   }: Props = $props()
@@ -205,6 +207,7 @@
           settingsScope={panelScope}
           relationValues={relationValuesFor(row.key)}
           {collectionPath}
+          {collectionId}
         />
       {/each}
     </div>

@@ -240,6 +240,10 @@ const api: MdvdbApi = {
   applyPropertyOp: (opId, req) => invoke('schema:apply-property-op', opId, req),
   updateOverlayField: (collectionId, scope, key, patch) =>
     invoke('schema:update-overlay-field', collectionId, scope, key, patch),
+  getPropertyValueColors: (collectionId, scope) =>
+    invoke('schema:get-value-colors', collectionId, scope),
+  setPropertyValueColor: (collectionId, scope, field, value, selection) =>
+    invoke('schema:set-value-color', collectionId, scope, field, value, selection),
   onPropertyOpProgress: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, data: unknown): void => {
       callback(data as Parameters<typeof callback>[0])

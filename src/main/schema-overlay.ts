@@ -15,10 +15,16 @@
 
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
-import { Document, parseDocument } from 'yaml'
+import { Document, isMap, parseDocument } from 'yaml'
 import { atomicWriteFile } from './atomic-write'
 import { registerOwnWrite } from './own-writes'
 import type { OverlayFieldPatch } from '../preload/api'
+import {
+  PROPERTY_VALUE_ACCENT_COLOR_COUNT,
+  PROPERTY_VALUE_NEUTRAL_COLOR_COUNT,
+  type PropertyValueColors,
+  type PropertyValueColorSelection
+} from '../shared/value-colors'
 
 export const OVERLAY_FILENAME = '.markdownvdb.schema.yml'
 
@@ -77,6 +83,149 @@ function fieldPath(scopeKey: string | null, key: string): (string | number)[] {
 }
 
 /**
+ * `yaml`'s `deleteIn()` throws when an intermediate path does not exist.
+ * Clearing an optional annotation from a field with no overlay entry is a
+ * legitimate no-op, so probe the full path before deleting it.
+ */
+function deleteInIfPresent(doc: Document, path: (string | number)[]): void {
+  if (doc.hasIn(path)) doc.deleteIn(path)
+}
+
+function deleteEmptyMap(doc: Document, path: (string | number)[]): void {
+  const node = doc.getIn(path, true)
+  if (isMap(node) && node.items.length === 0) doc.deleteIn(path)
+}
+
+function parseStoredValueColor(raw: unknown): PropertyValueColorSelection | null {
+  if (
+    Number.isInteger(raw) &&
+    (raw as number) >= 0 &&
+    (raw as number) < PROPERTY_VALUE_ACCENT_COLOR_COUNT
+  ) {
+    return { palette: 'accent', slot: raw as number }
+  }
+
+  if (typeof raw === 'string') {
+    const match = /^(accent|neutral):(\d+)$/.exec(raw)
+    if (!match) return null
+    const palette = match[1] as PropertyValueColorSelection['palette']
+    const slot = Number(match[2])
+    const count =
+      palette === 'accent' ? PROPERTY_VALUE_ACCENT_COLOR_COUNT : PROPERTY_VALUE_NEUTRAL_COLOR_COUNT
+    return slot >= 0 && slot < count ? { palette, slot } : null
+  }
+
+  return null
+}
+
+function mergeValueColorFields(result: PropertyValueColors, fields: unknown): PropertyValueColors {
+  if (typeof fields !== 'object' || fields === null || Array.isArray(fields)) return result
+
+  for (const [field, rawConfig] of Object.entries(fields)) {
+    if (typeof rawConfig !== 'object' || rawConfig === null || Array.isArray(rawConfig)) continue
+    const rawColors = (rawConfig as Record<string, unknown>).value_colors
+    if (typeof rawColors !== 'object' || rawColors === null || Array.isArray(rawColors)) continue
+
+    const colors = { ...(result[field] ?? {}) }
+    for (const [value, rawSelection] of Object.entries(rawColors)) {
+      const selection = parseStoredValueColor(rawSelection)
+      if (selection) colors[value] = selection
+    }
+    if (Object.keys(colors).length > 0) result[field] = colors
+  }
+  return result
+}
+
+/** Resolve global + matching scope value colors with the same layering as the CLI schema. */
+function resolvedValueColors(doc: Document, scopeKey: string | null): PropertyValueColors {
+  const overlay = doc.toJS() as {
+    fields?: unknown
+    scopes?: Record<string, { fields?: unknown }>
+  } | null
+  const result: PropertyValueColors = {}
+  if (!overlay) return result
+
+  mergeValueColorFields(result, overlay.fields)
+  if (scopeKey === null || !overlay.scopes) return result
+
+  const matchingScopes = Object.entries(overlay.scopes)
+    .filter(([scope]) => scopeKey.startsWith(scope) || scopeKey === scope)
+    .sort(([left], [right]) => left.length - right.length)
+  for (const [, scope] of matchingScopes) mergeValueColorFields(result, scope?.fields)
+  return result
+}
+
+/** Read synced Select/Tags color overrides from `.markdownvdb.schema.yml`. */
+export async function readOverlayValueColors(
+  root: string,
+  scopeKey: string | null
+): Promise<PropertyValueColors> {
+  const { doc } = await loadOverlayDocument(root)
+  return resolvedValueColors(doc, scopeKey)
+}
+
+/**
+ * Persist a palette selection alongside the field schema. Numeric values stay
+ * backward compatible as accent slots; neutral slots use `neutral:N`.
+ */
+export async function setOverlayValueColor(
+  root: string,
+  scopeKey: string | null,
+  key: string,
+  value: string,
+  selection: PropertyValueColorSelection | null
+): Promise<PropertyValueColors> {
+  if (scopeKey !== null && (scopeKey === '' || scopeKey.endsWith('/'))) {
+    throw new Error(
+      `Overlay scope keys must be non-empty and have no trailing slash: "${scopeKey}"`
+    )
+  }
+  if (!key || !value) throw new Error('Field and value are required for a property value color')
+  if (selection !== null) {
+    const count =
+      selection.palette === 'accent'
+        ? PROPERTY_VALUE_ACCENT_COLOR_COUNT
+        : selection.palette === 'neutral'
+          ? PROPERTY_VALUE_NEUTRAL_COLOR_COUNT
+          : 0
+    if (!Number.isInteger(selection.slot) || selection.slot < 0 || selection.slot >= count) {
+      throw new Error(`Invalid ${selection.palette} property value color slot`)
+    }
+  }
+
+  const { doc } = await loadOverlayDocument(root)
+  const base = fieldPath(scopeKey, key)
+  const colorsPath = [...base, 'value_colors']
+  const existingColors = doc.getIn(colorsPath, true)
+  if (existingColors !== undefined && !isMap(existingColors)) {
+    throw new Error(`Expected YAML collection at ${key}.value_colors`)
+  }
+
+  const valuePath = [...colorsPath, value]
+  if (selection === null) {
+    if (!doc.hasIn(valuePath)) return resolvedValueColors(doc, scopeKey)
+    doc.deleteIn(valuePath)
+    deleteEmptyMap(doc, colorsPath)
+    deleteEmptyMap(doc, base)
+
+    const fieldsPath = scopeKey === null ? ['fields'] : ['scopes', scopeKey, 'fields']
+    deleteEmptyMap(doc, fieldsPath)
+    if (scopeKey !== null) {
+      deleteEmptyMap(doc, ['scopes', scopeKey])
+      deleteEmptyMap(doc, ['scopes'])
+    }
+  } else {
+    doc.setIn(
+      valuePath,
+      selection.palette === 'accent' ? selection.slot : `neutral:${selection.slot}`
+    )
+  }
+
+  await writeOverlayDocument(root, doc)
+  return resolvedValueColors(doc, scopeKey)
+}
+
+/**
  * Insert or update one field's overlay entry. `null` patch members clear the
  * annotation; `undefined` members are left untouched.
  */
@@ -111,22 +260,22 @@ export async function upsertOverlayField(
 
   if (patch.fieldType !== undefined) doc.setIn([...base, 'field_type'], patch.fieldType)
   if (patch.description !== undefined) {
-    if (patch.description === null) doc.deleteIn([...base, 'description'])
+    if (patch.description === null) deleteInIfPresent(doc, [...base, 'description'])
     else doc.setIn([...base, 'description'], patch.description)
   }
   if (patch.required !== undefined) {
-    if (patch.required === null) doc.deleteIn([...base, 'required'])
+    if (patch.required === null) deleteInIfPresent(doc, [...base, 'required'])
     else doc.setIn([...base, 'required'], patch.required)
   }
   if (patch.allowedValues !== undefined) {
     if (patch.allowedValues === null || patch.allowedValues.length === 0) {
-      doc.deleteIn([...base, 'allowed_values'])
+      deleteInIfPresent(doc, [...base, 'allowed_values'])
     } else {
       doc.setIn([...base, 'allowed_values'], patch.allowedValues)
     }
   }
   if (patch.target !== undefined) {
-    if (patch.target === null) doc.deleteIn([...base, 'target'])
+    if (patch.target === null) deleteInIfPresent(doc, [...base, 'target'])
     else doc.setIn([...base, 'target'], patch.target)
   }
 

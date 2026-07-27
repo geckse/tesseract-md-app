@@ -1,14 +1,65 @@
 <script lang="ts">
   import { untrack } from 'svelte'
+  import type { PropertyValueColorSelection } from '../../../../shared/value-colors'
+  import { automaticValueColorSlot, valueColorSelectionStyle } from '../../../lib/value-colors'
+  import { resolvedTheme } from '../../../stores/theme'
   import { valueToString } from '../../../stores/table.svelte'
+  import {
+    loadPropertyValueColors,
+    neutralValueColorPalette,
+    propertyValueColorOverrides,
+    valueColorOverride,
+    valueColorPalette
+  } from '../../../stores/value-colors'
+  import ValueColorPicker from '../ValueColorPicker.svelte'
   import { type CellProps, isEmptyValue, autofocus } from './types'
 
-  let { value, editing, oncommit, oncancel }: CellProps = $props()
+  let {
+    column,
+    value,
+    editing,
+    oncommit,
+    oncancel,
+    collectionId,
+    scope = null
+  }: CellProps = $props()
 
   const items = $derived(Array.isArray(value) ? value.map((x) => valueToString(x)) : [])
 
   let tags = $state<string[]>([])
   let pending = $state('')
+  let colorPicker: { anchorEl: HTMLElement; value: string } | null = $state(null)
+
+  $effect(() => {
+    void loadPropertyValueColors(collectionId, scope)
+  })
+
+  function automaticSlot(tag: string): number {
+    return automaticValueColorSlot(column.name, tag, column.allowed_values)
+  }
+
+  function chipStyle(tag: string): string {
+    const selection: PropertyValueColorSelection = valueColorOverride(
+      $propertyValueColorOverrides,
+      collectionId,
+      scope,
+      column.name,
+      tag
+    ) ?? { palette: 'accent', slot: automaticSlot(tag) }
+    return valueColorSelectionStyle(
+      $valueColorPalette,
+      $neutralValueColorPalette,
+      selection,
+      $resolvedTheme
+    )
+  }
+
+  function openColorPicker(event: MouseEvent | KeyboardEvent, tag: string): void {
+    if (!collectionId || !tag) return
+    event.preventDefault()
+    event.stopPropagation()
+    colorPicker = { anchorEl: event.currentTarget as HTMLElement, value: tag }
+  }
 
   // Seed edit state only when edit mode OPENS (false → true). `value` is read
   // untracked and re-runs without a real transition are ignored: a background
@@ -63,7 +114,7 @@
   {#if editing}
     <div class="chips editing">
       {#each tags as tag, i (tag)}
-        <span class="chip">
+        <span class="chip" style={chipStyle(tag)}>
           {tag}
           <button
             class="chip-remove"
@@ -94,11 +145,37 @@
   {:else}
     <div class="chips" title={items.join(', ')}>
       {#each items as item}
-        <span class="chip">{item}</span>
+        <span
+          class="chip"
+          style={chipStyle(item)}
+          title="{item} · Right-click to choose color"
+          role="button"
+          tabindex="-1"
+          oncontextmenu={(event) => openColorPicker(event, item)}
+          onkeydown={(event) => {
+            if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+              openColorPicker(event, item)
+            }
+          }}
+        >
+          {item}
+        </span>
       {/each}
     </div>
   {/if}
 </div>
+
+{#if colorPicker && collectionId}
+  <ValueColorPicker
+    anchorEl={colorPicker.anchorEl}
+    {collectionId}
+    {scope}
+    field={column.name}
+    value={colorPicker.value}
+    automaticSlot={automaticSlot(colorPicker.value)}
+    onclose={() => (colorPicker = null)}
+  />
+{/if}
 
 <style>
   .lc {
@@ -121,29 +198,37 @@
     width: 100%;
   }
 
+  .chips.editing .chip {
+    cursor: default;
+  }
+
   .chip {
     display: inline-flex;
     align-items: center;
     gap: 3px;
     padding: 1px 8px;
     border-radius: var(--radius-full, 9999px);
-    border: 1px solid var(--color-primary-glow);
-    background: transparent;
-    color: var(--color-primary);
+    border: 1px solid color-mix(in srgb, var(--value-color) 42%, transparent);
+    background: color-mix(in srgb, var(--value-color-base) 14%, transparent);
+    color: var(--value-color);
     font-size: var(--text-xs, 0.625rem);
     font-family: var(--font-mono, 'JetBrains Mono', ui-monospace, monospace);
     white-space: nowrap;
-    transition: border-color var(--transition-fast, 150ms ease);
+    cursor: context-menu;
+    transition:
+      background var(--transition-fast, 150ms ease),
+      border-color var(--transition-fast, 150ms ease);
   }
 
   .chip:hover {
-    border-color: var(--color-primary);
+    background: color-mix(in srgb, var(--value-color-base) 20%, transparent);
+    border-color: color-mix(in srgb, var(--value-color) 68%, transparent);
   }
 
   .chip-remove {
     background: none;
     border: none;
-    color: var(--color-primary);
+    color: inherit;
     cursor: pointer;
     padding: 0;
     font-size: 12px;
