@@ -9,6 +9,7 @@ export interface SlashCommandItem {
   label: string
   icon: string
   command: (editor: Editor, range: Range) => void
+  refocus?: boolean
 }
 
 export const slashCommandItems: SlashCommandItem[] = [
@@ -59,6 +60,15 @@ export const slashCommandItems: SlashCommandItem[] = [
     icon: 'code_blocks',
     command: (editor, range) => {
       editor.chain().focus().deleteRange(range).toggleCodeBlock().run()
+    }
+  },
+  {
+    label: 'Image / Media',
+    icon: 'add_photo_alternate',
+    refocus: false,
+    command: (editor, range) => {
+      editor.chain().focus().deleteRange(range).run()
+      editor.view.dom.dispatchEvent(new CustomEvent('open-media-dialog', { bubbles: true }))
     }
   },
   {
@@ -160,9 +170,11 @@ export const SlashCommandExtension = Extension.create({
         }) => {
           item.command(editor, range)
           // Ensure the editor regains focus after the command executes
-          requestAnimationFrame(() => {
-            editor.view.focus()
-          })
+          if (item.refocus !== false) {
+            requestAnimationFrame(() => {
+              editor.view.focus()
+            })
+          }
         },
         render: () => {
           let component: Record<string, unknown> | null = null

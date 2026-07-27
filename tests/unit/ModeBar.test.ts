@@ -23,11 +23,11 @@ describe('ModeBar', () => {
     const doc = workspace.openTab('notes.md', paneId)
     workspace.switchTab(doc, paneId)
 
-    const { container, getByRole } = render(ModeBar, { props: { paneId } })
+    const { container, getByRole, queryByRole } = render(ModeBar, { props: { paneId } })
 
     expect(container.querySelector('.mode-toggle-bar')).not.toBeNull()
     expect(getByRole('tablist', { name: 'Editor mode' })).not.toBeNull()
-    expect(getByRole('button', { name: 'Insert media' })).not.toBeNull()
+    expect(queryByRole('button', { name: 'Insert media' })).toBeNull()
   })
 
   it('renders nothing for graph tabs — GraphView owns its own level switcher', () => {

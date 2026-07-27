@@ -246,16 +246,22 @@ export async function destroyWatcherManager(): Promise<void> {
  */
 export async function withWatcherPaused<T>(root: string, fn: () => Promise<T>): Promise<T> {
   const watcher = watcherManager
-  const wasRunning = watcher?.isRunning() ?? false
+  // `start()` returns after spawning the child, while its state is still
+  // `starting`. A schema/property operation can immediately request an ingest
+  // during that window; the child already owns the index lock even though
+  // `isRunning()` is still false. Treat both states as active so the ingest
+  // cannot race the freshly restarted watcher.
+  const wasActive =
+    (watcher?.isRunning() ?? false) || (watcher?.getState() ?? 'stopped') === 'starting'
 
-  if (wasRunning && watcher) {
+  if (wasActive && watcher) {
     await watcher.stop()
   }
 
   try {
     return await fn()
   } finally {
-    if (wasRunning && watcher) {
+    if (wasActive && watcher) {
       await watcher.start(root)
     }
   }

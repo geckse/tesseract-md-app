@@ -196,6 +196,11 @@
   let mediaDialogOpen = $state(false)
   let mediaDialogInitial = $state<MediaEmbed | null>(null)
 
+  function openMediaInsert(): void {
+    mediaDialogInitial = null
+    mediaDialogOpen = true
+  }
+
   function openMediaEditor(media: MediaEmbed): void {
     mediaDialogInitial = media
     mediaDialogOpen = true
@@ -219,6 +224,10 @@
   function changeSelectedMedia(media: MediaEmbed): void {
     if (activeEditor) insertMedia(activeEditor, media)
     mediaDialogInitial = null
+  }
+
+  function handleOpenMediaDialog(): void {
+    openMediaInsert()
   }
 
   // ── Context Menu (driven by custom DOM event from table-ui-extension) ──
@@ -343,6 +352,7 @@
     // Attach context menu and link modal handlers to the container
     container.addEventListener('editor-contextmenu', handleEditorContextMenu)
     container.addEventListener('open-link-modal', handleOpenLinkModal)
+    container.addEventListener('open-media-dialog', handleOpenMediaDialog)
 
     let editor: WysiwygEditorInstance
     let scrollTop = 0
@@ -1097,6 +1107,7 @@
         x={contextMenuX}
         y={contextMenuY}
         onclose={closeContextMenu}
+        oneditmedia={openMediaEditor}
       />
     {/if}
   </div>

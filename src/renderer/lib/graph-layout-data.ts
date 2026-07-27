@@ -211,3 +211,44 @@ export function applyGraphLayoutPositionsInOrder(
   }
   return nodes.length
 }
+
+/** Quadratic-out progress for a visible transition between settled layouts. */
+export function graphLayoutTransitionProgress(elapsedMs: number, durationMs: number): number {
+  const linear = durationMs <= 0 ? 1 : Math.min(1, Math.max(0, Math.max(0, elapsedMs) / durationMs))
+  return linear * (2 - linear)
+}
+
+/** Interpolate stable visual nodes between two packed position snapshots. */
+export function applyGraphLayoutTransitionInOrder(
+  nodes: readonly Graph3DNode[],
+  from: Float32Array,
+  to: Float32Array,
+  progress: number
+): number {
+  if (from.length !== nodes.length * 3 || to.length !== nodes.length * 3) return 0
+  const amount = Math.min(1, Math.max(0, progress))
+  for (let index = 0; index < nodes.length; index++) {
+    const offset = index * 3
+    const fromX = from[offset]
+    const fromY = from[offset + 1]
+    const fromZ = from[offset + 2]
+    const toX = to[offset]
+    const toY = to[offset + 1]
+    const toZ = to[offset + 2]
+    if (
+      !Number.isFinite(fromX) ||
+      !Number.isFinite(fromY) ||
+      !Number.isFinite(fromZ) ||
+      !Number.isFinite(toX) ||
+      !Number.isFinite(toY) ||
+      !Number.isFinite(toZ)
+    ) {
+      return 0
+    }
+    const node = nodes[index]
+    node.x = fromX + (toX - fromX) * amount
+    node.y = fromY + (toY - fromY) * amount
+    node.z = fromZ + (toZ - fromZ) * amount
+  }
+  return nodes.length
+}

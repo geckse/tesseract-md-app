@@ -13,9 +13,10 @@
     x: number
     y: number
     onclose: () => void
+    oneditmedia?: (media: import('../../lib/media-embed').MediaEmbed) => void
   }
 
-  let { editor, x, y, onclose }: Props = $props()
+  let { editor, x, y, onclose, oneditmedia }: Props = $props()
 
   let menuEl: HTMLDivElement | undefined = $state(undefined)
 
@@ -32,6 +33,7 @@
   const isItalic = $derived(() => editor.isActive('italic'))
   const isCode = $derived(() => editor.isActive('code'))
   const isStrike = $derived(() => editor.isActive('strike'))
+  const isOnMedia = $derived(() => editor.isActive('image') || editor.isActive('mediaEmbed'))
 
   // ── Actions ───────────────────────────────────────────────────────────
 
@@ -76,6 +78,22 @@
   }
   function handleClearFormatting() {
     exec(() => editor.chain().focus().clearNodes().unsetAllMarks().run())
+  }
+
+  function handleEditMedia() {
+    const attrs = editor.isActive('image')
+      ? { ...editor.getAttributes('image'), kind: 'image' as const }
+      : editor.getAttributes('mediaEmbed')
+    onclose()
+    oneditmedia?.({
+      kind: attrs.kind === 'audio' ? 'audio' : attrs.kind === 'video' ? 'video' : 'image',
+      src: attrs.src ?? '',
+      alt: attrs.alt ?? ''
+    })
+  }
+
+  function handleRemoveMedia() {
+    exec(() => editor.chain().focus().deleteSelection().run())
   }
 
   function handleLink() {
@@ -223,6 +241,18 @@
   role="menu"
   aria-label="Editor context menu"
 >
+  {#if isOnMedia()}
+    <button class="menu-item" onclick={handleEditMedia} role="menuitem">
+      <span class="material-symbols-outlined">edit</span>
+      <span class="menu-label">Change Media Source…</span>
+    </button>
+    <button class="menu-item danger" onclick={handleRemoveMedia} role="menuitem">
+      <span class="material-symbols-outlined">delete</span>
+      <span class="menu-label">Remove Media</span>
+    </button>
+    <div class="separator"></div>
+  {/if}
+
   <!-- Link actions (top-level when cursor is on a link) -->
   {#if isOnLink() || isOnWikilink()}
     <button class="menu-item" onclick={handleNavigateLink} role="menuitem">
@@ -461,6 +491,10 @@
 
   .menu-item.active {
     color: var(--color-primary, #00e5ff);
+  }
+
+  .menu-item.danger:hover:not(:disabled) {
+    color: var(--color-error, #ef4444);
   }
 
   .menu-item .material-symbols-outlined {

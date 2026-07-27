@@ -10,6 +10,8 @@ export interface GraphBatchedVisualState {
   nodeHalo(node: Graph3DNode): boolean
   linkColor(link: Graph3DLink): string
   linkOpacity(link: Graph3DLink): number
+  /** Render emphasized links with ordinary alpha blending above the overview pass. */
+  linkFocused?(link: Graph3DLink): boolean
   linkWidth?(link: Graph3DLink): number
   /** Progressive semantic-line reveal. Omitted states remain fully rendered. */
   linkReveal?(link: Graph3DLink): number
@@ -34,6 +36,7 @@ const DEFAULT_VISUAL_STATE: GraphBatchedVisualState = {
   nodeHalo: () => false,
   linkColor: (link) => link.color,
   linkOpacity: () => 1,
+  linkFocused: () => false,
   linkWidth: (link) => link.width,
   linkReveal: () => 1,
   linkRevealDirection: () => 1,
@@ -153,11 +156,13 @@ const WIDE_LINK_VERTEX_SHADER = /* glsl */ `
   attribute vec3 instanceEnd;
   attribute vec3 instanceColor;
   attribute float instanceOpacity;
+  attribute float instanceFocusOpacity;
   attribute float instanceWidth;
   attribute float instanceReveal;
   attribute float instanceRevealDirection;
 
   uniform vec2 resolution;
+  uniform float focusPass;
 
   varying vec3 vLinkColor;
   varying float vLinkOpacity;
@@ -205,7 +210,7 @@ const WIDE_LINK_VERTEX_SHADER = /* glsl */ `
 
     gl_Position = clip;
     vLinkColor = instanceColor;
-    vLinkOpacity = instanceOpacity;
+    vLinkOpacity = mix(instanceOpacity, instanceFocusOpacity, focusPass);
     vLinkAlong = along;
     vLinkReveal = instanceReveal;
     vLinkRevealDirection = instanceRevealDirection;
@@ -239,12 +244,44 @@ const WIDE_LINK_FRAGMENT_SHADER = /* glsl */ `
 `
 
 /**
+ * Max blending ignores blend factors, so emit premultiplied RGB explicitly.
+ * An overview pixel is capped at its strongest contributing edge instead of
+ * becoming brighter and greyer as translucent edges overlap.
+ */
+const WIDE_LINK_OVERVIEW_FRAGMENT_SHADER = /* glsl */ `
+  varying vec3 vLinkColor;
+  varying float vLinkOpacity;
+  varying float vLinkAlong;
+  varying float vLinkReveal;
+  varying float vLinkRevealDirection;
+
+  void main() {
+    if (vLinkOpacity <= 0.0) discard;
+    float progress = clamp(vLinkReveal, 0.0, 1.0);
+    if (progress <= 0.0) discard;
+
+    float revealAlpha = 1.0;
+    if (progress < 1.0) {
+      float directedAlong = vLinkRevealDirection < 0.0 ? 1.0 - vLinkAlong : vLinkAlong;
+      float feather = min(0.08, min(progress, 1.0 - progress));
+      revealAlpha = 1.0 - smoothstep(progress - feather, progress, directedAlong);
+      if (revealAlpha <= 0.0) discard;
+    }
+
+    gl_FragColor = vec4(vLinkColor, vLinkOpacity * revealAlpha);
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
+    gl_FragColor.rgb *= gl_FragColor.a;
+  }
+`
+
+/**
  * A GPU-batched visual layer for the global graph.
  *
  * The force/layout owner mutates Graph3DNode coordinates. This layer packs
  * those coordinates into one instanced node mesh, one instanced halo mesh,
- * one instanced screen-space link mesh, and one instanced arrow mesh. Visual-only changes
- * update instance/buffer attributes in place; topology changes call setData.
+ * two instanced screen-space link passes sharing one geometry, and one instanced arrow mesh.
+ * Visual-only changes update instance/buffer attributes in place; topology changes call setData.
  */
 export class GraphBatchedLayer {
   readonly group = new THREE.Group()
@@ -258,6 +295,10 @@ export class GraphBatchedLayer {
   private haloMesh: THREE.InstancedMesh | null = null
   private linkSegments: THREE.Mesh<THREE.InstancedBufferGeometry, THREE.ShaderMaterial> | null =
     null
+  private focusLinkSegments: THREE.Mesh<
+    THREE.InstancedBufferGeometry,
+    THREE.ShaderMaterial
+  > | null = null
   private arrowMesh: THREE.InstancedMesh | null = null
   private readonly matrixObject = new THREE.Object3D()
   private readonly direction = new THREE.Vector3()
@@ -391,6 +432,11 @@ export class GraphBatchedLayer {
       colors.setUsage(THREE.DynamicDrawUsage)
       const opacities = new THREE.InstancedBufferAttribute(new Float32Array(this.linkCapacity), 1)
       opacities.setUsage(THREE.DynamicDrawUsage)
+      const focusOpacities = new THREE.InstancedBufferAttribute(
+        new Float32Array(this.linkCapacity),
+        1
+      )
+      focusOpacities.setUsage(THREE.DynamicDrawUsage)
       const widths = new THREE.InstancedBufferAttribute(new Float32Array(this.linkCapacity), 1)
       widths.setUsage(THREE.DynamicDrawUsage)
       const reveals = new THREE.InstancedBufferAttribute(new Float32Array(this.linkCapacity), 1)
@@ -416,17 +462,28 @@ export class GraphBatchedLayer {
       )
       lineGeometry.setAttribute('instanceColor', colors)
       lineGeometry.setAttribute('instanceOpacity', opacities)
+      lineGeometry.setAttribute('instanceFocusOpacity', focusOpacities)
       lineGeometry.setAttribute('instanceWidth', widths)
       lineGeometry.setAttribute('instanceReveal', reveals)
       lineGeometry.setAttribute('instanceRevealDirection', revealDirections)
       lineGeometry.instanceCount = data.links.length
       const lineMaterial = new THREE.ShaderMaterial({
-        uniforms: { resolution: { value: this.viewport } },
+        uniforms: {
+          resolution: { value: this.viewport },
+          focusPass: { value: 0 }
+        },
         vertexShader: WIDE_LINK_VERTEX_SHADER,
-        fragmentShader: WIDE_LINK_FRAGMENT_SHADER,
+        fragmentShader: WIDE_LINK_OVERVIEW_FRAGMENT_SHADER,
         transparent: true,
         depthWrite: false,
-        side: THREE.DoubleSide
+        side: THREE.DoubleSide,
+        blending: THREE.CustomBlending,
+        blendEquation: THREE.MaxEquation,
+        blendEquationAlpha: THREE.MaxEquation,
+        blendSrc: THREE.OneFactor,
+        blendDst: THREE.OneFactor,
+        blendSrcAlpha: THREE.OneFactor,
+        blendDstAlpha: THREE.OneFactor
       })
       this.linkSegments = new THREE.Mesh(lineGeometry, lineMaterial)
       this.linkSegments.name = 'graphLinks'
@@ -434,6 +491,25 @@ export class GraphBatchedLayer {
       this.linkSegments.renderOrder = 1
       this.linkSegments.visible = this.linesEnabled
       this.group.add(this.linkSegments)
+
+      const focusLineMaterial = new THREE.ShaderMaterial({
+        uniforms: {
+          resolution: { value: this.viewport },
+          focusPass: { value: 1 }
+        },
+        vertexShader: WIDE_LINK_VERTEX_SHADER,
+        fragmentShader: WIDE_LINK_FRAGMENT_SHADER,
+        transparent: true,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        blending: THREE.NormalBlending
+      })
+      this.focusLinkSegments = new THREE.Mesh(lineGeometry, focusLineMaterial)
+      this.focusLinkSegments.name = 'graphFocusLinks'
+      this.focusLinkSegments.frustumCulled = false
+      this.focusLinkSegments.renderOrder = 1.5
+      this.focusLinkSegments.visible = this.linesEnabled
+      this.group.add(this.focusLinkSegments)
 
       const arrowGeometry = new THREE.ConeGeometry(1.15, 4, 5)
       arrowGeometry.setAttribute(
@@ -467,7 +543,12 @@ export class GraphBatchedLayer {
   replaceData(data: Graph3DData, visualState: GraphBatchedVisualState = this.visualState): boolean {
     if (data.nodes.length > this.nodeCapacity || data.links.length > this.linkCapacity) return false
     if (this.nodeCapacity > 0 && (!this.nodeMesh || !this.haloMesh)) return false
-    if (this.linkCapacity > 0 && (!this.linkSegments || !this.arrowMesh)) return false
+    if (
+      this.linkCapacity > 0 &&
+      (!this.linkSegments || !this.focusLinkSegments || !this.arrowMesh)
+    ) {
+      return false
+    }
 
     this.data = data
     this.visualState = visualState
@@ -522,6 +603,9 @@ export class GraphBatchedLayer {
       const opacities = this.linkSegments.geometry.getAttribute(
         'instanceOpacity'
       ) as THREE.InstancedBufferAttribute
+      const focusOpacities = this.linkSegments.geometry.getAttribute(
+        'instanceFocusOpacity'
+      ) as THREE.InstancedBufferAttribute
       const widths = this.linkSegments.geometry.getAttribute(
         'instanceWidth'
       ) as THREE.InstancedBufferAttribute
@@ -535,9 +619,11 @@ export class GraphBatchedLayer {
         const link = this.data.links[index]
         const style = parseStyleColor(visualState.linkColor(link), visualState.linkOpacity(link))
         const visible = visualState.linkVisible(link)
+        const focused = visible && (visualState.linkFocused?.(link) ?? false)
         this.linkVisibility[index] = visible ? 1 : 0
         colors.setXYZ(index, style.color.r, style.color.g, style.color.b)
-        opacities.setX(index, visible ? style.alpha : 0)
+        opacities.setX(index, visible && !focused ? style.alpha : 0)
+        focusOpacities.setX(index, focused ? style.alpha : 0)
         widths.setX(index, renderedLinkWidth(visualState.linkWidth?.(link) ?? link.width))
         reveals.setX(index, renderedLinkReveal(visualState.linkReveal?.(link)))
         revealDirections.setX(
@@ -547,6 +633,7 @@ export class GraphBatchedLayer {
       }
       markFullAttributeUpdate(colors, this.data.links.length * 3)
       markFullAttributeUpdate(opacities, this.data.links.length)
+      markFullAttributeUpdate(focusOpacities, this.data.links.length)
       markFullAttributeUpdate(widths, this.data.links.length)
       markFullAttributeUpdate(reveals, this.data.links.length)
       markFullAttributeUpdate(revealDirections, this.data.links.length)
@@ -593,6 +680,9 @@ export class GraphBatchedLayer {
       | THREE.InstancedBufferAttribute
       | undefined
     const linkOpacities = this.linkSegments?.geometry.getAttribute('instanceOpacity') as
+      | THREE.InstancedBufferAttribute
+      | undefined
+    const linkFocusOpacities = this.linkSegments?.geometry.getAttribute('instanceFocusOpacity') as
       | THREE.InstancedBufferAttribute
       | undefined
     const linkWidths = this.linkSegments?.geometry.getAttribute('instanceWidth') as
@@ -654,9 +744,11 @@ export class GraphBatchedLayer {
           visualState.linkOpacity(link)
         )
         const linkVisible = visualState.linkVisible(link)
+        const linkFocused = linkVisible && (visualState.linkFocused?.(link) ?? false)
         this.linkVisibility[linkIndex] = linkVisible ? 1 : 0
         linkColors?.setXYZ(linkIndex, linkStyle.color.r, linkStyle.color.g, linkStyle.color.b)
-        linkOpacities?.setX(linkIndex, linkVisible ? linkStyle.alpha : 0)
+        linkOpacities?.setX(linkIndex, linkVisible && !linkFocused ? linkStyle.alpha : 0)
+        linkFocusOpacities?.setX(linkIndex, linkFocused ? linkStyle.alpha : 0)
         linkWidths?.setX(linkIndex, renderedLinkWidth(visualState.linkWidth?.(link) ?? link.width))
         linkReveals?.setX(linkIndex, renderedLinkReveal(visualState.linkReveal?.(link)))
         linkRevealDirections?.setX(
@@ -678,6 +770,7 @@ export class GraphBatchedLayer {
 
         linkColors?.addUpdateRange(linkIndex * 3, 3)
         linkOpacities?.addUpdateRange(linkIndex, 1)
+        linkFocusOpacities?.addUpdateRange(linkIndex, 1)
         linkWidths?.addUpdateRange(linkIndex, 1)
         linkReveals?.addUpdateRange(linkIndex, 1)
         linkRevealDirections?.addUpdateRange(linkIndex, 1)
@@ -700,6 +793,7 @@ export class GraphBatchedLayer {
     if (linkUpdates > 0) {
       if (linkColors) linkColors.needsUpdate = true
       if (linkOpacities) linkOpacities.needsUpdate = true
+      if (linkFocusOpacities) linkFocusOpacities.needsUpdate = true
       if (linkWidths) linkWidths.needsUpdate = true
       if (linkReveals) linkReveals.needsUpdate = true
       if (linkRevealDirections) linkRevealDirections.needsUpdate = true
@@ -808,6 +902,7 @@ export class GraphBatchedLayer {
     if (this.linesEnabled === visible) return
     this.linesEnabled = visible
     if (this.linkSegments) this.linkSegments.visible = visible
+    if (this.focusLinkSegments) this.focusLinkSegments.visible = visible
     if (this.arrowMesh) this.arrowMesh.visible = visible
     if (this.particlePoints) this.particlePoints.visible = visible
     if (!visible) {
@@ -1159,10 +1254,14 @@ export class GraphBatchedLayer {
 
   private disposeDrawables(): void {
     this.disposeParticles()
+    const disposedGeometries = new Set<THREE.BufferGeometry>()
     for (const child of [...this.group.children]) {
       this.group.remove(child)
       if (child instanceof THREE.Mesh || child instanceof THREE.LineSegments) {
-        child.geometry.dispose()
+        if (!disposedGeometries.has(child.geometry)) {
+          child.geometry.dispose()
+          disposedGeometries.add(child.geometry)
+        }
         const material = child.material
         if (Array.isArray(material)) material.forEach((item) => item.dispose())
         else material.dispose()
@@ -1171,6 +1270,7 @@ export class GraphBatchedLayer {
     this.nodeMesh = null
     this.haloMesh = null
     this.linkSegments = null
+    this.focusLinkSegments = null
     this.arrowMesh = null
     this.nodeCapacity = 0
     this.linkCapacity = 0

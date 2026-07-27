@@ -4,6 +4,7 @@ import { render, screen, fireEvent } from '@testing-library/svelte'
 const setTableEphemeral = vi.fn()
 const openConvert = vi.fn()
 const openRename = vi.fn()
+const applyOverlayFieldPatch = vi.fn()
 
 vi.mock('../../src/renderer/stores/workspace.svelte', () => ({
   workspace: {
@@ -30,13 +31,15 @@ vi.mock('../../src/renderer/stores/property-ops.svelte', () => ({
     modal: null,
     openConvert: (...args: unknown[]) => openConvert(...args),
     openRename: (...args: unknown[]) => openRename(...args),
-    applyOverlayFieldPatch: vi.fn()
+    applyOverlayFieldPatch: (...args: unknown[]) => applyOverlayFieldPatch(...args)
   },
   scopeForTableTab: (f: string) => f || '.',
   isVaultWideScope: (s: string | null) => s === '' || s === '.'
 }))
 
 import TableHeader from '../../src/renderer/components/table/TableHeader.svelte'
+import { cliFeatures } from '../../src/renderer/lib/cli-features.svelte'
+import { TITLE_COLUMN } from '../../src/renderer/stores/table-views.svelte'
 import type { CollectionColumn } from '../../src/renderer/types/cli'
 
 const statusColumn: CollectionColumn = {
@@ -50,8 +53,17 @@ const statusColumn: CollectionColumn = {
   in_schema: true
 }
 
+const relationColumn: CollectionColumn = {
+  ...statusColumn,
+  name: 'groups',
+  field_type: 'Relation',
+  relation_target: 'clients'
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
+  cliFeatures.reset()
+  cliFeatures.version = '0.2.0'
   Object.defineProperty(globalThis, 'window', {
     value: Object.assign(globalThis.window ?? {}, { api: {} }),
     writable: true,
@@ -64,6 +76,14 @@ function renderHeader(columns: CollectionColumn[] = [statusColumn]) {
 }
 
 describe('TableHeader column menu (phase 41)', () => {
+  it('sorts the Title column when its header is clicked', async () => {
+    renderHeader()
+    await fireEvent.click(screen.getByRole('columnheader', { name: 'Title' }))
+    expect(setTableEphemeral).toHaveBeenCalledWith('t1', {
+      sort: [{ columnName: TITLE_COLUMN, direction: 'asc' }]
+    })
+  })
+
   it('renders a kebab per data column but none for the Title cell', () => {
     renderHeader()
     expect(screen.getByRole('button', { name: 'Column options for status' })).toBeTruthy()
@@ -121,5 +141,23 @@ describe('TableHeader column menu (phase 41)', () => {
       { kind: 'table', tabId: 't1', folderPath: 'docs' },
       'status'
     )
+  })
+
+  it('configures a relation target folder from table property settings', async () => {
+    renderHeader([relationColumn])
+    await fireEvent.click(screen.getByRole('button', { name: 'Column options for groups' }))
+    await fireEvent.mouseDown(screen.getByRole('menuitem', { name: /Property settings/ }))
+
+    const target = screen.getByRole('textbox', { name: 'Target folder' })
+    expect((target as HTMLInputElement).value).toBe('clients')
+    await fireEvent.input(target, { target: { value: 'groups/' } })
+    await fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(applyOverlayFieldPatch).toHaveBeenCalledWith('docs', 'groups', {
+      description: null,
+      required: null,
+      allowedValues: null,
+      target: 'groups'
+    })
   })
 })

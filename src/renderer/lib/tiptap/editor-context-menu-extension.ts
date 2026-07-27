@@ -1,11 +1,10 @@
 import { Extension } from '@tiptap/core'
-import { Plugin, PluginKey } from '@tiptap/pm/state'
+import { NodeSelection, Plugin, PluginKey } from '@tiptap/pm/state'
 import type { EditorView } from '@tiptap/pm/view'
-import { editorContextMenuState } from './editor-context-menu-state.svelte'
 
 /**
  * TipTap extension that intercepts the contextmenu DOM event at the
- * ProseMirror level and surfaces it via reactive state.
+ * ProseMirror level and surfaces it as a bubbling DOM event.
  *
  * This is necessary because ProseMirror's EditorView intercepts DOM events
  * before they bubble to parent elements, so addEventListener on a parent
@@ -27,11 +26,37 @@ export const EditorContextMenuExtension = Extension.create({
         key: new PluginKey('editorContextMenu'),
         props: {
           handleDOMEvents: {
-            contextmenu(_view: EditorView, event: MouseEvent) {
+            contextmenu(view: EditorView, event: MouseEvent) {
               event.preventDefault()
-              editorContextMenuState.x = event.clientX
-              editorContextMenuState.y = event.clientY
-              editorContextMenuState.open = true
+              const target = event.target as HTMLElement | null
+              const mediaElement = target?.closest('img, video, audio')
+              if (mediaElement && view.dom.contains(mediaElement)) {
+                try {
+                  const position = view.posAtDOM(mediaElement, 0)
+                  const mediaPosition =
+                    view.state.doc.nodeAt(position)?.type.name === 'image' ||
+                    view.state.doc.nodeAt(position)?.type.name === 'mediaEmbed'
+                      ? position
+                      : position - 1
+                  const node = view.state.doc.nodeAt(mediaPosition)
+                  if (node?.type.name === 'image' || node?.type.name === 'mediaEmbed') {
+                    view.dispatch(
+                      view.state.tr.setSelection(
+                        NodeSelection.create(view.state.doc, mediaPosition)
+                      )
+                    )
+                  }
+                } catch {
+                  // Fall back to the current selection if DOM position mapping fails.
+                }
+              }
+
+              view.dom.dispatchEvent(
+                new CustomEvent('editor-contextmenu', {
+                  bubbles: true,
+                  detail: { x: event.clientX, y: event.clientY }
+                })
+              )
               return true
             }
           }

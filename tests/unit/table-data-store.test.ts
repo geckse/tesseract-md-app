@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { workspace } from '@renderer/stores/workspace.svelte'
 import { tableStore, valueToString } from '@renderer/stores/table.svelte'
+import { TITLE_COLUMN } from '@renderer/stores/table-views.svelte'
 import type { CollectionColumn, CollectionOutput, CollectionRow } from '@renderer/types/cli'
 
 function col(
@@ -153,6 +154,41 @@ describe('tableStore (renderer data store)', () => {
       sort: 'date',
       order: 'desc'
     })
+  })
+
+  it('sorts the synthetic Title column naturally without refetching', async () => {
+    mockCollection.mockResolvedValueOnce({
+      ...fixture,
+      rows: [
+        { ...row('blog/ltwf-101.md', {}), title: 'ltwf-101' },
+        { ...row('blog/ltwf-9.md', {}), title: 'ltwf-9' },
+        { ...row('blog/ltwf-99.md', {}), title: 'ltwf-99' }
+      ]
+    })
+    const tabId = workspace.openTableTab('blog')
+    await tableStore.load(tabId, 'c1', '/root')
+
+    workspace.setTableEphemeral(tabId, {
+      sort: [{ columnName: TITLE_COLUMN, direction: 'asc' }]
+    })
+    expect(tableStore.filteredRows(tabId).map((r) => r.title)).toEqual([
+      'ltwf-9',
+      'ltwf-99',
+      'ltwf-101'
+    ])
+
+    // Title is synthetic, so changing its direction is entirely client-side.
+    await tableStore.load(tabId, 'c1', '/root')
+    expect(mockCollection).toHaveBeenCalledTimes(1)
+
+    workspace.setTableEphemeral(tabId, {
+      sort: [{ columnName: TITLE_COLUMN, direction: 'desc' }]
+    })
+    expect(tableStore.filteredRows(tabId).map((r) => r.title)).toEqual([
+      'ltwf-101',
+      'ltwf-99',
+      'ltwf-9'
+    ])
   })
 
   it('surfaces CLI errors without throwing', async () => {

@@ -10,6 +10,7 @@ import {
   edgeIdleOpacity,
   edgeScreenWidth,
   edgeArrowOpacity,
+  edgeUsesFocusBlend,
   UNCLUSTERED_EDGE_COLOR
 } from '@renderer/lib/edge-utils'
 import { generateHarmonicPalette } from '@renderer/lib/harmonic-palette'
@@ -231,9 +232,10 @@ describe('edgeStrengthOpacity', () => {
 
 describe('overview edge presentation', () => {
   it('keeps document and chunk edges above a nonzero overview floor', () => {
-    expect(edgeIdleOpacity(0, 0.3, false)).toBeGreaterThanOrEqual(0.09)
-    expect(edgeIdleOpacity(0, 0.3, true)).toBeGreaterThanOrEqual(0.05)
-    expect(edgeIdleOpacity(1, 0.3, false)).toBeCloseTo(0.17)
+    expect(edgeIdleOpacity(0, 0.3, false)).toBeGreaterThanOrEqual(0.27)
+    expect(edgeIdleOpacity(0, 0.3, true)).toBeGreaterThanOrEqual(0.2)
+    expect(edgeIdleOpacity(1, 0.3, false)).toBeCloseTo(0.48)
+    expect(edgeIdleOpacity(1, 0.3, true)).toBeCloseTo(0.36)
   })
 
   it('uses CSS-pixel width with a one-pixel overview floor', () => {
@@ -247,5 +249,32 @@ describe('overview edge presentation', () => {
     expect(edgeArrowOpacity(0.17, false)).toBeCloseTo(0.2125)
     expect(edgeArrowOpacity(1, false)).toBe(0.24)
     expect(edgeArrowOpacity(0.01, true)).toBe(0.95)
+  })
+
+  it('reserves normal blending for explicit emphasis states', () => {
+    const idle = {
+      presentationActive: false,
+      searchActive: false,
+      searchDimming: false,
+      searchRelevant: false,
+      selectedIncident: null,
+      legendMatch: null
+    } as const
+
+    expect(edgeUsesFocusBlend(idle)).toBe(false)
+    expect(edgeUsesFocusBlend({ ...idle, legendMatch: 'incident' })).toBe(false)
+    expect(edgeUsesFocusBlend({ ...idle, legendMatch: 'both' })).toBe(false)
+    expect(edgeUsesFocusBlend({ ...idle, selectedIncident: true })).toBe(true)
+    expect(edgeUsesFocusBlend({ ...idle, selectedIncident: false })).toBe(false)
+    expect(
+      edgeUsesFocusBlend({
+        ...idle,
+        searchActive: true,
+        searchRelevant: true,
+        searchDimming: true
+      })
+    ).toBe(false)
+    expect(edgeUsesFocusBlend({ ...idle, searchActive: true, searchRelevant: true })).toBe(true)
+    expect(edgeUsesFocusBlend({ ...idle, presentationActive: true })).toBe(false)
   })
 })

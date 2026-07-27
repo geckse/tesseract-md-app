@@ -154,6 +154,7 @@ describe('ConvertTypeModal', () => {
     })
     render(ConvertTypeModal)
     expect(screen.getByText(/1 converted · 1 skipped · 1 failed/)).toBeTruthy()
+    expect(screen.getByText(/Schema updated.*no frontmatter rewrite was needed/)).toBeTruthy()
     expect(screen.getByText(/invalid YAML frontmatter/)).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Close' })).toBeTruthy()
   })

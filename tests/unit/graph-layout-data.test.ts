@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  applyGraphLayoutTransitionInOrder,
   applyGraphLayoutPositions,
   applyGraphLayoutPositionsInOrder,
   buildGraphLayoutInputs,
+  graphLayoutTransitionProgress,
   graphLayoutSnapshotIntervalMs,
   graphTopologyRevision,
   packGraphNodePositions
@@ -171,6 +173,22 @@ describe('graph layout data bridge', () => {
     expect(graphLayoutSnapshotIntervalMs(2_000, 4_000)).toBe(50)
     expect(graphLayoutSnapshotIntervalMs(9_000, 30_000)).toBe(80)
     expect(graphLayoutSnapshotIntervalMs(100_000, 100_000)).toBe(150)
+  })
+
+  it('eases visual nodes between cached mode layouts without changing their order', () => {
+    const nodes = structuredClone(graph3DData.nodes)
+    const from = new Float32Array([0, 0, 0, 10, 20, 30])
+    const to = new Float32Array([100, 200, 300, 50, 60, 70])
+    const midpoint = graphLayoutTransitionProgress(400, 800)
+
+    expect(midpoint).toBeCloseTo(0.75)
+    expect(applyGraphLayoutTransitionInOrder(nodes, from, to, midpoint)).toBe(2)
+    expect(nodes[0]).toMatchObject({ x: 75, y: 150, z: 225 })
+    expect(nodes[1]).toMatchObject({ x: 40, y: 50, z: 60 })
+
+    expect(graphLayoutTransitionProgress(-1, 800)).toBe(0)
+    expect(graphLayoutTransitionProgress(900, 800)).toBe(1)
+    expect(applyGraphLayoutTransitionInOrder(nodes, from, new Float32Array(3), 0.5)).toBe(0)
   })
 
   it('updates force-driven neighbors without overwriting a renderer-owned drag position', () => {

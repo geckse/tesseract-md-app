@@ -81,6 +81,7 @@
     edgeIdleOpacity,
     edgeScreenWidth,
     edgeArrowOpacity,
+    edgeUsesFocusBlend,
     isFrontmatterEdge,
     FRONTMATTER_EDGE_COLOR,
     UNCLUSTERED_EDGE_COLOR
@@ -119,9 +120,11 @@
   import { GraphLayoutWorkerClient } from '../lib/graph-layout-client'
   import type { GraphLayoutEvent, GraphLayoutWorkerState } from '../lib/graph-layout-protocol'
   import {
+    applyGraphLayoutTransitionInOrder,
     applyGraphLayoutPositions,
     applyGraphLayoutPositionsInOrder,
     buildGraphLayoutInputs,
+    graphLayoutTransitionProgress,
     graphTopologyRevision,
     packGraphNodePositions
   } from '../lib/graph-layout-data'
@@ -247,6 +250,24 @@
   let graphFeedGeneration = 0
   let pendingAutoFitRevision: string | null = null
 
+  const GRAPH_LAYOUT_MODE_TRANSITION_MS = 800
+  const GRAPH_LAYOUT_WORKER_BLEND_MS = 120
+
+  interface GraphLayoutModeTransition {
+    revision: string
+    from: Float32Array
+    to: Float32Array
+    startedAt: number
+    durationMs: number
+    workerSettled: boolean
+    frameCount: number
+    lastVisualUpdateAt: number
+    lastLabelUpdateAt: number
+  }
+
+  let layoutModeTransition: GraphLayoutModeTransition | null = null
+  let layoutModeTransitionFrameId: number | null = null
+
   type GraphDiagnosticsWindow = Window & {
     __tesseractGraphPerformance?: () => ReturnType<GraphPerformanceCollector['snapshot']>
   }
@@ -305,7 +326,9 @@
   }
 
   function handleGraphControlsEnd(): void {
-    setGraphInteractiveQuality(layoutWorkerState === 'running' || presentationActive)
+    setGraphInteractiveQuality(
+      layoutWorkerState === 'running' || layoutModeTransition !== null || presentationActive
+    )
     settleGraphAnimation(240)
   }
 
@@ -330,6 +353,7 @@
       (layoutWorkerState === 'running' ||
         (presentationActive && !presentationPaused) ||
         draggingNode !== null ||
+        layoutModeTransition !== null ||
         graphSearchRevealFrameId !== null ||
         cameraLoopFrameId !== null ||
         batchedLayer?.hasActiveParticles === true ||
@@ -1142,8 +1166,21 @@
     return null
   }
 
+  /** A legend/file-tree highlight temporarily surfaces its matching hull. */
+  function hullsShouldBeVisible(): boolean {
+    return graphShapesVisible || activeHullHighlightId() !== null
+  }
+
   function syncHullLegendHighlight(): void {
-    clusterHullLayer?.setHighlightedGroup(activeHullHighlightId())
+    const highlightedGroup = activeHullHighlightId()
+    // Shapes may be disabled or the layer may not have been constructed yet.
+    // Build one exact snapshot so legend interaction can still show the
+    // selected group; clearing the highlight restores the Shapes preference.
+    if (highlightedGroup !== null && isHullMode() && !clusterHullLayer?.group.visible) {
+      updateClusterSpheres(true)
+    }
+    clusterHullLayer?.setVisible(hullsShouldBeVisible())
+    clusterHullLayer?.setHighlightedGroup(highlightedGroup)
     requestGraphRender()
   }
 
@@ -1460,6 +1497,23 @@
         (link.source === currentSelected.id || link.target === currentSelected.id)
       return edgeScreenWidth(link.width ?? 0.5, semantic, incident)
     }
+    const normalLinkFocused = (link: Graph3DLink): boolean => {
+      const searchDimming = graphSearchRevealFrame?.phase === 'dimming'
+      const { sourceScore, targetScore } = searchActive
+        ? graphSearchLinkScores(link)
+        : { sourceScore: undefined, targetScore: undefined }
+      return edgeUsesFocusBlend({
+        presentationActive,
+        searchActive,
+        searchDimming,
+        searchRelevant: sourceScore !== undefined || targetScore !== undefined,
+        selectedIncident:
+          currentSelected === null
+            ? null
+            : link.source === currentSelected.id || link.target === currentSelected.id,
+        legendMatch: linkLegendMatch(link)
+      })
+    }
     const graphColors = {
       default: getDefaultNodeColor(),
       primary: getPrimaryColor(),
@@ -1496,6 +1550,7 @@
         return link.color
       },
       linkOpacity: normalLinkOpacity,
+      linkFocused: normalLinkFocused,
       linkWidth: normalLinkWidth,
       linkReveal: (link) => {
         const reveal = graphSearchRevealFrame
@@ -1829,8 +1884,8 @@
 
   function toggleGraphShapes(): void {
     graphShapesVisible = !graphShapesVisible
-    if (!graphShapesVisible) clusterHullLayer?.setVisible(false)
-    else updateClusterSpheres(true)
+    if (hullsShouldBeVisible()) updateClusterSpheres(true)
+    else clusterHullLayer?.setVisible(false)
     requestGraphRender()
   }
 
@@ -2257,6 +2312,8 @@
     const order = buildGraphPresentationOrder(currentData.nodes, visibleEdges, selectedStartId)
     if (order.length === 0) return
 
+    cancelLayoutModeTransition(true)
+
     if (graphSearchVisible || graphSearchScores.size > 0 || graphSearchContextScores.size > 0) {
       clearGraphSearch()
     }
@@ -2320,9 +2377,123 @@
 
   // ─── Data Feeding ───────────────────────────────────────────────────
 
+  function cancelLayoutModeTransition(syncWorker = false): void {
+    const hadTransition = layoutModeTransition !== null
+    if (layoutModeTransitionFrameId !== null) cancelAnimationFrame(layoutModeTransitionFrameId)
+    layoutModeTransitionFrameId = null
+    layoutModeTransition = null
+    if (hadTransition && syncWorker && layoutClient && currentGraph3DData) {
+      layoutClient.reset(packGraphNodePositions(currentGraph3DData.nodes), false)
+    }
+  }
+
+  function runLayoutModeTransitionFrame(timestamp: number): void {
+    layoutModeTransitionFrameId = null
+    const transition = layoutModeTransition
+    if (
+      destroyed ||
+      !transition ||
+      transition.revision !== layoutRevision ||
+      !currentGraph3DData ||
+      !batchedLayer
+    ) {
+      cancelLayoutModeTransition()
+      return
+    }
+
+    const elapsedMs = timestamp - transition.startedAt
+    const progress = graphLayoutTransitionProgress(elapsedMs, transition.durationMs)
+    const minVisualFrameMs = currentGraph3DData.links.length >= 10_000 ? 1_000 / 30 : 0
+    if (progress < 1 && timestamp - transition.lastVisualUpdateAt < minVisualFrameMs) {
+      layoutModeTransitionFrameId = requestAnimationFrame(runLayoutModeTransitionFrame)
+      return
+    }
+    transition.lastVisualUpdateAt = timestamp
+    const applied = applyGraphLayoutTransitionInOrder(
+      currentGraph3DData.nodes,
+      transition.from,
+      transition.to,
+      progress
+    )
+    if (applied === 0) {
+      cancelLayoutModeTransition()
+      return
+    }
+
+    transition.frameCount++
+    const updateArrows =
+      batchedLayer.hasVisibleArrows &&
+      (progress >= 1 || currentGraph3DData.links.length < 10_000 || transition.frameCount % 3 === 0)
+    batchedLayer.syncPositions(updateArrows)
+    requestGraphRender()
+    handleEngineTick()
+    if (timestamp - transition.lastLabelUpdateAt >= 160) {
+      transition.lastLabelUpdateAt = timestamp
+      scheduleLabelUpdate()
+    }
+
+    if (progress < 1) {
+      layoutModeTransitionFrameId = requestAnimationFrame(runLayoutModeTransitionFrame)
+      return
+    }
+
+    // An uncached mode keeps supplying force snapshots. Stay armed between
+    // snapshots, then ease from the current visual frame to each new target.
+    if (!transition.workerSettled) return
+
+    layoutModeTransition = null
+    recomputeLayoutGroupCentroids(currentGraph3DData.nodes)
+    handleEngineStop()
+    setGraphInteractiveQuality(
+      layoutWorkerState === 'running' || presentationActive || draggingNode !== null
+    )
+    settleGraphAnimation()
+  }
+
+  function beginLayoutModeTransition(
+    from: Float32Array,
+    to: Float32Array,
+    durationMs: number,
+    workerSettled: boolean
+  ): void {
+    if (!currentGraph3DData || from.length !== to.length || from.length === 0) return
+    layoutModeTransition = {
+      revision: layoutRevision,
+      from,
+      to,
+      startedAt: performance.now(),
+      durationMs,
+      workerSettled,
+      frameCount: 0,
+      lastVisualUpdateAt: 0,
+      lastLabelUpdateAt: 0
+    }
+    setGraphInteractiveQuality(true)
+    wakeGraphAnimation()
+    layoutModeTransitionFrameId = requestAnimationFrame(runLayoutModeTransitionFrame)
+  }
+
+  function retargetLayoutModeTransition(to: Float32Array, workerSettled: boolean): boolean {
+    const transition = layoutModeTransition
+    if (!transition || !currentGraph3DData || to.length !== transition.to.length) return false
+    transition.from = packGraphNodePositions(currentGraph3DData.nodes)
+    transition.to = to.slice()
+    transition.startedAt = performance.now()
+    transition.durationMs = workerSettled
+      ? GRAPH_LAYOUT_MODE_TRANSITION_MS
+      : GRAPH_LAYOUT_WORKER_BLEND_MS
+    transition.workerSettled = workerSettled
+    if (layoutModeTransitionFrameId === null) {
+      layoutModeTransitionFrameId = requestAnimationFrame(runLayoutModeTransitionFrame)
+    }
+    wakeGraphAnimation()
+    return true
+  }
+
   function handleLayoutEvent(event: GraphLayoutEvent): void {
     if (event.type === 'error') {
       console.warn('Graph layout worker failed:', event.message)
+      cancelLayoutModeTransition()
       pendingGraphDragRelease = null
       layoutWorkerState = 'paused'
       setGraphInteractiveQuality(false)
@@ -2342,7 +2513,10 @@
         layoutClient?.pause()
       }
       setGraphInteractiveQuality(
-        event.state === 'running' || presentationActive || draggingNode !== null
+        event.state === 'running' ||
+          layoutModeTransition !== null ||
+          presentationActive ||
+          draggingNode !== null
       )
       if (event.state === 'running') wakeGraphAnimation()
       else settleGraphAnimation()
@@ -2365,6 +2539,28 @@
       layoutNodesInVisualOrder =
         event.nodeIds.length === currentGraph3DData.nodes.length &&
         event.nodeIds.every((nodeId, index) => nodeId === currentGraph3DData.nodes[index].id)
+    }
+    // The dedicated transition frame owns visual coordinates during a mode
+    // change. Cached layouts are its final target; uncached worker snapshots
+    // continuously retarget it instead of jumping the visible node buffers.
+    if (layoutModeTransition?.revision === event.revision) {
+      if (!layoutNodesInVisualOrder) {
+        cancelLayoutModeTransition()
+      } else {
+        const workerSettled = event.type === 'snapshot' && event.settled
+        if (!layoutModeTransition.workerSettled) {
+          retargetLayoutModeTransition(event.positions, workerSettled)
+        }
+        if (workerSettled && persistentPositionCache && layoutCacheKey) {
+          persistentPositionCache.set(layoutCacheKey, {
+            version: 1,
+            nodeIds: [...layoutNodeIds],
+            positions: event.positions.slice(),
+            createdAt: Date.now()
+          })
+        }
+        return
+      }
     }
     const applied = layoutNodesInVisualOrder
       ? applyGraphLayoutPositionsInOrder(
@@ -2424,7 +2620,13 @@
     }
   }
 
-  function startWorkerLayout(data: GraphData, graph3DData: Graph3DData, initialAlpha = 1): boolean {
+  function startWorkerLayout(
+    data: GraphData,
+    graph3DData: Graph3DData,
+    initialAlpha = 1,
+    animateCachedRestore = false
+  ): boolean {
+    cancelLayoutModeTransition()
     pendingGraphDragRelease = null
     layoutWorkerState = 'uninitialized'
     // Keep the worker process warm across topology refreshes. Re-initialize its
@@ -2458,25 +2660,41 @@
     })
 
     const initialPositions = packGraphNodePositions(graph3DData.nodes)
+    const visibleStartPositions = animateCachedRestore ? initialPositions.slice() : null
     const cached = persistentPositionCache?.get(layoutCacheKey)
     let completeCacheHit = false
     if (cached) {
       const restored = restoreGraphPositions(layoutNodeIds, cached)
       completeCacheHit = restored.matchedNodeCount === layoutNodeIds.length
-      for (let index = 0; index < layoutNodeIds.length; index++) {
-        const offset = index * 3
-        const x = restored.positions[offset]
-        const y = restored.positions[offset + 1]
-        const z = restored.positions[offset + 2]
-        if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) continue
-        initialPositions[offset] = x
-        initialPositions[offset + 1] = y
-        initialPositions[offset + 2] = z
-        const node = graph3DData.nodes[index]
-        node.x = x
-        node.y = y
-        node.z = z
+      // Ignore partial mode-switch cache hits: mixing old-mode visuals with a
+      // subset of target coordinates would still produce an immediate jump.
+      if (!animateCachedRestore || completeCacheHit) {
+        for (let index = 0; index < layoutNodeIds.length; index++) {
+          const offset = index * 3
+          const x = restored.positions[offset]
+          const y = restored.positions[offset + 1]
+          const z = restored.positions[offset + 2]
+          if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) continue
+          initialPositions[offset] = x
+          initialPositions[offset + 1] = y
+          initialPositions[offset + 2] = z
+          if (!animateCachedRestore) {
+            const node = graph3DData.nodes[index]
+            node.x = x
+            node.y = y
+            node.z = z
+          }
+        }
       }
+    }
+
+    if (visibleStartPositions) {
+      beginLayoutModeTransition(
+        visibleStartPositions,
+        completeCacheHit ? initialPositions.slice() : visibleStartPositions.slice(),
+        completeCacheHit ? GRAPH_LAYOUT_MODE_TRANSITION_MS : 0,
+        completeCacheHit
+      )
     }
 
     layoutClient.initialize({
@@ -2496,7 +2714,8 @@
     recomputeLayoutGroupCentroids(currentGraph3DData.nodes)
     // Current coordinates become the transition seed unless this exact mode
     // already has a complete settled snapshot in the persistent cache.
-    startWorkerLayout(currentData, currentGraph3DData, 0.65)
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+    startWorkerLayout(currentData, currentGraph3DData, 0.65, !reducedMotion)
   }
 
   /**
@@ -2934,8 +3153,8 @@
     }
 
     // Keep the cached layer but skip all grouping/QuickHull work while shapes
-    // are hidden. Re-enabling forces one exact refresh from current positions.
-    if (!graphShapesVisible) {
+    // are hidden and no legend/file-tree group needs to be surfaced.
+    if (!hullsShouldBeVisible()) {
       clusterHullLayer?.setVisible(false)
       return
     }
@@ -2977,7 +3196,7 @@
 
     if (!clusterHullLayer) {
       clusterHullLayer = new GraphHullLayer()
-      clusterHullLayer.setVisible(graphShapesVisible)
+      clusterHullLayer.setVisible(hullsShouldBeVisible())
       graph.scene().add(clusterHullLayer.group)
     }
 
@@ -3802,6 +4021,7 @@
     if (candidate?.node) {
       const moved = Math.hypot(event.clientX - candidate.x, event.clientY - candidate.y)
       if (!draggingNode && moved >= 3 && graph) {
+        cancelLayoutModeTransition(true)
         draggingNode = candidate.node
         setGraphInteractiveQuality(true)
         wakeGraphAnimation()
@@ -4066,6 +4286,7 @@
 
   onDestroy(() => {
     destroyed = true
+    cancelLayoutModeTransition()
     graphSearchGeneration++
     cancelGraphSearchReveal(false)
     graphFeedGeneration++

@@ -1438,6 +1438,26 @@ describe('Watcher pause during ingest', () => {
     expect(mockWatcherStart).toHaveBeenCalledWith('/tmp/project')
   })
 
+  it('stops a starting watcher before ingest so it cannot retain the index lock', async () => {
+    mockWatcherStart.mockResolvedValue(undefined)
+    const startHandler = getHandler('watcher:start')
+    await startHandler(fakeEvent, '/tmp/project')
+
+    mockWatcherIsRunning.mockReturnValue(false)
+    mockWatcherGetState.mockReturnValue('starting')
+    mockWatcherStop.mockResolvedValue(undefined)
+    mockExecCommand.mockResolvedValue({ files_indexed: 0 })
+
+    const ingestHandler = getHandler('cli:ingest')
+    await ingestHandler(fakeEvent, '/tmp/project')
+
+    expect(mockWatcherStop).toHaveBeenCalled()
+    expect(mockExecCommand).toHaveBeenCalledWith('ingest', [], '/tmp/project', {
+      timeout: 300_000
+    })
+    expect(mockWatcherStart).toHaveBeenCalledWith('/tmp/project')
+  })
+
   it('stops watcher before ingest-file and restarts after', async () => {
     mockWatcherStart.mockResolvedValue(undefined)
     const startHandler = getHandler('watcher:start')

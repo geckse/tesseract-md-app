@@ -127,7 +127,9 @@ export function edgeIdleOpacity(
   chunkMode: boolean,
   semanticStyling: boolean = true
 ): number {
-  const baseOpacity = chunkMode ? 0.1 : 0.17
+  // Max-blended overview edges no longer accumulate into bright congestion,
+  // so each individual connection can carry enough alpha to remain legible.
+  const baseOpacity = chunkMode ? 0.36 : 0.48
   return semanticStyling ? baseOpacity * edgeStrengthOpacity(strength, weakThreshold) : baseOpacity
 }
 
@@ -146,4 +148,30 @@ export function edgeScreenWidth(
 export function edgeArrowOpacity(lineOpacity: number, hasSelection: boolean): number {
   if (hasSelection) return 0.95
   return Math.min(0.24, Math.max(0, lineOpacity) * 1.25)
+}
+
+export interface EdgeFocusBlendState {
+  presentationActive: boolean
+  searchActive: boolean
+  searchDimming: boolean
+  searchRelevant: boolean
+  /** Null means there is no active node selection. */
+  selectedIncident: boolean | null
+  legendMatch: 'both' | 'incident' | 'none' | null
+}
+
+/**
+ * Route only intentional emphasis through ordinary alpha blending. Idle links
+ * stay in the non-accumulating overview pass, including search's dimming phase.
+ */
+export function edgeUsesFocusBlend(state: EdgeFocusBlendState): boolean {
+  // Presentation can reveal thousands of edges over time; keep them on the
+  // same capped-overlap pass as the static overview instead of accumulating.
+  if (state.presentationActive) return false
+  if (state.searchActive) return !state.searchDimming && state.searchRelevant
+  if (state.selectedIncident !== null) return state.selectedIncident
+  // A legend can emphasize a very large group at once. Keep those links in
+  // the capped-overlap overview pass too, while their color/opacity still
+  // communicates the match.
+  return false
 }

@@ -246,11 +246,7 @@ class PropertyOpsStore {
     const collection = get(activeCollection)
     if (!collection) throw new Error('No active collection')
     await window.api.updateOverlayField(collection.id, scope, key, snapshot(patch))
-    try {
-      await window.api.ingest(collection.path)
-    } catch {
-      // Non-fatal: the overlay is written; the next ingest will pick it up.
-    }
+    await this.refreshIndex(collection.path)
     await this.refreshStores(collection.path, scope)
   }
 
@@ -259,11 +255,7 @@ class PropertyOpsStore {
   private async refreshAfterApply(req: PropertyOpRequest, result: PropertyOpResult): Promise<void> {
     const collection = get(activeCollection)
     if (!collection) return
-    try {
-      await window.api.ingest(collection.path)
-    } catch {
-      // Non-fatal: files are converted on disk; schema refresh happens next ingest.
-    }
+    await this.refreshIndex(collection.path)
     await this.refreshStores(collection.path, req.scope)
 
     // Same-window editor reconciliation (required — see module docblock).
@@ -280,6 +272,22 @@ class PropertyOpsStore {
         origin: 'app',
         ts: Date.now()
       })
+    }
+  }
+
+  /**
+   * A schema pin is not visible until mdvdb recomputes its persisted schema.
+   * Never swallow this failure: the overlay/file writes already succeeded, so
+   * tell the user exactly what remains instead of showing a false success.
+   */
+  private async refreshIndex(root: string): Promise<void> {
+    try {
+      await window.api.ingest(root)
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err)
+      throw new Error(
+        `Changes were saved, but refreshing the index failed: ${detail}. Run ingest and refresh the table.`
+      )
     }
   }
 

@@ -297,6 +297,12 @@
           {m.result.totals.ok} converted · {m.result.totals.skipped} skipped ·
           {m.result.totals.failed} failed
         </p>
+        {#if m.result.overlayWritten}
+          <p class="note">
+            Schema updated. Compatible values were left unchanged because no frontmatter rewrite was
+            needed.
+          </p>
+        {/if}
         {#if m.result.totals.skipped > 0}
           <details class="report-group">
             <summary>Skipped ({m.result.totals.skipped})</summary>

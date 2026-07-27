@@ -23,6 +23,7 @@ describe('slashCommandItems', () => {
     expect(labels).toContain('Code Block')
     expect(labels).toContain('Table')
     expect(labels).toContain('Mermaid Diagram')
+    expect(labels).toContain('Image / Media')
   })
 
   it('has unique labels', () => {

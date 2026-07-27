@@ -70,9 +70,9 @@
 </script>
 
 <div class="media-bubble-menu" bind:this={menuElement} role="toolbar" aria-label="Media options">
-  <button onclick={edit} title="Change media">
+  <button onclick={edit} title="Change media source">
     <span class="material-symbols-outlined">edit</span>
-    Change
+    Change Source
   </button>
   <button class="remove" onclick={remove} title="Remove media">
     <span class="material-symbols-outlined">delete</span>

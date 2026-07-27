@@ -493,7 +493,12 @@ async function applyToFile(
       return {
         path,
         status: 'skipped',
-        reason: entry.action === 'no-value' ? 'no value' : 'already the target type'
+        reason:
+          entry.action === 'no-value'
+            ? 'no value'
+            : req.scope !== null
+              ? 'value already compatible; schema change only'
+              : 'already the target type'
       }
     }
     if (entry.action === 'skip') {

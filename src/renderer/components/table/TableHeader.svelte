@@ -6,6 +6,7 @@
   import PopoverMenu, { type PopoverMenuItem } from '../ui/PopoverMenu.svelte'
   import TypePickerDropdown from '../wysiwyg/TypePickerDropdown.svelte'
   import PropertySettingsPopover from '../PropertySettingsPopover.svelte'
+  import { TITLE_COLUMN } from '../../stores/table-views.svelte'
   import type { CollectionColumn } from '../../types/cli'
   import type { TableSort } from '../../../preload/api'
 
@@ -160,14 +161,24 @@
 </script>
 
 <div class="header-row" role="row">
-  <div
-    class="header-cell title-cell"
+  <button
+    class="header-cell title-cell sortable"
     role="columnheader"
+    aria-sort={ariaSort(TITLE_COLUMN)}
+    title="Sort by Title"
     style="width: {titleWidth}px; min-width: {titleWidth}px;"
+    onclick={() => cycleSort(TITLE_COLUMN)}
   >
     <span class="material-symbols-outlined type-icon" aria-hidden="true">title</span>
     <span class="header-label">Title</span>
-  </div>
+    <span
+      class="material-symbols-outlined sort-icon"
+      class:active={sortDir(TITLE_COLUMN) !== null}
+      aria-hidden="true"
+    >
+      {sortIcon(TITLE_COLUMN)}
+    </span>
+  </button>
 
   {#each columns as col (col.name)}
     <div
@@ -249,6 +260,8 @@
     description={menuColumn.description}
     required={menuColumn.required}
     allowedValues={menuColumn.allowed_values}
+    isRelation={menuColumn.field_type === 'Relation'}
+    relationTarget={menuColumn.relation_target}
     onclose={() => {
       showSettings = false
       closeColumnMenu()

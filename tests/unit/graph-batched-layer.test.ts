@@ -61,10 +61,57 @@ describe('GraphBatchedLayer', () => {
     const layer = new GraphBatchedLayer()
     layer.setData(fixture())
 
-    expect(layer.stats).toEqual({ nodes: 2, links: 1, drawables: 4 })
+    expect(layer.stats).toEqual({ nodes: 2, links: 1, drawables: 5 })
     expect(layer.group.getObjectByName('graphNodes')).toBeInstanceOf(THREE.InstancedMesh)
     expect(layer.group.getObjectByName('graphLinks')).toBeInstanceOf(THREE.Mesh)
+    expect(layer.group.getObjectByName('graphFocusLinks')).toBeInstanceOf(THREE.Mesh)
     expect(layer.group.getObjectByName('graphArrows')).toBeInstanceOf(THREE.InstancedMesh)
+
+    layer.dispose()
+  })
+
+  it('caps overview overlap while routing emphasized links through normal blending', () => {
+    const data = fixture()
+    data.links.push({ ...data.links[0], source: 'b', target: 'a' })
+    const layer = new GraphBatchedLayer()
+    layer.setData(data, {
+      nodeColor: (node) => node.color,
+      nodeOpacity: () => 1,
+      nodeVisible: () => true,
+      nodeHalo: () => false,
+      linkColor: () => 'rgba(0, 170, 255, 0.2)',
+      linkOpacity: () => 0.5,
+      linkFocused: (link) => link === data.links[0],
+      linkVisible: () => true,
+      arrowColor: (link) => link.color,
+      arrowOpacity: () => 1,
+      arrowVisible: () => false
+    })
+
+    const overview = layer.group.getObjectByName('graphLinks') as THREE.Mesh<
+      THREE.InstancedBufferGeometry,
+      THREE.ShaderMaterial
+    >
+    const focus = layer.group.getObjectByName('graphFocusLinks') as THREE.Mesh<
+      THREE.InstancedBufferGeometry,
+      THREE.ShaderMaterial
+    >
+    const overviewAlpha = overview.geometry.getAttribute('instanceOpacity') as THREE.BufferAttribute
+    const focusAlpha = overview.geometry.getAttribute(
+      'instanceFocusOpacity'
+    ) as THREE.BufferAttribute
+
+    expect(focus.geometry).toBe(overview.geometry)
+    expect(overview.material.blending).toBe(THREE.CustomBlending)
+    expect(overview.material.blendEquation).toBe(THREE.MaxEquation)
+    expect(overview.material.fragmentShader).toContain('gl_FragColor.rgb *= gl_FragColor.a;')
+    expect(focus.material.blending).toBe(THREE.NormalBlending)
+    expect(overview.material.uniforms.focusPass.value).toBe(0)
+    expect(focus.material.uniforms.focusPass.value).toBe(1)
+    expect(overviewAlpha.getX(0)).toBe(0)
+    expect(overviewAlpha.getX(1)).toBeCloseTo(0.1)
+    expect(focusAlpha.getX(0)).toBeCloseTo(0.1)
+    expect(focusAlpha.getX(1)).toBe(0)
 
     layer.dispose()
   })
@@ -89,7 +136,7 @@ describe('GraphBatchedLayer', () => {
 
     layer.setViewport(1234, 567)
     expect(links.material.uniforms.resolution.value.toArray()).toEqual([1234, 567])
-    expect(layer.stats.drawables).toBe(4)
+    expect(layer.stats.drawables).toBe(5)
     layer.dispose()
   })
 
@@ -181,7 +228,7 @@ describe('GraphBatchedLayer', () => {
     expect(layer.group.getObjectByName('graphLinks')).toBe(links)
     expect(layer.group.getObjectByName('graphNodes')).toBe(nodes)
     expect(layer.group.getObjectByName('graphArrows')).toBe(arrows)
-    expect(layer.stats.drawables).toBe(4)
+    expect(layer.stats.drawables).toBe(5)
     expect(endpoints.array).toBe(endpointArray)
     expect(nodes.instanceMatrix.array).toBe(nodeMatrixArray)
     expect(arrows.instanceMatrix.array).toBe(arrowMatrixArray)
@@ -252,7 +299,7 @@ describe('GraphBatchedLayer', () => {
     expect(layer.group.getObjectByName('graphLinks')).toBe(links)
     expect(layer.group.getObjectByName('graphNodes')).toBe(nodes)
     expect(layer.group.getObjectByName('graphArrows')).toBe(arrows)
-    expect(layer.stats.drawables).toBe(4)
+    expect(layer.stats.drawables).toBe(5)
     layer.dispose()
   })
 
@@ -328,7 +375,7 @@ describe('GraphBatchedLayer', () => {
     })
 
     expect(layer.group.getObjectByName('graphLinks')).toBe(links)
-    expect(layer.stats.drawables).toBe(4)
+    expect(layer.stats.drawables).toBe(5)
     assertInstanceColor(0, '#ffaa00')
     assertInstanceColor(1, '#7755ff')
     layer.dispose()
@@ -494,7 +541,7 @@ describe('GraphBatchedLayer', () => {
     expect(layer.group.getObjectByName('graphNodeHalos')).toBe(halos)
     expect(layer.group.getObjectByName('graphLinks')).toBe(links)
     expect(layer.group.getObjectByName('graphArrows')).toBe(arrows)
-    expect(layer.stats).toEqual({ nodes: 3, links: 2, drawables: 4 })
+    expect(layer.stats).toEqual({ nodes: 3, links: 2, drawables: 5 })
     expect(nodes.count).toBe(3)
     expect(halos.count).toBe(3)
     expect(arrows.count).toBe(2)
@@ -517,7 +564,7 @@ describe('GraphBatchedLayer', () => {
     expect(layer.group.getObjectByName('graphNodeHalos')).toBe(halos)
     expect(layer.group.getObjectByName('graphLinks')).toBe(links)
     expect(layer.group.getObjectByName('graphArrows')).toBe(arrows)
-    expect(layer.stats).toEqual({ nodes: 1, links: 0, drawables: 4 })
+    expect(layer.stats).toEqual({ nodes: 1, links: 0, drawables: 5 })
     expect(nodes.count).toBe(1)
     expect(halos.count).toBe(1)
     expect(arrows.count).toBe(0)
@@ -576,6 +623,7 @@ describe('GraphBatchedLayer', () => {
       nodeHalo: () => false,
       linkColor: (link: (typeof data.links)[number]) => link.color,
       linkOpacity: () => 1,
+      linkFocused: () => false,
       linkWidth: (link: (typeof data.links)[number]) => link.width,
       linkVisible: (link: (typeof data.links)[number]) =>
         visible.has(link.source) && visible.has(link.target),
@@ -597,10 +645,14 @@ describe('GraphBatchedLayer', () => {
 
     visible.add('b')
     layer.updateVisualsForNodes(['b'], state)
-    const lineAlpha = (links as THREE.Mesh).geometry.getAttribute(
+    const overviewAlpha = (links as THREE.Mesh).geometry.getAttribute(
       'instanceOpacity'
     ) as THREE.BufferAttribute
-    expect(lineAlpha.getX(0)).toBe(1)
+    const focusAlpha = (links as THREE.Mesh).geometry.getAttribute(
+      'instanceFocusOpacity'
+    ) as THREE.BufferAttribute
+    expect(overviewAlpha.getX(0)).toBe(1)
+    expect(focusAlpha.getX(0)).toBe(0)
     expect(layer.group.getObjectByName('graphNodes')).toBe(nodes)
     expect(layer.group.getObjectByName('graphLinks')).toBe(links)
     layer.dispose()
@@ -612,7 +664,7 @@ describe('GraphBatchedLayer', () => {
     layer.setParticleLinks('a')
 
     expect(layer.group.getObjectByName('graphParticles')).toBeInstanceOf(THREE.Points)
-    expect(layer.stats.drawables).toBe(5)
+    expect(layer.stats.drawables).toBe(6)
     expect(layer.hasActiveParticles).toBe(true)
     layer.advanceParticles(0.1)
 

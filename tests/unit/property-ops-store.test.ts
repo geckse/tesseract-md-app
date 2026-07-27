@@ -248,6 +248,19 @@ describe('apply', () => {
     resolveApply!(okResult)
     await applying
   })
+
+  it('surfaces a failed post-write index refresh instead of reporting success', async () => {
+    await openAndPreview()
+    mockApi.ingest.mockRejectedValueOnce(new Error('index is locked'))
+
+    await propertyOps.apply()
+
+    expect(propertyOps.modal?.phase).toBe('error')
+    expect(propertyOps.modal?.error).toContain(
+      'Changes were saved, but refreshing the index failed: index is locked'
+    )
+    expect(vi.mocked(fetchSchema)).not.toHaveBeenCalled()
+  })
 })
 
 describe('rename flow', () => {
@@ -289,5 +302,14 @@ describe('applyOverlayFieldPatch', () => {
     })
     expect(callOrder.indexOf('ingest')).toBeLessThan(callOrder.indexOf('fetch-schema'))
     expect(vi.mocked(tableStore.reload)).toHaveBeenCalledWith('t1')
+  })
+
+  it('rejects when the required schema-refresh ingest fails', async () => {
+    mockApi.ingest.mockRejectedValueOnce(new Error('index is locked'))
+
+    await expect(
+      propertyOps.applyOverlayFieldPatch('docs', 'status', { allowedValues: ['draft', 'paid'] })
+    ).rejects.toThrow('Changes were saved, but refreshing the index failed: index is locked')
+    expect(vi.mocked(fetchSchema)).not.toHaveBeenCalled()
   })
 })

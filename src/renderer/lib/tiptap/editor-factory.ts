@@ -17,6 +17,7 @@ import { LinkBubbleExtension } from './link-bubble-extension'
 import { TableUIExtension } from './table-ui-extension'
 import { ImageResolverExtension } from './image-resolver-extension'
 import { MediaEmbedExtension } from './media-embed-extension'
+import { EditorContextMenuExtension } from './editor-context-menu-extension'
 
 const lowlight = createLowlight(commonGrammars)
 
@@ -95,6 +96,7 @@ export function createWysiwygEditor(
       MediaEmbedExtension,
       TableKit,
       TableUIExtension,
+      EditorContextMenuExtension,
       MermaidBlockExtension,
       CodeBlockLowlight.configure({ lowlight }),
       TaskList,

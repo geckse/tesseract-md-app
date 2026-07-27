@@ -236,7 +236,7 @@ describe('applyPropertyOp — convert', () => {
     await seed('docs/a.md', '---\nstatus: drafted\n---\nBody\n')
     enumeratedRows = [{ path: 'docs/a.md', state: 'indexed' }]
     const { event, windowManager } = makeEventAndWindows()
-    await applyPropertyOp(
+    const result = await applyPropertyOp(
       event,
       windowManager,
       'op-4',
@@ -249,6 +249,13 @@ describe('applyPropertyOp — convert', () => {
       field_type: 'string',
       allowed_values: ['drafted', 'published']
     })
+    expect(result.entries).toEqual([
+      {
+        path: 'docs/a.md',
+        status: 'skipped',
+        reason: 'value already compatible; schema change only'
+      }
+    ])
   })
 
   it('reports unreadable files as failed and continues the batch', async () => {

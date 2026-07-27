@@ -89,4 +89,36 @@ describe('media embeds', () => {
     host.remove()
     load.mockRestore()
   })
+
+  it('selects an image and opens the editor context menu on right-click', () => {
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const editor = createWysiwygEditor(host, '![Diagram](diagram.png)')
+    const contextMenu = vi.fn()
+    host.addEventListener('editor-contextmenu', contextMenu)
+
+    const image = host.querySelector('img')
+    const originalElementFromPoint = document.elementFromPoint
+    Object.defineProperty(document, 'elementFromPoint', {
+      configurable: true,
+      value: () => image
+    })
+    image?.dispatchEvent(
+      new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 24, clientY: 36 })
+    )
+
+    expect(editor.editor.isActive('image')).toBe(true)
+    expect(contextMenu).toHaveBeenCalledOnce()
+
+    editor.destroy()
+    host.remove()
+    if (originalElementFromPoint) {
+      Object.defineProperty(document, 'elementFromPoint', {
+        configurable: true,
+        value: originalElementFromPoint
+      })
+    } else {
+      delete (document as Document & { elementFromPoint?: unknown }).elementFromPoint
+    }
+  })
 })
