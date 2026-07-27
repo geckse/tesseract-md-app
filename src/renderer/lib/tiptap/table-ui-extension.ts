@@ -268,35 +268,29 @@ export const TableUIExtension = Extension.create({
         props: {
           handleDOMEvents: {
             contextmenu(view: EditorView, event: MouseEvent) {
+              // Links need the link-aware editor menu even when they live
+              // inside a table cell. Let the lower-priority general context
+              // menu extension align the selection and handle them.
+              const target = event.target instanceof Element ? event.target : null
+              const linkTarget = target?.closest('a[href], .wikilink[data-wikilink-target]')
+              if (linkTarget && view.dom.contains(linkTarget)) return false
+
               // Resolve the position under the click
               const pos = view.posAtCoords({
                 left: event.clientX,
                 top: event.clientY
               })
               if (!pos) {
-                // No position — dispatch general context menu event
-                event.preventDefault()
-                view.dom.dispatchEvent(
-                  new CustomEvent('editor-contextmenu', {
-                    bubbles: true,
-                    detail: { x: event.clientX, y: event.clientY }
-                  })
-                )
-                return true
+                // Let the general context menu handle unmapped coordinates.
+                return false
               }
 
               const $pos = view.state.doc.resolve(pos.pos)
               const cellInfo = resolveCellInfo($pos)
               if (!cellInfo) {
-                // Not in a table cell — dispatch general context menu event
-                event.preventDefault()
-                view.dom.dispatchEvent(
-                  new CustomEvent('editor-contextmenu', {
-                    bubbles: true,
-                    detail: { x: event.clientX, y: event.clientY }
-                  })
-                )
-                return true
+                // Not in a table cell — let the general context menu align
+                // selection state before it opens the editor menu.
+                return false
               }
 
               // In a table cell — show table-specific context menu

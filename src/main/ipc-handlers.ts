@@ -53,11 +53,12 @@ import type {
 } from '../preload/api'
 import type { NativeConfirmationOptions, NativeMessageOptions } from '../preload/api'
 import type { PropertyValueColorSelection } from '../shared/value-colors'
+import type { ImageEditRequest } from '../shared/image-edit'
 import type { FrontmatterPatch } from './frontmatter'
 import { WatcherManager, type WatcherState } from './watcher'
 import { getVaultWatcher } from './vault-watcher'
 import { registerOwnWrite, clearOwnWrites } from './own-writes'
-import { atomicWriteFile } from './atomic-write'
+import { atomicCreateFile, atomicWriteFile } from './atomic-write'
 import { getAppUpdater } from './updater'
 import { registerExportHandlers } from './export'
 import type { WindowManager } from './window-manager'
@@ -1086,6 +1087,26 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
       })
   )
 
+  // Fetch only bounded, text-only metadata for a public HTTP(S) URL.
+  ipcMain.handle('link-preview:external', (_event, url: string) =>
+    wrapHandler(async () => {
+      const { externalLinkPreview } = await import('./link-preview')
+      return externalLinkPreview(url)
+    })
+  )
+
+  // Read a small metadata prefix from a Markdown file in a known collection.
+  ipcMain.handle('link-preview:local', (_event, collectionPath: string, relativePath: string) =>
+    wrapHandler(async () => {
+      const { localLinkPreview } = await import('./link-preview')
+      return localLinkPreview(
+        collectionPath,
+        relativePath,
+        getCollections().map((collection) => collection.path)
+      )
+    })
+  )
+
   // Read a file as base64 (for images, PDFs, etc.)
   ipcMain.handle('fs:read-binary', (_event, absolutePath: string) =>
     wrapHandler(async () => {
@@ -1108,23 +1129,137 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
     })
   )
 
-  // Write base64 data to a file (for clipboard-pasted images)
-  ipcMain.handle('fs:write-binary', (_event, absolutePath: string, base64Data: string) =>
+  // Read an editable image together with a content hash used for optimistic
+  // concurrency when the renderer later requests an overwrite.
+  ipcMain.handle('fs:read-image', (_event, absolutePath: string) =>
     wrapHandler(async () => {
-      const { resolve, sep, dirname } = await import('node:path')
+      const { resolve, sep } = await import('node:path')
       const normalizedPath = resolve(absolutePath)
-      const collections = getCollections()
-      const isWithinCollection = collections.some(
-        (c) => normalizedPath === c.path || normalizedPath.startsWith(c.path + sep)
-      )
+      const isWithinCollection = getCollections().some((collection) => {
+        const root = resolve(collection.path)
+        return normalizedPath.startsWith(root + sep)
+      })
       if (!isWithinCollection) {
         throw new Error('Access denied: path is not within a known collection')
       }
+      const { readImageFile } = await import('./image-editor')
+      return readImageFile(normalizedPath)
+    })
+  )
+
+  // Apply a validated non-destructive edit recipe and atomically replace the
+  // source image only when its hash still matches the renderer's baseline.
+  ipcMain.handle('fs:edit-image', (event, absolutePath: string, request: ImageEditRequest) =>
+    wrapHandler(async () => {
+      const { resolve, sep } = await import('node:path')
+      const normalizedPath = resolve(absolutePath)
+      const isWithinCollection = getCollections().some((collection) => {
+        const root = resolve(collection.path)
+        return normalizedPath.startsWith(root + sep)
+      })
+      if (!isWithinCollection) {
+        throw new Error('Access denied: path is not within a known collection')
+      }
+
+      const { editImageFile } = await import('./image-editor')
+      const result = await editImageFile(normalizedPath, request)
+
+      const senderId = event.sender.id
+      for (const win of windowManager.getAllWindows()) {
+        if (win.webContents.id !== senderId && !win.isDestroyed()) {
+          win.webContents.send('image:saved-externally', {
+            path: normalizedPath,
+            result
+          })
+        }
+      }
+      return result
+    })
+  )
+
+  ipcMain.handle('fs:cancel-image-edit', (_event, requestId: string) =>
+    wrapHandler(async () => {
+      const { cancelImageEdit } = await import('./image-editor')
+      cancelImageEdit(requestId)
+    })
+  )
+
+  // Exclusively create a binary file (for clipboard-pasted images)
+  ipcMain.handle('fs:create-binary', (_event, absolutePath: string, base64Data: string) =>
+    wrapHandler(async () => {
+      const { resolve, sep, dirname, relative, extname, basename } = await import('node:path')
+      const normalizedPath = resolve(absolutePath)
+      const collections = getCollections()
+      const collection = collections.find((c) => normalizedPath.startsWith(resolve(c.path) + sep))
+      if (!collection) {
+        throw new Error('Access denied: path is not within a known collection')
+      }
+
+      const relativePath = relative(resolve(collection.path), normalizedPath)
+      const segments = relativePath.split(sep)
+      const forbiddenDirectories = new Set([
+        '.git',
+        '.markdownvdb',
+        '.obsidian',
+        'node_modules',
+        'dist',
+        'build',
+        'out',
+        'target'
+      ])
+      if (
+        !relativePath ||
+        relativePath.startsWith(`..${sep}`) ||
+        segments.some((segment, index) => {
+          const normalized = segment.toLowerCase()
+          return (
+            !segment ||
+            segment === '.' ||
+            segment === '..' ||
+            (index < segments.length - 1 &&
+              (segment.startsWith('.') || forbiddenDirectories.has(normalized)))
+          )
+        })
+      ) {
+        throw new Error('Access denied: invalid collection destination')
+      }
+
+      const imageExtensions = new Set([
+        '.png',
+        '.jpg',
+        '.jpeg',
+        '.gif',
+        '.webp',
+        '.bmp',
+        '.svg',
+        '.ico',
+        '.avif'
+      ])
+      // eslint-disable-next-line no-control-regex
+      const invalidName = /[<>:"|?*\x00-\x1f]/
+      const filename = basename(normalizedPath)
+      const windowsReservedName = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i
+      if (
+        !imageExtensions.has(extname(filename).toLowerCase()) ||
+        invalidName.test(filename) ||
+        windowsReservedName.test(filename) ||
+        /^[. ]|[. ]$/.test(filename)
+      ) {
+        throw new Error('Invalid clipboard image filename')
+      }
+
       registerOwnWrite(dirname(normalizedPath), 'mkdir')
       await fs.mkdir(dirname(normalizedPath), { recursive: true })
       const buffer = Buffer.from(base64Data, 'base64')
-      registerOwnWrite(normalizedPath, 'write', buffer)
-      await atomicWriteFile(normalizedPath, buffer)
+      if (buffer.byteLength === 0) {
+        throw new Error('Clipboard image data is empty')
+      }
+      if (buffer.byteLength > 50 * 1024 * 1024) {
+        throw new Error('Clipboard image is too large (max 50MB)')
+      }
+      registerOwnWrite(normalizedPath, 'create', buffer)
+      await atomicCreateFile(normalizedPath, buffer)
+      return { size: buffer.byteLength }
     })
   )
 
@@ -1642,6 +1777,7 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
         isDirty: tabData.isDirty,
         content: tabData.content,
         savedContent: tabData.savedContent,
+        imageEditDraft: tabData.imageEditDraft,
         recursive: tabData.recursive,
         tableViewId: tabData.tableViewId,
         terminalId: tabData.terminalId,

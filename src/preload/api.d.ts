@@ -26,8 +26,27 @@ import type {
   MimeCategory
 } from '../renderer/types/cli'
 import type { PropertyValueColors, PropertyValueColorSelection } from '../shared/value-colors'
+import type { ExternalLinkPreview, LocalLinkPreview } from '../shared/link-preview'
+import type {
+  ImageEditRequest,
+  ImageEditResult,
+  ImageReadResult,
+  ImageSavedExternallyEvent
+} from '../shared/image-edit'
 
 export type { PropertyValueColors, PropertyValueColorSelection } from '../shared/value-colors'
+export type { ExternalLinkPreview, LocalLinkPreview } from '../shared/link-preview'
+export type {
+  CropAspectPreset,
+  ImageEditDraft,
+  ImageEditRecipe,
+  ImageEditRequest,
+  ImageEditResult,
+  ImageReadResult,
+  ImageSavedExternallyEvent,
+  ImageRotation,
+  NormalizedCropRect
+} from '../shared/image-edit'
 
 /** A collection (project folder) managed by the app. */
 export interface Collection {
@@ -427,6 +446,7 @@ export interface TabTransferData {
   content?: string | null
   savedContent?: string | null
   mimeCategory?: string
+  imageEditDraft?: ImageEditDraft
   graphLevel?: string
   graphColoringMode?: string
   recursive?: boolean
@@ -452,6 +472,7 @@ export interface PopupOpenOptions {
   isDirty?: boolean
   content?: string | null
   savedContent?: string | null
+  imageEditDraft?: ImageEditDraft
   recursive?: boolean
   tableViewId?: string
   terminalId?: string
@@ -460,11 +481,12 @@ export interface PopupOpenOptions {
   cwd?: string
 }
 
-/** Data sent to popup renderer for dirty document transfer (main → renderer). */
+/** Data sent to a popup renderer for dirty document or image transfer. */
 export interface PopupInitData {
   content: string | null
   savedContent: string | null
   isDirty: boolean
+  imageEditDraft?: ImageEditDraft
 }
 
 /** Typed API exposed to the renderer process via contextBridge. */
@@ -534,7 +556,10 @@ export interface MdvdbApi {
   createFile(absolutePath: string, content: string): Promise<void>
   createDirectory(absolutePath: string): Promise<void>
   readBinary(absolutePath: string): Promise<string>
-  writeBinary(absolutePath: string, base64Data: string): Promise<void>
+  createBinary(absolutePath: string, base64Data: string): Promise<{ size: number }>
+  readImage(absolutePath: string): Promise<ImageReadResult>
+  editImage(absolutePath: string, request: ImageEditRequest): Promise<ImageEditResult>
+  cancelImageEdit(requestId: string): Promise<void>
   fileInfo(absolutePath: string): Promise<{ size: number; mtime: string }>
   copyFile(sourcePath: string, destPath: string): Promise<void>
   isWithinCollection(
@@ -546,6 +571,8 @@ export interface MdvdbApi {
   // Asset scanning
   scanAssets(collectionPath: string): Promise<AssetScanResult>
   fileThumbnail(absolutePath: string, width?: number, height?: number): Promise<string | null>
+  externalLinkPreview(url: string): Promise<ExternalLinkPreview | null>
+  localLinkPreview(collectionPath: string, relativePath: string): Promise<LocalLinkPreview | null>
 
   // Get native file path from a dropped File object (Electron webUtils)
   getPathForFile(file: File): string
@@ -731,6 +758,8 @@ export interface MdvdbApi {
   // Cross-window file sync
   onFileSavedExternally(callback: (data: { path: string; content: string }) => void): void
   removeFileSavedExternallyListener(): void
+  onImageSavedExternally(callback: (data: ImageSavedExternallyEvent) => void): void
+  removeImageSavedExternallyListener(): void
 
   // Popup windows
   openPopup(options: PopupOpenOptions): Promise<void>

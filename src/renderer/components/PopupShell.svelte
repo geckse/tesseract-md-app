@@ -31,6 +31,7 @@
   import { reinitMermaid } from '../lib/mermaid-renderer'
   import { shortcutManager } from '../lib/shortcuts'
   import { openNewNotePopup } from '../lib/new-note'
+  import { markImageChanged, requestImageSave } from '../stores/image-editor'
   import { handleMenuCommand } from '../lib/menu-commands'
   import { loadEditorFontSize, editorFontSize } from '../stores/ui'
   import type { EditorMode } from '../stores/editor'
@@ -77,7 +78,13 @@
 
   // ── Derived state from workspace ──────────────────────────────────
   const tab = $derived(workspace.tabs[tabId])
-  const isDirty = $derived(tab?.kind === 'document' ? tab.isDirty : false)
+  const isDirty = $derived(
+    tab?.kind === 'document'
+      ? tab.isDirty
+      : tab?.kind === 'asset' && tab.mimeCategory === 'image'
+        ? tab.isDirty
+        : false
+  )
   const isUntitled = $derived(tab?.kind === 'document' ? tab.isUntitled : false)
   const title = $derived(
     kind === 'graph'
@@ -203,12 +210,20 @@
     // 4. Listen for popup:init IPC (dirty content transfer from tab detach)
     window.api.onPopupInit((data: PopupInitData) => {
       if (!tabId) return
-      const docTab = workspace.tabs[tabId]
-      if (!docTab || docTab.kind !== 'document') return
-
-      docTab.content = data.content
-      docTab.savedContent = data.savedContent
-      docTab.isDirty = data.isDirty
+      const popupTab = workspace.tabs[tabId]
+      if (!popupTab) return
+      if (popupTab.kind === 'document') {
+        popupTab.content = data.content
+        popupTab.savedContent = data.savedContent
+        popupTab.isDirty = data.isDirty
+      } else if (
+        popupTab.kind === 'asset' &&
+        popupTab.mimeCategory === 'image' &&
+        data.imageEditDraft
+      ) {
+        popupTab.imageEditDraft = data.imageEditDraft
+        popupTab.isDirty = data.isDirty
+      }
       syncFileStoresFromTab()
     })
 
@@ -225,10 +240,17 @@
         syncFileStoresFromTab()
       })
     }
+    if (kind === 'asset' && mimeCategory === 'image' && filePath) {
+      window.api.onImageSavedExternally(({ path, result }) => {
+        const expected = collectionPath ? `${collectionPath}/${filePath}` : filePath
+        if (path.replace(/\\/g, '/') !== expected.replace(/\\/g, '/')) return
+        markImageChanged(filePath, result.size)
+      })
+    }
 
     // 5. Register Cmd+S for save (documents only)
     const unregisterSave =
-      kind === 'document'
+      kind === 'document' || (kind === 'asset' && mimeCategory === 'image')
         ? shortcutManager.register({
             key: 's',
             meta: true,
@@ -257,14 +279,19 @@
     // Dirty-close guard: App.svelte skips this registration in popup mode,
     // so popups (which can hold dirty editors) answer close requests here.
     window.api.onCloseRequest(() => {
-      const docTab = tabId ? workspace.tabs[tabId] : undefined
-      if (docTab?.kind !== 'document' || !docTab.isDirty) {
+      const dirtyTab = tabId ? workspace.tabs[tabId] : undefined
+      const dirtyDocument = dirtyTab?.kind === 'document' && dirtyTab.isDirty
+      const dirtyImage =
+        dirtyTab?.kind === 'asset' && dirtyTab.mimeCategory === 'image' && dirtyTab.isDirty
+      if (!dirtyDocument && !dirtyImage) {
         void window.api.confirmClose()
         return
       }
       void requestConfirmation({
-        title: `Close ${docTab.title}?`,
-        message: 'This document has unsaved changes. Discard them and close the window?',
+        title: `Close ${dirtyTab.title}?`,
+        message: dirtyImage
+          ? 'This image has unsaved edits. Discard them and close the window?'
+          : 'This document has unsaved changes. Discard them and close the window?',
         confirmLabel: 'Discard and Close',
         cancelLabel: 'Keep Editing',
         tone: 'danger'
@@ -285,6 +312,7 @@
       teardownFileSyncListener()
       window.api.removePopupInitListener()
       window.api.removeFileSavedExternallyListener()
+      window.api.removeImageSavedExternallyListener()
       window.api.removeCloseRequestListener()
       if (kind === 'graph') {
         window.api.removeMenuCommandListener()
@@ -308,6 +336,10 @@
   async function handleSave(): Promise<void> {
     if (!tabId) return
     const docTab = workspace.tabs[tabId]
+    if (docTab?.kind === 'asset' && docTab.mimeCategory === 'image') {
+      requestImageSave(tabId)
+      return
+    }
     if (!docTab || docTab.kind !== 'document') return
     // Untitled notes are always saveable — the editor sync flips isDirty off
     // while content matches lastSavedContent (e.g. a still-empty new note).
@@ -361,7 +393,13 @@
         savedContent: includeContent ? (t.savedContent ?? '') : null
       }
     } else if (t.kind === 'asset') {
-      data = { kind: 'asset', filePath: t.filePath, mimeCategory: t.mimeCategory }
+      data = {
+        kind: 'asset',
+        filePath: t.filePath,
+        mimeCategory: t.mimeCategory,
+        isDirty: t.isDirty,
+        imageEditDraft: t.isDirty ? t.imageEditDraft : undefined
+      }
     } else if (t.kind === 'table') {
       data = {
         kind: 'table',
@@ -442,7 +480,7 @@
       {:else if kind === 'asset'}
         <div class="content-region">
           {#if mimeCategory === 'image'}
-            <ImageViewer {filePath} {fileSize} {collectionPath} />
+            <ImageViewer {filePath} {fileSize} {collectionPath} {tabId} />
           {:else if mimeCategory === 'pdf'}
             <PdfViewer {filePath} {collectionPath} />
           {:else}

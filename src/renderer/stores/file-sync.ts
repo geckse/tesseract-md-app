@@ -8,6 +8,7 @@ import { propertiesFileContent } from './properties'
 import { countWords, countTokens } from './editor'
 import { conflicts, showConflict, dismissConflict, getConflict, diffView } from './conflict'
 import { threeWayMerge } from '../lib/three-way-merge'
+import { markImageChanged } from './image-editor'
 
 /** Labels used on both sides of a merge/diff. */
 const MERGE_LABELS = { ours: 'Editor (unsaved)', theirs: 'On disk' }
@@ -63,6 +64,24 @@ let focusListener: (() => void) | null = null
 /** Handle one external-origin vault file event. Exported for tests. */
 export function handleVaultFileEvent(event: VaultFileEvent): void {
   if (event.isDirectory) return
+  if (event.fileKind === 'asset' && event.mimeCategory === 'image') {
+    if (event.kind === 'renamed' && event.oldPath) {
+      for (const tab of Object.values(workspace.tabs)) {
+        if (tab.kind !== 'asset' || tab.filePath !== event.oldPath) continue
+        tab.filePath = event.path
+        tab.title = event.path.split('/').pop() ?? event.path
+        if (tab.isDirty) tab.diskChanged = true
+        else tab.imageRevision += 1
+      }
+    } else if (event.kind === 'deleted') {
+      for (const tab of Object.values(workspace.tabs)) {
+        if (tab.kind === 'asset' && tab.filePath === event.path) tab.diskChanged = true
+      }
+    } else {
+      markImageChanged(event.path, event.size ?? undefined)
+    }
+    return
+  }
   if (event.fileKind !== 'markdown') return
 
   switch (event.kind) {

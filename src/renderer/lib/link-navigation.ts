@@ -36,7 +36,7 @@ function routeToPopupWindow(path: string, force = false): boolean {
  * Resolve a wikilink target (e.g. "my-note") to a file path in the collection.
  * Wikilinks match by filename (without extension), case-insensitive.
  */
-function resolveWikilinkTarget(target: string): string | null {
+export function resolveWikilinkTarget(target: string): string | null {
   const files = get(flatFileList)
   const normalized = target.toLowerCase().replace(/\.md$/i, '')
 

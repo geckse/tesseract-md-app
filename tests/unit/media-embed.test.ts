@@ -3,6 +3,7 @@ import {
   computeRelativeMediaPath,
   inferMediaKind,
   isPublicMediaUrl,
+  resolveCollectionMediaPath,
   serializeMediaEmbed
 } from '@renderer/lib/media-embed'
 import { createWysiwygEditor } from '@renderer/lib/tiptap/editor-factory'
@@ -27,6 +28,17 @@ describe('media embeds', () => {
     expect(isPublicMediaUrl('http://localhost:8080/demo.mp4')).toBe(true)
     expect(isPublicMediaUrl('javascript:alert(1)')).toBe(false)
     expect(isPublicMediaUrl('../image.png')).toBe(false)
+  })
+
+  it('resolves local media paths without allowing collection escapes', () => {
+    expect(resolveCollectionMediaPath('docs/guides/start.md', '../../assets/hero.png')).toBe(
+      'assets/hero.png'
+    )
+    expect(resolveCollectionMediaPath('docs/start.md', '/assets/hero.png?size=large')).toBe(
+      'assets/hero.png'
+    )
+    expect(resolveCollectionMediaPath('docs/start.md', '../../outside.png')).toBeNull()
+    expect(resolveCollectionMediaPath('docs/start.md', 'https://example.test/hero.png')).toBeNull()
   })
 
   it('serializes images and native audio/video elements safely', () => {

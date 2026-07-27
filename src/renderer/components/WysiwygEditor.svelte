@@ -29,9 +29,10 @@
   import { buildTocTiptapJSON } from '../lib/tiptap/toc-content'
   import { propertiesFileContent } from '../stores/properties'
   import ConflictNotification from './ConflictNotification.svelte'
+  import ClipboardImageSaveModal from './ClipboardImageSaveModal.svelte'
   import DocumentHeader from './wysiwyg/DocumentHeader.svelte'
   import { dismissConflict } from '../stores/conflict'
-  import { requestSaveAs } from '../stores/save-as'
+  import { requestSaveAs, saveAsTabId } from '../stores/save-as'
   import { schema, fetchSchema } from '../stores/schema'
   import type { Schema } from '../types/cli'
   import BubbleMenu from './wysiwyg/BubbleMenu.svelte'
@@ -40,7 +41,22 @@
   import LinkModal from './wysiwyg/LinkModal.svelte'
   import InsertAssetDialog from './InsertAssetDialog.svelte'
   import { requestConfirmation } from '../stores/confirmation'
-  import type { MediaEmbed } from '../lib/media-embed'
+  import {
+    computeRelativeMediaPath,
+    isPublicMediaUrl,
+    resolveCollectionMediaPath,
+    type MediaEmbed
+  } from '../lib/media-embed'
+  import LinkHoverPreview from './LinkHoverPreview.svelte'
+  import { insertAssetNode, syncFileStoresFromTab } from '../stores/files'
+  import {
+    clipboardImageData,
+    firstClipboardImageItem,
+    markdownFileDirectory,
+    suggestImageStem,
+    type ClipboardImageData,
+    type ClipboardImageDestination
+  } from '../lib/clipboard-image'
 
   // ── Props ─────────────────────────────────────────────────────────────
   interface WysiwygEditorProps {
@@ -174,6 +190,45 @@
     return tab?.kind === 'document' ? (tab as DocumentTab) : null
   })
 
+  interface PendingClipboardImage {
+    awaitingSaveAs: boolean
+    collectionPath: string
+    from: number
+    heading: string | null
+    image: ClipboardImageData
+    tabId: string
+    to: number
+  }
+
+  let pendingClipboardImage = $state<PendingClipboardImage | null>(null)
+  let currentSaveAsTabId = $state<string | null>(null)
+  const unsubSaveAs = saveAsTabId.subscribe((value) => (currentSaveAsTabId = value))
+
+  const pendingClipboardTab = $derived.by(() => {
+    if (!pendingClipboardImage) return null
+    const pendingTab = workspace.tabs[pendingClipboardImage.tabId]
+    return pendingTab?.kind === 'document' ? (pendingTab as DocumentTab) : null
+  })
+  const pendingClipboardBaseStem = $derived(
+    pendingClipboardTab && pendingClipboardImage
+      ? suggestImageStem(pendingClipboardTab.filePath, pendingClipboardImage.heading)
+      : ''
+  )
+  const pendingClipboardDirectory = $derived(
+    pendingClipboardTab ? markdownFileDirectory(pendingClipboardTab.filePath) : ''
+  )
+
+  $effect(() => {
+    const pending = pendingClipboardImage
+    if (!pending?.awaitingSaveAs) return
+    const pendingTab = workspace.tabs[pending.tabId]
+    if (pendingTab?.kind === 'document' && !pendingTab.isUntitled) {
+      pendingClipboardImage = { ...pending, awaitingSaveAs: false }
+    } else if (currentSaveAsTabId === null) {
+      pendingClipboardImage = null
+    }
+  })
+
   /** The TipTap Editor instance for the active tab (for BubbleMenu/ContextMenu). */
   let activeEditor = $state<import('@tiptap/core').Editor | null>(null)
 
@@ -204,6 +259,38 @@
   function openMediaEditor(media: MediaEmbed): void {
     mediaDialogInitial = media
     mediaDialogOpen = true
+  }
+
+  function openMediaInTab(media: MediaEmbed): void {
+    if (!activeDocTab) return
+    const filePath = resolveCollectionMediaPath(activeDocTab.filePath, media.src)
+    if (!filePath) return
+
+    if (workspace.isPopup && currentActiveCollection) {
+      void window.api.openPopup({
+        kind: 'asset',
+        filePath,
+        mimeCategory: media.kind,
+        collectionId: currentActiveCollection.id,
+        collectionPath: currentActiveCollection.path
+      })
+      return
+    }
+
+    workspace.openAssetTab(filePath, media.kind)
+    syncFileStoresFromTab()
+  }
+
+  function openMediaExternal(media: MediaEmbed): void {
+    if (isPublicMediaUrl(media.src)) {
+      window.open(media.src, '_blank')
+      return
+    }
+    if (!activeDocTab || !currentActiveCollection) return
+    const filePath = resolveCollectionMediaPath(activeDocTab.filePath, media.src)
+    if (!filePath) return
+    const root = currentActiveCollection.path.replace(/[\\/]+$/, '')
+    void window.api.openPath(`${root}/${filePath}`)
   }
 
   function insertMedia(editor: import('@tiptap/core').Editor, media: MediaEmbed): void {
@@ -374,6 +461,7 @@
         // Note: we create with empty content then set JSON to restore structure
         editor = createWysiwygEditor(container, '', {
           onUpdate: () => handleEditorUpdate(),
+          onPaste: handleEditorPaste,
           collectionPath: currentActiveCollection?.path ?? '',
           collectionId: currentActiveCollection?.id ?? '',
           currentFilePath: activeDocTab?.filePath ?? ''
@@ -386,6 +474,7 @@
 
         editor = createWysiwygEditor(container, split.body, {
           onUpdate: () => handleEditorUpdate(),
+          onPaste: handleEditorPaste,
           collectionPath: currentActiveCollection?.path ?? '',
           collectionId: currentActiveCollection?.id ?? '',
           currentFilePath: activeDocTab?.filePath ?? ''
@@ -850,11 +939,22 @@
     unsubDiscard()
     unsubCommand()
     unsubEditorMode()
+    unsubSaveAs()
   })
 
   // ── Drag-and-drop (internal tree + external OS) ──────────────────────
 
-  const ASSET_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico'])
+  const ASSET_IMAGE_EXTS = new Set([
+    'png',
+    'jpg',
+    'jpeg',
+    'gif',
+    'svg',
+    'webp',
+    'bmp',
+    'ico',
+    'avif'
+  ])
   const ASSET_EXTS = new Set([
     ...ASSET_IMAGE_EXTS,
     'pdf',
@@ -997,49 +1097,75 @@
 
   // ── Clipboard paste (images) ─────────────────────────────────────────
 
-  async function handleEditorPaste(e: ClipboardEvent) {
-    if (!e.clipboardData) return
+  function handleEditorPaste(e: ClipboardEvent): boolean {
+    if (!e.clipboardData) return false
 
-    const items = Array.from(e.clipboardData.items)
-    const imageItem = items.find((item) => item.type.startsWith('image/'))
-    if (!imageItem) return // Let TipTap handle normal paste
+    const clipboardImage = firstClipboardImageItem(e.clipboardData.items)
+    if (!clipboardImage) return false // Let TipTap handle normal paste
+
+    const sourceTabId = activeTabId
+    const sourceTab = activeDocTab
+    const entry = sourceTabId ? pool.get(sourceTabId) : null
+    const collection = get(activeCollection)
+    if (!sourceTabId || !sourceTab || !entry || !collection) return false
 
     e.preventDefault()
+    const selection = entry.editor.editor.state.selection
+    const heading =
+      collectDocHeadings(entry.editor.editor.state.doc)
+        .filter((item) => item.pos <= selection.from)
+        .at(-1)?.text ?? null
+    void clipboardImageData(clipboardImage.item, clipboardImage.extension)
+      .then((image) => {
+        if (!image || !pool.has(sourceTabId)) return
 
-    const currentEditor = activeEditor
-    if (!currentEditor) return
-    const currentFile = activeDocTab?.filePath
-    if (!currentFile) return
-    const collection = get(activeCollection)
-    if (!collection) return
+        pendingClipboardImage = {
+          awaitingSaveAs: sourceTab.isUntitled,
+          collectionPath: collection.path,
+          from: selection.from,
+          heading,
+          image,
+          tabId: sourceTabId,
+          to: selection.to
+        }
+        if (sourceTab.isUntitled) requestSaveAs(sourceTabId)
+      })
+      .catch((cause: unknown) => {
+        void window.api.showMessage({
+          message:
+            cause instanceof Error ? cause.message : 'The clipboard image could not be read.',
+          title: 'Image Paste Failed',
+          type: 'error'
+        })
+      })
+    return true
+  }
 
-    const blob = imageItem.getAsFile()
-    if (!blob) return
+  async function saveClipboardImage(destination: ClipboardImageDestination): Promise<void> {
+    const pending = pendingClipboardImage
+    const pendingTab = pendingClipboardTab
+    if (!pending || !pendingTab) throw new Error('The source document is no longer open.')
+    const entry = pool.get(pending.tabId)
+    if (!entry) throw new Error('The source editor is no longer available.')
 
-    // Read as base64
-    const base64 = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => {
-        const result = reader.result as string
-        // Strip data URL prefix to get raw base64
-        const base64Data = result.split(',')[1]
-        resolve(base64Data)
-      }
-      reader.onerror = reject
-      reader.readAsDataURL(blob)
-    })
+    const absolutePath = `${pending.collectionPath}/${destination.relativePath}`
+    const result = await window.api.createBinary(absolutePath, pending.image.base64Data)
 
-    // Save alongside current file
-    const timestamp = Date.now()
-    const currentDir = currentFile.split('/').slice(0, -1).join('/')
-    const filename = `pasted-${timestamp}.png`
-    const relPath = currentDir ? `${currentDir}/${filename}` : filename
-    const absPath = `${collection.path}/${relPath}`
-
-    await window.api.writeBinary(absPath, base64)
-
-    // Insert image reference
-    currentEditor.chain().focus().setImage({ src: filename, alt: filename }).run()
+    const src = computeRelativeMediaPath(pendingTab.filePath, destination.relativePath)
+    const inserted = entry.editor.editor
+      .chain()
+      .focus()
+      .insertContentAt(
+        { from: pending.from, to: pending.to },
+        { type: 'image', attrs: { src, alt: destination.filename } }
+      )
+      .run()
+    if (!inserted) {
+      await window.api.deleteFile(absolutePath).catch(() => undefined)
+      throw new Error('The image could not be inserted into the document.')
+    }
+    insertAssetNode(destination.relativePath, 'image', result.size)
+    pendingClipboardImage = null
   }
 </script>
 
@@ -1066,12 +1192,7 @@
       </div>
     {/if}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div
-      class="wysiwyg-scroll"
-      ondragover={handleEditorDragOver}
-      ondrop={handleEditorDrop}
-      onpaste={handleEditorPaste}
-    >
+    <div class="wysiwyg-scroll" ondragover={handleEditorDragOver} ondrop={handleEditorDrop}>
       <DocumentHeader
         frontmatterYaml={currentFrontmatter}
         onFrontmatterUpdate={handleFrontmatterUpdate}
@@ -1086,8 +1207,14 @@
     </div>
     {#if activeEditor}
       <BubbleMenu editor={activeEditor} />
-      <MediaBubbleMenu editor={activeEditor} onedit={openMediaEditor} />
+      <MediaBubbleMenu
+        editor={activeEditor}
+        onedit={openMediaEditor}
+        onopenintab={openMediaInTab}
+        onopenexternal={openMediaExternal}
+      />
     {/if}
+    <LinkHoverPreview container={editorHost} collectionPath={currentActiveCollection?.path ?? ''} />
     <InsertAssetDialog
       bind:visible={mediaDialogOpen}
       currentFilePath={activeDocTab.filePath}
@@ -1095,6 +1222,15 @@
       onselect={changeSelectedMedia}
       onclose={() => (mediaDialogInitial = null)}
     />
+    {#if pendingClipboardImage && !pendingClipboardImage.awaitingSaveAs && pendingClipboardTab}
+      <ClipboardImageSaveModal
+        baseStem={pendingClipboardBaseStem}
+        extension={pendingClipboardImage.image.extension}
+        initialDirectory={pendingClipboardDirectory}
+        onsave={saveClipboardImage}
+        oncancel={() => (pendingClipboardImage = null)}
+      />
+    {/if}
     {#if linkModalOpen && activeEditor}
       <LinkModal
         editor={activeEditor}
@@ -1109,6 +1245,8 @@
         y={contextMenuY}
         onclose={closeContextMenu}
         oneditmedia={openMediaEditor}
+        onopenmediaintab={openMediaInTab}
+        onopenmediaexternal={openMediaExternal}
       />
     {/if}
   </div>

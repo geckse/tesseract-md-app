@@ -19,6 +19,7 @@ import type {
   TabTransferData,
   TableViewConfig
 } from '../../preload/api'
+import { createImageEditDraft, type ImageEditDraft } from '../../shared/image-edit'
 
 // Re-export shared table-view config types for renderer consumers.
 export type {
@@ -41,6 +42,7 @@ const ASSET_EXT_MAP: Record<string, MimeCategory> = {
   webp: 'image',
   bmp: 'image',
   ico: 'image',
+  avif: 'image',
   pdf: 'pdf',
   mp4: 'video',
   webm: 'video',
@@ -138,6 +140,12 @@ export interface AssetTab {
   title: string
   mimeCategory: MimeCategory
   fileSize?: number
+  isDirty: boolean
+  imageEditDraft: ImageEditDraft
+  /** Set when the backing image changed after the edit baseline was loaded. */
+  diskChanged: boolean
+  /** Incremented to tell mounted viewers to reload their source bytes. */
+  imageRevision: number
 }
 
 /** A terminal tab — hosts a PTY rendered via xterm. */
@@ -235,6 +243,27 @@ function createDocumentTab(filePath: string, isUntitled = false): DocumentTab {
       forwardStack: [],
       current: filePath
     }
+  }
+}
+
+function createAssetTab(
+  filePath: string,
+  mimeCategory: MimeCategory,
+  fileSize?: number,
+  imageEditDraft?: ImageEditDraft
+): AssetTab {
+  const parts = filePath.split('/')
+  return {
+    id: crypto.randomUUID(),
+    kind: 'asset',
+    filePath,
+    title: parts[parts.length - 1] || filePath,
+    mimeCategory,
+    fileSize,
+    isDirty: Boolean(imageEditDraft),
+    imageEditDraft: imageEditDraft ?? createImageEditDraft(),
+    diskChanged: false,
+    imageRevision: 0
   }
 }
 
@@ -399,9 +428,13 @@ class WorkspaceStore {
     return this.tabs[pane.activeTabId]
   }
 
-  /** True when any open document tab (any pane) has unsaved changes. */
+  /** True when any open document or image tab has unsaved changes. */
   get hasDirtyTabs(): boolean {
-    return Object.values(this.tabs).some((tab) => tab.kind === 'document' && tab.isDirty)
+    return Object.values(this.tabs).some(
+      (tab) =>
+        (tab.kind === 'document' && tab.isDirty) ||
+        (tab.kind === 'asset' && tab.mimeCategory === 'image' && tab.isDirty)
+    )
   }
 
   /** The active document tab in the focused pane, or undefined if active tab is not a document. */
@@ -724,16 +757,7 @@ class WorkspaceStore {
     }
 
     // Create a new asset tab
-    const parts = filePath.split('/')
-    const title = parts[parts.length - 1] || filePath
-    const tab: AssetTab = {
-      id: crypto.randomUUID(),
-      kind: 'asset',
-      filePath,
-      title,
-      mimeCategory,
-      fileSize
-    }
+    const tab = createAssetTab(filePath, mimeCategory, fileSize)
     this.tabs[tab.id] = tab
 
     // Insert before the graph tab
@@ -1020,6 +1044,7 @@ class WorkspaceStore {
       const tab = this.tabs[id]
       if (!tab || tab.kind === 'graph') return false
       if (tab.kind === 'document' && tab.isDirty) return false
+      if (tab.kind === 'asset' && tab.mimeCategory === 'image' && tab.isDirty) return false
       return true
     })
   }
@@ -1340,7 +1365,9 @@ class WorkspaceStore {
       return {
         kind: 'asset',
         filePath: tab.filePath,
-        mimeCategory: tab.mimeCategory
+        mimeCategory: tab.mimeCategory,
+        isDirty: tab.isDirty,
+        imageEditDraft: tab.isDirty ? tab.imageEditDraft : undefined
       }
     }
 
@@ -1428,15 +1455,12 @@ class WorkspaceStore {
     }
 
     if (data.kind === 'asset' && data.filePath) {
-      const parts = data.filePath.split('/')
-      const title = parts[parts.length - 1] || data.filePath
-      const tab: AssetTab = {
-        id: crypto.randomUUID(),
-        kind: 'asset',
-        filePath: data.filePath,
-        title,
-        mimeCategory: (data.mimeCategory as MimeCategory) ?? 'other'
-      }
+      const tab = createAssetTab(
+        data.filePath,
+        (data.mimeCategory as MimeCategory) ?? 'other',
+        undefined,
+        data.isDirty ? data.imageEditDraft : undefined
+      )
       this.tabs[tab.id] = tab
       this._insertTabBeforeGraph(pane, tab.id)
       pane.activeTabId = tab.id
@@ -1785,15 +1809,10 @@ class WorkspaceStore {
         }
         if (!fileExists) continue
 
-        const parts = persistedTab.filePath.split('/')
-        const title = parts[parts.length - 1] || persistedTab.filePath
-        const tab: AssetTab = {
-          id: crypto.randomUUID(),
-          kind: 'asset',
-          filePath: persistedTab.filePath,
-          title,
-          mimeCategory: (persistedTab.mimeCategory ?? 'other') as MimeCategory
-        }
+        const tab = createAssetTab(
+          persistedTab.filePath,
+          (persistedTab.mimeCategory ?? 'other') as MimeCategory
+        )
         this.tabs[tab.id] = tab
         this._insertTabBeforeGraph(pane, tab.id)
 
@@ -1952,6 +1971,7 @@ class WorkspaceStore {
       content?: string | null
       savedContent?: string | null
       mimeCategory?: MimeCategory
+      imageEditDraft?: ImageEditDraft
       graphLevel?: GraphLevel
       graphColoringMode?: GraphColoringMode
       recursive?: boolean
@@ -2001,15 +2021,12 @@ class WorkspaceStore {
       }
       tab = docTab
     } else if (kind === 'asset') {
-      const parts = (options.filePath ?? '').split('/')
-      const title = parts[parts.length - 1] || 'Asset'
-      tab = {
-        id: crypto.randomUUID(),
-        kind: 'asset',
-        filePath: options.filePath ?? '',
-        title,
-        mimeCategory: options.mimeCategory ?? 'other'
-      } as AssetTab
+      tab = createAssetTab(
+        options.filePath ?? '',
+        options.mimeCategory ?? 'other',
+        undefined,
+        options.imageEditDraft
+      )
     } else if (kind === 'table') {
       const folderPath = options.filePath ?? ''
       const parts = folderPath.split('/').filter(Boolean)

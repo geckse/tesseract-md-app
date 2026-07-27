@@ -24,6 +24,8 @@ const lowlight = createLowlight(commonGrammars)
 export interface WysiwygEditorOptions {
   /** Callback fired on every content change */
   onUpdate?: (editor: Editor) => void
+  /** Called before TipTap handles a clipboard paste. Return true when handled. */
+  onPaste?: (event: ClipboardEvent) => boolean
   /** Placeholder text shown when the editor is empty */
   placeholder?: string
   /** Whether the editor is editable */
@@ -62,7 +64,8 @@ export function createWysiwygEditor(
     editorProps: {
       attributes: {
         'aria-label': 'Document editor'
-      }
+      },
+      handlePaste: (_view, event) => options.onPaste?.(event) ?? false
     },
     extensions: [
       StarterKit.configure({

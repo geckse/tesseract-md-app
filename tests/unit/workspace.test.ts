@@ -4,7 +4,7 @@ import {
   loadDefaultGraphColoringMode,
   saveDefaultGraphColoringMode
 } from '@renderer/stores/workspace.svelte'
-import type { DocumentTab, GraphTab, TabState } from '@renderer/stores/workspace.svelte'
+import type { AssetTab, DocumentTab, GraphTab, TabState } from '@renderer/stores/workspace.svelte'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -698,6 +698,16 @@ describe('WorkspaceStore', () => {
         workspace.closeTab(tab.id)
         expect(workspace.hasDirtyTabs).toBe(false)
       })
+
+      it('includes dirty image tabs in close protection', () => {
+        const tabId = workspace.openAssetTab('images/photo.png', 'image')
+        const tab = workspace.tabs[tabId] as AssetTab
+        tab.isDirty = true
+
+        expect(workspace.hasDirtyTabs).toBe(true)
+        workspace.closeTab(tabId)
+        expect(workspace.hasDirtyTabs).toBe(false)
+      })
     })
   })
 
@@ -923,6 +933,25 @@ describe('WorkspaceStore', () => {
       })
     })
 
+    it('serializes a dirty image recipe for popup detaching', () => {
+      const tabId = workspace.openAssetTab('images/photo.png', 'image')
+      const tab = workspace.tabs[tabId] as AssetTab
+      tab.isDirty = true
+      tab.imageEditDraft.recipe.rotation = 90
+      tab.imageEditDraft.undoStack = [{ rotation: 0, crop: null, width: null, height: null }]
+
+      expect(workspace.serializeTab(tabId)).toMatchObject({
+        kind: 'asset',
+        filePath: 'images/photo.png',
+        mimeCategory: 'image',
+        isDirty: true,
+        imageEditDraft: {
+          recipe: { rotation: 90, crop: null, width: null, height: null },
+          undoStack: [{ rotation: 0, crop: null, width: null, height: null }]
+        }
+      })
+    })
+
     it('returns null for nonexistent tab', () => {
       const data = workspace.serializeTab('bad-id')
       expect(data).toBeNull()
@@ -963,6 +992,37 @@ describe('WorkspaceStore', () => {
         filePath: ''
       })
       expect(result).toBe('')
+    })
+
+    it('reattaches an image with its unsaved recipe and history', () => {
+      const tabId = workspace.attachTab({
+        kind: 'asset',
+        filePath: 'images/photo.webp',
+        mimeCategory: 'image',
+        isDirty: true,
+        imageEditDraft: {
+          recipe: {
+            rotation: 270,
+            crop: { x: 0.1, y: 0.2, width: 0.5, height: 0.4 },
+            width: 320,
+            height: 240
+          },
+          undoStack: [{ rotation: 270, crop: null, width: null, height: null }],
+          redoStack: [],
+          aspectPreset: '4:3',
+          resizeAspectLocked: true
+        }
+      })
+
+      const tab = workspace.tabs[tabId] as AssetTab
+      expect(tab.isDirty).toBe(true)
+      expect(tab.imageEditDraft.recipe).toEqual({
+        rotation: 270,
+        crop: { x: 0.1, y: 0.2, width: 0.5, height: 0.4 },
+        width: 320,
+        height: 240
+      })
+      expect(tab.imageEditDraft.undoStack).toHaveLength(1)
     })
   })
 
@@ -1162,6 +1222,16 @@ describe('WorkspaceStore', () => {
 
       const result = workspace.getOtherTabIds(tab1, paneId)
       expect(result).not.toContain(graphTabId)
+    })
+
+    it('excludes dirty image tabs from close-many candidates', () => {
+      const paneId = getDefaultPaneId()
+      const cleanId = workspace.openAssetTab('images/clean.png', 'image')
+      const dirtyId = workspace.openAssetTab('images/dirty.webp', 'image')
+      ;(workspace.tabs[dirtyId] as AssetTab).isDirty = true
+
+      expect(workspace.getSavedTabIds(paneId)).toContain(cleanId)
+      expect(workspace.getSavedTabIds(paneId)).not.toContain(dirtyId)
     })
   })
 

@@ -94,20 +94,26 @@ const mockReadFile = vi.fn()
 const mockWriteFile = vi.fn()
 const mockRename = vi.fn().mockResolvedValue(undefined)
 const mockRm = vi.fn().mockResolvedValue(undefined)
+const mockLink = vi.fn().mockResolvedValue(undefined)
+const mockMkdir = vi.fn().mockResolvedValue(undefined)
 vi.mock('node:fs', () => ({
   default: {
     promises: {
       readFile: (...args: unknown[]) => mockReadFile(...args),
       writeFile: (...args: unknown[]) => mockWriteFile(...args),
       rename: (...args: unknown[]) => mockRename(...args),
-      rm: (...args: unknown[]) => mockRm(...args)
+      rm: (...args: unknown[]) => mockRm(...args),
+      link: (...args: unknown[]) => mockLink(...args),
+      mkdir: (...args: unknown[]) => mockMkdir(...args)
     }
   },
   promises: {
     readFile: (...args: unknown[]) => mockReadFile(...args),
     writeFile: (...args: unknown[]) => mockWriteFile(...args),
     rename: (...args: unknown[]) => mockRename(...args),
-    rm: (...args: unknown[]) => mockRm(...args)
+    rm: (...args: unknown[]) => mockRm(...args),
+    link: (...args: unknown[]) => mockLink(...args),
+    mkdir: (...args: unknown[]) => mockMkdir(...args)
   }
 }))
 
@@ -157,6 +163,15 @@ vi.mock('../../src/main/obsidian-import', () => ({
   scheduleObsidianSync: (...args: unknown[]) => mockScheduleObsidianSync(...args),
   cancelScheduledObsidianSyncs: (...args: unknown[]) => mockCancelScheduledObsidianSyncs(...args),
   watchObsidianConfig: (...args: unknown[]) => mockWatchObsidianConfig(...args)
+}))
+
+const mockReadImageFile = vi.fn()
+const mockEditImageFile = vi.fn()
+const mockCancelImageEdit = vi.fn()
+vi.mock('../../src/main/image-editor', () => ({
+  readImageFile: (...args: unknown[]) => mockReadImageFile(...args),
+  editImageFile: (...args: unknown[]) => mockEditImageFile(...args),
+  cancelImageEdit: (...args: unknown[]) => mockCancelImageEdit(...args)
 }))
 
 // Mock updater module (the AppUpdater singleton lives here since phase 43)
@@ -306,6 +321,8 @@ beforeEach(() => {
   mockWriteFile.mockReset()
   mockRename.mockReset().mockResolvedValue(undefined)
   mockRm.mockReset().mockResolvedValue(undefined)
+  mockLink.mockReset().mockResolvedValue(undefined)
+  mockMkdir.mockReset().mockResolvedValue(undefined)
   mockWatcherStart.mockReset()
   mockWatcherStop.mockReset()
   mockWatcherDestroy.mockReset()
@@ -321,6 +338,9 @@ beforeEach(() => {
   mockScheduleObsidianSync.mockReset()
   mockCancelScheduledObsidianSyncs.mockReset()
   mockWatchObsidianConfig.mockReset()
+  mockReadImageFile.mockReset()
+  mockEditImageFile.mockReset()
+  mockCancelImageEdit.mockReset()
   mockShellOpenPath.mockReset()
   mockClipboardWriteText.mockReset()
   mockFromWebContents.mockReset()
@@ -354,6 +374,8 @@ describe('registerIpcHandlers', () => {
     expect(channels).toContain('cli:info')
     expect(channels).toContain('cli:init')
     expect(channels).toContain('fs:file-thumbnail')
+    expect(channels).toContain('link-preview:external')
+    expect(channels).toContain('link-preview:local')
     expect(channels).toContain('collections:list')
     expect(channels).toContain('collections:add')
     expect(channels).toContain('collections:create-example')
@@ -365,6 +387,10 @@ describe('registerIpcHandlers', () => {
     expect(channels).toContain('skills:set-collection-dismissed')
     expect(channels).toContain('fs:read-file')
     expect(channels).toContain('fs:write-file')
+    expect(channels).toContain('fs:create-binary')
+    expect(channels).toContain('fs:read-image')
+    expect(channels).toContain('fs:edit-image')
+    expect(channels).toContain('fs:cancel-image-edit')
     expect(channels).toContain('shell:show-item-in-folder')
     expect(channels).toContain('cli:ingest-file')
     expect(channels).toContain('watcher:start')
@@ -432,7 +458,7 @@ describe('registerIpcHandlers', () => {
     // Dirty-close guard (data safety)
     expect(channels).toContain('app:confirm-close')
     expect(channels).toContain('app:cancel-close')
-    expect(channels).toHaveLength(136)
+    expect(channels).toHaveLength(141)
   })
 })
 
@@ -1215,6 +1241,151 @@ describe('Collection IPC handlers', () => {
       // The target file is never written directly, and the temp is cleaned up.
       expect(mockRename).not.toHaveBeenCalled()
       expect(mockRm).toHaveBeenCalledWith(expect.stringMatching(/\.mdvdb\.tmp$/), { force: true })
+    })
+  })
+
+  describe('image editing IPC', () => {
+    const imageResult = {
+      width: 320,
+      height: 240,
+      size: 1024,
+      sha256: 'new-hash',
+      mtimeMs: 2,
+      mimeType: 'image/png'
+    }
+    const editRequest = {
+      requestId: 'image-request-1',
+      expectedSha256: 'old-hash',
+      recipe: { rotation: 90, crop: null, width: 320, height: 240 }
+    }
+
+    it('reads image metadata only inside a known collection', async () => {
+      mockGetCollections.mockReturnValue([{ id: '1', name: 'proj', path: '/proj' }])
+      mockReadImageFile.mockResolvedValue({ ...imageResult, base64: 'png' })
+      const handler = getHandler('fs:read-image')
+
+      await expect(handler(fakeEvent, '/proj/images/photo.png')).resolves.toEqual({
+        ...imageResult,
+        base64: 'png'
+      })
+      expect(mockReadImageFile).toHaveBeenCalledWith('/proj/images/photo.png')
+
+      const denied = await handler(fakeEvent, '/project-lookalike/photo.png')
+      expect(denied).toEqual(
+        expect.objectContaining({ error: true, message: expect.stringMatching(/Access denied/) })
+      )
+    })
+
+    it('applies a recipe and notifies every other open window', async () => {
+      mockGetCollections.mockReturnValue([{ id: '1', name: 'proj', path: '/proj' }])
+      mockEditImageFile.mockResolvedValue(imageResult)
+      const { wm, mockGetAllWindows } = createMockWindowManager()
+      const receiverSend = vi.fn()
+      mockGetAllWindows.mockReturnValue([
+        { webContents: { id: 10, send: vi.fn() }, isDestroyed: () => false },
+        { webContents: { id: 11, send: receiverSend }, isDestroyed: () => false },
+        { webContents: { id: 12, send: vi.fn() }, isDestroyed: () => true }
+      ])
+      registerIpcHandlers(wm)
+      const call = mockHandle.mock.calls.find((entry: unknown[]) => entry[0] === 'fs:edit-image')
+      const handler = call?.[1] as (...args: unknown[]) => Promise<unknown>
+
+      const result = await handler({ sender: { id: 10 } }, '/proj/images/photo.png', editRequest)
+
+      expect(result).toEqual(imageResult)
+      expect(mockEditImageFile).toHaveBeenCalledWith('/proj/images/photo.png', editRequest)
+      expect(receiverSend).toHaveBeenCalledWith('image:saved-externally', {
+        path: '/proj/images/photo.png',
+        result: imageResult
+      })
+    })
+
+    it('rejects out-of-bound edits and forwards cancellation', async () => {
+      mockGetCollections.mockReturnValue([{ id: '1', name: 'proj', path: '/proj' }])
+      const editHandler = getHandler('fs:edit-image')
+      const denied = await editHandler({ sender: { id: 10 } }, '/tmp/photo.png', editRequest)
+      expect(denied).toEqual(
+        expect.objectContaining({ error: true, message: expect.stringMatching(/Access denied/) })
+      )
+      expect(mockEditImageFile).not.toHaveBeenCalled()
+
+      const cancelHandler = getHandler('fs:cancel-image-edit')
+      await cancelHandler(fakeEvent, 'image-request-1')
+      expect(mockCancelImageEdit).toHaveBeenCalledWith('image-request-1')
+    })
+  })
+
+  describe('fs:create-binary', () => {
+    it('creates a clipboard image atomically and returns its decoded size', async () => {
+      mockGetCollections.mockReturnValue([{ id: '1', name: 'proj', path: '/proj' }])
+      const handler = getHandler('fs:create-binary')
+      const data = Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString('base64')
+
+      const result = await handler(fakeEvent, '/proj/notes/image.png', data)
+
+      expect(mockMkdir).toHaveBeenCalledWith('/proj/notes', { recursive: true })
+      expect(mockWriteFile).toHaveBeenCalledWith(
+        expect.stringMatching(/^\/proj\/notes\/\..+\.mdvdb-create\.tmp$/),
+        Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+        { flag: 'wx' }
+      )
+      expect(mockLink).toHaveBeenCalledWith(mockWriteFile.mock.calls[0][0], '/proj/notes/image.png')
+      expect(result).toEqual({ size: 4 })
+    })
+
+    it('returns a collision error without replacing the target', async () => {
+      mockGetCollections.mockReturnValue([{ id: '1', name: 'proj', path: '/proj' }])
+      mockLink.mockRejectedValue(Object.assign(new Error('already exists'), { code: 'EEXIST' }))
+      const handler = getHandler('fs:create-binary')
+
+      const result = await handler(
+        fakeEvent,
+        '/proj/image.png',
+        Buffer.from('image').toString('base64')
+      )
+
+      expect(result).toEqual(expect.objectContaining({ error: true, message: 'already exists' }))
+      expect(mockRename).not.toHaveBeenCalled()
+      expect(mockRm).toHaveBeenCalledWith(expect.stringMatching(/\.mdvdb-create\.tmp$/), {
+        force: true
+      })
+    })
+
+    it('rejects paths outside or inside internal collection directories', async () => {
+      mockGetCollections.mockReturnValue([{ id: '1', name: 'proj', path: '/proj' }])
+      const handler = getHandler('fs:create-binary')
+      const data = Buffer.from('image').toString('base64')
+
+      const outside = await handler(fakeEvent, '/tmp/image.png', data)
+      const internal = await handler(fakeEvent, '/proj/.markdownvdb/image.png', data)
+
+      expect(outside).toEqual(
+        expect.objectContaining({ error: true, message: expect.stringMatching(/Access denied/) })
+      )
+      expect(internal).toEqual(
+        expect.objectContaining({ error: true, message: expect.stringMatching(/invalid/) })
+      )
+      expect(mockWriteFile).not.toHaveBeenCalled()
+    })
+
+    it('rejects reserved filenames and empty image data', async () => {
+      mockGetCollections.mockReturnValue([{ id: '1', name: 'proj', path: '/proj' }])
+      const handler = getHandler('fs:create-binary')
+
+      const reserved = await handler(
+        fakeEvent,
+        '/proj/CON.png',
+        Buffer.from('image').toString('base64')
+      )
+      const empty = await handler(fakeEvent, '/proj/image.png', '')
+
+      expect(reserved).toEqual(
+        expect.objectContaining({ error: true, message: expect.stringMatching(/filename/) })
+      )
+      expect(empty).toEqual(
+        expect.objectContaining({ error: true, message: expect.stringMatching(/empty/) })
+      )
+      expect(mockLink).not.toHaveBeenCalled()
     })
   })
 })

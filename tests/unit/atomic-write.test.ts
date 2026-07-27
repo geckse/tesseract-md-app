@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { promises as fs } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { atomicWriteFile } from '../../src/main/atomic-write'
+import { atomicCreateFile, atomicWriteFile } from '../../src/main/atomic-write'
 
 describe('atomicWriteFile', () => {
   let dir: string
@@ -81,5 +81,48 @@ describe('atomicWriteFile', () => {
     await expect(atomicWriteFile(target, 'content')).rejects.toThrow()
 
     expect(await fs.readdir(dir)).toEqual([])
+  })
+})
+
+describe('atomicCreateFile', () => {
+  let dir: string
+
+  beforeEach(async () => {
+    dir = await fs.mkdtemp(join(tmpdir(), 'atomic-create-test-'))
+  })
+
+  afterEach(async () => {
+    await fs.rm(dir, { recursive: true, force: true })
+  })
+
+  it('publishes complete binary content without leaving a temp file', async () => {
+    const target = join(dir, 'image.png')
+    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff])
+
+    await atomicCreateFile(target, bytes)
+
+    expect(Buffer.compare(await fs.readFile(target), bytes)).toBe(0)
+    expect(await fs.readdir(dir)).toEqual(['image.png'])
+  })
+
+  it('never overwrites an existing target', async () => {
+    const target = join(dir, 'image.png')
+    await fs.writeFile(target, 'original')
+
+    await expect(atomicCreateFile(target, Buffer.from('replacement'))).rejects.toMatchObject({
+      code: 'EEXIST'
+    })
+
+    expect(await fs.readFile(target, 'utf-8')).toBe('original')
+    expect(await fs.readdir(dir)).toEqual(['image.png'])
+  })
+
+  it('cleans up its hidden sibling when publication fails', async () => {
+    const target = join(dir, 'existing')
+    await fs.mkdir(target)
+
+    await expect(atomicCreateFile(target, 'image')).rejects.toThrow()
+
+    expect(await fs.readdir(dir)).toEqual(['existing'])
   })
 })

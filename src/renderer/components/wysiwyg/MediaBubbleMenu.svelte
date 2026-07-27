@@ -8,9 +8,11 @@
   interface Props {
     editor: Editor
     onedit: (media: MediaEmbed) => void
+    onopenintab: (media: MediaEmbed) => void
+    onopenexternal: (media: MediaEmbed) => void
   }
 
-  let { editor, onedit }: Props = $props()
+  let { editor, onedit, onopenintab, onopenexternal }: Props = $props()
   let menuElement: HTMLDivElement | undefined = $state(undefined)
   let pluginInstance: Plugin | null = null
   let registeredEditor: Editor | null = null
@@ -34,6 +36,16 @@
   function edit(): void {
     const media = currentMedia()
     if (media) onedit(media)
+  }
+
+  function openInTab(): void {
+    const media = currentMedia()
+    if (media) onopenintab(media)
+  }
+
+  function openExternal(): void {
+    const media = currentMedia()
+    if (media) onopenexternal(media)
   }
 
   function remove(): void {
@@ -73,6 +85,14 @@
   <button onclick={edit} title="Change media source">
     <span class="material-symbols-outlined">edit</span>
     Change Source
+  </button>
+  <button onclick={openInTab} title="Open media in tab">
+    <span class="material-symbols-outlined">tab</span>
+    Open in Tab
+  </button>
+  <button onclick={openExternal} title="Open media externally">
+    <span class="material-symbols-outlined">open_in_new</span>
+    Open in External
   </button>
   <button class="remove" onclick={remove} title="Remove media">
     <span class="material-symbols-outlined">delete</span>

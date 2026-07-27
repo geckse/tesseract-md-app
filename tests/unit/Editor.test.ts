@@ -1,5 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/svelte'
+import { fireEvent, render, screen } from '@testing-library/svelte'
+
+const codeMirrorHarness = vi.hoisted(() => ({
+  handlers: {} as Record<string, (...args: unknown[]) => unknown>,
+  selection: { anchor: 0, from: 0, head: 0, to: 0 },
+  views: [] as Array<{
+    dispatch: ReturnType<typeof vi.fn>
+    focus: ReturnType<typeof vi.fn>
+    state: unknown
+  }>
+}))
 
 // Mock window.api before importing stores
 const mockApi = {
@@ -12,6 +22,7 @@ const mockApi = {
   status: vi.fn(),
   readFile: vi.fn(),
   writeFile: vi.fn(),
+  createBinary: vi.fn().mockResolvedValue({ size: 4 }),
   saveWindowSession: vi.fn().mockResolvedValue(undefined),
   detachTab: vi.fn().mockResolvedValue(undefined)
 }
@@ -29,8 +40,10 @@ vi.mock('@codemirror/view', () => {
     this.dom.className = 'cm-editor'
     this.destroy = vi.fn()
     this.dispatch = vi.fn()
+    this.focus = vi.fn()
     this.scrollDOM = { scrollTop: 0 }
     this.contentDOM = { scrollTop: 0 }
+    codeMirrorHarness.views.push(this)
     if (config.parent) {
       config.parent.appendChild(this.dom)
     }
@@ -39,7 +52,10 @@ vi.mock('@codemirror/view', () => {
   return {
     EditorView: Object.assign(EditorView, {
       updateListener: { of: vi.fn(() => []) },
-      domEventHandlers: vi.fn(() => []),
+      domEventHandlers: vi.fn((handlers) => {
+        codeMirrorHarness.handlers = handlers
+        return []
+      }),
       scrollIntoView: vi.fn(() => ({}))
     }),
     keymap: { of: vi.fn(() => []) }
@@ -57,7 +73,7 @@ vi.mock('@codemirror/state', () => ({
         sliceString: () => config.doc || ''
       },
       selection: {
-        main: { head: 0 }
+        main: { ...codeMirrorHarness.selection }
       }
     })),
     fromJSON: vi.fn(() => ({
@@ -69,7 +85,7 @@ vi.mock('@codemirror/state', () => ({
         sliceString: () => ''
       },
       selection: {
-        main: { head: 0 }
+        main: { ...codeMirrorHarness.selection }
       }
     }))
   }
@@ -107,6 +123,8 @@ vi.mock('../../src/renderer/lib/frontmatter-decoration', () => ({
 import { collections, activeCollectionId } from '../../src/renderer/stores/collections'
 import { isDirty, wordCount, countWords } from '../../src/renderer/stores/editor'
 import { workspace } from '../../src/renderer/stores/workspace.svelte'
+import { assetTree, fileTree } from '../../src/renderer/stores/files'
+import { saveAsTabId } from '../../src/renderer/stores/save-as'
 import { get } from 'svelte/store'
 import Editor from '@renderer/components/Editor.svelte'
 
@@ -141,11 +159,22 @@ function resetStores() {
   activeCollectionId.set(null)
   isDirty.set(false)
   wordCount.set(0)
+  saveAsTabId.set(null)
+  fileTree.set(null)
+  assetTree.set(null)
+}
+
+function flushAsync(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0))
 }
 
 beforeEach(() => {
   resetStores()
   vi.clearAllMocks()
+  codeMirrorHarness.handlers = {}
+  codeMirrorHarness.selection = { anchor: 0, from: 0, head: 0, to: 0 }
+  codeMirrorHarness.views = []
+  mockApi.createBinary.mockResolvedValue({ size: 4 })
 })
 
 describe('Editor component', () => {
@@ -203,6 +232,104 @@ describe('Editor component', () => {
     await vi.dynamicImportSettled?.()
     // countWords('hello world foo bar') = 4
     expect(get(wordCount)).toBe(4)
+  })
+
+  it('opens the clipboard image modal and creates the file before inserting Markdown', async () => {
+    setActiveCollectionForTest({ id: '1', name: 'Test', path: '/test' })
+    const content = '# Test\n\n## Current Section\n\nreplace me'
+    const from = content.indexOf('replace me')
+    codeMirrorHarness.selection = { anchor: from, from, head: from + 10, to: from + 10 }
+    openFileInWorkspace('notes/test.md', content)
+    render(Editor)
+
+    const view = codeMirrorHarness.views.at(-1)!
+    const image = new File([new Uint8Array([1, 2, 3, 4])], 'clipboard.png', {
+      type: 'image/png'
+    })
+    const preventDefault = vi.fn()
+    const handled = codeMirrorHarness.handlers.paste(
+      {
+        clipboardData: {
+          items: [{ kind: 'file', type: 'image/png', getAsFile: () => image }]
+        },
+        preventDefault
+      },
+      view
+    )
+
+    expect(handled).toBe(true)
+    expect(preventDefault).toHaveBeenCalledOnce()
+    expect(await screen.findByRole('dialog', { name: 'Save pasted image' })).toBeTruthy()
+    expect((screen.getByLabelText('Filename') as HTMLInputElement).value).toBe(
+      'test-current-section'
+    )
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Save and Insert' }))
+    await flushAsync()
+
+    expect(mockApi.createBinary).toHaveBeenCalledOnce()
+    expect(mockApi.createBinary).toHaveBeenCalledWith(
+      '/test/notes/test-current-section.png',
+      expect.any(String)
+    )
+    const insertion = view.dispatch.mock.calls.at(-1)?.[0]
+    expect(insertion).toEqual({
+      changes: {
+        from,
+        to: from + 10,
+        insert: '![test-current-section.png](test-current-section.png)'
+      },
+      selection: { anchor: from + 53 }
+    })
+    expect(mockApi.createBinary.mock.invocationCallOrder[0]).toBeLessThan(
+      view.dispatch.mock.invocationCallOrder.at(-1)!
+    )
+  })
+
+  it('leaves ordinary clipboard paste to CodeMirror', () => {
+    setActiveCollectionForTest({ id: '1', name: 'Test', path: '/test' })
+    openFileInWorkspace('test.md', 'hello')
+    render(Editor)
+
+    const handled = codeMirrorHarness.handlers.paste(
+      {
+        clipboardData: {
+          items: [{ kind: 'string', type: 'text/plain', getAsFile: () => null }]
+        }
+      },
+      codeMirrorHarness.views.at(-1)
+    )
+
+    expect(handled).toBe(false)
+    expect(mockApi.createBinary).not.toHaveBeenCalled()
+  })
+
+  it('defers an untitled image paste until Save As succeeds', async () => {
+    setActiveCollectionForTest({ id: '1', name: 'Test', path: '/test' })
+    const tabId = workspace.createUntitledTab()
+    const tab = workspace.tabs[tabId]
+    if (tab?.kind === 'document') tab.content = '# Draft\n'
+    render(Editor, { props: { tabId } })
+
+    const image = new File([new Uint8Array([1])], 'clipboard.png', { type: 'image/png' })
+    codeMirrorHarness.handlers.paste(
+      {
+        clipboardData: {
+          items: [{ kind: 'file', type: 'image/png', getAsFile: () => image }]
+        },
+        preventDefault: vi.fn()
+      },
+      codeMirrorHarness.views.at(-1)
+    )
+
+    await vi.waitFor(() => expect(get(saveAsTabId)).toBe(tabId))
+    expect(screen.queryByRole('dialog', { name: 'Save pasted image' })).toBeNull()
+
+    workspace.finalizeUntitledTab(tabId, 'drafts/my-draft.md')
+    saveAsTabId.set(null)
+
+    expect(await screen.findByRole('dialog', { name: 'Save pasted image' })).toBeTruthy()
+    expect(screen.getByText('/drafts/my-draft.png')).toBeTruthy()
   })
 })
 

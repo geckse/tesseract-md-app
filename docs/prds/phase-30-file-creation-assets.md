@@ -40,7 +40,7 @@ Add six new IPC channels to `app/src/main/ipc-handlers.ts`, all following the ex
 | `fs:create-directory`     | `(absolutePath: string) → void`                                         | Create a new directory. Uses `fs.mkdir` with `{ recursive: true }`.                                                                             |
 | `fs:scan-assets`          | `(collectionPath: string) → AssetScanResult`                            | Recursively scan collection for non-markdown files. Returns structured tree.                                                                    |
 | `fs:read-binary`          | `(absolutePath: string) → string`                                       | Read a file as base64-encoded string. For images/PDFs that can't be read as UTF-8.                                                              |
-| `fs:write-binary`         | `(absolutePath: string, base64Data: string) → void`                     | Write base64 data to a file on disk. For clipboard-pasted images.                                                                               |
+| `fs:create-binary`        | `(absolutePath: string, base64Data: string) → { size: number }`         | Atomically create a clipboard image without overwriting an existing collection file.                                                            |
 | `fs:file-info`            | `(absolutePath: string) → { size: number, mtime: string }`              | Get file metadata (size, modified time).                                                                                                        |
 | `fs:copy-file`            | `(sourcePath: string, destPath: string) → void`                         | Copy a file into the collection. Source can be outside collection (for external drag-and-drop import). Destination must be within a collection. |
 | `fs:is-within-collection` | `(absolutePath: string) → { within: boolean, collectionPath?: string }` | Check if a path is inside any known collection. Used by the renderer to decide copy-vs-link for drag-and-drop.                                  |
@@ -245,16 +245,16 @@ Only files with recognized asset extensions are accepted: `png`, `jpg`, `jpeg`, 
 
 ### Clipboard Paste (Images)
 
-In `WysiwygEditor.svelte`, intercept paste events with image blobs:
+Both `WysiwygEditor.svelte` and `Editor.svelte` intercept supported clipboard image blobs while leaving ordinary text paste untouched:
 
-1. Check `event.clipboardData.items` for image MIME types
-2. Read blob as base64 via `FileReader`
-3. Generate filename: `pasted-{Date.now()}.png`
-4. Save alongside the current markdown file via `window.api.writeBinary(sameDirPath + filename, base64Data)` — the pasted image lands in the same directory as the document that references it
-5. Insert `![](pasted-{timestamp}.png)` into editor (relative to current file)
-6. Trigger asset tree refresh
+1. Capture the originating tab and selection, then read the first supported image as base64.
+2. Suggest the current note directory and a MIME-preserving filename based on the Markdown filename plus the nearest heading before the cursor. Existing names receive `-1`, `-2`, … suffixes.
+3. Open a focus-trapped modal where the user can edit the filename stem and choose an existing or new collection-relative folder.
+4. Validate the destination, then create it through `window.api.createBinary()` using atomic, exclusive no-overwrite semantics.
+5. Only after the image exists, replace the captured selection with a relative Markdown image reference and patch the asset tree locally.
+6. Keep the modal open on write errors; cancellation writes and inserts nothing.
 
-No special `assets/` directory — pasted images go next to the markdown file, keeping assets co-located with content. 4. Ensure `{collection}/assets/` directory exists via `window.api.createDirectory()` 5. Save via `window.api.writeBinary(absolutePath, base64Data)` 6. Insert `![](assets/pasted-{timestamp}.png)` into editor 7. Trigger asset tree refresh
+Untitled notes enter the existing Save As flow first. A successful note save resumes the pending image modal using the note's final directory; canceling Save As discards the pending image.
 
 ### Insert Asset Dialog
 
@@ -362,11 +362,11 @@ Files: `WysiwygEditor.svelte`, `Editor.svelte`, `ipc-handlers.ts`, `preload/inde
 
 Add `fs:copy-file` and `fs:is-within-collection` IPC handlers. Add drop handlers to both editors that handle two cases: (a) internal tree drag via `application/x-mdvdb-path` — compute relative path, insert markdown; (b) external OS drag via `dataTransfer.files` — check if within collection, if outside show confirmation dialog then copy alongside current file, insert markdown link.
 
-**Step 13: Clipboard paste images alongside current file**
+**Step 13: Clipboard image save modal**
 
-Files: `WysiwygEditor.svelte`, `ipc-handlers.ts`, `preload/index.ts`, `preload/api.d.ts`
+Files: `WysiwygEditor.svelte`, `Editor.svelte`, `ClipboardImageSaveModal.svelte`, `ipc-handlers.ts`, `preload/index.ts`, `preload/api.d.ts`
 
-Add `fs:write-binary` IPC handler. Intercept paste events with image blobs. Save alongside the current markdown file (same directory), insert relative markdown reference, refresh asset tree.
+Add the exclusive `fs:create-binary` IPC handler. Both editors capture image paste positions and open the smart destination modal before any write. Create the chosen collection file first, then insert its relative Markdown reference and patch the asset tree.
 
 **Step 14: Insert Asset Dialog**
 
@@ -419,7 +419,10 @@ D depends on B and C (Step 12 needs asset nodes in tree from Step 5, Step 15 nee
 - [ ] Dragging a file from OS that is outside the collection shows confirmation dialog, copies alongside current file, inserts link
 - [ ] External drag with duplicate filename auto-suffixes (`image.png` → `image-1.png`)
 - [ ] External drag of unsupported file type shows "Unsupported file type" toast
-- [ ] Pasting image from clipboard saves alongside current markdown file and inserts reference
+- [ ] Pasting an image in either editor opens a modal with a note/section-based filename and the note folder selected
+- [ ] Users can change the filename and choose an existing or new collection folder
+- [ ] Clipboard image creation never overwrites an existing asset, and Markdown is inserted only after the image write succeeds
+- [ ] Untitled notes complete Save As before the pending clipboard image modal opens
 - [ ] Insert Asset Dialog shows searchable list of collection assets with thumbnails
 - [ ] WYSIWYG mode renders relative-path images inline (resolved to data URLs)
 - [ ] Asset files have no representation in the 3D graph/canvas

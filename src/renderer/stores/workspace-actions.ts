@@ -16,11 +16,15 @@ import { requestConfirmation } from './confirmation'
  */
 export async function closeFocusedTabWithConfirm(): Promise<void> {
   const tab = workspace.focusedTab
-  if (tab && tab.kind === 'document') {
-    if (tab.isDirty) {
+  if (tab && tab.kind !== 'graph') {
+    const dirtyDocument = tab.kind === 'document' && tab.isDirty
+    const dirtyImage = tab.kind === 'asset' && tab.mimeCategory === 'image' && tab.isDirty
+    if (dirtyDocument || dirtyImage) {
       const shouldClose = await requestConfirmation({
         title: `Close ${tab.title}?`,
-        message: 'This document has unsaved changes. Discard them and close the tab?',
+        message: dirtyImage
+          ? 'This image has unsaved edits. Discard them and close the tab?'
+          : 'This document has unsaved changes. Discard them and close the tab?',
         confirmLabel: 'Discard and Close',
         cancelLabel: 'Keep Editing',
         tone: 'danger'

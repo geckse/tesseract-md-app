@@ -39,6 +39,7 @@
     resetEditorState
   } from './stores/editor'
   import { loadFavorites } from './stores/favorites'
+  import { markImageChanged, requestImageSave } from './stores/image-editor'
   import { openQuickOpen } from './stores/quickopen'
   import { shortcutManager, isEditableTarget } from './lib/shortcuts'
   import { tableStore } from './stores/table.svelte'
@@ -233,6 +234,15 @@
         applyDiskContentToTab(tab, content)
       }
       syncFileStoresFromTab()
+    })
+    window.api.onImageSavedExternally(({ path: savedPath, result }) => {
+      const collection = get(activeCollection)
+      if (!collection) return
+      const root = collection.path.replace(/[\\/]+$/, '')
+      const normalizedSaved = savedPath.replace(/\\/g, '/')
+      const normalizedRoot = root.replace(/\\/g, '/')
+      if (!normalizedSaved.startsWith(`${normalizedRoot}/`)) return
+      markImageChanged(normalizedSaved.slice(normalizedRoot.length + 1), result.size)
     })
 
     // Listen for native menu "Open Recent" clicks
@@ -471,6 +481,11 @@
         key: 's',
         meta: true,
         handler: () => {
+          const focused = workspace.focusedTab
+          if (focused?.kind === 'asset' && focused.mimeCategory === 'image') {
+            requestImageSave(focused.id)
+            return
+          }
           const mode = get(editorMode)
           if (mode === 'wysiwyg') {
             requestSave()
@@ -656,6 +671,7 @@
       unsubCollectionSkills()
       unsubGraphMenuContext()
       window.api.removeFileSavedExternallyListener()
+      window.api.removeImageSavedExternallyListener()
       unsub()
       unsubAccent()
       unsubCollectionColor()

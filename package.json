@@ -47,6 +47,7 @@
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
     "@fontsource-variable/space-grotesk": "^5.2.10",
     "@lezer/highlight": "^1.2.1",
+    "@nktkas/bmp": "^4.0.0",
     "@tiptap/core": "^3.0.0",
     "@tiptap/extension-bubble-menu": "^3.0.0",
     "@tiptap/extension-code-block-lowlight": "^3.0.0",
@@ -67,6 +68,7 @@
     "chokidar": "^4.0.3",
     "d3-force": "^3.0.0",
     "d3-force-3d": "^3.0.6",
+    "decode-ico": "^0.4.1",
     "electron-store": "^10.0.0",
     "electron-updater": "^6.3.9",
     "ignore": "^7.0.5",
@@ -77,6 +79,7 @@
     "mermaid": "^11.16.0",
     "node-pty": "^1.1.0",
     "pdfjs-dist": "^5.4.624",
+    "sharp": "^0.35.3",
     "three": "^0.183.2",
     "yaml": "^2.9.0"
   },
@@ -132,7 +135,9 @@
       }
     ],
     "asarUnpack": [
-      "**/node_modules/node-pty/**"
+      "**/node_modules/node-pty/**",
+      "**/node_modules/sharp/**",
+      "**/node_modules/@img/**"
     ],
     "publish": {
       "provider": "github"

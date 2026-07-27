@@ -11,6 +11,7 @@ import { BrowserWindow, nativeTheme, shell } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 import { initStore, setZoomLevel } from './store'
+import type { ImageEditDraft } from '../shared/image-edit'
 
 /**
  * Native window background matching the renderer's `--color-bg` token,
@@ -80,6 +81,7 @@ export interface PopupWindowOptions {
   isDirty?: boolean
   content?: string | null
   savedContent?: string | null
+  imageEditDraft?: ImageEditDraft
   recursive?: boolean
   tableViewId?: string
   terminalId?: string
@@ -88,11 +90,12 @@ export interface PopupWindowOptions {
   cwd?: string
 }
 
-/** Data sent to popup renderer for dirty document transfer. */
+/** Data sent to popup renderer for dirty document or image transfer. */
 export interface PopupInitData {
   content: string | null
   savedContent: string | null
   isDirty: boolean
+  imageEditDraft?: ImageEditDraft
 }
 
 export class WindowManager {
@@ -463,14 +466,15 @@ export class WindowManager {
       win.loadFile(join(__dirname, '../renderer/index.html'), { search: params.toString() })
     }
 
-    // If dirty content was provided, send it to the popup after it finishes loading
-    if (options.isDirty && options.content != null) {
+    // If dirty content or an image edit was provided, send it after load.
+    if (options.isDirty && (options.content != null || options.imageEditDraft)) {
       win.webContents.once('did-finish-load', () => {
         if (!win.isDestroyed()) {
           const initData: PopupInitData = {
             content: options.content ?? null,
             savedContent: options.savedContent ?? null,
-            isDirty: true
+            isDirty: true,
+            imageEditDraft: options.imageEditDraft
           }
           win.webContents.send('popup:init', initData)
         }

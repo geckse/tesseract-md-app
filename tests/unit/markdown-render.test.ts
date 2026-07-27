@@ -32,3 +32,22 @@ describe('renderMarkdown mermaid support', () => {
     expect(html).toContain('Loading diagram')
   })
 })
+
+describe('renderMarkdown wikilink support', () => {
+  it('renders wikilinks as resolvable, hoverable local-link spans', () => {
+    const html = renderMarkdown('See [[notes/roadmap#Next steps|the roadmap]].')
+
+    expect(html).toContain('class="wikilink"')
+    expect(html).toContain('data-wikilink-target="notes/roadmap"')
+    expect(html).toContain('data-wikilink-anchor="Next steps"')
+    expect(html).toContain('>the roadmap</span>')
+  })
+
+  it('escapes untrusted wikilink targets and labels', () => {
+    const html = renderMarkdown('[[notes/"bad|<b>unsafe</b>]]')
+
+    expect(html).not.toContain('<b>unsafe</b>')
+    expect(html).toContain('&lt;b&gt;unsafe&lt;/b&gt;')
+    expect(html).toContain('data-wikilink-target="notes/&quot;bad"')
+  })
+})

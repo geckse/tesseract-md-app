@@ -41,6 +41,7 @@ import {
   type EditorCommandId
 } from '../stores/editor'
 import { openQuickOpen } from '../stores/quickopen'
+import { requestImageSave } from '../stores/image-editor'
 import { searchOpen } from '../stores/search'
 import {
   dispatchGraphMenuAction,
@@ -137,7 +138,14 @@ export const menuCommandHandlers: Record<string, (payload?: unknown) => void> = 
     syncFileStoresFromTab()
   },
   'file.quick-open': () => openQuickOpen(),
-  'file.save': () => requestSave(),
+  'file.save': () => {
+    const focused = workspace.focusedTab
+    if (focused?.kind === 'asset' && focused.mimeCategory === 'image') {
+      requestImageSave(focused.id)
+    } else {
+      requestSave()
+    }
+  },
   'file.save-copy': () => {
     void exportActiveDocument('markdown')
   },

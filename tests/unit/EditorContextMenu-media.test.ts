@@ -11,6 +11,8 @@ describe('EditorContextMenu media actions', () => {
     const image = host.querySelector('img')
     const onclose = vi.fn()
     const oneditmedia = vi.fn()
+    const onopenmediaintab = vi.fn()
+    const onopenmediaexternal = vi.fn()
     const originalElementFromPoint = document.elementFromPoint
     Object.defineProperty(document, 'elementFromPoint', {
       configurable: true,
@@ -24,13 +26,24 @@ describe('EditorContextMenu media actions', () => {
         x: 20,
         y: 20,
         onclose,
-        oneditmedia
+        oneditmedia,
+        onopenmediaintab,
+        onopenmediaexternal
       }
     })
 
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Open in Tab' }))
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Open in External' }))
     await fireEvent.click(screen.getByRole('menuitem', { name: /Change Media Source/ }))
 
-    expect(onclose).toHaveBeenCalledOnce()
+    const media = {
+      kind: 'image',
+      src: 'diagram.png',
+      alt: 'Diagram'
+    }
+    expect(onclose).toHaveBeenCalledTimes(3)
+    expect(onopenmediaintab).toHaveBeenCalledWith(media)
+    expect(onopenmediaexternal).toHaveBeenCalledWith(media)
     expect(oneditmedia).toHaveBeenCalledWith({
       kind: 'image',
       src: 'diagram.png',

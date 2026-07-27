@@ -75,11 +75,14 @@
     // Graph tabs cannot be closed
     if (tab.kind === 'graph') return
 
-    // Confirm before closing dirty document tabs to prevent data loss
-    if (tab.kind === 'document' && tab.isDirty) {
+    const dirtyDocument = tab.kind === 'document' && tab.isDirty
+    const dirtyImage = tab.kind === 'asset' && tab.mimeCategory === 'image' && tab.isDirty
+    if (dirtyDocument || dirtyImage) {
       const shouldClose = await requestConfirmation({
         title: `Close ${tab.title}?`,
-        message: 'This document has unsaved changes. Discard them and close the tab?',
+        message: dirtyImage
+          ? 'This image has unsaved edits. Discard them and close the tab?'
+          : 'This document has unsaved changes. Discard them and close the tab?',
         confirmLabel: 'Discard and Close',
         cancelLabel: 'Keep Editing',
         tone: 'danger'
@@ -157,7 +160,11 @@
       {#if assetTab}
         <div class="content-region" role="main" aria-label="Asset preview">
           {#if assetTab.mimeCategory === 'image'}
-            <ImageViewer filePath={assetTab.filePath} fileSize={assetTab.fileSize} />
+            <ImageViewer
+              tabId={assetTab.id}
+              filePath={assetTab.filePath}
+              fileSize={assetTab.fileSize}
+            />
           {:else if assetTab.mimeCategory === 'pdf'}
             <PdfViewer filePath={assetTab.filePath} />
           {:else}

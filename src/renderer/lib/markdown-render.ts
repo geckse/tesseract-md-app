@@ -16,7 +16,67 @@ const mermaidRenderer: TokenizerAndRendererExtension = {
   }
 }
 
-marked.use({ extensions: [mermaidRenderer] })
+function escapeHtml(value: string): string {
+  return value.replace(
+    /[&<>"']/g,
+    (character) =>
+      (
+        ({
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&#39;'
+        }) as Record<string, string>
+      )[character]
+  )
+}
+
+const wikilinkRenderer: TokenizerAndRendererExtension = {
+  name: 'wikilink',
+  level: 'inline',
+  start(src) {
+    const index = src.indexOf('[[')
+    return index >= 0 ? index : undefined
+  },
+  tokenizer(src) {
+    const match = /^\[\[([^\]\r\n]+)\]\]/.exec(src)
+    if (!match) return undefined
+
+    const inner = match[1]
+    const pipeIndex = inner.indexOf('|')
+    const targetAndAnchor = pipeIndex >= 0 ? inner.slice(0, pipeIndex) : inner
+    const display = pipeIndex >= 0 ? inner.slice(pipeIndex + 1) : null
+    const hashIndex = targetAndAnchor.indexOf('#')
+    const target = hashIndex >= 0 ? targetAndAnchor.slice(0, hashIndex) : targetAndAnchor
+    const anchor = hashIndex >= 0 ? targetAndAnchor.slice(hashIndex + 1) : null
+    if (!target) return undefined
+
+    return {
+      type: 'wikilink',
+      raw: match[0],
+      target,
+      anchor,
+      display
+    }
+  },
+  renderer(token) {
+    const wikilink = token as {
+      target: string
+      anchor: string | null
+      display: string | null
+    }
+    const label =
+      wikilink.display ||
+      (wikilink.anchor ? `${wikilink.target}#${wikilink.anchor}` : wikilink.target)
+    const anchorAttribute = wikilink.anchor
+      ? ` data-wikilink-anchor="${escapeHtml(wikilink.anchor)}"`
+      : ''
+    return `<span class="wikilink" data-wikilink-target="${escapeHtml(wikilink.target)}"${anchorAttribute}>${escapeHtml(label)}</span>`
+  }
+}
+
+marked.use({ extensions: [mermaidRenderer, wikilinkRenderer] })
 
 /** Basic HTML sanitization to prevent XSS in Electron context. */
 export function sanitizeHtml(html: string): string {

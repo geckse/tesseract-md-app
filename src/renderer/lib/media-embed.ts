@@ -43,6 +43,32 @@ export function localMediaUrl(absolutePath: string): string {
   return `tesseract-media://asset?path=${encodeURIComponent(absolutePath)}`
 }
 
+/**
+ * Resolve a media source from a Markdown document to a collection-root-relative
+ * path. Public/data/protocol URLs and paths that escape the collection return
+ * null.
+ */
+export function resolveCollectionMediaPath(currentFilePath: string, source: string): string | null {
+  const value = source.trim().replaceAll('\\', '/').split(/[?#]/, 1)[0]
+  if (!value || isPublicMediaUrl(value) || /^[a-z][a-z\d+.-]*:/i.test(value)) return null
+
+  const parts = value.startsWith('/')
+    ? []
+    : currentFilePath.replaceAll('\\', '/').split('/').slice(0, -1).filter(Boolean)
+
+  for (const part of value.split('/')) {
+    if (!part || part === '.') continue
+    if (part === '..') {
+      if (parts.length === 0) return null
+      parts.pop()
+    } else {
+      parts.push(part)
+    }
+  }
+
+  return parts.length > 0 ? parts.join('/') : null
+}
+
 export function computeRelativeMediaPath(fromFile: string, toFile: string): string {
   const fromParts = fromFile.replaceAll('\\', '/').split('/')
   fromParts.pop()

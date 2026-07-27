@@ -850,7 +850,7 @@
     const name = contextMenuPath.split('/').pop() ?? contextMenuPath
     // Determine if it's an image
     const ext = name.split('.').pop()?.toLowerCase() ?? ''
-    const imageExts = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico']
+    const imageExts = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico', 'avif']
     const ref = imageExts.includes(ext)
       ? `![${name}](${contextMenuPath})`
       : `[${name}](${contextMenuPath})`

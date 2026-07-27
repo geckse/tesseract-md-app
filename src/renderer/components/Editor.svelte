@@ -45,10 +45,22 @@
   } from '../lib/markdown-structure'
   import { propertiesFileContent, outline } from '../stores/properties'
   import ConflictNotification from './ConflictNotification.svelte'
+  import ClipboardImageSaveModal from './ClipboardImageSaveModal.svelte'
   import { dismissConflict } from '../stores/conflict'
-  import { requestSaveAs } from '../stores/save-as'
+  import { requestSaveAs, saveAsTabId } from '../stores/save-as'
   import { requestConfirmation } from '../stores/confirmation'
   import { serializeMediaEmbed, type MediaEmbed } from '../lib/media-embed'
+  import { insertAssetNode } from '../stores/files'
+  import {
+    clipboardImageData,
+    firstClipboardImageItem,
+    imageMarkdownReference,
+    markdownFileDirectory,
+    nearestHeadingBeforeOffset,
+    suggestImageStem,
+    type ClipboardImageData,
+    type ClipboardImageDestination
+  } from '../lib/clipboard-image'
 
   // ── Props ─────────────────────────────────────────────────────────────
   interface EditorProps {
@@ -166,6 +178,45 @@
     return tab?.kind === 'document' ? (tab as DocumentTab) : null
   })
 
+  interface PendingClipboardImage {
+    awaitingSaveAs: boolean
+    collectionPath: string
+    from: number
+    heading: string | null
+    image: ClipboardImageData
+    tabId: string
+    to: number
+  }
+
+  let pendingClipboardImage = $state<PendingClipboardImage | null>(null)
+  let currentSaveAsTabId = $state<string | null>(null)
+  const unsubSaveAs = saveAsTabId.subscribe((value) => (currentSaveAsTabId = value))
+
+  const pendingClipboardTab = $derived.by(() => {
+    if (!pendingClipboardImage) return null
+    const pendingTab = workspace.tabs[pendingClipboardImage.tabId]
+    return pendingTab?.kind === 'document' ? (pendingTab as DocumentTab) : null
+  })
+  const pendingClipboardBaseStem = $derived(
+    pendingClipboardTab && pendingClipboardImage
+      ? suggestImageStem(pendingClipboardTab.filePath, pendingClipboardImage.heading)
+      : ''
+  )
+  const pendingClipboardDirectory = $derived(
+    pendingClipboardTab ? markdownFileDirectory(pendingClipboardTab.filePath) : ''
+  )
+
+  $effect(() => {
+    const pending = pendingClipboardImage
+    if (!pending?.awaitingSaveAs) return
+    const pendingTab = workspace.tabs[pending.tabId]
+    if (pendingTab?.kind === 'document' && !pendingTab.isUntitled) {
+      pendingClipboardImage = { ...pending, awaitingSaveAs: false }
+    } else if (currentSaveAsTabId === null) {
+      pendingClipboardImage = null
+    }
+  })
+
   // ── Scroll to Line ────────────────────────────────────────────────────
   $effect(() => {
     if (currentScrollToLine !== null && activeTabId) {
@@ -241,6 +292,9 @@
       EditorView.domEventHandlers({
         scroll() {
           updateActiveHeading()
+        },
+        paste(event, view) {
+          return handleCmPaste(event, view)
         }
       })
     ]
@@ -769,11 +823,78 @@
     unsubScrollToLine()
     unsubOutline()
     unsubEditorMode()
+    unsubSaveAs()
   })
+
+  // ── Clipboard paste (images) ─────────────────────────────────────────
+
+  function handleCmPaste(event: ClipboardEvent, view: EditorView): boolean {
+    if (!event.clipboardData) return false
+    const clipboardImage = firstClipboardImageItem(event.clipboardData.items)
+    if (!clipboardImage) return false
+
+    const sourceTabId = activeTabId
+    const sourceTab = activeDocTab
+    const collection = get(activeCollection)
+    if (!sourceTabId || !sourceTab || !collection) return false
+
+    event.preventDefault()
+    const selection = view.state.selection.main
+    const content = view.state.doc.toString()
+    const heading = nearestHeadingBeforeOffset(content, selection.from)
+
+    void clipboardImageData(clipboardImage.item, clipboardImage.extension)
+      .then((image) => {
+        if (!image || !pool.has(sourceTabId)) return
+        pendingClipboardImage = {
+          awaitingSaveAs: sourceTab.isUntitled,
+          collectionPath: collection.path,
+          from: selection.from,
+          heading,
+          image,
+          tabId: sourceTabId,
+          to: selection.to
+        }
+        if (sourceTab.isUntitled) requestSaveAs(sourceTabId)
+      })
+      .catch((cause: unknown) => {
+        void window.api.showMessage({
+          message:
+            cause instanceof Error ? cause.message : 'The clipboard image could not be read.',
+          title: 'Image Paste Failed',
+          type: 'error'
+        })
+      })
+    return true
+  }
+
+  async function saveClipboardImage(destination: ClipboardImageDestination): Promise<void> {
+    const pending = pendingClipboardImage
+    const pendingTab = pendingClipboardTab
+    if (!pending || !pendingTab) throw new Error('The source document is no longer open.')
+    const entry = pool.get(pending.tabId)
+    if (!entry) throw new Error('The source editor is no longer available.')
+
+    const absolutePath = `${pending.collectionPath}/${destination.relativePath}`
+    const result = await window.api.createBinary(absolutePath, pending.image.base64Data)
+
+    const reference = imageMarkdownReference(
+      pendingTab.filePath,
+      destination.relativePath,
+      destination.filename
+    )
+    entry.view.dispatch({
+      changes: { from: pending.from, to: pending.to, insert: reference },
+      selection: { anchor: pending.from + reference.length }
+    })
+    insertAssetNode(destination.relativePath, 'image', result.size)
+    entry.view.focus()
+    pendingClipboardImage = null
+  }
 
   // ── Drag-and-drop (internal tree + external OS) ──────────────────────
 
-  const CM_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico'])
+  const CM_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico', 'avif'])
   const CM_ASSET_EXTS = new Set([
     ...CM_IMAGE_EXTS,
     'pdf',
@@ -935,6 +1056,15 @@
       ondragover={handleCmDragOver}
       ondrop={handleCmDrop}
     ></div>
+    {#if pendingClipboardImage && !pendingClipboardImage.awaitingSaveAs && pendingClipboardTab}
+      <ClipboardImageSaveModal
+        baseStem={pendingClipboardBaseStem}
+        extension={pendingClipboardImage.image.extension}
+        initialDirectory={pendingClipboardDirectory}
+        onsave={saveClipboardImage}
+        oncancel={() => (pendingClipboardImage = null)}
+      />
+    {/if}
   </div>
 {:else}
   <div class="empty-state">

@@ -7,6 +7,8 @@
   import { renderMermaidDiagram } from '../lib/mermaid-renderer'
   import { handleLinkClick } from '../lib/link-navigation'
   import type { JsonValue } from '../types/cli'
+  import { activeCollection } from '../stores/collections'
+  import LinkHoverPreview from './LinkHoverPreview.svelte'
 
   // Store subscriptions
   let currentContent: string | null = $state(null)
@@ -204,6 +206,7 @@
     {@html renderedHtml}
   </div>
 </div>
+<LinkHoverPreview container={previewContainer} collectionPath={$activeCollection?.path ?? ''} />
 
 <style>
   .preview-container {
@@ -362,6 +365,15 @@
   }
 
   .markdown-body :global(a:hover) {
+    text-decoration: underline;
+  }
+
+  .markdown-body :global(.wikilink) {
+    color: var(--color-primary, #00e5ff);
+    cursor: pointer;
+  }
+
+  .markdown-body :global(.wikilink:hover) {
     text-decoration: underline;
   }
 

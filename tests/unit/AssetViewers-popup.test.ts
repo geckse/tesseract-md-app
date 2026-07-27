@@ -12,8 +12,12 @@ vi.mock('pdfjs-dist', () => ({
 
 const mockApi = {
   readBinary: vi.fn(),
+  readImage: vi.fn(),
+  editImage: vi.fn(),
+  cancelImageEdit: vi.fn(),
   openPath: vi.fn(),
-  writeToClipboard: vi.fn()
+  writeToClipboard: vi.fn(),
+  showConfirmation: vi.fn()
 }
 Object.defineProperty(window, 'api', { value: mockApi, writable: true })
 
@@ -28,6 +32,15 @@ describe('asset viewers in popup windows', () => {
     collections.set([])
     activeCollectionId.set(null)
     mockApi.readBinary.mockResolvedValue('')
+    mockApi.readImage.mockResolvedValue({
+      base64: '',
+      mimeType: 'image/png',
+      width: 640,
+      height: 480,
+      size: 1024,
+      sha256: 'baseline',
+      mtimeMs: 1
+    })
     mockApi.openPath.mockResolvedValue(undefined)
     mockApi.writeToClipboard.mockResolvedValue(undefined)
     pdfMocks.getDocument.mockReturnValue({
@@ -44,7 +57,7 @@ describe('asset viewers in popup windows', () => {
     })
 
     await waitFor(() => {
-      expect(mockApi.readBinary).toHaveBeenCalledWith('/vault/assets/mockup.png')
+      expect(mockApi.readImage).toHaveBeenCalledWith('/vault/assets/mockup.png')
     })
     expect(screen.queryByText('No active collection')).toBeNull()
 

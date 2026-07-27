@@ -93,4 +93,19 @@ describe('TabItem icons', () => {
     await fireEvent.click(container.querySelector('.close-btn')!)
     expect(onclose).toHaveBeenCalledTimes(2)
   })
+
+  it('shows the unsaved indicator for edited image tabs', () => {
+    const tab = {
+      id: 'image-1',
+      kind: 'asset',
+      filePath: 'images/photo.png',
+      title: 'photo.png',
+      mimeCategory: 'image',
+      isDirty: true
+    } as unknown as TabState
+
+    const { getByRole } = render(TabItem, { props: { tab } })
+    expect(getByRole('tab', { name: /photo\.png, unsaved changes/ })).toBeTruthy()
+    expect(getByRole('tab').querySelector('[aria-label="Unsaved changes"]')).toBeTruthy()
+  })
 })

@@ -6,6 +6,7 @@
     navigateLinkNewTab,
     navigateLinkOtherPane
   } from '../../lib/link-navigation'
+  import type { MediaEmbed } from '../../lib/media-embed'
   import { workspace } from '../../stores/workspace.svelte'
 
   interface Props {
@@ -13,10 +14,13 @@
     x: number
     y: number
     onclose: () => void
-    oneditmedia?: (media: import('../../lib/media-embed').MediaEmbed) => void
+    oneditmedia?: (media: MediaEmbed) => void
+    onopenmediaintab?: (media: MediaEmbed) => void
+    onopenmediaexternal?: (media: MediaEmbed) => void
   }
 
-  let { editor, x, y, onclose, oneditmedia }: Props = $props()
+  let { editor, x, y, onclose, oneditmedia, onopenmediaintab, onopenmediaexternal }: Props =
+    $props()
 
   let menuEl: HTMLDivElement | undefined = $state(undefined)
 
@@ -80,16 +84,30 @@
     exec(() => editor.chain().focus().clearNodes().unsetAllMarks().run())
   }
 
-  function handleEditMedia() {
+  function currentMedia(): MediaEmbed {
     const attrs = editor.isActive('image')
       ? { ...editor.getAttributes('image'), kind: 'image' as const }
       : editor.getAttributes('mediaEmbed')
-    onclose()
-    oneditmedia?.({
+    return {
       kind: attrs.kind === 'audio' ? 'audio' : attrs.kind === 'video' ? 'video' : 'image',
       src: attrs.src ?? '',
       alt: attrs.alt ?? ''
-    })
+    }
+  }
+
+  function handleEditMedia() {
+    onclose()
+    oneditmedia?.(currentMedia())
+  }
+
+  function handleOpenMediaInTab() {
+    onclose()
+    onopenmediaintab?.(currentMedia())
+  }
+
+  function handleOpenMediaExternal() {
+    onclose()
+    onopenmediaexternal?.(currentMedia())
   }
 
   function handleRemoveMedia() {
@@ -245,6 +263,14 @@
     <button class="menu-item" onclick={handleEditMedia} role="menuitem">
       <span class="material-symbols-outlined">edit</span>
       <span class="menu-label">Change Media Source…</span>
+    </button>
+    <button class="menu-item" onclick={handleOpenMediaInTab} role="menuitem">
+      <span class="material-symbols-outlined" aria-hidden="true">tab</span>
+      <span class="menu-label">Open in Tab</span>
+    </button>
+    <button class="menu-item" onclick={handleOpenMediaExternal} role="menuitem">
+      <span class="material-symbols-outlined" aria-hidden="true">open_in_new</span>
+      <span class="menu-label">Open in External</span>
     </button>
     <button class="menu-item danger" onclick={handleRemoveMedia} role="menuitem">
       <span class="material-symbols-outlined">delete</span>

@@ -92,6 +92,20 @@ export const assetsByPath = derived(flatAssetList, ($files) => {
   return new Map($files.map((file) => [file.path, file]))
 })
 
+/** All known collection directories from both the Markdown and asset trees. */
+export const collectionDirectories = derived([fileTree, assetTree], ([$fileTree, $assetTree]) => {
+  const directories = new Set<string>([''])
+
+  function walk(node: FileTreeNode | AssetFileNode): void {
+    if (node.is_dir && node.path) directories.add(node.path)
+    for (const child of node.children) walk(child)
+  }
+
+  if ($fileTree) walk($fileTree.root)
+  if ($assetTree) walk($assetTree.root)
+  return [...directories].sort((a, b) => a.localeCompare(b))
+})
+
 /** Whether to show non-markdown asset files in the tree. */
 export const showAssets = writable<boolean>(true)
 

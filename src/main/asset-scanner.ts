@@ -39,6 +39,7 @@ const EXTENSION_MAP: Record<string, MimeCategory> = {
   '.webp': 'image',
   '.bmp': 'image',
   '.ico': 'image',
+  '.avif': 'image',
   '.pdf': 'pdf',
   '.mp4': 'video',
   '.webm': 'video',

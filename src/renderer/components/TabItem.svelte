@@ -30,7 +30,10 @@
   const isAsset = $derived(tab.kind === 'asset')
   const isTerminal = $derived(tab.kind === 'terminal')
   const isTable = $derived(tab.kind === 'table')
-  const isDirty = $derived(tab.kind === 'document' && tab.isDirty)
+  const isDirty = $derived(
+    (tab.kind === 'document' && tab.isDirty) ||
+      (tab.kind === 'asset' && tab.mimeCategory === 'image' && tab.isDirty)
+  )
   const icon = $derived(
     isGraph
       ? 'hub'

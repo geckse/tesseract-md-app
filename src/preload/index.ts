@@ -191,7 +191,10 @@ const api: MdvdbApi = {
   createFile: (absolutePath, content) => invoke('fs:create-file', absolutePath, content),
   createDirectory: (absolutePath) => invoke('fs:create-directory', absolutePath),
   readBinary: (absolutePath) => invoke('fs:read-binary', absolutePath),
-  writeBinary: (absolutePath, base64Data) => invoke('fs:write-binary', absolutePath, base64Data),
+  createBinary: (absolutePath, base64Data) => invoke('fs:create-binary', absolutePath, base64Data),
+  readImage: (absolutePath) => invoke('fs:read-image', absolutePath),
+  editImage: (absolutePath, request) => invoke('fs:edit-image', absolutePath, request),
+  cancelImageEdit: (requestId) => invoke('fs:cancel-image-edit', requestId),
   fileInfo: (absolutePath) => invoke('fs:file-info', absolutePath),
   copyFile: (sourcePath, destPath) => invoke('fs:copy-file', sourcePath, destPath),
   isWithinCollection: (absolutePath) => invoke('fs:is-within-collection', absolutePath),
@@ -202,6 +205,9 @@ const api: MdvdbApi = {
   scanAssets: (collectionPath) => invoke('fs:scan-assets', collectionPath),
   fileThumbnail: (absolutePath, width, height) =>
     invoke('fs:file-thumbnail', absolutePath, width, height),
+  externalLinkPreview: (url) => invoke('link-preview:external', url),
+  localLinkPreview: (collectionPath, relativePath) =>
+    invoke('link-preview:local', collectionPath, relativePath),
 
   // Get native file path from dropped File (Electron webUtils — runs in preload only)
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
@@ -408,6 +414,12 @@ const api: MdvdbApi = {
   },
   removeFileSavedExternallyListener: () => {
     ipcRenderer.removeAllListeners('file:saved-externally')
+  },
+  onImageSavedExternally: (callback) => {
+    ipcRenderer.on('image:saved-externally', (_event, data) => callback(data))
+  },
+  removeImageSavedExternallyListener: () => {
+    ipcRenderer.removeAllListeners('image:saved-externally')
   },
 
   // Popup windows
