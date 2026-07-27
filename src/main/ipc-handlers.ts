@@ -38,7 +38,9 @@ import {
   getTerminalShellArgs,
   setTerminalShellArgs,
   getTerminalFontSize,
-  setTerminalFontSize
+  setTerminalFontSize,
+  getCollectionSkillsDismissed,
+  setCollectionSkillsDismissed
 } from './store'
 import type { PersistedWindowState } from './store'
 import type {
@@ -46,7 +48,8 @@ import type {
   PopupOpenOptions,
   SavedTableView,
   PropertyOpRequest,
-  OverlayFieldPatch
+  OverlayFieldPatch,
+  CollectionSkillsTargetId
 } from '../preload/api'
 import type { NativeConfirmationOptions, NativeMessageOptions } from '../preload/api'
 import type { PropertyValueColorSelection } from '../shared/value-colors'
@@ -100,6 +103,7 @@ import type {
   TopicUnassigned,
   GraphLevel,
   Schema,
+  ScopedSchema,
   Config,
   DoctorResult,
   CollectionOutput
@@ -467,7 +471,10 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
   ipcMain.handle('cli:schema', (_event, root: string, path?: string) => {
     const args: string[] = []
     if (path) args.push('--path', path)
-    return wrapHandler(() => execCommand<Schema>('schema', args, root))
+    return wrapHandler(async () => {
+      const result = await execCommand<Schema | ScopedSchema>('schema', args, root)
+      return 'schema' in result ? result.schema : result
+    })
   })
 
   // Collection (folder-as-table). NOTE the corrected arg grammar:
@@ -672,6 +679,13 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
         delete obsidianSync[id]
         s.set('obsidianTopicSync', obsidianSync)
       }
+
+      // Clean up a permanent skills-banner dismissal for this collection.
+      const skillsDismissed = s.get('collectionSkillsDismissed', {})
+      if (id in skillsDismissed) {
+        delete skillsDismissed[id]
+        s.set('collectionSkillsDismissed', skillsDismissed)
+      }
     })
   )
 
@@ -710,6 +724,45 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
   )
 
   ipcMain.handle('collections:get-active', () => wrapHandler(async () => getActiveCollection()))
+
+  ipcMain.handle('skills:check-collection', (_event, collectionId: string) =>
+    wrapHandler(async () => {
+      const collection = getCollections().find((candidate) => candidate.id === collectionId)
+      if (!collection) throw new Error(`Collection not found: ${collectionId}`)
+      const { checkCollectionSkills } = await import('./collection-skills')
+      const status = await checkCollectionSkills(collection.path)
+      return {
+        ...status,
+        dismissedForever: getCollectionSkillsDismissed(collectionId)
+      }
+    })
+  )
+
+  ipcMain.handle(
+    'skills:install-collection',
+    (_event, collectionId: string, targetId: CollectionSkillsTargetId) =>
+      wrapHandler(async () => {
+        const collection = getCollections().find((candidate) => candidate.id === collectionId)
+        if (!collection) throw new Error(`Collection not found: ${collectionId}`)
+        const { installCollectionSkills } = await import('./collection-skills')
+        const status = await installCollectionSkills(collection.path, targetId)
+        return {
+          ...status,
+          dismissedForever: getCollectionSkillsDismissed(collectionId)
+        }
+      })
+  )
+
+  ipcMain.handle(
+    'skills:set-collection-dismissed',
+    (_event, collectionId: string, dismissed: boolean) =>
+      wrapHandler(async () => {
+        if (!getCollections().some((candidate) => candidate.id === collectionId)) {
+          throw new Error(`Collection not found: ${collectionId}`)
+        }
+        setCollectionSkillsDismissed(collectionId, dismissed)
+      })
+  )
 
   // Favorites management
   ipcMain.handle('favorites:list', () =>
@@ -1008,9 +1061,29 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
   // Scan for non-markdown asset files in a collection
   ipcMain.handle('fs:scan-assets', (_event, collectionPath: string) =>
     wrapHandler(async () => {
+      const { resolve } = await import('node:path')
+      const normalizedRoot = resolve(collectionPath)
+      if (!getCollections().some((collection) => resolve(collection.path) === normalizedRoot)) {
+        throw new Error('Access denied: path is not a known collection')
+      }
       const { scanAssets } = await import('./asset-scanner')
-      return scanAssets(collectionPath)
+      return scanAssets(normalizedRoot)
     })
+  )
+
+  // Generate a small OS-backed preview without transferring the full file.
+  ipcMain.handle(
+    'fs:file-thumbnail',
+    (_event, absolutePath: string, width?: number, height?: number) =>
+      wrapHandler(async () => {
+        const { fileThumbnail } = await import('./file-thumbnail')
+        return fileThumbnail(
+          absolutePath,
+          getCollections().map((collection) => collection.path),
+          width,
+          height
+        )
+      })
   )
 
   // Read a file as base64 (for images, PDFs, etc.)

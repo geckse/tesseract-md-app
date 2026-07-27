@@ -46,7 +46,8 @@ const VALID_FIELD_TYPES = new Set([
   'array',
   'date',
   'mixed',
-  'relation'
+  'relation',
+  'file'
 ])
 
 async function loadOverlayDocument(root: string): Promise<{ doc: Document; existed: boolean }> {

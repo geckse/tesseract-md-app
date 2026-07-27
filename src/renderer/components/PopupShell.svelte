@@ -442,11 +442,11 @@
       {:else if kind === 'asset'}
         <div class="content-region">
           {#if mimeCategory === 'image'}
-            <ImageViewer {filePath} {fileSize} />
+            <ImageViewer {filePath} {fileSize} {collectionPath} />
           {:else if mimeCategory === 'pdf'}
-            <PdfViewer {filePath} />
+            <PdfViewer {filePath} {collectionPath} />
           {:else}
-            <AssetInfoCard {filePath} {mimeCategory} {fileSize} />
+            <AssetInfoCard {filePath} {mimeCategory} {fileSize} {collectionPath} />
           {/if}
         </div>
       {:else if kind === 'graph'}

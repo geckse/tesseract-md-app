@@ -28,6 +28,12 @@ async function readOverlay(): Promise<string> {
 }
 
 describe('upsertOverlayField', () => {
+  it('accepts the File field type', async () => {
+    await upsertOverlayField(root, null, 'attachments', { fieldType: 'file' })
+    const parsed = parseYaml(await readOverlay())
+    expect(parsed.fields.attachments.field_type).toBe('file')
+  })
+
   it('creates the file on demand with a scoped field_type pin', async () => {
     await upsertOverlayField(root, 'knowledge-graph', 'status', { fieldType: 'number' })
     const parsed = parseYaml(await readOverlay())

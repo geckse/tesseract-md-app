@@ -3,6 +3,7 @@
   import { detectedTypeForField } from '../../lib/property-types'
   import AutocompleteDropdown from './AutocompleteDropdown.svelte'
   import TypePickerDropdown from './TypePickerDropdown.svelte'
+  import { cliFeatures } from '../../lib/cli-features.svelte'
 
   interface Props {
     schema: Schema | null
@@ -125,7 +126,12 @@
     {/if}
 
     {#if mode === 'typing' && typeAnchorEl}
-      <TypePickerDropdown anchorEl={typeAnchorEl} onSelect={handleTypeSelect} onDismiss={cancel} />
+      <TypePickerDropdown
+        anchorEl={typeAnchorEl}
+        excludeTypes={cliFeatures.supportsFileFields ? [] : ['file']}
+        onSelect={handleTypeSelect}
+        onDismiss={cancel}
+      />
     {/if}
   {/if}
 </div>

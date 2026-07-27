@@ -45,6 +45,8 @@
   let url = $state('')
   let kind = $state<MediaKind>('image')
   let alt = $state('')
+  let searchInputEl = $state<HTMLInputElement | null>(null)
+  let urlInputEl = $state<HTMLInputElement | null>(null)
 
   function flattenAssets(node: AssetFileNode): FlatAsset[] {
     const result: FlatAsset[] = []
@@ -88,7 +90,20 @@
     url = initialMedia && isPublicMediaUrl(initialMedia.src) ? initialMedia.src : ''
     kind = initialMedia?.kind ?? 'image'
     alt = initialMedia?.alt ?? ''
+    void focusSourceInput()
   })
+
+  async function focusSourceInput(): Promise<void> {
+    await tick()
+    if (!visible) return
+    if (sourceTab === 'collection') searchInputEl?.focus()
+    else urlInputEl?.focus()
+  }
+
+  function selectSourceTab(tab: SourceTab): void {
+    sourceTab = tab
+    void focusSourceInput()
+  }
 
   function selectAsset(asset: FlatAsset): void {
     selectedAssetPath = asset.path
@@ -171,7 +186,7 @@
           role="tab"
           aria-selected={sourceTab === 'collection'}
           class:active={sourceTab === 'collection'}
-          onclick={() => (sourceTab = 'collection')}
+          onclick={() => selectSourceTab('collection')}
         >
           Collection
         </button>
@@ -179,7 +194,7 @@
           role="tab"
           aria-selected={sourceTab === 'url'}
           class:active={sourceTab === 'url'}
-          onclick={() => (sourceTab = 'url')}
+          onclick={() => selectSourceTab('url')}
         >
           Public URL
         </button>
@@ -189,6 +204,7 @@
         <label class="search-field">
           <span class="material-symbols-outlined">search</span>
           <input
+            bind:this={searchInputEl}
             bind:value={searchQuery}
             data-autofocus
             type="search"
@@ -226,6 +242,7 @@
           <label>
             <span>Media URL</span>
             <input
+              bind:this={urlInputEl}
               bind:value={url}
               oninput={handleUrlInput}
               data-autofocus

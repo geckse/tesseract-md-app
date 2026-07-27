@@ -30,6 +30,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Checkout app-specific Tesseract skills
+        uses: actions/checkout@v4
+        with:
+          repository: geckse/tesseract-md-skills
+          path: tesseract-skills
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:

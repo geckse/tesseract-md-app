@@ -163,6 +163,20 @@ describe('TableHeader column menu (phase 41)', () => {
     )
   })
 
+  it('only offers File conversion when the CLI supports File fields', async () => {
+    cliFeatures.version = '0.1.9'
+    renderHeader()
+    await fireEvent.click(screen.getByRole('button', { name: 'Column options for status' }))
+    await fireEvent.mouseDown(screen.getByRole('menuitem', { name: /Change type/ }))
+    expect(screen.queryByRole('option', { name: /File$/ })).toBeNull()
+
+    await fireEvent.keyDown(document, { key: 'Escape' })
+    cliFeatures.version = '0.2.0'
+    await fireEvent.click(screen.getByRole('button', { name: 'Column options for status' }))
+    await fireEvent.mouseDown(screen.getByRole('menuitem', { name: /Change type/ }))
+    expect(screen.getByRole('option', { name: /File$/ })).toBeTruthy()
+  })
+
   it('picking the current type closes without converting', async () => {
     renderHeader()
     await fireEvent.click(screen.getByRole('button', { name: 'Column options for status' }))

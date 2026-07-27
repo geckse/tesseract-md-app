@@ -67,12 +67,12 @@ describe('isIgnoredPath', () => {
     expect(isIgnoredPath(ROOT, path)).toBe(expected)
   })
 
-  it('passes markdown and asset files, drops unknown types', () => {
+  it('passes Markdown plus arbitrary non-Markdown files', () => {
     expect(isIgnoredPath(ROOT, '/vault/notes/deep/ok.md', file)).toBe(false)
     expect(isIgnoredPath(ROOT, '/vault/OK.MARKDOWN', file)).toBe(false)
     expect(isIgnoredPath(ROOT, '/vault/img/pic.png', file)).toBe(false)
-    expect(isIgnoredPath(ROOT, '/vault/agent-state.json', file)).toBe(true)
-    expect(isIgnoredPath(ROOT, '/vault/notes.log', file)).toBe(true)
+    expect(isIgnoredPath(ROOT, '/vault/agent-state.json', file)).toBe(false)
+    expect(isIgnoredPath(ROOT, '/vault/notes.log', file)).toBe(false)
   })
 
   it('passes directories regardless of name shape', () => {
@@ -135,13 +135,18 @@ describe('VaultWatcher', () => {
     expect(batches[0].events[0]).toMatchObject({ path: 'replaced.md', kind: 'modified' })
   })
 
-  it('filters unknown file types at the event layer too', async () => {
+  it('reports unknown file types as generic assets', async () => {
     const { batches } = await startedWatcher()
 
     fake.emit('all', 'add', '/vault/scratch.json', fileStats())
     await vi.advanceTimersByTimeAsync(100)
 
-    expect(batches).toHaveLength(0)
+    expect(batches).toHaveLength(1)
+    expect(batches[0].events[0]).toMatchObject({
+      path: 'scratch.json',
+      fileKind: 'asset',
+      mimeCategory: 'other'
+    })
   })
 
   it('flushes at the max-wait cap under a continuous event stream', async () => {

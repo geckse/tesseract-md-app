@@ -328,4 +328,27 @@ describe('DocumentHeader schema integration', () => {
     const tags = container.querySelectorAll('.pr-tag')
     expect(tags.length).toBe(2)
   })
+
+  it('renders unambiguous file links as files despite a stale Relation schema', () => {
+    const schema = makeSchema([
+      makeSchemaField({
+        name: 'assets',
+        field_type: 'Relation'
+      })
+    ])
+
+    const { container } = render(DocumentHeader, {
+      props: {
+        frontmatterYaml: 'assets:\n  - "[[Branding/cover.jpg]]"\n  - "[[Branding/source.buzz]]"',
+        onFrontmatterUpdate: vi.fn(),
+        schema,
+        ...defaultProps
+      }
+    })
+
+    const tiles = container.querySelectorAll('.file-tile')
+    expect(tiles).toHaveLength(2)
+    expect([...tiles].every((tile) => tile.classList.contains('compact'))).toBe(true)
+    expect(container.querySelector('.relation-chip')).toBeNull()
+  })
 })

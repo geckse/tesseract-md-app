@@ -60,6 +60,7 @@
       case 'Number':
         return 0
       case 'List':
+      case 'File':
         return []
       case 'Date':
         return new Date().toISOString().slice(0, 10)

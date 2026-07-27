@@ -15,6 +15,9 @@
 /** The mdvdb version that ships phase-31 frontmatter relations. */
 export const MDVDB_RELATIONS_MIN_VERSION = '0.2.0'
 
+/** The mdvdb version that understands File schema fields. */
+export const MDVDB_FILE_FIELDS_MIN_VERSION = '0.2.0'
+
 /** Oldest mdvdb version supported by this app release. */
 export const MDVDB_MIN_SUPPORTED_VERSION = '0.2.0'
 
@@ -44,6 +47,13 @@ class CliFeatures {
   get supportsRelations(): boolean {
     if (this.version === null) return false
     const cmp = compareSemver(this.version, MDVDB_RELATIONS_MIN_VERSION)
+    return cmp !== null && cmp >= 0
+  }
+
+  /** Whether the detected CLI can infer, pin, and edit File fields. */
+  get supportsFileFields(): boolean {
+    if (this.version === null) return false
+    const cmp = compareSemver(this.version, MDVDB_FILE_FIELDS_MIN_VERSION)
     return cmp !== null && cmp >= 0
   }
 

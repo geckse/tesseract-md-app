@@ -14,6 +14,7 @@
   import Settings from './components/Settings.svelte'
   import UpdateNotification from './components/UpdateNotification.svelte'
   import ObsidianImportNotification from './components/ObsidianImportNotification.svelte'
+  import CollectionSkillsNotification from './components/CollectionSkillsNotification.svelte'
   import { requestConfirmation } from './stores/confirmation'
   import { setupObsidianImportListener } from './stores/obsidian-import'
   import {
@@ -106,6 +107,7 @@
   import PopupShell from './components/PopupShell.svelte'
   import BottomPanel from './components/BottomPanel.svelte'
   import { terminalStore } from './stores/terminal.svelte'
+  import { clearCollectionSkillsNotice, refreshCollectionSkills } from './stores/collection-skills'
   import type { SearchResult } from './types/cli'
 
   // ── Popup Mode Detection ──────────────────────────────────────────
@@ -252,8 +254,21 @@
       void window.api.setMenuContext({ active })
     }
     const unsubGraphMenuContext = graphViewActive.subscribe((active) => reportMenuContext(active))
-    const reportMenuContextOnFocus = (): void => reportMenuContext()
+    const reportMenuContextOnFocus = (): void => {
+      reportMenuContext()
+      const collectionId = get(activeCollectionId)
+      if (collectionId) void refreshCollectionSkills(collectionId)
+    }
     window.addEventListener('focus', reportMenuContextOnFocus)
+
+    // Check project-local Tesseract skills on startup and collection changes.
+    const unsubCollectionSkills = activeCollectionId.subscribe((collectionId) => {
+      if (collectionId) {
+        void refreshCollectionSkills(collectionId)
+      } else {
+        clearCollectionSkillsNotice()
+      }
+    })
 
     // Register keyboard shortcuts
     const unregisterShortcuts = [
@@ -602,6 +617,10 @@
       // graphViewActive false, otherwise an active graph is never reloaded.
       const wasGraphActive = get(graphViewActive)
 
+      // Terminal PTYs are collection-scoped. Close them before workspace.reset()
+      // can carry an old collection's terminal into the new bottom panel.
+      terminalStore.resetForCollectionSwitch()
+
       // Clear file selection, tree, properties, and editor state FIRST
       // to prevent stale paths from being used in CLI calls
       resetFileState()
@@ -634,6 +653,7 @@
       window.api.removeMenuOpenRecentListener()
       window.api.removeMenuCommandListener()
       window.removeEventListener('focus', reportMenuContextOnFocus)
+      unsubCollectionSkills()
       unsubGraphMenuContext()
       window.api.removeFileSavedExternallyListener()
       unsub()
@@ -768,6 +788,7 @@
 
         <BottomPanel />
 
+        <CollectionSkillsNotification />
         <StatusBar />
       </main>
     </div>

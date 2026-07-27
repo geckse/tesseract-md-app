@@ -212,7 +212,15 @@ export interface ReferencedByEntry {
 // ─── Schema ──────────────────────────────────────────────────────────
 
 /** The type of a frontmatter field. */
-export type FieldType = 'String' | 'Number' | 'Boolean' | 'List' | 'Date' | 'Mixed' | 'Relation'
+export type FieldType =
+  | 'String'
+  | 'Number'
+  | 'Boolean'
+  | 'List'
+  | 'Date'
+  | 'Mixed'
+  | 'Relation'
+  | 'File'
 
 /** A merged schema field combining inferred data with overlay annotations. */
 export interface SchemaField {
@@ -231,6 +239,12 @@ export interface SchemaField {
 export interface Schema {
   fields: SchemaField[]
   last_updated: number
+}
+
+/** Raw response from `schema --path`; the app IPC unwraps this to `Schema`. */
+export interface ScopedSchema {
+  scope: string
+  schema: Schema
 }
 
 // ─── Collection (folder-as-table, phase-29 contract) ─────────────────

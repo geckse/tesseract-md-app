@@ -181,6 +181,59 @@ describe('TerminalStore', () => {
     })
   })
 
+  describe('resetForCollectionSwitch', () => {
+    it('disposes old terminals so the next one starts in the new collection', async () => {
+      const oldBottom = (await terminalStore.createTerminal())!
+      const oldEditor = (await terminalStore.createTerminal({
+        paneId: workspace.defaultEditorPaneId
+      }))!
+      mockApi.terminalDispose.mockClear()
+
+      terminalStore.resetForCollectionSwitch()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+
+      expect(Object.values(workspace.tabs).filter((tab) => tab.kind === 'terminal')).toHaveLength(0)
+      expect(terminalStore.terminals[oldBottom.terminalId]).toBeUndefined()
+      expect(terminalStore.terminals[oldEditor.terminalId]).toBeUndefined()
+      expect(mockApi.terminalDispose).toHaveBeenCalledWith(oldBottom.terminalId)
+      expect(mockApi.terminalDispose).toHaveBeenCalledWith(oldEditor.terminalId)
+
+      mockApi.getActiveCollection.mockResolvedValueOnce({
+        id: '2',
+        name: 'other',
+        path: '/other',
+        addedAt: 0,
+        lastOpenedAt: 0
+      })
+      await terminalStore.toggleBottomPanel()
+
+      expect(mockApi.terminalCreate).toHaveBeenLastCalledWith(
+        expect.objectContaining({ cwd: '/other' })
+      )
+      expect(bottomTabs()).toHaveLength(1)
+    })
+
+    it('disposes a PTY that finishes spawning after the collection changes', async () => {
+      let finishSpawn: ((value: { pid: number; shell: string }) => void) | undefined
+      mockApi.terminalCreate.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishSpawn = resolve
+          })
+      )
+
+      const pending = terminalStore.createTerminal({ cwd: '/proj' })
+      terminalStore.resetForCollectionSwitch()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+
+      finishSpawn?.({ pid: 5678, shell: '/bin/zsh' })
+      expect(await pending).toBeNull()
+      expect(Object.keys(terminalStore.terminals)).toHaveLength(0)
+      expect(Object.values(workspace.tabs).filter((tab) => tab.kind === 'terminal')).toHaveLength(0)
+      expect(mockApi.terminalDispose).toHaveBeenCalledTimes(2)
+    })
+  })
+
   describe('handleExit', () => {
     it('marks the terminal as exited with the exit code', async () => {
       const { terminalId } = (await terminalStore.createTerminal())!

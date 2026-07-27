@@ -52,6 +52,30 @@ export interface RecentEntry {
   openedAt: number // Unix timestamp, updated on each open
 }
 
+/** Supported project-local agent skill directories. */
+export type CollectionSkillsTargetId = 'claude' | 'agents' | 'gemini'
+
+export interface CollectionSkillsTarget {
+  id: CollectionSkillsTargetId
+  label: string
+  relativePath: string
+  state: 'missing' | 'outdated' | 'current' | 'blocked'
+  installedSkillCount: number
+  totalSkillCount: number
+  agentDirectoryPresent: boolean
+}
+
+/** Health of the app-bundled Tesseract skills inside one collection. */
+export interface CollectionSkillsStatus {
+  state: 'missing' | 'outdated' | 'current'
+  bundleVersion: string
+  bundleFingerprint: string
+  skillCount: number
+  targets: CollectionSkillsTarget[]
+  recommendedTargetId: CollectionSkillsTargetId
+  dismissedForever: boolean
+}
+
 /** A simple confirmation rendered with the operating system's native dialog. */
 export interface NativeConfirmationOptions {
   title: string
@@ -275,6 +299,7 @@ export type PropertyTargetType =
   | 'select'
   | 'tags'
   | 'relation'
+  | 'file'
   | 'complex'
 
 /** A recursive property operation: retype a key, or rename it. */
@@ -486,6 +511,12 @@ export interface MdvdbApi {
   removeCollection(id: string): Promise<void>
   setActiveCollection(id: string): Promise<void>
   getActiveCollection(): Promise<Collection | null>
+  checkCollectionSkills(collectionId: string): Promise<CollectionSkillsStatus>
+  installCollectionSkills(
+    collectionId: string,
+    targetId: CollectionSkillsTargetId
+  ): Promise<CollectionSkillsStatus>
+  setCollectionSkillsDismissed(collectionId: string, dismissed: boolean): Promise<void>
 
   // File operations
   readFile(absolutePath: string): Promise<string>
@@ -514,6 +545,7 @@ export interface MdvdbApi {
 
   // Asset scanning
   scanAssets(collectionPath: string): Promise<AssetScanResult>
+  fileThumbnail(absolutePath: string, width?: number, height?: number): Promise<string | null>
 
   // Get native file path from a dropped File object (Electron webUtils)
   getPathForFile(file: File): string

@@ -121,6 +121,16 @@
       "out/**/*",
       "resources/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "../tesseract-skills/plugins/tesseract",
+        "to": "tesseract-skills"
+      },
+      {
+        "from": "tesseract-skills/plugins/tesseract",
+        "to": "tesseract-skills"
+      }
+    ],
     "asarUnpack": [
       "**/node_modules/node-pty/**"
     ],

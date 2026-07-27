@@ -83,7 +83,7 @@ describe('VaultWatcher real filesystem integration', () => {
     )
     expect(modified.events.find((e) => e.path === 'note.md')!.origin).toBe('app')
 
-    // Ignore rules: .markdownvdb + non-markdown/non-asset must not surface
+    // Internal paths stay hidden; arbitrary non-Markdown files are assets.
     batches.length = 0
     await fs.mkdir(join(root, '.markdownvdb'), { recursive: true })
     await fs.writeFile(join(root, '.markdownvdb', 'index'), 'x')
@@ -92,7 +92,7 @@ describe('VaultWatcher real filesystem integration', () => {
     await waitForBatch(batches, (b) => b.events.some((e) => e.path === 'second.md'))
     const paths = batches.flatMap((b) => b.events.map((e) => e.path))
     expect(paths.some((p) => p.includes('.markdownvdb'))).toBe(false)
-    expect(paths).not.toContain('scratch.json')
+    expect(paths).toContain('scratch.json')
 
     batches.length = 0
     await fs.rm(notePath)

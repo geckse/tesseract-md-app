@@ -177,6 +177,11 @@ const api: MdvdbApi = {
   removeCollection: (id) => invoke('collections:remove', id),
   setActiveCollection: (id) => invoke('collections:set-active', id),
   getActiveCollection: () => invoke('collections:get-active'),
+  checkCollectionSkills: (collectionId) => invoke('skills:check-collection', collectionId),
+  installCollectionSkills: (collectionId, targetId) =>
+    invoke('skills:install-collection', collectionId, targetId),
+  setCollectionSkillsDismissed: (collectionId, dismissed) =>
+    invoke('skills:set-collection-dismissed', collectionId, dismissed),
 
   // File operations
   readFile: (absolutePath) => invoke('fs:read-file', absolutePath),
@@ -195,6 +200,8 @@ const api: MdvdbApi = {
 
   // Asset scanning
   scanAssets: (collectionPath) => invoke('fs:scan-assets', collectionPath),
+  fileThumbnail: (absolutePath, width, height) =>
+    invoke('fs:file-thumbnail', absolutePath, width, height),
 
   // Get native file path from dropped File (Electron webUtils — runs in preload only)
   getPathForFile: (file: File) => webUtils.getPathForFile(file),

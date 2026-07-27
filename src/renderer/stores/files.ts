@@ -61,6 +61,37 @@ export const flatFileList = derived(fileTree, ($fileTree) => {
 /** The asset scan result for the active collection. */
 export const assetTree = writable<AssetScanResult | null>(null)
 
+export interface FlatAsset {
+  path: string
+  name: string
+  fileSize?: number
+  mimeCategory: MimeCategory
+}
+
+/** Flat collection-file cache shared by File pickers and attachment tiles. */
+export const flatAssetList = derived(assetTree, ($assetTree): FlatAsset[] => {
+  if (!$assetTree) return []
+  const files: FlatAsset[] = []
+  function walk(node: AssetFileNode): void {
+    if (!node.is_dir) {
+      files.push({
+        path: node.path,
+        name: node.name,
+        fileSize: node.fileSize,
+        mimeCategory: node.mimeCategory ?? 'other'
+      })
+    }
+    for (const child of node.children) walk(child)
+  }
+  for (const child of $assetTree.root.children) walk(child)
+  return files
+})
+
+/** Root-relative asset lookup; broken references are absent. */
+export const assetsByPath = derived(flatAssetList, ($files) => {
+  return new Map($files.map((file) => [file.path, file]))
+})
+
 /** Whether to show non-markdown asset files in the tree. */
 export const showAssets = writable<boolean>(true)
 

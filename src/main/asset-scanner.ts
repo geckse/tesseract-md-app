@@ -73,10 +73,16 @@ const MAX_DEPTH = 10
 /** Maximum total asset files to discover. */
 const MAX_FILES = 10_000
 
-/** Get the MimeCategory for a file extension, or null if not a recognized asset. */
+/**
+ * Get the display category for a non-Markdown file.
+ *
+ * Unknown and extensionless files are still collection assets and use the
+ * generic `other` category. Markdown stays owned by the CLI tree.
+ */
 export function getMimeCategory(filename: string): MimeCategory | null {
+  if (isMarkdown(filename)) return null
   const ext = extname(filename).toLowerCase()
-  return EXTENSION_MAP[ext] ?? null
+  return EXTENSION_MAP[ext] ?? 'other'
 }
 
 /** Check if a filename is a markdown file. */
@@ -128,8 +134,11 @@ async function scanDirectory(
 
     const name = entry.name
 
-    // Skip hidden files/dirs (except .gitignore which we already read)
-    if (name.startsWith('.') && name !== '.gitignore') {
+    // .gitignore was consumed as scanner configuration, never as an asset.
+    if (name === '.gitignore') continue
+
+    // Skip hidden files/dirs.
+    if (name.startsWith('.')) {
       if (ALWAYS_SKIP_DIRS.has(name)) continue
       // Skip other hidden files
       continue
@@ -169,8 +178,7 @@ async function scanDirectory(
       // Skip markdown files (those come from the CLI tree)
       if (isMarkdown(name)) continue
 
-      const mimeCategory = getMimeCategory(name)
-      if (!mimeCategory) continue
+      const mimeCategory = getMimeCategory(name) ?? 'other'
 
       let fileSize: number | undefined
       try {

@@ -40,6 +40,7 @@ import {
 import { upsertOverlayField, renameOverlayField } from './schema-overlay'
 import { renamePropertyInViews } from './table-views'
 import type { WindowManager } from './window-manager'
+import { parseFileReference } from '../shared/file-reference'
 
 // ─── Pure conversion rules (the matrix) ─────────────────────────────────
 
@@ -63,6 +64,8 @@ export function storageKindFor(target: PropertyTargetType): StorageKind | null {
     case 'select':
     case 'relation':
       return 'string'
+    case 'file':
+      return 'list'
     case 'number':
       return 'number'
     case 'boolean':
@@ -81,6 +84,7 @@ export function storageKindFor(target: PropertyTargetType): StorageKind | null {
 /** Overlay `field_type` string for a UI target type (datetime pins as date). */
 export function overlayFieldTypeFor(target: PropertyTargetType): string {
   if (target === 'relation') return 'relation'
+  if (target === 'file') return 'file'
   const kind = storageKindFor(target)
   return kind === 'datetime' ? 'date' : (kind ?? 'mixed')
 }
@@ -107,6 +111,21 @@ export function convertValue(value: JsonValue, target: PropertyTargetType): Conv
       return { ok: true, value, changed: false }
     }
     return { ok: false, reason: 'only text values can become relations' }
+  }
+
+  // Files have a canonical list shape even when there is only one value.
+  // Accept legacy scalar values, but normalize them on the first edit/convert.
+  if (target === 'file') {
+    if (typeof value === 'string' && parseFileReference(value, true)) {
+      return { ok: true, value: [value], changed: true }
+    }
+    if (
+      Array.isArray(value) &&
+      value.every((item) => typeof item === 'string' && !!parseFileReference(item, true))
+    ) {
+      return { ok: true, value, changed: false }
+    }
+    return { ok: false, reason: 'only file-link text values can become files' }
   }
 
   const kind = storageKindFor(target)

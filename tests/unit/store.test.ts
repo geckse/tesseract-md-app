@@ -25,7 +25,9 @@ import {
   setActiveCollection,
   getActiveCollection,
   getObsidianSyncState,
-  setObsidianSyncState
+  setObsidianSyncState,
+  getCollectionSkillsDismissed,
+  setCollectionSkillsDismissed
 } from '../../src/main/store'
 
 beforeEach(() => {
@@ -228,6 +230,31 @@ describe('obsidianTopicSync state', () => {
     setObsidianSyncState('col-1', null)
     expect(mockSet).toHaveBeenCalledWith('obsidianTopicSync', {
       'col-2': { managed: false, topics: {} }
+    })
+  })
+})
+
+describe('collection skills banner dismissal', () => {
+  it('defaults to visible', () => {
+    mockGet.mockReturnValue({})
+    expect(getCollectionSkillsDismissed('col-1')).toBe(false)
+    expect(mockGet).toHaveBeenCalledWith('collectionSkillsDismissed', {})
+  })
+
+  it('persists a permanent per-collection dismissal', () => {
+    mockGet.mockReturnValue({ 'col-2': true })
+    setCollectionSkillsDismissed('col-1', true)
+    expect(mockSet).toHaveBeenCalledWith('collectionSkillsDismissed', {
+      'col-1': true,
+      'col-2': true
+    })
+  })
+
+  it('clears a permanent dismissal', () => {
+    mockGet.mockReturnValue({ 'col-1': true, 'col-2': true })
+    setCollectionSkillsDismissed('col-1', false)
+    expect(mockSet).toHaveBeenCalledWith('collectionSkillsDismissed', {
+      'col-2': true
     })
   })
 })

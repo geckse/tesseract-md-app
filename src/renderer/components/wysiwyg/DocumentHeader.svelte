@@ -2,6 +2,7 @@
   import type { JsonValue, RelationValue, Schema, SchemaField } from '../../types/cli'
   import { parseFrontmatterData, serializeFrontmatter } from '../../lib/tiptap/markdown-bridge'
   import { isLinkShaped } from '../../lib/relation-format'
+  import { isFileReferenceValue } from '../../../shared/file-reference'
   import { propertyOps, scopeForPanelFile } from '../../stores/property-ops.svelte'
   import { documentInfo } from '../../stores/properties'
   import FileNameEditor from './FileNameEditor.svelte'
@@ -34,6 +35,8 @@
     key: string
     value: JsonValue
     id: number
+    /** Keeps a newly-created empty File list rendered as File until schema refresh. */
+    typeHint?: DetectedType
   }
 
   let rows = $state<FrontmatterRow[]>([])
@@ -83,8 +86,13 @@
   function detectType(key: string, value: JsonValue): DetectedType {
     const sf = getSchemaField(key)
 
-    // Schema-driven overrides (Relation wins — a relation renders chips even
-    // when the schema also declares allowed_values)
+    // Explicit File schema pins support empty and extensionless values. An
+    // unambiguous File value then wins over a stale legacy Relation label so
+    // the editor and read-only properties panel classify the same data alike.
+    if (sf?.field_type === 'File') return 'file'
+    const typeHint = rows.find((candidate) => candidate.key === key)?.typeHint
+    if (typeHint === 'file' && Array.isArray(value)) return 'file'
+    if (isFileReferenceValue(value)) return 'file'
     if (sf?.field_type === 'Relation') return 'relation'
     if (sf?.allowed_values?.length) return 'select'
     if (sf?.field_type === 'Boolean' || typeof value === 'boolean') return 'boolean'
@@ -104,6 +112,7 @@
     }
 
     if (value !== null && typeof value === 'object' && !Array.isArray(value)) return 'complex'
+    if (typeHint) return typeHint
     return 'text'
   }
 
@@ -139,6 +148,8 @@
         return ''
       case 'relation':
         return ''
+      case 'file':
+        return []
       case 'complex':
         return {}
       default:
@@ -147,8 +158,20 @@
   }
 
   function handleAdd(key: string, type: string) {
-    rows.push({ key, value: getDefaultValue(type), id: nextId++ })
+    rows.push({
+      key,
+      value: getDefaultValue(type),
+      id: nextId++,
+      typeHint: type as DetectedType
+    })
     emitUpdate()
+    if (type === 'file') {
+      // An empty list carries no inference evidence, so persist the File
+      // schema identity immediately instead of letting it reopen as List.
+      void propertyOps
+        .applyOverlayFieldPatch(panelScope, key, { fieldType: 'file' })
+        .catch((error) => console.error('Failed to pin new File property:', error))
+    }
   }
 
   function handleKeyChange(id: number, newKey: string) {

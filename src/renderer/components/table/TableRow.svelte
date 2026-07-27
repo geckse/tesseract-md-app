@@ -12,7 +12,9 @@
   import DateCell from './cells/DateCell.svelte'
   import MixedCell from './cells/MixedCell.svelte'
   import RelationCell from './cells/RelationCell.svelte'
+  import FileCell from './cells/FileCell.svelte'
   import { requestConfirmation } from '../../stores/confirmation'
+  import { cliFeatures } from '../../lib/cli-features.svelte'
 
   interface Props {
     tabId: string
@@ -34,7 +36,8 @@
     Mixed: MixedCell,
     // Renders regardless of CLI version (never gate rendering — phase 42):
     // without populate the chips fall back to a neutral client parse.
-    Relation: RelationCell
+    Relation: RelationCell,
+    File: FileCell
   }
 
   // Only one cell per row is in edit mode at a time.
@@ -69,6 +72,7 @@
 
   function startEdit(col: CollectionColumn): void {
     if (readOnly) return
+    if (col.field_type === 'File' && !cliFeatures.supportsFileFields) return
     // Boolean cells toggle directly — no edit mode.
     if (col.field_type === 'Boolean') return
     editingCol = col.name

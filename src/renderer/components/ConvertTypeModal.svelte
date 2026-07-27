@@ -15,6 +15,8 @@
     email: 'Email',
     select: 'Select',
     tags: 'Tags',
+    relation: 'Relation',
+    file: 'File',
     complex: 'JSON'
   }
 

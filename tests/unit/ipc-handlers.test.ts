@@ -22,12 +22,16 @@ const mockAddCollection = vi.fn()
 const mockRemoveCollection = vi.fn()
 const mockSetActiveCollection = vi.fn()
 const mockGetActiveCollection = vi.fn()
+const mockGetCollectionSkillsDismissed = vi.fn()
+const mockSetCollectionSkillsDismissed = vi.fn()
 vi.mock('../../src/main/store', () => ({
   getCollections: (...args: unknown[]) => mockGetCollections(...args),
   addCollection: (...args: unknown[]) => mockAddCollection(...args),
   removeCollection: (...args: unknown[]) => mockRemoveCollection(...args),
   setActiveCollection: (...args: unknown[]) => mockSetActiveCollection(...args),
   getActiveCollection: (...args: unknown[]) => mockGetActiveCollection(...args),
+  getCollectionSkillsDismissed: (...args: unknown[]) => mockGetCollectionSkillsDismissed(...args),
+  setCollectionSkillsDismissed: (...args: unknown[]) => mockSetCollectionSkillsDismissed(...args),
   getOnboardingComplete: vi.fn().mockReturnValue(false),
   setOnboardingComplete: vi.fn(),
   getEditorFontSize: vi.fn().mockReturnValue(17),
@@ -40,6 +44,13 @@ vi.mock('../../src/main/store', () => ({
   getThemeMode: vi.fn().mockReturnValue('dark'),
   setThemeMode: vi.fn(),
   initStore: vi.fn()
+}))
+
+const mockCheckCollectionSkills = vi.fn()
+const mockInstallCollectionSkills = vi.fn()
+vi.mock('../../src/main/collection-skills', () => ({
+  checkCollectionSkills: (...args: unknown[]) => mockCheckCollectionSkills(...args),
+  installCollectionSkills: (...args: unknown[]) => mockInstallCollectionSkills(...args)
 }))
 
 // Mock cli-install module
@@ -281,6 +292,10 @@ beforeEach(() => {
   mockRemoveCollection.mockReset()
   mockSetActiveCollection.mockReset()
   mockGetActiveCollection.mockReset()
+  mockGetCollectionSkillsDismissed.mockReset().mockReturnValue(false)
+  mockSetCollectionSkillsDismissed.mockReset()
+  mockCheckCollectionSkills.mockReset()
+  mockInstallCollectionSkills.mockReset()
   mockPickCollectionFolder.mockReset()
   mockValidateCollectionPath.mockReset()
   mockInitCollection.mockReset()
@@ -338,12 +353,16 @@ describe('registerIpcHandlers', () => {
     expect(channels).toContain('cli:doctor')
     expect(channels).toContain('cli:info')
     expect(channels).toContain('cli:init')
+    expect(channels).toContain('fs:file-thumbnail')
     expect(channels).toContain('collections:list')
     expect(channels).toContain('collections:add')
     expect(channels).toContain('collections:create-example')
     expect(channels).toContain('collections:remove')
     expect(channels).toContain('collections:set-active')
     expect(channels).toContain('collections:get-active')
+    expect(channels).toContain('skills:check-collection')
+    expect(channels).toContain('skills:install-collection')
+    expect(channels).toContain('skills:set-collection-dismissed')
     expect(channels).toContain('fs:read-file')
     expect(channels).toContain('fs:write-file')
     expect(channels).toContain('shell:show-item-in-folder')
@@ -413,7 +432,7 @@ describe('registerIpcHandlers', () => {
     // Dirty-close guard (data safety)
     expect(channels).toContain('app:confirm-close')
     expect(channels).toContain('app:cancel-close')
-    expect(channels).toHaveLength(132)
+    expect(channels).toHaveLength(136)
   })
 })
 
@@ -766,12 +785,24 @@ describe('IPC handler argument passing', () => {
   })
 
   describe('cli:schema', () => {
-    it('calls with empty args', async () => {
-      mockExecCommand.mockResolvedValue({ fields: [] })
+    it('returns the global schema with empty args', async () => {
+      const schema = { fields: [], last_updated: 1 }
+      mockExecCommand.mockResolvedValue(schema)
       const handler = getHandler('cli:schema')
-      await handler(fakeEvent, '/tmp/project')
+      const result = await handler(fakeEvent, '/tmp/project')
 
       expect(mockExecCommand).toHaveBeenCalledWith('schema', [], '/tmp/project')
+      expect(result).toEqual(schema)
+    })
+
+    it('unwraps a path-scoped schema to the preload Schema contract', async () => {
+      const schema = { fields: [], last_updated: 2 }
+      mockExecCommand.mockResolvedValue({ scope: 'docs', schema })
+      const handler = getHandler('cli:schema')
+      const result = await handler(fakeEvent, '/tmp/project', 'docs')
+
+      expect(mockExecCommand).toHaveBeenCalledWith('schema', ['--path', 'docs'], '/tmp/project')
+      expect(result).toEqual(schema)
     })
   })
 
@@ -1025,6 +1056,80 @@ describe('Collection IPC handlers', () => {
       const handler = getHandler('collections:get-active')
       const result = await handler()
       expect(result).toBeNull()
+    })
+  })
+
+  describe('collection skills', () => {
+    const collection = {
+      id: 'skills-collection',
+      name: 'Project',
+      path: '/project',
+      addedAt: 1,
+      lastOpenedAt: 1
+    }
+    const status = {
+      state: 'missing',
+      bundleVersion: '1.0.0',
+      bundleFingerprint: 'bundle-hash',
+      skillCount: 9,
+      targets: [],
+      recommendedTargetId: 'agents',
+      dismissedForever: false
+    }
+
+    it('checks the bundled skills against a known collection path', async () => {
+      mockGetCollections.mockReturnValue([collection])
+      mockGetCollectionSkillsDismissed.mockReturnValue(true)
+      mockCheckCollectionSkills.mockResolvedValue(status)
+
+      const result = await getHandler('skills:check-collection')(fakeEvent, collection.id)
+
+      expect(mockCheckCollectionSkills).toHaveBeenCalledWith('/project')
+      expect(mockGetCollectionSkillsDismissed).toHaveBeenCalledWith(collection.id)
+      expect(result).toEqual({ ...status, dismissedForever: true })
+    })
+
+    it('installs the bundle only in the explicitly selected agent target', async () => {
+      mockGetCollections.mockReturnValue([collection])
+      mockInstallCollectionSkills.mockResolvedValue({ ...status, state: 'current' })
+
+      const result = await getHandler('skills:install-collection')(
+        fakeEvent,
+        collection.id,
+        'claude'
+      )
+
+      expect(mockInstallCollectionSkills).toHaveBeenCalledWith('/project', 'claude')
+      expect(result).toEqual({ ...status, state: 'current', dismissedForever: false })
+    })
+
+    it('rejects checks and installs for an unknown collection', async () => {
+      mockGetCollections.mockReturnValue([])
+
+      const checked = await getHandler('skills:check-collection')(fakeEvent, 'missing')
+      const installed = await getHandler('skills:install-collection')(
+        fakeEvent,
+        'missing',
+        'agents'
+      )
+
+      expect(checked).toEqual(expect.objectContaining({ error: true }))
+      expect(installed).toEqual(expect.objectContaining({ error: true }))
+      expect(mockCheckCollectionSkills).not.toHaveBeenCalled()
+      expect(mockInstallCollectionSkills).not.toHaveBeenCalled()
+    })
+
+    it('persists permanent dismissal only for a known collection', async () => {
+      mockGetCollections.mockReturnValue([collection])
+
+      const result = await getHandler('skills:set-collection-dismissed')(
+        fakeEvent,
+        collection.id,
+        true
+      )
+
+      expect(result).toBeUndefined()
+      expect(mockSetCollectionSkillsDismissed).toHaveBeenCalledWith(collection.id, true)
     })
   })
 

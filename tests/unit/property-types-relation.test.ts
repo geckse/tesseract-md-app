@@ -22,12 +22,14 @@ describe('property types — relation (phase 42)', () => {
       'List',
       'Date',
       'Mixed',
-      'Relation'
+      'Relation',
+      'File'
     ]
     for (const ft of fieldTypes) {
       expect(FIELD_TO_DETECTED[ft]).toBeDefined()
     }
     expect(FIELD_TO_DETECTED.Relation).toBe('relation')
+    expect(FIELD_TO_DETECTED.File).toBe('file')
   })
 
   it('Relation wins over allowed_values in detectedTypeForField', () => {

@@ -35,6 +35,7 @@ class TerminalStore {
 
   private _nextIndex = 1
   private _initialized = false
+  private _collectionGeneration = 0
 
   /** Scrollback captured on adopt, replayed by Terminal.svelte when xterm mounts.
    * Reactive so an already-mounted terminal picks it up when rebind resolves. */
@@ -96,8 +97,14 @@ class TerminalStore {
     const api = window.api
     if (!api) return null
 
+    const collectionGeneration = this._collectionGeneration
     const id = crypto.randomUUID()
     const cwd = opts?.cwd || (await this.resolveDefaultCwd())
+    if (collectionGeneration !== this._collectionGeneration) {
+      // A default terminal requested while a switch was in flight should use
+      // the newly active collection. Explicit old paths are simply cancelled.
+      return opts?.cwd ? null : this.createTerminal(opts)
+    }
     const title = opts?.title ?? `Terminal ${this._nextIndex}`
     const meta: TerminalMeta = {
       id,
@@ -129,6 +136,16 @@ class TerminalStore {
         cols,
         rows
       })
+      if (collectionGeneration !== this._collectionGeneration || !this.terminals[id]) {
+        // The tab was closed while the main process was spawning the PTY.
+        // Dispose the late process instead of resurrecting an orphaned session.
+        try {
+          await api.terminalDispose(id)
+        } catch {
+          // ignore — reset may already have disposed it
+        }
+        return null
+      }
       const spawnedTitle =
         meta.title === `Terminal ${this._nextIndex}`
           ? `${shellName(result.shell)} — ${this._nextIndex}`
@@ -144,6 +161,9 @@ class TerminalStore {
       this._nextIndex++
       return { terminalId: id, tabId }
     } catch (err) {
+      if (collectionGeneration !== this._collectionGeneration || !this.terminals[id]) {
+        return null
+      }
       const message = err instanceof Error ? err.message : String(err)
       this.terminals[id] = {
         ...this.terminals[id],
@@ -201,6 +221,24 @@ class TerminalStore {
     const terminalTabIds = bottom.tabOrder.filter(
       (tabId) => workspace.tabs[tabId]?.kind === 'terminal'
     )
+    for (const tabId of terminalTabIds) {
+      workspace.closeTab(tabId)
+    }
+  }
+
+  /**
+   * Close every terminal before changing collections.
+   *
+   * workspace.reset() normally preserves terminal tabs, but a terminal opened
+   * for one collection must not be reused after another collection becomes
+   * active. Closing through the workspace also disposes each backing PTY.
+   */
+  resetForCollectionSwitch(): void {
+    this._collectionGeneration++
+    const terminalTabIds = Object.entries(workspace.tabs)
+      .filter(([, tab]) => tab.kind === 'terminal')
+      .map(([tabId]) => tabId)
+
     for (const tabId of terminalTabIds) {
       workspace.closeTab(tabId)
     }
@@ -347,6 +385,7 @@ class TerminalStore {
   private restoreSlot(slot: { shell: string; cwd: string; title?: string }): string | null {
     // Session restoration is asynchronous — we create a placeholder meta
     // entry and let the PTY spawn resolve in the background.
+    const collectionGeneration = this._collectionGeneration
     const id = crypto.randomUUID()
     const meta: TerminalMeta = {
       id,
@@ -373,7 +412,15 @@ class TerminalStore {
         cols: 80,
         rows: 24
       })
-      .then((result) => {
+      .then(async (result) => {
+        if (collectionGeneration !== this._collectionGeneration || !this.terminals[id]) {
+          try {
+            await api.terminalDispose(id)
+          } catch {
+            // ignore — reset may already have disposed it
+          }
+          return
+        }
         this.terminals[id] = {
           ...this.terminals[id],
           pid: result.pid,
@@ -382,6 +429,9 @@ class TerminalStore {
         }
       })
       .catch((err: unknown) => {
+        if (collectionGeneration !== this._collectionGeneration || !this.terminals[id]) {
+          return
+        }
         const message = err instanceof Error ? err.message : String(err)
         this.terminals[id] = {
           ...this.terminals[id],

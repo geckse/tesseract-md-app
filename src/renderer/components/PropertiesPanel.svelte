@@ -4,6 +4,7 @@
   import ResizeHandle from './ResizeHandle.svelte'
   import LocalGraph from './LocalGraph.svelte'
   import RelationChip from './RelationChip.svelte'
+  import FileTile from './FileTile.svelte'
   import {
     documentInfo,
     backlinksInfo,
@@ -14,8 +15,10 @@
     propertiesLoading,
     propertiesError
   } from '../stores/properties'
-  import { activeCollectionId } from '../stores/collections'
-  import { selectedFilePath } from '../stores/files'
+  import { activeCollection, activeCollectionId } from '../stores/collections'
+  import { assetsByPath, selectedFilePath } from '../stores/files'
+  import { schema } from '../stores/schema'
+  import { isFileReferenceValue, parseFileReference } from '../../shared/file-reference'
   import { scrollToLine, activeHeadingIndex, isDirty } from '../stores/editor'
   import { isFavorited, toggleFavorite } from '../stores/favorites'
   import {
@@ -30,7 +33,8 @@
     LinksOutput,
     NeighborhoodResult,
     NeighborhoodNode,
-    JsonValue
+    JsonValue,
+    Schema
   } from '../types/cli'
   import type { OutlineHeading } from '../stores/properties'
 
@@ -78,6 +82,8 @@
   let currentNeighborhood: NeighborhoodResult | null = $state(null)
 
   let currentActiveCollectionId: string | null = $state(null)
+  let currentCollectionPath: string | null = $state(null)
+  let currentSchema: Schema | null = $state(null)
   let currentIsDirty = $state(false)
   let currentIsFavorited = $state(false)
 
@@ -93,6 +99,8 @@
     selectedFilePath.subscribe((v) => (currentFilePath = v)),
     activeHeadingIndex.subscribe((v) => (currentActiveHeadingIndex = v)),
     activeCollectionId.subscribe((v) => (currentActiveCollectionId = v)),
+    activeCollection.subscribe((v) => (currentCollectionPath = v?.path ?? null)),
+    schema.subscribe((v) => (currentSchema = v)),
     isDirty.subscribe((v) => (currentIsDirty = v)),
     isFavorited.subscribe((v) => (currentIsFavorited = v))
   ]
@@ -206,6 +214,30 @@
     return Array.isArray(value)
   }
 
+  function fileReferencesFor(
+    key: string,
+    value: JsonValue
+  ): { raw: string; path: string | null }[] {
+    const values =
+      typeof value === 'string'
+        ? [value]
+        : Array.isArray(value)
+          ? value.filter((item): item is string => typeof item === 'string')
+          : []
+    const isPinnedFile = currentSchema?.fields?.some(
+      (field) => field.name === key && field.field_type === 'File'
+    )
+    if (!isPinnedFile && !isFileReferenceValue(value)) return []
+    return values.map((raw) => ({ raw, path: parseFileReference(raw, isPinnedFile) }))
+  }
+
+  function isFileProperty(key: string, value: JsonValue): boolean {
+    if (currentSchema?.fields?.some((field) => field.name === key && field.field_type === 'File')) {
+      return true
+    }
+    return isFileReferenceValue(value)
+  }
+
   function getFileName(path: string): string {
     const parts = path.split('/')
     return parts[parts.length - 1]
@@ -295,10 +327,33 @@
             <div class="properties-grid">
               {#each Object.entries(currentFrontmatter) as [key, value]}
                 {@const keyRelations = relationsFor(key)}
+                {@const keyFiles = fileReferencesFor(key, value)}
+                {@const keyIsFile = isFileProperty(key, value)}
                 <div class="property-row">
                   <span class="property-label">{key}</span>
                   <div class="property-value">
-                    {#if keyRelations && keyRelations.length > 0}
+                    {#if keyIsFile && currentCollectionPath}
+                      <div class="file-tiles">
+                        {#if keyFiles.length === 0}
+                          <span class="muted-text">No files</span>
+                        {:else}
+                          {#each keyFiles as reference, i (i)}
+                            {@const asset = reference.path
+                              ? $assetsByPath.get(reference.path)
+                              : undefined}
+                            <FileTile
+                              root={currentCollectionPath}
+                              path={reference.path ?? reference.raw}
+                              raw={reference.raw}
+                              mimeCategory={asset?.mimeCategory ?? 'other'}
+                              fileSize={asset?.fileSize}
+                              exists={!!asset}
+                              compact
+                            />
+                          {/each}
+                        {/if}
+                      </div>
+                    {:else if keyRelations && keyRelations.length > 0}
                       <div class="tags-list">
                         {#each keyRelations as relation, i (i)}
                           <RelationChip
@@ -929,6 +984,13 @@
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-1, 4px);
+  }
+
+  .file-tiles {
+    max-width: 100%;
+    display: flex;
+    gap: var(--space-1, 4px);
+    overflow-x: auto;
   }
 
   .muted-text {

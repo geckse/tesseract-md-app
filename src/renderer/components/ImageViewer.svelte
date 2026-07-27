@@ -5,9 +5,10 @@
   interface Props {
     filePath: string
     fileSize?: number
+    collectionPath?: string
   }
 
-  let { filePath, fileSize }: Props = $props()
+  let { filePath, fileSize, collectionPath }: Props = $props()
 
   let dataUrl = $state<string | null>(null)
   let loading = $state(true)
@@ -25,8 +26,9 @@
     error = null
     try {
       const collection = get(activeCollection)
-      if (!collection) throw new Error('No active collection')
-      const absolutePath = `${collection.path}/${filePath}`
+      const root = collectionPath || collection?.path
+      if (!root) throw new Error('No active collection')
+      const absolutePath = `${root.replace(/\/+$/, '')}/${filePath.replace(/^\/+/, '')}`
       const base64 = await window.api.readBinary(absolutePath)
       const ext = filePath.split('.').pop()?.toLowerCase() ?? 'png'
       const mimeMap: Record<string, string> = {
@@ -71,6 +73,13 @@
     fitMode = 'actual'
   }
 
+  function openInDefaultApp(): void {
+    const root = collectionPath || get(activeCollection)?.path
+    if (!root) return
+    const absolutePath = `${root.replace(/\/+$/, '')}/${filePath.replace(/^\/+/, '')}`
+    void window.api.openPath(absolutePath)
+  }
+
   function formatSize(bytes?: number): string {
     if (bytes == null) return ''
     if (bytes < 1024) return `${bytes} B`
@@ -80,6 +89,7 @@
 
   $effect(() => {
     void filePath // track dependency
+    void collectionPath
     loadImage()
   })
 </script>
@@ -116,6 +126,14 @@
       <span class="size">{formatSize(fileSize)}</span>
     {/if}
     <div class="spacer"></div>
+    <button
+      class="zoom-btn"
+      onclick={openInDefaultApp}
+      title="Open in Default App"
+      aria-label="Open in Default App"
+    >
+      <span class="material-symbols-outlined">open_in_new</span>
+    </button>
     <button
       class="zoom-btn"
       onclick={fitToView}

@@ -57,4 +57,26 @@ describe('release hygiene', () => {
     )
     expect(matches).toEqual([])
   })
+
+  it('bundles only the app-specific tesseract-skills plugin for project installation', () => {
+    const pkg = JSON.parse(readFileSync(join(appRoot, 'package.json'), 'utf8'))
+    expect(pkg.build.extraResources).toEqual([
+      {
+        from: '../tesseract-skills/plugins/tesseract',
+        to: 'tesseract-skills'
+      },
+      {
+        from: 'tesseract-skills/plugins/tesseract',
+        to: 'tesseract-skills'
+      }
+    ])
+
+    const releaseWorkflow = readFileSync(join(appRoot, '.github/workflows/build-app.yml'), 'utf8')
+    expect(releaseWorkflow).toContain('repository: geckse/tesseract-md-skills')
+  })
+
+  it('places the collection skills banner immediately above the footer status bar', () => {
+    const app = readFileSync(join(appRoot, 'src/renderer/App.svelte'), 'utf8')
+    expect(app).toMatch(/<BottomPanel \/>\s*<CollectionSkillsNotification \/>\s*<StatusBar \/>/)
+  })
 })

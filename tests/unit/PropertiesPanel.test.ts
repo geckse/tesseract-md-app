@@ -34,6 +34,7 @@ import {
 } from '../../src/renderer/stores/properties'
 import { syncFileStoresFromTab } from '../../src/renderer/stores/files'
 import { collections, activeCollectionId } from '../../src/renderer/stores/collections'
+import { schema } from '../../src/renderer/stores/schema'
 import { workspace } from '../../src/renderer/stores/workspace.svelte'
 import PropertiesPanel from '@renderer/components/PropertiesPanel.svelte'
 import type { DocumentInfo, BacklinksOutput, LinksOutput } from '../../src/renderer/types/cli'
@@ -132,6 +133,7 @@ function resetStores() {
   syncFileStoresFromTab()
   collections.set([])
   activeCollectionId.set(null)
+  schema.set(null)
 }
 
 beforeEach(() => {
@@ -222,6 +224,16 @@ describe('PropertiesPanel component', () => {
     it('renders plain string frontmatter values', () => {
       selectFilePath('docs/test.md')
       documentInfo.set(sampleDoc)
+
+      render(PropertiesPanel)
+
+      expect(screen.getByText('Test Document')).toBeTruthy()
+    })
+
+    it('does not crash when legacy schema data has no fields array', () => {
+      selectFilePath('docs/test.md')
+      documentInfo.set(sampleDoc)
+      schema.set({ last_updated: 0 } as never)
 
       render(PropertiesPanel)
 

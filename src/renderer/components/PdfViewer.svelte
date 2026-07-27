@@ -4,9 +4,10 @@
 
   interface Props {
     filePath: string
+    collectionPath?: string
   }
 
-  let { filePath }: Props = $props()
+  let { filePath, collectionPath }: Props = $props()
 
   let loading = $state(true)
   let error = $state<string | null>(null)
@@ -21,9 +22,10 @@
 
     try {
       const collection = get(activeCollection)
-      if (!collection) throw new Error('No active collection')
+      const root = collectionPath || collection?.path
+      if (!root) throw new Error('No active collection')
 
-      const absolutePath = `${collection.path}/${filePath}`
+      const absolutePath = `${root.replace(/\/+$/, '')}/${filePath.replace(/^\/+/, '')}`
       const base64 = await window.api.readBinary(absolutePath)
       const binaryString = atob(base64)
       const bytes = new Uint8Array(binaryString.length)
@@ -102,8 +104,16 @@
     loadPdf()
   }
 
+  function openInDefaultApp(): void {
+    const root = collectionPath || get(activeCollection)?.path
+    if (!root) return
+    const absolutePath = `${root.replace(/\/+$/, '')}/${filePath.replace(/^\/+/, '')}`
+    void window.api.openPath(absolutePath)
+  }
+
   $effect(() => {
     void filePath // track dependency
+    void collectionPath
     loadPdf()
   })
 </script>
@@ -128,30 +138,41 @@
     class:hidden={loading || !!error}
   ></div>
 
-  {#if totalPages > 0 && !loading && !error}
+  {#if !loading}
     <div class="toolbar">
+      {#if totalPages > 0 && !error}
+        <button
+          class="tool-btn"
+          onclick={() => goToPage(currentPage - 1)}
+          disabled={currentPage <= 1}
+        >
+          <span class="material-symbols-outlined">chevron_left</span>
+        </button>
+        <span class="page-info">{currentPage} / {totalPages}</span>
+        <button
+          class="tool-btn"
+          onclick={() => goToPage(currentPage + 1)}
+          disabled={currentPage >= totalPages}
+        >
+          <span class="material-symbols-outlined">chevron_right</span>
+        </button>
+        <div class="separator"></div>
+        <button class="tool-btn" onclick={zoomOut} title="Zoom out">
+          <span class="material-symbols-outlined">remove</span>
+        </button>
+        <span class="zoom-level">{Math.round(zoom * 100)}%</span>
+        <button class="tool-btn" onclick={zoomIn} title="Zoom in">
+          <span class="material-symbols-outlined">add</span>
+        </button>
+      {/if}
+      <div class="toolbar-spacer"></div>
       <button
         class="tool-btn"
-        onclick={() => goToPage(currentPage - 1)}
-        disabled={currentPage <= 1}
+        onclick={openInDefaultApp}
+        title="Open in Default App"
+        aria-label="Open in Default App"
       >
-        <span class="material-symbols-outlined">chevron_left</span>
-      </button>
-      <span class="page-info">{currentPage} / {totalPages}</span>
-      <button
-        class="tool-btn"
-        onclick={() => goToPage(currentPage + 1)}
-        disabled={currentPage >= totalPages}
-      >
-        <span class="material-symbols-outlined">chevron_right</span>
-      </button>
-      <div class="separator"></div>
-      <button class="tool-btn" onclick={zoomOut} title="Zoom out">
-        <span class="material-symbols-outlined">remove</span>
-      </button>
-      <span class="zoom-level">{Math.round(zoom * 100)}%</span>
-      <button class="tool-btn" onclick={zoomIn} title="Zoom in">
-        <span class="material-symbols-outlined">add</span>
+        <span class="material-symbols-outlined">open_in_new</span>
       </button>
     </div>
   {/if}
@@ -261,6 +282,10 @@
     height: 20px;
     background: var(--color-border, #27272a);
     margin: 0 4px;
+  }
+
+  .toolbar-spacer {
+    flex: 1;
   }
 
   @media (prefers-reduced-motion: reduce) {

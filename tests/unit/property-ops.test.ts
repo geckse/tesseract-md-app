@@ -366,3 +366,27 @@ describe('relation storage kind + overlay type (phase 42)', () => {
     expect(overlayFieldTypeFor('relation')).toBe('relation')
   })
 })
+
+describe('convertValue — to File', () => {
+  it('normalizes a legacy scalar to the canonical list shape', () => {
+    expect(convertValue('[[assets/mockup.png]]', 'file')).toEqual({
+      ok: true,
+      value: ['[[assets/mockup.png]]'],
+      changed: true
+    })
+  })
+
+  it('keeps string arrays and rejects non-string values', () => {
+    const links = ['[[assets/mockup.png]]', '[[documents/spec.pdf]]']
+    expect(convertValue(links, 'file')).toEqual({ ok: true, value: links, changed: false })
+    expect(convertValue(['[[assets/mockup.png]]', 42], 'file').ok).toBe(false)
+    expect(convertValue(42, 'file').ok).toBe(false)
+    expect(convertValue('[[notes/readme.md]]', 'file').ok).toBe(false)
+    expect(convertValue('https://example.com/spec.pdf', 'file').ok).toBe(false)
+  })
+
+  it('stores as a list and pins the File overlay type', () => {
+    expect(storageKindFor('file')).toBe('list')
+    expect(overlayFieldTypeFor('file')).toBe('file')
+  })
+})

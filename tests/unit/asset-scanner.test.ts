@@ -25,14 +25,16 @@ describe('scanAssets', () => {
   it('discovers assets and skips markdown files', async () => {
     await writeFile(join(testDir, 'note.md'), '# hi', 'utf-8')
     await writeFile(join(testDir, 'img.png'), 'fake-png', 'utf-8')
+    await writeFile(join(testDir, 'archive.custom'), 'opaque', 'utf-8')
+    await writeFile(join(testDir, 'LICENSE'), 'opaque', 'utf-8')
 
     const result = await scanAssets(testDir)
 
-    expect(result.totalAssets).toBe(1)
-    expect(result.root.children).toHaveLength(1)
-    expect(result.root.children[0].name).toBe('img.png')
-    expect(result.root.children[0].path).toBe('img.png')
-    expect(result.root.children[0].mimeCategory).toBe('image')
+    expect(result.totalAssets).toBe(3)
+    const files = collectNodes(result.root).filter((node) => !node.is_dir)
+    expect(files.find((file) => file.path === 'img.png')?.mimeCategory).toBe('image')
+    expect(files.find((file) => file.path === 'archive.custom')?.mimeCategory).toBe('other')
+    expect(files.find((file) => file.path === 'LICENSE')?.mimeCategory).toBe('other')
   })
 
   it('returns nested paths joined with forward slashes, never backslashes', async () => {
@@ -93,8 +95,10 @@ describe('getMimeCategory', () => {
     expect(getMimeCategory('song.mp3')).toBe('audio')
   })
 
-  it('returns null for unknown extensions', () => {
-    expect(getMimeCategory('data.xyz')).toBeNull()
-    expect(getMimeCategory('README')).toBeNull()
+  it('uses other for unknown and extensionless files, and excludes Markdown', () => {
+    expect(getMimeCategory('data.xyz')).toBe('other')
+    expect(getMimeCategory('README')).toBe('other')
+    expect(getMimeCategory('note.md')).toBeNull()
+    expect(getMimeCategory('note.MARKDOWN')).toBeNull()
   })
 })

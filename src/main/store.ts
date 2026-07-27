@@ -108,6 +108,8 @@ export interface AppStore {
   primaryColor: string | null
   collectionColors: Record<string, string>
   watcherEnabled: Record<string, boolean>
+  /** Collections whose Tesseract skills banner was permanently dismissed. */
+  collectionSkillsDismissed: Record<string, boolean>
   /** Obsidian topic sync provenance per collection (phase 44). */
   obsidianTopicSync: Record<string, ObsidianSyncState>
   themeMode: string
@@ -307,6 +309,10 @@ const schema = {
     default: {} as Record<string, string>
   },
   watcherEnabled: {
+    type: 'object' as const,
+    default: {} as Record<string, boolean>
+  },
+  collectionSkillsDismissed: {
     type: 'object' as const,
     default: {} as Record<string, boolean>
   },
@@ -586,6 +592,25 @@ export function setWatcherEnabled(collectionId: string, enabled: boolean): void 
     delete flags[collectionId]
   }
   s.set('watcherEnabled', flags)
+}
+
+/** Whether the skills install/update banner is permanently hidden for a collection. */
+export function getCollectionSkillsDismissed(collectionId: string): boolean {
+  const s = initStore()
+  const dismissed = s.get('collectionSkillsDismissed', {})
+  return dismissed[collectionId] ?? false
+}
+
+/** Persist or clear the permanent skills-banner dismissal for a collection. */
+export function setCollectionSkillsDismissed(collectionId: string, value: boolean): void {
+  const s = initStore()
+  const dismissed = s.get('collectionSkillsDismissed', {})
+  if (value) {
+    dismissed[collectionId] = true
+  } else {
+    delete dismissed[collectionId]
+  }
+  s.set('collectionSkillsDismissed', dismissed)
 }
 
 /**

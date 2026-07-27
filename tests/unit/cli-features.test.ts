@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import {
   cliFeatures,
   compareSemver,
+  MDVDB_FILE_FIELDS_MIN_VERSION,
   MDVDB_MIN_SUPPORTED_VERSION,
   MDVDB_RELATIONS_MIN_VERSION
 } from '@renderer/lib/cli-features.svelte'
@@ -34,6 +35,7 @@ describe('cliFeatures', () => {
 
   it('is unsupported while the version is unknown', () => {
     expect(cliFeatures.supportsRelations).toBe(false)
+    expect(cliFeatures.supportsFileFields).toBe(false)
   })
 
   it('supports relations at and above the minimum version', () => {
@@ -46,6 +48,15 @@ describe('cliFeatures', () => {
   it('does not support relations below the minimum version', () => {
     cliFeatures.version = '0.1.0'
     expect(cliFeatures.supportsRelations).toBe(false)
+  })
+
+  it('supports File editing at the same CLI baseline as relations', () => {
+    cliFeatures.version = '0.1.9'
+    expect(cliFeatures.supportsRelations).toBe(false)
+    expect(cliFeatures.supportsFileFields).toBe(false)
+    cliFeatures.version = MDVDB_FILE_FIELDS_MIN_VERSION
+    expect(cliFeatures.supportsRelations).toBe(true)
+    expect(cliFeatures.supportsFileFields).toBe(true)
   })
 
   it('treats an unparseable version as unsupported (safe default)', () => {

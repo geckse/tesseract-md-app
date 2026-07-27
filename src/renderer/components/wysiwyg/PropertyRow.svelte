@@ -21,6 +21,10 @@
   import PropertySettingsPopover from '../PropertySettingsPopover.svelte'
   import RelationChip from '../RelationChip.svelte'
   import RelationPicker from '../RelationPicker.svelte'
+  import FilePicker from '../FilePicker.svelte'
+  import FileTile from '../FileTile.svelte'
+  import { assetsByPath } from '../../stores/files'
+  import { formatFileReference, parseFileReference } from '../../../shared/file-reference'
 
   export type DetectedType =
     | 'text'
@@ -33,6 +37,7 @@
     | 'select'
     | 'tags'
     | 'relation'
+    | 'file'
     | 'complex'
 
   interface Props {
@@ -112,6 +117,7 @@
     select: 'arrow_drop_down_circle',
     tags: 'sell',
     relation: 'account_tree', // NOT 'link' — the url type already uses it
+    file: 'attach_file',
     complex: 'data_object'
   }
 
@@ -150,6 +156,42 @@
     if (typeof value === 'string' && value !== '') return [value]
     return []
   })
+
+  // ── File attachment editing ───────────────────────────────────────────
+  let showFilePicker = $state(false)
+  let fileAnchor = $state<HTMLDivElement | null>(null)
+
+  const fileRawValues = $derived.by<string[]>(() => {
+    if (Array.isArray(value))
+      return value.filter((item): item is string => typeof item === 'string')
+    if (typeof value === 'string' && value !== '') return [value]
+    return []
+  })
+
+  const fileReferences = $derived(
+    fileRawValues.map((raw) => ({ raw, path: parseFileReference(raw, true) }))
+  )
+
+  const linkedFilePaths = $derived(
+    fileReferences
+      .map((reference) => reference.path)
+      .filter((path): path is string => path !== null)
+  )
+
+  function addFiles(paths: string[]): void {
+    showFilePicker = false
+    onValueChange([...fileRawValues, ...paths.map(formatFileReference)])
+  }
+
+  function removeFileAt(index: number): void {
+    onValueChange(fileRawValues.filter((_, candidate) => candidate !== index))
+  }
+
+  const excludedTypes = $derived([
+    'complex',
+    ...(!cliFeatures.supportsRelations ? ['relation'] : []),
+    ...(!cliFeatures.supportsFileFields ? ['file'] : [])
+  ])
 
   let showDatePicker = $state(false)
   let showDateTimePicker = $state(false)
@@ -525,6 +567,44 @@
           ondismiss={() => (showRelationPicker = false)}
         />
       {/if}
+    {:else if fieldType === 'file'}
+      <div class="pr-files" bind:this={fileAnchor}>
+        <div class="pr-file-tiles">
+          {#each fileReferences as reference, i (i)}
+            {@const asset = reference.path ? $assetsByPath.get(reference.path) : undefined}
+            <FileTile
+              root={collectionPath ?? ''}
+              path={reference.path ?? reference.raw}
+              raw={reference.raw}
+              mimeCategory={asset?.mimeCategory ?? 'other'}
+              fileSize={asset?.fileSize}
+              exists={!!asset}
+              compact
+              onunlink={cliFeatures.supportsFileFields ? () => removeFileAt(i) : undefined}
+            />
+          {/each}
+        </div>
+        {#if cliFeatures.supportsFileFields}
+          <button
+            class="pr-file-pick"
+            onclick={() => (showFilePicker = !showFilePicker)}
+            aria-label="Add files to {rowKey}"
+            aria-haspopup="dialog"
+            aria-expanded={showFilePicker}
+          >
+            <span class="material-symbols-outlined">add</span>
+            {fileReferences.length === 0 ? 'Add files…' : ''}
+          </button>
+        {/if}
+      </div>
+      {#if showFilePicker && fileAnchor && collectionPath}
+        <FilePicker
+          anchorEl={fileAnchor}
+          excludePaths={linkedFilePaths}
+          onpick={addFiles}
+          ondismiss={() => (showFilePicker = false)}
+        />
+      {/if}
     {:else if fieldType === 'complex'}
       <textarea
         class="pr-val pr-textarea"
@@ -603,7 +683,7 @@
     <TypePickerDropdown
       anchorEl={typeAnchor}
       currentType={fieldType}
-      excludeTypes={cliFeatures.supportsRelations ? ['complex'] : ['complex', 'relation']}
+      excludeTypes={excludedTypes}
       onSelect={handleTypeSelect}
       onDismiss={() => (showTypePicker = false)}
     />
@@ -978,6 +1058,46 @@
     font-size: 12px;
   }
 
+  .pr-files {
+    width: 100%;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .pr-file-tiles {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    overflow-x: auto;
+  }
+
+  .pr-file-pick {
+    min-height: 28px;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    flex: 0 0 auto;
+    padding: 3px 7px;
+    border: 1px dashed var(--color-border, #27272a);
+    border-radius: 5px;
+    background: transparent;
+    color: var(--color-text-dim, #71717a);
+    cursor: pointer;
+    font-size: var(--text-xs, 0.625rem);
+  }
+
+  .pr-file-pick:hover {
+    color: var(--color-primary, #00e5ff);
+    border-color: var(--color-primary, #00e5ff);
+  }
+
+  .pr-file-pick .material-symbols-outlined {
+    font-size: 15px;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .pr,
     .pr-type-icon,
@@ -991,7 +1111,8 @@
     .pr-icon-btn,
     .pr-type-btn,
     .pr-more,
-    .pr-relation-pick {
+    .pr-relation-pick,
+    .pr-file-pick {
       transition: none;
     }
   }

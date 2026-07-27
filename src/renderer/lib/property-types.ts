@@ -32,7 +32,8 @@ export const FIELD_TO_DETECTED: Record<FieldType, PropertyTargetType> = {
   Date: 'date',
   List: 'tags',
   Mixed: 'text',
-  Relation: 'relation'
+  Relation: 'relation',
+  File: 'file'
 }
 
 /**
@@ -46,6 +47,7 @@ export function detectedTypeForField(
   allowedValues?: string[] | null
 ): PropertyTargetType {
   if (fieldType === 'Relation') return 'relation'
+  if (fieldType === 'File') return 'file'
   if (allowedValues?.length) return 'select'
   return FIELD_TO_DETECTED[fieldType] ?? 'text'
 }

@@ -3,6 +3,7 @@
   import { tableStore } from '../../stores/table.svelte'
   import { propertyOps } from '../../stores/property-ops.svelte'
   import { detectedTypeForField } from '../../lib/property-types'
+  import { cliFeatures } from '../../lib/cli-features.svelte'
   import PopoverMenu, { type PopoverMenuItem } from '../ui/PopoverMenu.svelte'
   import TypePickerDropdown from '../wysiwyg/TypePickerDropdown.svelte'
   import PropertySettingsPopover from '../PropertySettingsPopover.svelte'
@@ -105,7 +106,9 @@
     Boolean: 'check_box',
     Date: 'calendar_today',
     List: 'sell',
-    Mixed: 'data_object'
+    Mixed: 'data_object',
+    Relation: 'account_tree',
+    File: 'attach_file'
   }
 
   function sortDir(name: string): 'asc' | 'desc' | null {
@@ -262,7 +265,7 @@
   <TypePickerDropdown
     anchorEl={menuAnchor}
     currentType={detectedTypeForField(menuColumn.field_type, menuColumn.allowed_values)}
-    excludeTypes={['complex']}
+    excludeTypes={cliFeatures.supportsFileFields ? ['complex'] : ['complex', 'file']}
     onSelect={handleTypeSelect}
     onDismiss={() => {
       showTypePicker = false

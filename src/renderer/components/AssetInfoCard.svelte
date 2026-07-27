@@ -7,9 +7,10 @@
     filePath: string
     mimeCategory: MimeCategory
     fileSize?: number
+    collectionPath?: string
   }
 
-  let { filePath, mimeCategory, fileSize }: Props = $props()
+  let { filePath, mimeCategory, fileSize, collectionPath }: Props = $props()
 
   function mimeIcon(cat: MimeCategory): string {
     switch (cat) {
@@ -44,8 +45,9 @@
 
   async function openInDefaultApp() {
     const collection = get(activeCollection)
-    if (!collection) return
-    await window.api.openPath(`${collection.path}/${filePath}`)
+    const root = collectionPath || collection?.path
+    if (!root) return
+    await window.api.openPath(`${root.replace(/\/+$/, '')}/${filePath.replace(/^\/+/, '')}`)
   }
 
   async function copyMarkdownReference() {

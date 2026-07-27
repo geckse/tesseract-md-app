@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/svelte'
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte'
 import InsertAssetDialog from '@renderer/components/InsertAssetDialog.svelte'
 import { assetTree } from '@renderer/stores/files'
 
@@ -56,6 +56,22 @@ describe('InsertAssetDialog', () => {
       kind: 'image',
       src: '../assets/hero.png',
       alt: 'Hero image'
+    })
+  })
+
+  it('moves keyboard focus to media search when opened', async () => {
+    render(InsertAssetDialog, {
+      props: { visible: true, currentFilePath: 'docs/note.md' }
+    })
+    const search = screen.getByPlaceholderText('Search media...')
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(search)
+    })
+
+    await fireEvent.click(screen.getByRole('tab', { name: 'Public URL' }))
+    await waitFor(() => {
+      expect(document.activeElement).toBe(screen.getByLabelText('Media URL'))
     })
   })
 

@@ -218,6 +218,30 @@ describe('applyPropertyOp — convert', () => {
     expect(fm.category).toEqual(['rust', 'search'])
   })
 
+  it('normalizes a scalar File link to a quoted YAML list without touching the body', async () => {
+    const body = '\n# Body\nKeep [[document-links]] unchanged.\n'
+    await seed('docs/a.md', `---\nattachments: "[[assets/mockup.png]]"\n---\n${body}`)
+    enumeratedRows = [{ path: 'docs/a.md', state: 'indexed' }]
+    const { event, windowManager } = makeEventAndWindows()
+    await applyPropertyOp(
+      event,
+      windowManager,
+      'op-file',
+      convertReq({
+        key: 'attachments',
+        op: { kind: 'convert', target: 'file' }
+      })
+    )
+
+    const raw = await readFile(join(root, 'docs/a.md'), 'utf-8')
+    const parsed = parseYaml(raw.split('---')[1])
+    expect(parsed.attachments).toEqual(['[[assets/mockup.png]]'])
+    expect(raw).toContain('- "[[assets/mockup.png]]"')
+    expect(raw.endsWith(body)).toBe(true)
+    const overlay = parseYaml(await readFile(join(root, OVERLAY_FILENAME), 'utf-8'))
+    expect(overlay.scopes.docs.fields.attachments.field_type).toBe('file')
+  })
+
   it('single-file requests (scope null) touch exactly one file and write no overlay', async () => {
     await seed('root.md', '---\nstatus: "5"\n---\nBody\n')
     const { event, windowManager } = makeEventAndWindows()
