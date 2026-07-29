@@ -1,13 +1,23 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import type { JsonValue, RelationValue, Schema, SchemaField } from '../../types/cli'
-  import { parseFrontmatterData, serializeFrontmatter } from '../../lib/tiptap/markdown-bridge'
+  import type { PropertyTargetType } from '../../../preload/api'
+  import {
+    parseFrontmatterData,
+    serializeFrontmatterPreservingFields
+  } from '../../lib/tiptap/markdown-bridge'
   import { isLinkShaped } from '../../lib/relation-format'
   import { isFileReferenceValue } from '../../../shared/file-reference'
   import { propertyOps, scopeForPanelFile } from '../../stores/property-ops.svelte'
+  import {
+    schemaPatchForPropertyTarget,
+    type DocumentSchemaMutationContext
+  } from '../../lib/property-types'
   import { documentInfo } from '../../stores/properties'
   import FileNameEditor from './FileNameEditor.svelte'
   import PropertyRow, { type DetectedType } from './PropertyRow.svelte'
   import AddPropertyRow from './AddPropertyRow.svelte'
+  import FormulaModal from '../table/FormulaModal.svelte'
 
   interface Props {
     frontmatterYaml: string | null
@@ -16,8 +26,13 @@
     filePath: string
     collectionPath: string
     collectionId?: string | null
+    documentTabId?: string | null
     isUntitled?: boolean
     onFileRenamed: (newPath: string) => void
+    /** Flush pending document edits before a schema mutation can run the CLI. */
+    onBeforeSchemaMutate?: (context: DocumentSchemaMutationContext) => void | Promise<void>
+    /** Refresh the editor after schema/module mutations may have rewritten frontmatter. */
+    onSchemaApplied?: (context: DocumentSchemaMutationContext) => void | Promise<void>
   }
 
   let {
@@ -27,8 +42,11 @@
     filePath,
     collectionPath,
     collectionId = null,
+    documentTabId = null,
     isUntitled = false,
-    onFileRenamed
+    onFileRenamed,
+    onBeforeSchemaMutate,
+    onSchemaApplied
   }: Props = $props()
 
   interface FrontmatterRow {
@@ -42,16 +60,50 @@
   let rows = $state<FrontmatterRow[]>([])
   let nextId = 0
   let lastEmittedYaml: string | null = null
+  /** Latest YAML backing `rows`, including our own not-yet-reflected emit. */
+  let workingYaml: string | null = null
+  interface FormulaDialogState {
+    field: SchemaField | null
+    initialName: string
+    fields: SchemaField[]
+    context: DocumentSchemaMutationContext
+  }
+
+  interface SchemaWriteRequest {
+    rowId: number
+    key: string
+    target: PropertyTargetType
+    allowedValues?: string[]
+    context: DocumentSchemaMutationContext
+  }
+
+  let formulaDialog = $state<FormulaDialogState | null>(null)
+  let schemaWritesPending = $state(0)
+  let schemaWriteError = $state<(SchemaWriteRequest & { message: string }) | null>(null)
+  let schemaWriteQueue: Promise<void> = Promise.resolve()
+  const SAVE_BEFORE_SCHEMA_MESSAGE = 'Save this document, then retry the schema update.'
+
+  $effect(() => {
+    const deferred = schemaWriteError
+    if (isUntitled || deferred?.message !== SAVE_BEFORE_SCHEMA_MESSAGE) return
+    const context = mutationContext()
+    if (!context) return
+    const { message: _message, ...request } = deferred
+    queueSchemaWrite({ ...request, context })
+  })
 
   // Sync rows from frontmatterYaml prop (only on external changes)
   $effect(() => {
+    const emittedYaml = untrack(() => lastEmittedYaml)
     if (frontmatterYaml === null) {
-      if (lastEmittedYaml === null && rows.length === 0) return
+      if (emittedYaml === null && untrack(() => rows.length) === 0) return
       rows = []
       lastEmittedYaml = null
+      workingYaml = null
       return
     }
-    if (frontmatterYaml === lastEmittedYaml) return
+    if (frontmatterYaml === emittedYaml) return
+    workingYaml = frontmatterYaml
     const data = parseFrontmatterData(frontmatterYaml)
     rows = Object.entries(data).map(([key, value]) => ({
       key,
@@ -72,7 +124,14 @@
         data[row.key.trim()] = row.value
       }
     }
-    const yaml = Object.keys(data).length > 0 ? serializeFrontmatter(data) : null
+    const formulaKeys =
+      schema?.fields.filter((field) => field.field_type === 'Formula').map((field) => field.name) ??
+      []
+    const yaml =
+      Object.keys(data).length > 0
+        ? serializeFrontmatterPreservingFields(workingYaml, data, formulaKeys)
+        : null
+    workingYaml = yaml
     lastEmittedYaml = yaml
     onFrontmatterUpdate(yaml)
   }
@@ -85,6 +144,24 @@
   /** Detect the type of a value, with schema override. */
   function detectType(key: string, value: JsonValue): DetectedType {
     const sf = getSchemaField(key)
+    if (sf?.field_type === 'Formula') {
+      switch (sf.result_type) {
+        case 'Number':
+          return 'number'
+        case 'Boolean':
+          return 'boolean'
+        case 'Date':
+          return 'date'
+        case 'DateTime':
+          return 'datetime'
+        case 'List':
+          return 'tags'
+        case 'Json':
+          return 'complex'
+        default:
+          return 'text'
+      }
+    }
 
     // Explicit File schema pins support empty and extensionless values. An
     // unambiguous File value then wins over a stale legacy Relation label so
@@ -98,11 +175,11 @@
     if (sf?.field_type === 'Boolean' || typeof value === 'boolean') return 'boolean'
     if (sf?.field_type === 'Number' || typeof value === 'number') return 'number'
     if (sf?.field_type === 'List' || Array.isArray(value)) return 'tags'
-    if (sf?.field_type === 'Date') return 'date'
 
     if (typeof value === 'string') {
       // Datetime before date (more specific)
       if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)) return 'datetime'
+      if (sf?.field_type === 'Date') return 'date'
       if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return 'date'
       if (/^https?:\/\//.test(value)) return 'url'
       if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value)) return 'email'
@@ -111,6 +188,7 @@
       if (/^\[\[[^\]]+\]\]$/.test(value.trim()) && isLinkShaped(value)) return 'relation'
     }
 
+    if (sf?.field_type === 'Date') return 'date'
     if (value !== null && typeof value === 'object' && !Array.isArray(value)) return 'complex'
     if (typeHint) return typeHint
     return 'text'
@@ -157,21 +235,120 @@
     }
   }
 
-  function handleAdd(key: string, type: string) {
-    rows.push({
+  function mutationContext(): DocumentSchemaMutationContext | null {
+    if (!collectionId || !documentTabId) return null
+    return {
+      tabId: documentTabId,
+      filePath,
+      collectionPath,
+      collectionId,
+      scope: panelScope
+    }
+  }
+
+  function handleAdd(
+    key: string,
+    type: PropertyTargetType,
+    options?: { allowedValues?: string[] }
+  ) {
+    const alreadyInSchema = getSchemaField(key) !== null
+    const row = {
       key,
       value: getDefaultValue(type),
       id: nextId++,
       typeHint: type as DetectedType
-    })
-    emitUpdate()
-    if (type === 'file') {
-      // An empty list carries no inference evidence, so persist the File
-      // schema identity immediately instead of letting it reopen as List.
-      void propertyOps
-        .applyOverlayFieldPatch(panelScope, key, { fieldType: 'file' })
-        .catch((error) => console.error('Failed to pin new File property:', error))
     }
+    rows.push(row)
+    emitUpdate()
+    if (alreadyInSchema) return
+
+    const context = mutationContext()
+    const request: SchemaWriteRequest | null = context
+      ? {
+          rowId: row.id,
+          key,
+          target: type,
+          allowedValues: options?.allowedValues,
+          context
+        }
+      : null
+    if (isUntitled || !request) {
+      schemaWriteError = {
+        rowId: row.id,
+        key,
+        target: type,
+        allowedValues: options?.allowedValues,
+        context: request?.context ?? {
+          tabId: documentTabId ?? '',
+          filePath,
+          collectionPath,
+          collectionId: collectionId ?? '',
+          scope: panelScope
+        },
+        message: SAVE_BEFORE_SCHEMA_MESSAGE
+      }
+      return
+    }
+    queueSchemaWrite(request)
+  }
+
+  async function persistSchemaField(request: SchemaWriteRequest): Promise<void> {
+    schemaWritesPending += 1
+    schemaWriteError = null
+    try {
+      await onBeforeSchemaMutate?.(request.context)
+      const row = rows.find((candidate) => candidate.id === request.rowId)
+      if (!row || row.key.trim() !== request.key) return
+
+      const patch = schemaPatchForPropertyTarget(request.target)
+      if (request.target === 'select') patch.allowedValues = request.allowedValues
+      await propertyOps.applyOverlayFieldPatch(request.context.scope, request.key, patch, {
+        id: request.context.collectionId,
+        path: request.context.collectionPath
+      })
+      await onSchemaApplied?.(request.context)
+    } catch (error) {
+      schemaWriteError = {
+        ...request,
+        message: error instanceof Error ? error.message : String(error)
+      }
+    } finally {
+      schemaWritesPending -= 1
+    }
+  }
+
+  function queueSchemaWrite(request: SchemaWriteRequest): void {
+    schemaWriteError = null
+    schemaWriteQueue = schemaWriteQueue.then(
+      () => persistSchemaField(request),
+      () => persistSchemaField(request)
+    )
+  }
+
+  function openNewFormula(key: string): void {
+    const context = mutationContext()
+    if (!context) return
+    formulaDialog = {
+      field: null,
+      initialName: key,
+      fields: [...formulaDialogFields],
+      context
+    }
+  }
+
+  function openFormulaEditor(field: SchemaField): void {
+    const context = mutationContext()
+    if (!context) return
+    formulaDialog = {
+      field,
+      initialName: '',
+      fields: [...formulaDialogFields],
+      context
+    }
+  }
+
+  function closeFormulaModal(): void {
+    formulaDialog = null
   }
 
   function handleKeyChange(id: number, newKey: string) {
@@ -208,27 +385,79 @@
 
   let panelScope = $derived(scopeForPanelFile(filePath))
   let existingKeys = $derived(rows.map((r) => r.key))
+  let missingFormulaFields = $derived.by(() => {
+    const materialized = new Set(rows.map((row) => row.key))
+    return (schema?.fields ?? []).filter(
+      (field) => field.field_type === 'Formula' && !materialized.has(field.name)
+    )
+  })
+  let formulaDialogFields = $derived.by<SchemaField[]>(() => {
+    const fields = new Map((schema?.fields ?? []).map((field) => [field.name, field]))
+    for (const row of rows) {
+      if (!row.key.trim() || fields.has(row.key)) continue
+      fields.set(row.key, {
+        name: row.key,
+        field_type: 'Mixed',
+        description: null,
+        occurrence_count: 1,
+        sample_values: [],
+        allowed_values: null,
+        required: false,
+        relation_target: null,
+        formula: null,
+        result_type: null
+      })
+    }
+    return [...fields.values()]
+  })
 </script>
 
 <div class="dh">
   <FileNameEditor {filePath} {collectionPath} {isUntitled} {onFileRenamed} />
 
-  {#if rows.length > 0}
+  {#if rows.length > 0 || missingFormulaFields.length > 0}
     <div class="dh-divider"></div>
     <div class="dh-properties">
       {#each rows as row (row.id)}
+        {@const schemaField = getSchemaField(row.key)}
         <PropertyRow
           rowKey={row.key}
           value={row.value}
           fieldType={detectType(row.key, row.value)}
-          schemaField={getSchemaField(row.key)}
+          {schemaField}
+          isFormula={schemaField?.field_type === 'Formula'}
+          formulaError={$documentInfo?.path === filePath
+            ? $documentInfo.computed_field_errors?.[row.key]
+            : undefined}
           onKeyChange={(k) => handleKeyChange(row.id, k)}
           onValueChange={(v) => handleValueChange(row.id, v)}
           onRemove={() => handleRemove(row.id)}
           onTypeChange={(t) => handleTypeChangeRequest(row.key, row.value, t)}
           onRename={() => handleRenameRequest(row.key)}
+          onEditFormula={schemaField?.field_type === 'Formula' && collectionId
+            ? () => openFormulaEditor(schemaField)
+            : undefined}
           settingsScope={panelScope}
           relationValues={relationValuesFor(row.key)}
+          {collectionPath}
+          {collectionId}
+        />
+      {/each}
+      {#each missingFormulaFields as schemaField (schemaField.name)}
+        <PropertyRow
+          rowKey={schemaField.name}
+          value={null}
+          fieldType={detectType(schemaField.name, null)}
+          {schemaField}
+          isFormula
+          formulaError={$documentInfo?.path === filePath
+            ? $documentInfo.computed_field_errors?.[schemaField.name]
+            : undefined}
+          onKeyChange={() => undefined}
+          onValueChange={() => undefined}
+          onRemove={() => undefined}
+          onEditFormula={collectionId ? () => openFormulaEditor(schemaField) : undefined}
+          settingsScope={panelScope}
           {collectionPath}
           {collectionId}
         />
@@ -236,9 +465,51 @@
     </div>
   {/if}
 
-  <AddPropertyRow {schema} {existingKeys} onAdd={handleAdd} />
+  <AddPropertyRow
+    {schema}
+    {existingKeys}
+    onAdd={handleAdd}
+    onAddFormula={collectionId && !isUntitled ? openNewFormula : undefined}
+  />
+  {#if schemaWritesPending > 0}
+    <p class="dh-schema-status" role="status">Adding field to schema…</p>
+  {:else if schemaWriteError}
+    <div class="dh-schema-error" role="alert">
+      <span>Property added, but “{schemaWriteError.key}” was not added to the schema.</span>
+      {#if isUntitled}
+        <span>It will retry automatically after the document is saved.</span>
+      {:else}
+        <button
+          type="button"
+          onclick={() => {
+            const context = mutationContext()
+            if (!context) return
+            const { message: _message, ...request } = schemaWriteError!
+            queueSchemaWrite({ ...request, context })
+          }}
+        >
+          Retry
+        </button>
+      {/if}
+      <span class="dh-schema-error-detail">{schemaWriteError.message}</span>
+    </div>
+  {/if}
   <div class="dh-divider"></div>
 </div>
+
+{#if formulaDialog}
+  <FormulaModal
+    collectionId={formulaDialog.context.collectionId}
+    root={formulaDialog.context.collectionPath}
+    scope={formulaDialog.context.scope}
+    field={formulaDialog.field}
+    fields={formulaDialog.fields}
+    initialName={formulaDialog.initialName}
+    onbeforemutate={() => onBeforeSchemaMutate?.(formulaDialog!.context)}
+    onapplied={() => onSchemaApplied?.(formulaDialog!.context)}
+    onclose={closeFormulaModal}
+  />
+{/if}
 
 <style>
   .dh {
@@ -256,5 +527,34 @@
     display: flex;
     flex-direction: column;
     gap: 0;
+  }
+  .dh-schema-status,
+  .dh-schema-error {
+    margin: 2px 6px 4px 30px;
+    font-family: var(--font-mono, 'JetBrains Mono'), monospace;
+    font-size: 11px;
+  }
+  .dh-schema-status {
+    color: var(--color-text-dim, #71717a);
+  }
+  .dh-schema-error {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    color: var(--color-danger, #ef4444);
+  }
+  .dh-schema-error button {
+    border: 0;
+    padding: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-decoration: underline;
+    cursor: pointer;
+  }
+  .dh-schema-error-detail {
+    flex-basis: 100%;
+    color: var(--color-text-dim, #71717a);
   }
 </style>

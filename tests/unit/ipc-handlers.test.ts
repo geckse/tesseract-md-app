@@ -69,6 +69,27 @@ vi.mock('../../src/main/config-io', () => ({
   deleteConfigKey: vi.fn().mockResolvedValue(undefined)
 }))
 
+// Mock the schema-overlay persistence boundary so formula lifecycle tests can
+// assert transactional behavior independently from filesystem mechanics.
+const mockCaptureOverlaySnapshot = vi.fn()
+const mockRestoreOverlaySnapshot = vi.fn()
+const mockResolveOverlayFormulaScope = vi.fn()
+const mockUpsertOverlayField = vi.fn()
+const mockRemoveOverlayField = vi.fn()
+const mockReadOverlayValueColors = vi.fn()
+const mockSetOverlayValueColor = vi.fn()
+const mockRenameOverlayField = vi.fn()
+vi.mock('../../src/main/schema-overlay', () => ({
+  captureOverlaySnapshot: (...args: unknown[]) => mockCaptureOverlaySnapshot(...args),
+  restoreOverlaySnapshot: (...args: unknown[]) => mockRestoreOverlaySnapshot(...args),
+  resolveOverlayFormulaScope: (...args: unknown[]) => mockResolveOverlayFormulaScope(...args),
+  upsertOverlayField: (...args: unknown[]) => mockUpsertOverlayField(...args),
+  removeOverlayField: (...args: unknown[]) => mockRemoveOverlayField(...args),
+  readOverlayValueColors: (...args: unknown[]) => mockReadOverlayValueColors(...args),
+  setOverlayValueColor: (...args: unknown[]) => mockSetOverlayValueColor(...args),
+  renameOverlayField: (...args: unknown[]) => mockRenameOverlayField(...args)
+}))
+
 // Mock collections module
 const mockPickCollectionFolder = vi.fn()
 const mockValidateCollectionPath = vi.fn()
@@ -264,6 +285,7 @@ function createMockWindowManager() {
   const mockCancelAppQuit = vi.fn()
   const mockClearCloseTimer = vi.fn()
   const mockIsPopup = vi.fn().mockReturnValue(false)
+  const mockSetWindowCollectionId = vi.fn()
 
   const wm = {
     broadcastToAll: mockBroadcastToAll,
@@ -276,7 +298,8 @@ function createMockWindowManager() {
     confirmClose: mockConfirmClose,
     cancelAppQuit: mockCancelAppQuit,
     clearCloseTimer: mockClearCloseTimer,
-    isPopup: mockIsPopup
+    isPopup: mockIsPopup,
+    setWindowCollectionId: mockSetWindowCollectionId
   } as unknown as WindowManager
 
   return {
@@ -291,7 +314,8 @@ function createMockWindowManager() {
     mockConfirmClose,
     mockCancelAppQuit,
     mockClearCloseTimer,
-    mockIsPopup
+    mockIsPopup,
+    mockSetWindowCollectionId
   }
 }
 
@@ -341,6 +365,16 @@ beforeEach(() => {
   mockReadImageFile.mockReset()
   mockEditImageFile.mockReset()
   mockCancelImageEdit.mockReset()
+  mockCaptureOverlaySnapshot
+    .mockReset()
+    .mockResolvedValue({ existed: true, content: '# original\n' })
+  mockRestoreOverlaySnapshot.mockReset().mockResolvedValue(undefined)
+  mockResolveOverlayFormulaScope.mockReset().mockResolvedValue(undefined)
+  mockUpsertOverlayField.mockReset().mockResolvedValue(undefined)
+  mockRemoveOverlayField.mockReset().mockResolvedValue(true)
+  mockReadOverlayValueColors.mockReset().mockResolvedValue({})
+  mockSetOverlayValueColor.mockReset().mockResolvedValue({})
+  mockRenameOverlayField.mockReset().mockResolvedValue(false)
   mockShellOpenPath.mockReset()
   mockClipboardWriteText.mockReset()
   mockFromWebContents.mockReset()
@@ -452,17 +486,49 @@ describe('registerIpcHandlers', () => {
     expect(channels).toContain('schema:preview-property-op')
     expect(channels).toContain('schema:apply-property-op')
     expect(channels).toContain('schema:update-overlay-field')
+    expect(channels).toContain('cli:modules-validate-formula')
+    expect(channels).toContain('cli:modules-run-formula')
+    expect(channels).toContain('schema:save-formula')
+    expect(channels).toContain('schema:remove-formula')
     // Export via native save dialog (phase 43)
     expect(channels).toContain('export:save')
     expect(channels).toContain('export:pdf')
     // Dirty-close guard (data safety)
     expect(channels).toContain('app:confirm-close')
     expect(channels).toContain('app:cancel-close')
-    expect(channels).toHaveLength(141)
+    expect(channels).toHaveLength(145)
   })
 })
 
 describe('IPC handler argument passing', () => {
+  it('opens a validated collection in a new full window', async () => {
+    mockGetCollections.mockReturnValue([
+      { id: 'vault-1', name: 'Vault', path: '/tmp/project', addedAt: 1, lastOpenedAt: 1 }
+    ])
+    const { wm, mockCreateWindow } = createMockWindowManager()
+    registerIpcHandlers(wm)
+    const registration = mockHandle.mock.calls.find((call: unknown[]) => call[0] === 'window:new')
+    const handler = registration?.[1] as (...args: unknown[]) => Promise<unknown>
+
+    await handler(fakeEvent, 'vault-1')
+
+    expect(mockCreateWindow).toHaveBeenCalledWith({ collectionId: 'vault-1' })
+  })
+
+  it('tracks collection switches for the requesting window', async () => {
+    mockGetActiveCollection.mockReturnValue(null)
+    const { wm, mockSetWindowCollectionId } = createMockWindowManager()
+    registerIpcHandlers(wm)
+    const registration = mockHandle.mock.calls.find(
+      (call: unknown[]) => call[0] === 'collections:set-active'
+    )
+    const handler = registration?.[1] as (...args: unknown[]) => Promise<unknown>
+
+    await handler({ sender: { id: 42 } }, 'vault-2')
+
+    expect(mockSetWindowCollectionId).toHaveBeenCalledWith(42, 'vault-2')
+  })
+
   /** Helper: register handlers, find the one for `channel`, invoke it */
   function getHandler(channel: string): (...args: unknown[]) => Promise<unknown> {
     const { wm } = createMockWindowManager()
@@ -472,7 +538,7 @@ describe('IPC handler argument passing', () => {
     return call[1] as (...args: unknown[]) => Promise<unknown>
   }
 
-  const fakeEvent = {} // IPC event stub
+  const fakeEvent = { sender: { id: 1 } } // IPC event stub
 
   describe('menu:set-context', () => {
     it('validates, stores, and clears graph menu state per renderer', async () => {
@@ -578,6 +644,187 @@ describe('IPC handler argument passing', () => {
       await handler(fakeEvent, '/tmp/project')
 
       expect(mockExecCommand).toHaveBeenCalledWith('status', [], '/tmp/project')
+    })
+  })
+
+  describe('formula module bridge', () => {
+    const successfulReport = {
+      module: 'formula',
+      event: 'manual_run',
+      files_evaluated: 1,
+      fields_updated: 1,
+      diagnostics: [],
+      duration_ms: 2
+    }
+
+    const failedReport = {
+      ...successfulReport,
+      fields_updated: 0,
+      diagnostics: [
+        {
+          module: 'formula',
+          path: null,
+          field: '',
+          code: 'module_error',
+          message: 'formula hook failed',
+          span_start: null,
+          span_end: null
+        }
+      ]
+    }
+
+    it('passes JavaScript source and normalized result type to validation', async () => {
+      mockExecCommand.mockResolvedValue({ valid: true, diagnostics: [] })
+      const handler = getHandler('cli:modules-validate-formula')
+      await handler(fakeEvent, '/tmp/project', 'price * quantity', 'Number')
+
+      expect(mockExecCommand).toHaveBeenCalledWith(
+        'modules',
+        ['validate', 'formula', '--formula', 'price * quantity', '--result-type', 'number'],
+        '/tmp/project'
+      )
+    })
+
+    it('runs the formula module for a normalized non-root scope', async () => {
+      mockExecCommand.mockResolvedValue({ module: 'formula' })
+      const handler = getHandler('cli:modules-run-formula')
+      await handler(fakeEvent, '/tmp/project', 'invoices/')
+
+      expect(mockExecCommand).toHaveBeenCalledWith(
+        'modules',
+        ['run', 'formula', '--path', 'invoices'],
+        '/tmp/project',
+        { timeout: 300_000 }
+      )
+    })
+
+    it('omits --path for the vault root', async () => {
+      mockExecCommand.mockResolvedValue({ module: 'formula' })
+      const handler = getHandler('cli:modules-run-formula')
+      await handler(fakeEvent, '/tmp/project', '.')
+
+      expect(mockExecCommand).toHaveBeenCalledWith('modules', ['run', 'formula'], '/tmp/project', {
+        timeout: 300_000
+      })
+    })
+
+    it('restores the overlay and recomputes old formulas when save reports module_error', async () => {
+      mockGetCollections.mockReturnValue([
+        { id: 'vault-1', name: 'Vault', path: '/tmp/project', addedAt: 1, lastOpenedAt: 1 }
+      ])
+      mockExecCommand
+        .mockResolvedValueOnce({ valid: true, diagnostics: [] })
+        .mockResolvedValueOnce(failedReport)
+        .mockResolvedValueOnce(successfulReport)
+      const handler = getHandler('schema:save-formula')
+
+      const result = await handler(
+        fakeEvent,
+        'vault-1',
+        'invoices/2026',
+        'total',
+        'price * quantity',
+        'Number'
+      )
+
+      expect(mockCaptureOverlaySnapshot).toHaveBeenCalledWith('/tmp/project')
+      expect(mockResolveOverlayFormulaScope).toHaveBeenCalledWith(
+        '/tmp/project',
+        'invoices/2026',
+        'total'
+      )
+      expect(mockUpsertOverlayField).toHaveBeenCalledWith(
+        '/tmp/project',
+        'invoices/2026',
+        'total',
+        {
+          fieldType: 'formula',
+          formula: 'price * quantity',
+          resultType: 'Number'
+        }
+      )
+      expect(mockRestoreOverlaySnapshot).toHaveBeenCalledWith('/tmp/project', {
+        existed: true,
+        content: '# original\n'
+      })
+      expect(mockExecCommand).toHaveBeenNthCalledWith(
+        2,
+        'modules',
+        ['run', 'formula', '--path', 'invoices/2026'],
+        '/tmp/project',
+        { timeout: 300_000 }
+      )
+      expect(mockExecCommand).toHaveBeenNthCalledWith(
+        3,
+        'modules',
+        ['run', 'formula'],
+        '/tmp/project',
+        { timeout: 300_000 }
+      )
+      expect(result).toMatchObject({
+        error: true,
+        message: 'Formula module failed: formula hook failed'
+      })
+    })
+
+    it('removes an inherited formula from its definition scope', async () => {
+      mockGetCollections.mockReturnValue([
+        { id: 'vault-1', name: 'Vault', path: '/tmp/project', addedAt: 1, lastOpenedAt: 1 }
+      ])
+      mockResolveOverlayFormulaScope.mockResolvedValue('invoices')
+      mockExecCommand.mockResolvedValue(successfulReport)
+      const handler = getHandler('schema:remove-formula')
+
+      const result = await handler(fakeEvent, 'vault-1', 'invoices/2026', 'total')
+
+      expect(mockResolveOverlayFormulaScope).toHaveBeenCalledWith(
+        '/tmp/project',
+        'invoices/2026',
+        'total'
+      )
+      expect(mockRemoveOverlayField).toHaveBeenCalledWith('/tmp/project', 'invoices', 'total')
+      expect(mockExecCommand).toHaveBeenCalledWith(
+        'modules',
+        ['run', 'formula', '--path', 'invoices'],
+        '/tmp/project',
+        { timeout: 300_000 }
+      )
+      expect(result).toEqual(successfulReport)
+    })
+
+    it('restores the inherited definition when remove reports module_error', async () => {
+      mockGetCollections.mockReturnValue([
+        { id: 'vault-1', name: 'Vault', path: '/tmp/project', addedAt: 1, lastOpenedAt: 1 }
+      ])
+      mockResolveOverlayFormulaScope.mockResolvedValue('invoices')
+      mockExecCommand.mockResolvedValueOnce(failedReport).mockResolvedValueOnce(successfulReport)
+      const handler = getHandler('schema:remove-formula')
+
+      const result = await handler(fakeEvent, 'vault-1', 'invoices/2026', 'total')
+
+      expect(mockRemoveOverlayField).toHaveBeenCalledWith('/tmp/project', 'invoices', 'total')
+      expect(mockRestoreOverlaySnapshot).toHaveBeenCalledWith('/tmp/project', {
+        existed: true,
+        content: '# original\n'
+      })
+      expect(mockExecCommand).toHaveBeenNthCalledWith(
+        1,
+        'modules',
+        ['run', 'formula', '--path', 'invoices'],
+        '/tmp/project',
+        { timeout: 300_000 }
+      )
+      expect(mockExecCommand).toHaveBeenNthCalledWith(
+        2,
+        'modules',
+        ['run', 'formula'],
+        '/tmp/project',
+        { timeout: 300_000 }
+      )
+      expect(result).toMatchObject({
+        error: true,
+        message: 'Formula module failed: formula hook failed'
+      })
     })
   })
 
@@ -890,7 +1137,7 @@ describe('Collection IPC handlers', () => {
     return call[1] as (...args: unknown[]) => Promise<unknown>
   }
 
-  const fakeEvent = {}
+  const fakeEvent = { sender: { id: 1 } }
 
   describe('collections:list', () => {
     it('returns all collections', async () => {
@@ -1195,7 +1442,9 @@ describe('Collection IPC handlers', () => {
       const result = await handler(writeEvent, '/proj/readme.md', '# Updated')
       // Content goes to a dotfile temp in the SAME directory...
       expect(mockWriteFile).toHaveBeenCalledWith(
-        expect.stringMatching(/^\/proj\/\.\d+\.\d+\.mdvdb\.tmp$/),
+        expect.stringMatching(
+          /^\/proj\/\.\d+\.\d+\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.mdvdb\.tmp$/
+        ),
         '# Updated',
         'utf-8'
       )
@@ -1701,7 +1950,7 @@ describe('Watcher pause during ingest', () => {
     await startHandler(fakeEvent, '/tmp/project')
 
     // Now the watcher is "running"
-    mockWatcherIsRunning.mockReturnValue(true)
+    mockWatcherGetState.mockReturnValue('running')
     mockWatcherStop.mockResolvedValue(undefined)
     mockExecCommand.mockResolvedValue({ files_indexed: 3 })
 
@@ -1741,7 +1990,7 @@ describe('Watcher pause during ingest', () => {
     const startHandler = getHandler('watcher:start')
     await startHandler(fakeEvent, '/tmp/project')
 
-    mockWatcherIsRunning.mockReturnValue(true)
+    mockWatcherGetState.mockReturnValue('running')
     mockWatcherStop.mockResolvedValue(undefined)
     mockExecCommand.mockResolvedValue({ files_indexed: 1 })
 

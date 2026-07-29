@@ -169,6 +169,9 @@ const api: MdvdbApi = {
   info: (root, path?) => invoke('cli:info', root, path),
   init: (root) => invoke('cli:init', root),
   resetIndex: (root) => invoke('cli:reset-index', root),
+  validateFormula: (root, formula, resultType) =>
+    invoke('cli:modules-validate-formula', root, formula, resultType),
+  runFormulaModule: (root, scope?) => invoke('cli:modules-run-formula', root, scope),
 
   // Collection management
   listCollections: () => invoke('collections:list'),
@@ -253,6 +256,10 @@ const api: MdvdbApi = {
   applyPropertyOp: (opId, req) => invoke('schema:apply-property-op', opId, req),
   updateOverlayField: (collectionId, scope, key, patch) =>
     invoke('schema:update-overlay-field', collectionId, scope, key, patch),
+  saveFormula: (collectionId, scope, key, formula, resultType) =>
+    invoke('schema:save-formula', collectionId, scope, key, formula, resultType),
+  removeFormula: (collectionId, scope, key) =>
+    invoke('schema:remove-formula', collectionId, scope, key),
   getPropertyValueColors: (collectionId, scope) =>
     invoke('schema:get-value-colors', collectionId, scope),
   setPropertyValueColor: (collectionId, scope, field, value, selection) =>
@@ -382,7 +389,7 @@ const api: MdvdbApi = {
   getWindowSession: () => invoke('session:get'),
 
   // Multi-window management
-  newWindow: () => invoke('window:new'),
+  newWindow: (collectionId?) => invoke('window:new', collectionId),
 
   // Dirty-close guard: main asks before really closing the window.
   // The ack is sent BEFORE the callback runs so main cancels its

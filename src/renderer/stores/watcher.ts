@@ -4,6 +4,8 @@ import { activeCollection, collectionStatus } from './collections'
 import { applyWatchReportToTree, scheduleTreeResync, selectedFilePath } from './files'
 import { refreshGraphData } from './graph'
 import { linksInfo, backlinksInfo, loadProperties } from './properties'
+import { workspace } from './workspace.svelte'
+import { tableStore } from './table.svelte'
 
 /** Maximum number of events to retain in the ring buffer. */
 const MAX_EVENTS = 50
@@ -129,6 +131,22 @@ const PROPS_REFRESH_DEBOUNCE_MS = 800
 let propsRefreshTimer: ReturnType<typeof setTimeout> | null = null
 let propsChangedPaths = new Set<string>()
 
+/** Formula module results are materialized and indexed before the watcher
+ * report arrives. Reload every open database tab once per burst so the raw
+ * frontmatter values become visible (schema changes can affect any scope). */
+const FORMULA_TABLE_REFRESH_DEBOUNCE_MS = 500
+let formulaTableRefreshTimer: ReturnType<typeof setTimeout> | null = null
+
+function scheduleFormulaTableRefresh(): void {
+  if (formulaTableRefreshTimer) clearTimeout(formulaTableRefreshTimer)
+  formulaTableRefreshTimer = setTimeout(() => {
+    formulaTableRefreshTimer = null
+    for (const tab of Object.values(workspace.tabs)) {
+      if (tab.kind === 'table') void tableStore.reload(tab.id)
+    }
+  }, FORMULA_TABLE_REFRESH_DEBOUNCE_MS)
+}
+
 /** Whether this session has seen the watcher running before (restart detection). */
 let watcherHadRun = false
 
@@ -158,6 +176,11 @@ export function handleWatcherEvent(event: WatcherEvent): void {
     watcherState.set('error')
   }
 
+  if (event.type === 'module-report' && event.data?.module === 'formula') {
+    scheduleFormulaTableRefresh()
+    void refreshCollectionStatus()
+  }
+
   if (event.type === 'watch-event') {
     const report = event.data
 
@@ -177,6 +200,9 @@ export function handleWatcherEvent(event: WatcherEvent): void {
 
       scheduleGraphRefresh()
       schedulePropertiesRefresh(report.path)
+      if (report.module_reports?.some((moduleReport) => moduleReport.module === 'formula')) {
+        scheduleFormulaTableRefresh()
+      }
     }
 
     // Debounced authoritative status refresh (numbers only — not a view reload)

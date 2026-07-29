@@ -34,6 +34,7 @@ import {
 } from '../../src/renderer/stores/properties'
 import { activeCollectionId, collections } from '../../src/renderer/stores/collections'
 import type { DocumentInfo, BacklinksOutput, LinksOutput } from '../../src/renderer/types/cli'
+import { EXACT_NUMBER_KEY } from '../../src/shared/exact-number'
 
 const col1 = { id: 'a', name: 'alpha', path: '/alpha', addedAt: 1, lastOpenedAt: 1 }
 
@@ -347,6 +348,26 @@ describe('properties store', () => {
     it('returns null when frontmatter is an array', () => {
       documentInfo.set({ ...sampleDoc, frontmatter: ['a', 'b'] })
       expect(get(frontmatter)).toBeNull()
+    })
+
+    it('preserves exact and nested materialized values from live Markdown', () => {
+      propertiesFileContent.set(
+        [
+          '---',
+          'total: 0.1234567890123456789012345678',
+          'payload:',
+          '  sequence: 9007199254740993',
+          '---',
+          '# Invoice'
+        ].join('\n')
+      )
+
+      expect(get(frontmatter)).toEqual({
+        total: { [EXACT_NUMBER_KEY]: '0.1234567890123456789012345678' },
+        payload: {
+          sequence: { [EXACT_NUMBER_KEY]: '9007199254740993' }
+        }
+      })
     })
   })
 

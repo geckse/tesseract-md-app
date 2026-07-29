@@ -59,13 +59,20 @@ function invalidateCollectionMetadataRequests(): void {
   doctorRunning.set(false)
 }
 
-/** Load all collections from the main process store. */
-export async function loadCollections(): Promise<void> {
+/**
+ * Load all collections from the main process store. A new window may request
+ * a specific initial collection without changing the selection in an already
+ * open window.
+ */
+export async function loadCollections(initialCollectionId?: string | null): Promise<void> {
   collectionsLoading.set(true)
   try {
     const list = await window.api.listCollections()
     collections.set(list)
-    const active = await window.api.getActiveCollection()
+    const requested = initialCollectionId
+      ? (list.find((collection) => collection.id === initialCollectionId) ?? null)
+      : null
+    const active = requested ?? (await window.api.getActiveCollection())
     activeCollectionId.set(active?.id ?? null)
     if (active?.id) {
       // Fire status/doctor in the background — don't block app startup

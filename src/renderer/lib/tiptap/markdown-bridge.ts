@@ -1,4 +1,6 @@
+import { isMap, isScalar, isSeq, parseDocument, type Document, type Pair, type Scalar } from 'yaml'
 import type { JsonValue } from '../../types/cli'
+import { parseExactNumberToken } from '../../../shared/exact-number'
 
 /**
  * Split raw markdown content into frontmatter YAML block and body.
@@ -29,57 +31,45 @@ export function joinFrontmatter(frontmatterYaml: string | null, body: string): s
   return `---\n${frontmatterYaml}\n---\n${body}`
 }
 
+function scalarSource(node: Scalar): string {
+  return typeof node.source === 'string' ? node.source : ''
+}
+
+function yamlNodeToJson(node: unknown): JsonValue {
+  if (isScalar(node)) {
+    const value = node.value
+    const source = scalarSource(node)
+    if (typeof value === 'number' && /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(source)) {
+      return parseExactNumberToken(source)
+    }
+    if (value === null) return source.trim() === '' ? '' : null
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      return value
+    }
+    return String(value ?? '')
+  }
+  if (isSeq(node)) {
+    return node.items.map((item) => yamlNodeToJson(item))
+  }
+  if (isMap(node)) {
+    const result: Record<string, JsonValue> = {}
+    for (const pair of node.items) {
+      const key = isScalar(pair.key) ? String(pair.key.value ?? '') : String(pair.key ?? '')
+      result[key] = yamlNodeToJson(pair.value)
+    }
+    return result
+  }
+  return null
+}
+
 /**
- * Parse a YAML frontmatter string into key-value pairs.
- * Handles scalars, inline arrays, block arrays, booleans, and numbers.
+ * Parse frontmatter through the YAML AST. Unsafe decimal tokens are transported
+ * as exact-number markers instead of being rounded through JavaScript Number.
  */
 export function parseFrontmatterData(yamlString: string): Record<string, JsonValue> {
-  const result: Record<string, JsonValue> = {}
-  const lines = yamlString.split('\n')
-  let currentKey: string | null = null
-
-  for (const line of lines) {
-    // Array continuation item (e.g. "  - value")
-    if (/^\s+-\s+/.test(line) && currentKey) {
-      const item = line.replace(/^\s+-\s+/, '').trim()
-      const existing = result[currentKey]
-      if (Array.isArray(existing)) {
-        existing.push(unquote(item))
-      }
-      continue
-    }
-
-    const colonIdx = line.indexOf(':')
-    if (colonIdx === -1) continue
-
-    const key = line.slice(0, colonIdx).trim()
-    const rawValue = line.slice(colonIdx + 1).trim()
-    currentKey = key
-
-    if (rawValue === '') {
-      result[key] = []
-    } else if (/^\[.*\]$/.test(rawValue)) {
-      const inner = rawValue.slice(1, -1)
-      result[key] = inner.split(',').map((s) => unquote(s.trim()))
-    } else if (rawValue === 'true') {
-      result[key] = true
-    } else if (rawValue === 'false') {
-      result[key] = false
-    } else if (/^-?\d+(\.\d+)?$/.test(rawValue)) {
-      result[key] = Number(rawValue)
-    } else {
-      result[key] = unquote(rawValue)
-    }
-  }
-
-  // Convert empty arrays to empty string (matches existing behavior)
-  for (const [k, v] of Object.entries(result)) {
-    if (Array.isArray(v) && v.length === 0) {
-      result[k] = ''
-    }
-  }
-
-  return result
+  const doc = parseDocument(yamlString, { keepSourceTokens: true })
+  if (doc.errors.length > 0 || !isMap(doc.contents)) return {}
+  return yamlNodeToJson(doc.contents) as Record<string, JsonValue>
 }
 
 /**
@@ -106,6 +96,94 @@ export function serializeFrontmatter(data: Record<string, JsonValue>): string {
   return lines.join('\n')
 }
 
+interface PreservedPair {
+  key: string
+  placeholder: string
+  raw: string
+}
+
+function pairKey(pair: Pair): string {
+  return isScalar(pair.key) ? String(pair.key.value ?? '') : String(pair.key ?? '')
+}
+
+function pairRange(pair: Pair): [number, number] | null {
+  const start = pair.key?.range?.[0]
+  const end = pair.value?.range?.[2] ?? pair.value?.range?.[1]
+  return typeof start === 'number' && typeof end === 'number' ? [start, end] : null
+}
+
+function documentMap(doc: Document): ReturnType<typeof parseDocument>['contents'] {
+  return doc.contents
+}
+
+/**
+ * Update ordinary frontmatter fields while keeping selected top-level YAML
+ * pairs byte-for-byte intact.
+ *
+ * Formula values may contain 28-digit decimals or nested JSON. The yaml
+ * package correctly exposes their source ranges, but serializing an untouched
+ * numeric Scalar would still route it through JavaScript Number. We therefore
+ * use the AST for safe key mutation and splice the original Formula pairs back
+ * into the serialized document by their parsed ranges.
+ */
+export function serializeFrontmatterPreservingFields(
+  originalYaml: string | null,
+  data: Record<string, JsonValue>,
+  preservedKeys: Iterable<string>
+): string {
+  const requested = new Set(preservedKeys)
+  if (!originalYaml || requested.size === 0) return serializeFrontmatter(data)
+
+  const doc = parseDocument(originalYaml, { keepSourceTokens: true })
+  const contents = documentMap(doc)
+  if (doc.errors.length > 0 || !isMap(contents)) return serializeFrontmatter(data)
+
+  const preserved: PreservedPair[] = []
+  for (const pair of contents.items) {
+    const key = pairKey(pair)
+    if (!requested.has(key)) continue
+    const range = pairRange(pair)
+    if (!range) continue
+    const placeholder = `__MDVDB_PRESERVED_FORMULA_${preserved.length}__`
+    preserved.push({ key, placeholder, raw: originalYaml.slice(range[0], range[1]) })
+    pair.value = doc.createNode(placeholder)
+  }
+
+  const captured = new Set(preserved.map((entry) => entry.key))
+  for (const pair of [...contents.items]) {
+    const key = pairKey(pair)
+    if (!captured.has(key) && !Object.prototype.hasOwnProperty.call(data, key)) {
+      doc.delete(key)
+    }
+  }
+  for (const [key, value] of Object.entries(data)) {
+    if (!captured.has(key)) doc.set(key, value)
+  }
+
+  let output = doc.toString()
+  const rendered = parseDocument(output, { keepSourceTokens: true })
+  if (rendered.errors.length > 0 || !isMap(rendered.contents)) {
+    return serializeFrontmatter(data)
+  }
+
+  const replacements: { start: number; end: number; raw: string }[] = []
+  for (const entry of preserved) {
+    const pair = rendered.contents.items.find(
+      (candidate) =>
+        pairKey(candidate) === entry.key &&
+        isScalar(candidate.value) &&
+        candidate.value.value === entry.placeholder
+    )
+    if (!pair) continue
+    const range = pairRange(pair)
+    if (range) replacements.push({ start: range[0], end: range[1], raw: entry.raw })
+  }
+  for (const replacement of replacements.sort((left, right) => right.start - left.start)) {
+    output = output.slice(0, replacement.start) + replacement.raw + output.slice(replacement.end)
+  }
+  return output.replace(/\n$/, '')
+}
+
 function formatYamlValue(value: JsonValue): string {
   if (value === null) return 'null'
   if (typeof value === 'boolean') return String(value)
@@ -122,11 +200,4 @@ function formatYamlValue(value: JsonValue): string {
     return value
   }
   return String(value)
-}
-
-function unquote(s: string): string {
-  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
-    return s.slice(1, -1)
-  }
-  return s
 }

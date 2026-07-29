@@ -7,8 +7,18 @@
  */
 
 import type { FieldType } from '../types/cli'
-import type { PropertyTargetType } from '../../preload/api'
+import type { OverlayFieldPatch, PropertyTargetType } from '../../preload/api'
+import { overlayFieldTypeForPropertyTarget } from '../../shared/property-schema'
 import type { DetectedType } from '../components/wysiwyg/PropertyRow.svelte'
+
+/** Immutable origin captured before a document-triggered schema mutation starts. */
+export interface DocumentSchemaMutationContext {
+  tabId: string
+  filePath: string
+  collectionPath: string
+  collectionId: string
+  scope: string | null
+}
 
 /**
  * COMPILE-TIME congruence guard for the two hand-synced type unions:
@@ -33,7 +43,11 @@ export const FIELD_TO_DETECTED: Record<FieldType, PropertyTargetType> = {
   List: 'tags',
   Mixed: 'text',
   Relation: 'relation',
-  File: 'file'
+  File: 'file',
+  // Formula fields never enter editable type conversion; DocumentHeader
+  // renders their materialized values through a dedicated read-only path.
+  // This fallback keeps the storage-type mapping exhaustive.
+  Formula: 'text'
 }
 
 /**
@@ -50,4 +64,15 @@ export function detectedTypeForField(
   if (fieldType === 'File') return 'file'
   if (allowedValues?.length) return 'select'
   return FIELD_TO_DETECTED[fieldType] ?? 'text'
+}
+
+/**
+ * Persisted schema-overlay representation for a UI property type.
+ *
+ * URL and Email are string presentation types, DateTime shares the schema's
+ * Date storage type, and Select is a string field whose allowed values are
+ * supplied separately by surfaces that collect them.
+ */
+export function schemaPatchForPropertyTarget(target: PropertyTargetType): OverlayFieldPatch {
+  return { fieldType: overlayFieldTypeForPropertyTarget(target) }
 }

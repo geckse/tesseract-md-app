@@ -10,9 +10,18 @@
     currentType?: string | null
     /** Hide these types from the picker (e.g. 'complex' is not a convert target). */
     excludeTypes?: string[]
+    /** Offer Formula when creating a schema-backed field. Never enable for value conversions. */
+    includeFormula?: boolean
   }
 
-  let { anchorEl, onSelect, onDismiss, currentType = null, excludeTypes = [] }: Props = $props()
+  let {
+    anchorEl,
+    onSelect,
+    onDismiss,
+    currentType = null,
+    excludeTypes = [],
+    includeFormula = false
+  }: Props = $props()
 
   const allTypeOptions = [
     { type: 'text', icon: 'notes', label: 'Text' },
@@ -29,7 +38,12 @@
     { type: 'complex', icon: 'data_object', label: 'JSON' }
   ] as const
 
-  const typeOptions = $derived(allTypeOptions.filter((o) => !excludeTypes.includes(o.type)))
+  const typeOptions = $derived([
+    ...allTypeOptions.filter((o) => !excludeTypes.includes(o.type)),
+    ...(includeFormula && !excludeTypes.includes('formula')
+      ? [{ type: 'formula', icon: 'function', label: 'Formula' } as const]
+      : [])
+  ])
 
   let menuEl: HTMLDivElement | undefined = $state(undefined)
   let selectedIndex = $state(0)

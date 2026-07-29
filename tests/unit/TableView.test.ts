@@ -8,6 +8,7 @@ const mockApi = {
   readFile: vi.fn(),
   ingestFile: vi.fn(),
   updateFrontmatter: vi.fn(),
+  saveFormula: vi.fn(),
   listTableViews: vi.fn(),
   // Called by the content-load pipeline (syncFileStoresFromTab → _autoLoadTabContent)
   addRecent: vi.fn(),
@@ -66,6 +67,14 @@ describe('TableView', () => {
     collections.set([])
     activeCollectionId.set(null)
     mockApi.collection.mockReset()
+    mockApi.saveFormula.mockReset().mockResolvedValue({
+      module: 'formula',
+      event: 'manual_run',
+      files_evaluated: 1,
+      fields_updated: 1,
+      diagnostics: [],
+      duration_ms: 1
+    })
     mockApi.listTableViews.mockReset()
   })
 
@@ -79,6 +88,72 @@ describe('TableView', () => {
 
     expect(screen.getByRole('status', { name: 'Loading table' })).toBeTruthy()
     expect(container.querySelectorAll('.skeleton-row')).toHaveLength(8)
+  })
+
+  it('opens the unified Add column dialog from the toolbar', async () => {
+    const tabId = workspace.openTableTab('docs')
+    mockApi.collection.mockResolvedValue(fixture)
+    await tableStore.load(tabId, 'c1', '/root')
+
+    render(TableView, { props: { tabId } })
+    await fireEvent.click(screen.getByRole('button', { name: 'Add column' }))
+
+    expect(screen.getByRole('dialog', { name: 'Add column' })).toBeTruthy()
+    expect(screen.getByRole('radio', { name: /^Text/ })).toBeTruthy()
+    expect(screen.getByRole('radio', { name: /^Formula/ })).toBeTruthy()
+  })
+
+  it('hands a named Formula column to the explicit-context formula editor', async () => {
+    collections.set([{ id: 'c1', name: 'Root', path: '/root', addedAt: 1, lastOpenedAt: 1 }])
+    activeCollectionId.set('c1')
+    const tabId = workspace.openTableTab('invoices/2026/')
+    mockApi.collection.mockResolvedValue(fixture)
+    await tableStore.load(tabId, 'c1', '/root')
+
+    render(TableView, { props: { tabId } })
+    await fireEvent.click(screen.getByRole('button', { name: 'Add column' }))
+    await fireEvent.input(screen.getByLabelText('Column name'), { target: { value: 'total' } })
+    await fireEvent.click(screen.getByRole('radio', { name: /^Formula/ }))
+    await fireEvent.click(screen.getByRole('button', { name: 'Continue to formula' }))
+
+    expect(await screen.findByRole('dialog', { name: 'Add formula' })).toBeTruthy()
+    expect((screen.getByLabelText('Column name') as HTMLInputElement).value).toBe('total')
+
+    await fireEvent.input(screen.getByLabelText('JavaScript expression'), {
+      target: { value: 'price * quantity' }
+    })
+    await fireEvent.click(screen.getByRole('button', { name: 'Save formula' }))
+    await vi.waitFor(() =>
+      expect(mockApi.saveFormula).toHaveBeenCalledWith(
+        'c1',
+        'invoices/2026',
+        'total',
+        'price * quantity',
+        'Number'
+      )
+    )
+  })
+
+  it('uses a null Formula scope for the root database', async () => {
+    collections.set([{ id: 'c1', name: 'Root', path: '/root', addedAt: 1, lastOpenedAt: 1 }])
+    activeCollectionId.set('c1')
+    const tabId = workspace.openTableTab('')
+    mockApi.collection.mockResolvedValue(fixture)
+    await tableStore.load(tabId, 'c1', '/root')
+
+    render(TableView, { props: { tabId } })
+    await fireEvent.click(screen.getByRole('button', { name: 'Add column' }))
+    await fireEvent.input(screen.getByLabelText('Column name'), { target: { value: 'total' } })
+    await fireEvent.click(screen.getByRole('radio', { name: /^Formula/ }))
+    await fireEvent.click(screen.getByRole('button', { name: 'Continue to formula' }))
+    await fireEvent.input(await screen.findByLabelText('JavaScript expression'), {
+      target: { value: '1 + 1' }
+    })
+    await fireEvent.click(screen.getByRole('button', { name: 'Save formula' }))
+
+    await vi.waitFor(() =>
+      expect(mockApi.saveFormula).toHaveBeenCalledWith('c1', null, 'total', '1 + 1', 'Number')
+    )
   })
 
   it('shows an icon-driven empty state for folders without markdown files', async () => {

@@ -59,6 +59,7 @@ export class WatcherManager {
   private watchRoot: string | null = null
   private retryCount = 0
   private retryTimer: ReturnType<typeof setTimeout> | null = null
+  private stopPromise: Promise<void> | null = null
   private destroying = false
 
   private eventCallbacks: WatcherEventCallback[] = []
@@ -84,12 +85,22 @@ export class WatcherManager {
     this.clearRetryTimer()
     this.destroying = false
 
-    if (!this.child || this.state === 'stopped' || this.state === 'stopping') {
+    if (this.state === 'stopping') {
+      await (this.stopPromise ?? Promise.resolve())
+      return
+    }
+    if (!this.child || this.state === 'stopped') {
       this.setState('stopped')
       return
     }
 
-    await this.killChild()
+    const stopping = this.killChild()
+    this.stopPromise = stopping
+    try {
+      await stopping
+    } finally {
+      if (this.stopPromise === stopping) this.stopPromise = null
+    }
   }
 
   /**
@@ -105,7 +116,17 @@ export class WatcherManager {
       return
     }
 
-    await this.killChild()
+    if (this.state === 'stopping') {
+      await (this.stopPromise ?? Promise.resolve())
+      return
+    }
+    const stopping = this.killChild()
+    this.stopPromise = stopping
+    try {
+      await stopping
+    } finally {
+      if (this.stopPromise === stopping) this.stopPromise = null
+    }
   }
 
   /** Whether the watcher process is currently running. */

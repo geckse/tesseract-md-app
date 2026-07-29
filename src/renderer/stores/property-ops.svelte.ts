@@ -1,5 +1,5 @@
 /**
- * Property type conversion / rename modal state + orchestration (phase 41).
+ * Property add / type conversion / rename modal state + orchestration (phase 41).
  *
  * Svelte 5 runes singleton (MUST remain a .svelte.ts file). Owns the
  * ConvertTypeModal's lifecycle: preview → apply → follow-up refresh.
@@ -40,6 +40,8 @@ export type PropertyOpModalPhase = 'loading' | 'preview' | 'running' | 'report' 
 export interface PropertyOpModalState {
   phase: PropertyOpModalPhase
   origin: PropertyOpOrigin
+  /** Immutable collection context captured when the operation opens. */
+  collection: { id: string; path: string }
   req: PropertyOpRequest
   /** UI type of the property before the change (for the modal title). */
   currentType: PropertyTargetType | null
@@ -96,6 +98,70 @@ class PropertyOpsStore {
 
   private unsubscribeProgress: (() => void) | null = null
 
+  /** Open the recursive Add column flow for a database scope. */
+  openAdd(
+    origin: PropertyOpOrigin,
+    key: string,
+    target: PropertyTargetType,
+    allowedValues?: string[]
+  ): void {
+    if (this.modal) return
+    const collection = get(activeCollection)
+    if (!collection) return
+    const scope =
+      origin.kind === 'panel'
+        ? scopeForPanelFile(origin.filePath)
+        : scopeForTableTab(origin.folderPath)
+    this.modal = {
+      phase: 'loading',
+      origin,
+      collection: { id: collection.id, path: collection.path },
+      req: {
+        collectionId: collection.id,
+        scope,
+        filePath: origin.kind === 'panel' && scope === null ? origin.filePath : null,
+        key,
+        op: { kind: 'add', target, ...(allowedValues ? { allowedValues } : {}) }
+      },
+      currentType: null,
+      plan: null,
+      progress: null,
+      result: null,
+      error: null,
+      dirtyAffected: []
+    }
+    void this.preview()
+  }
+
+  /**
+   * Open the destructive Drop column flow. A database column is a vault-level
+   * schema property, so dropping it always previews and removes it vault-wide.
+   */
+  openDrop(origin: Extract<PropertyOpOrigin, { kind: 'table' }>, key: string): void {
+    if (this.modal) return
+    const collection = get(activeCollection)
+    if (!collection) return
+    this.modal = {
+      phase: 'loading',
+      origin,
+      collection: { id: collection.id, path: collection.path },
+      req: {
+        collectionId: collection.id,
+        scope: '.',
+        filePath: null,
+        key,
+        op: { kind: 'drop' }
+      },
+      currentType: null,
+      plan: null,
+      progress: null,
+      result: null,
+      error: null,
+      dirtyAffected: []
+    }
+    void this.preview()
+  }
+
   /** Open the convert flow (from the panel type picker or a table column menu). */
   openConvert(
     origin: PropertyOpOrigin,
@@ -104,8 +170,8 @@ class PropertyOpsStore {
     currentType: PropertyTargetType | null
   ): void {
     if (this.modal) return
-    const collectionId = get(activeCollection)?.id
-    if (!collectionId) return
+    const collection = get(activeCollection)
+    if (!collection) return
     const scope =
       origin.kind === 'panel'
         ? scopeForPanelFile(origin.filePath)
@@ -113,8 +179,9 @@ class PropertyOpsStore {
     this.modal = {
       phase: 'loading',
       origin,
+      collection: { id: collection.id, path: collection.path },
       req: {
-        collectionId,
+        collectionId: collection.id,
         scope,
         filePath: origin.kind === 'panel' && scope === null ? origin.filePath : null,
         key,
@@ -133,8 +200,8 @@ class PropertyOpsStore {
   /** Open the rename flow — the modal collects the new key, then previews. */
   openRename(origin: PropertyOpOrigin, key: string): void {
     if (this.modal) return
-    const collectionId = get(activeCollection)?.id
-    if (!collectionId) return
+    const collection = get(activeCollection)
+    if (!collection) return
     const scope =
       origin.kind === 'panel'
         ? scopeForPanelFile(origin.filePath)
@@ -142,8 +209,9 @@ class PropertyOpsStore {
     this.modal = {
       phase: 'preview',
       origin,
+      collection: { id: collection.id, path: collection.path },
       req: {
-        collectionId,
+        collectionId: collection.id,
         scope,
         filePath: origin.kind === 'panel' && scope === null ? origin.filePath : null,
         key,
@@ -170,7 +238,7 @@ class PropertyOpsStore {
   /** Update the select target's allowed values from the modal chip editor. */
   setAllowedValues(values: string[]): void {
     const m = this.modal
-    if (!m || m.req.op.kind !== 'convert') return
+    if (!m || (m.req.op.kind !== 'add' && m.req.op.kind !== 'convert')) return
     m.req.op.allowedValues = values
   }
 
@@ -181,18 +249,29 @@ class PropertyOpsStore {
     if (m.origin.kind === 'panel') {
       await this.saveTriggeringTabIfDirty(m.origin.filePath)
     }
+    // Confirmations are minted only from a successful preview. Never send a
+    // previous preview's paths back through the read-only preview endpoint,
+    // and leave the request unconfirmed if refreshing the preview fails.
+    if (m.req.op.kind === 'drop') {
+      delete m.req.op.confirmedPaths
+    }
     m.phase = 'loading'
     m.error = null
     try {
       const plan = await window.api.previewPropertyOp(snapshot(m.req))
       m.plan = plan
-      m.dirtyAffected = this.findDirtyAffected(plan, m.origin)
+      if (m.req.op.kind === 'drop') {
+        m.req.op.confirmedPaths = plan.files
+          .filter((entry) => entry.action === 'drop')
+          .map((entry) => entry.path)
+      }
+      m.dirtyAffected = this.findDirtyAffected(plan, m.origin, m.req.op.kind === 'drop')
       if (
-        m.req.op.kind === 'convert' &&
+        (m.req.op.kind === 'add' || m.req.op.kind === 'convert') &&
         m.req.op.target === 'select' &&
         m.req.op.allowedValues === undefined
       ) {
-        m.req.op.allowedValues = this.distinctValues(plan)
+        m.req.op.allowedValues = m.req.op.kind === 'convert' ? this.distinctValues(plan) : []
       }
       m.phase = 'preview'
     } catch (err) {
@@ -205,6 +284,18 @@ class PropertyOpsStore {
   async apply(): Promise<void> {
     const m = this.modal
     if (!m || !m.plan || m.phase === 'running') return
+    // A destructive vault-wide edit must never race an unsaved editor buffer:
+    // saving that buffer later could silently resurrect the dropped property.
+    if (m.req.op.kind === 'drop') {
+      // An empty array is a valid confirmation for a schema-only Drop. Missing
+      // confirmations mean no successful Drop preview backs this request.
+      if (m.req.op.confirmedPaths === undefined) return
+      m.dirtyAffected =
+        get(activeCollection)?.id === m.collection.id
+          ? this.findDirtyAffected(m.plan, m.origin, true)
+          : []
+      if (m.dirtyAffected.length > 0) return
+    }
     const opId = crypto.randomUUID()
     m.phase = 'running'
     m.progress = { opId, done: 0, total: m.plan.files.length, path: '' }
@@ -214,7 +305,7 @@ class PropertyOpsStore {
     try {
       const result = await window.api.applyPropertyOp(opId, snapshot(m.req))
       m.result = result
-      await this.refreshAfterApply(m.req, result)
+      await this.refreshAfterApply(m, result)
       m.phase = 'report'
     } catch (err) {
       m.error = err instanceof Error ? err.message : String(err)
@@ -241,22 +332,31 @@ class PropertyOpsStore {
   async applyOverlayFieldPatch(
     scope: string | null,
     key: string,
-    patch: OverlayFieldPatch
+    patch: OverlayFieldPatch,
+    collectionContext?: { id: string; path: string }
   ): Promise<void> {
-    const collection = get(activeCollection)
+    const collection = collectionContext ?? get(activeCollection)
     if (!collection) throw new Error('No active collection')
     await window.api.updateOverlayField(collection.id, scope, key, snapshot(patch))
     await this.refreshIndex(collection.path)
-    await this.refreshStores(collection.path, scope)
+    if (get(activeCollection)?.id === collection.id) {
+      await this.refreshStores(collection.path, scope, null)
+    }
   }
 
   // ─── Internals ────────────────────────────────────────────────────────
 
-  private async refreshAfterApply(req: PropertyOpRequest, result: PropertyOpResult): Promise<void> {
-    const collection = get(activeCollection)
-    if (!collection) return
-    await this.refreshIndex(collection.path)
-    await this.refreshStores(collection.path, req.scope)
+  private async refreshAfterApply(
+    modal: PropertyOpModalState,
+    result: PropertyOpResult
+  ): Promise<void> {
+    await this.refreshIndex(modal.collection.path)
+
+    // The operation stays bound to the collection that opened it. If the user
+    // switched collections while the modal was open, never overwrite the new
+    // collection's renderer stores with data from the old root.
+    if (get(activeCollection)?.id !== modal.collection.id) return
+    await this.refreshStores(modal.collection.path, modal.req.scope, modal.origin)
 
     // Same-window editor reconciliation (required — see module docblock).
     for (const entry of result.entries) {
@@ -291,7 +391,11 @@ class PropertyOpsStore {
     }
   }
 
-  private async refreshStores(root: string, scope: string | null): Promise<void> {
+  private async refreshStores(
+    root: string,
+    scope: string | null,
+    origin: PropertyOpOrigin | null = this.modal?.origin ?? null
+  ): Promise<void> {
     const prefix = scope !== null && !isVaultWideScope(scope) ? scope : undefined
     await fetchSchema(root, prefix)
 
@@ -300,8 +404,9 @@ class PropertyOpsStore {
       if (tab.kind !== 'table') continue
       const affected =
         scope === null
-          ? this.modal?.origin.kind === 'panel' &&
-            subtreesIntersect(tab.folderPath, scopeForPanelFile(this.modal.origin.filePath) ?? '')
+          ? origin?.kind === 'panel'
+            ? subtreesIntersect(tab.folderPath, scopeForPanelFile(origin.filePath) ?? '')
+            : true
           : subtreesIntersect(tab.folderPath, scopeFolder)
       if (affected) await tableStore.reload(tab.id)
     }
@@ -314,16 +419,28 @@ class PropertyOpsStore {
     await waitFor(() => !tab.isDirty, 3_000)
   }
 
-  private findDirtyAffected(plan: PropertyOpPlan, origin: PropertyOpOrigin): string[] {
+  private findDirtyAffected(
+    plan: PropertyOpPlan,
+    origin: PropertyOpOrigin,
+    blockAllDirtyDocuments = false
+  ): string[] {
     const affected = new Set(
-      plan.files.filter((f) => f.action === 'convert' || f.action === 'rename').map((f) => f.path)
+      plan.files
+        .filter(
+          (f) =>
+            f.action === 'add' ||
+            f.action === 'convert' ||
+            f.action === 'rename' ||
+            f.action === 'drop'
+        )
+        .map((f) => f.path)
     )
     const triggering = origin.kind === 'panel' ? origin.filePath : null
     const dirty: string[] = []
     for (const tab of Object.values(workspace.tabs)) {
       if (tab.kind !== 'document' || tab.isUntitled || !tab.isDirty) continue
       if (tab.filePath === triggering) continue
-      if (affected.has(tab.filePath)) dirty.push(tab.filePath)
+      if (blockAllDirtyDocuments || affected.has(tab.filePath)) dirty.push(tab.filePath)
     }
     return dirty
   }

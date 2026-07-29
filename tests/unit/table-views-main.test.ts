@@ -30,6 +30,7 @@ import {
   updateTableView,
   deleteTableView,
   setDefaultTableView,
+  removePropertyFromViews,
   cleanupCollectionTableViews,
   CURRENT_VIEW_VERSION
 } from '../../src/main/table-views'
@@ -113,6 +114,60 @@ describe('table-views (main process, file-backed)', () => {
     const views = await listTableViews('col1', 'blog')
     expect(views.find((v) => v.id === 'v1')?.isDefault).toBe(false)
     expect(views.find((v) => v.id === 'v2')?.isDefault).toBe(true)
+  })
+
+  it('removes dropped-property references from saved views in every folder', async () => {
+    const referenced: SavedTableView = {
+      ...makeView('v1', 'By status'),
+      config: {
+        sort: [
+          { columnName: 'status', direction: 'asc' },
+          { columnName: 'date', direction: 'desc' }
+        ],
+        filters: [
+          { columnName: 'status', op: 'equals', value: 'draft' },
+          { columnName: 'author', op: 'exists' }
+        ],
+        columns: [
+          { name: 'status', hidden: false, width: 120, order: 0 },
+          { name: 'author', hidden: false, width: 180, order: 1 }
+        ],
+        groupBy: 'status',
+        collapsedGroups: ['draft', 'published']
+      }
+    }
+    const unaffected: SavedTableView = {
+      ...makeView('v2', 'By author'),
+      config: {
+        sort: [{ columnName: 'author', direction: 'asc' }],
+        filters: [],
+        columns: [{ name: 'author', hidden: false, width: 180, order: 0 }],
+        groupBy: null,
+        collapsedGroups: ['kept']
+      }
+    }
+    await saveTableView('col1', 'docs', referenced)
+    await saveTableView('col1', 'notes/archive', referenced)
+    await saveTableView('col1', 'other', unaffected)
+    const unaffectedUpdatedAt = (await listTableViews('col1', 'other'))[0].updatedAt
+
+    await removePropertyFromViews('col1', 'status')
+
+    for (const folder of ['docs', 'notes/archive']) {
+      const [view] = await listTableViews('col1', folder)
+      expect(view.config).toEqual({
+        sort: [{ columnName: 'date', direction: 'desc' }],
+        filters: [{ columnName: 'author', op: 'exists' }],
+        columns: [{ name: 'author', hidden: false, width: 180, order: 1 }],
+        groupBy: null,
+        collapsedGroups: []
+      })
+      expect(view.updatedAt).toBeGreaterThan(1)
+    }
+
+    const [kept] = await listTableViews('col1', 'other')
+    expect(kept.config).toEqual(unaffected.config)
+    expect(kept.updatedAt).toBe(unaffectedUpdatedAt)
   })
 
   it('migrates legacy electron-store views into the collection file on first read', async () => {

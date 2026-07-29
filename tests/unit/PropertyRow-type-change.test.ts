@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/svelte'
+import { render, screen, fireEvent, within } from '@testing-library/svelte'
 
 // PropertyRow → PropertySettingsPopover → property-ops store; mock the store
 // so the component graph stays free of window.api / collections.
@@ -81,6 +81,47 @@ describe('PropertyRow type-change affordances (phase 41)', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Property options for status' }))
     await fireEvent.mouseDown(screen.getByRole('menuitem', { name: /Rename property/ }))
     expect(onRename).toHaveBeenCalled()
+  })
+
+  it('offers only definition editing for Formula rows while keeping key and value read-only', async () => {
+    const onEditFormula = vi.fn()
+    const { container } = render(PropertyRow, {
+      props: {
+        rowKey: 'total',
+        value: 12.5,
+        fieldType: 'number',
+        schemaField: {
+          name: 'total',
+          field_type: 'Formula',
+          description: null,
+          occurrence_count: 1,
+          sample_values: [],
+          allowed_values: null,
+          required: false,
+          relation_target: null,
+          formula: 'price * quantity',
+          result_type: 'Number'
+        },
+        isFormula: true,
+        onKeyChange: vi.fn(),
+        onValueChange: vi.fn(),
+        onRemove: vi.fn(),
+        onTypeChange: vi.fn(),
+        onRename: vi.fn(),
+        onEditFormula
+      }
+    })
+
+    expect(screen.queryByRole('textbox', { name: 'total value' })).toBeNull()
+    expect(container.querySelector('.pr-key-readonly')?.textContent).toBe('total')
+    expect(screen.queryByRole('button', { name: 'Remove property' })).toBeNull()
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Formula options for total' }))
+    const menu = screen.getByRole('menu', { name: 'Formula options' })
+    expect(screen.queryByRole('menuitem', { name: /Change type/ })).toBeNull()
+    expect(screen.queryByRole('menuitem', { name: /Rename property/ })).toBeNull()
+    await fireEvent.mouseDown(within(menu).getByRole('menuitem', { name: /Edit formula/ }))
+    expect(onEditFormula).toHaveBeenCalledOnce()
   })
 
   it('keeps the icon passive when no onTypeChange handler is provided', () => {

@@ -11,8 +11,9 @@
   interface Props {
     tabId: string
     onsaveview: () => void
+    onaddcolumn?: () => void
   }
-  let { tabId, onsaveview }: Props = $props()
+  let { tabId, onsaveview, onaddcolumn = () => {} }: Props = $props()
 
   type MenuId = 'view' | 'group' | 'columns'
   let openMenu = $state<MenuId | null>(null)
@@ -242,6 +243,10 @@
       onclick={() => void tableStore.redo(tabId)}
     />
     <span class="divider"></span>
+    <button class="ghost-btn" onclick={onaddcolumn}>
+      <span class="material-symbols-outlined" aria-hidden="true">view_column</span>
+      Add column
+    </button>
     {#if addingRow}
       <span class="add-row-form">
         <!-- svelte-ignore a11y_autofocus -->

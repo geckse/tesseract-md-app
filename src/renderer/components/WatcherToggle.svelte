@@ -1,5 +1,11 @@
 <script lang="ts">
-  import { watcherState, watcherError, watcherToggling, toggleWatcher } from '../stores/watcher'
+  import {
+    watcherState,
+    watcherError,
+    watcherToggling,
+    watcherEvents,
+    toggleWatcher
+  } from '../stores/watcher'
 
   type WatcherStateValue = 'stopped' | 'starting' | 'running' | 'error'
 
@@ -11,6 +17,17 @@
 
   let toggling = $state(false)
   watcherToggling.subscribe((v) => (toggling = v))
+
+  let formulaSummary = $state<string | null>(null)
+  watcherEvents.subscribe((events) => {
+    const report = events
+      .filter((event) => event.type === 'watch-event')
+      .flatMap((event) => event.data.module_reports ?? [])
+      .find((moduleReport) => moduleReport.module === 'formula')
+    formulaSummary = report
+      ? `Formula: ${report.fields_updated} fields updated, ${report.diagnostics.length} diagnostics`
+      : null
+  })
 
   const stateLabel: Record<WatcherStateValue, string> = {
     stopped: 'Watch',
@@ -32,7 +49,7 @@
   class:running={currentState === 'running'}
   class:error={currentState === 'error'}
   disabled={toggling || currentState === 'starting'}
-  title={currentError ?? `Watcher: ${currentState}`}
+  title={currentError ?? formulaSummary ?? `Watcher: ${currentState}`}
   onclick={handleClick}
 >
   <span
@@ -42,6 +59,7 @@
     class:dot-running={currentState === 'running'}
     class:dot-error={currentState === 'error'}
   ></span>
+  {#if formulaSummary}<span class="formula-activity" aria-hidden="true">ƒx</span>{/if}
   {stateLabel[currentState]}
 </button>
 
@@ -77,6 +95,11 @@
     height: 6px;
     border-radius: 50%;
     flex-shrink: 0;
+  }
+
+  .formula-activity {
+    color: var(--color-primary);
+    font: 700 9px var(--font-mono, 'JetBrains Mono', monospace);
   }
 
   .dot-stopped {

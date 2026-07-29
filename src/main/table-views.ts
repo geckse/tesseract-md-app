@@ -216,6 +216,45 @@ export async function renamePropertyInViews(
 }
 
 /**
+ * Remove every saved-view reference to a dropped property.
+ *
+ * Dropping a column is vault-wide, so this intentionally visits every folder
+ * rather than applying the scoped filtering used by rename.
+ */
+export async function removePropertyFromViews(collectionId: string, key: string): Promise<void> {
+  const folders = await readFolders(collectionId)
+  let dirty = false
+  const now = Date.now()
+
+  for (const [folderPath, views] of Object.entries(folders)) {
+    folders[folderPath] = views.map((raw) => {
+      const view = migrateView(raw)
+      const sort = view.config.sort.filter((item) => item.columnName !== key)
+      const filters = view.config.filters.filter((item) => item.columnName !== key)
+      const columns = view.config.columns.filter((item) => item.name !== key)
+      const groupBy = view.config.groupBy === key ? null : view.config.groupBy
+      const collapsedGroups = view.config.groupBy === key ? [] : view.config.collapsedGroups
+      const changed =
+        sort.length !== view.config.sort.length ||
+        filters.length !== view.config.filters.length ||
+        columns.length !== view.config.columns.length ||
+        groupBy !== view.config.groupBy ||
+        collapsedGroups.length !== view.config.collapsedGroups.length
+
+      if (!changed) return view
+      dirty = true
+      return {
+        ...view,
+        config: { ...view.config, sort, filters, columns, groupBy, collapsedGroups },
+        updatedAt: now
+      }
+    })
+  }
+
+  if (dirty) await writeFolders(collectionId, folders)
+}
+
+/**
  * On collection removal, clear only any legacy electron-store entry. The
  * `.markdownvdb/table-views.json` file belongs to the vault and is left
  * intact so re-adding the collection (or another machine) keeps its views.

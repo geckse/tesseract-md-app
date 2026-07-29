@@ -73,6 +73,7 @@
 
   function handleContextMenu(e: MouseEvent) {
     e.preventDefault()
+    workspace.markTableInteracted(tab.id)
     oncontextmenuprop?.(tab.id, e)
   }
 
@@ -94,6 +95,7 @@
       e.preventDefault()
       return
     }
+    workspace.markTableInteracted(tab.id)
     isDragging = true
     // Reset the cross-window drop flag at drag start
     tabBarDropReceived.value = false

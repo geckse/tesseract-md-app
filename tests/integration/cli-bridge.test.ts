@@ -200,14 +200,14 @@ describe.skipIf(!cliAvailable)('CLI Bridge Integration (real binary)', () => {
       }
     })
 
-    it('returns non-zero exit for missing root path', async () => {
-      try {
-        await runMdvdb(['status', '--json', '--root', '/nonexistent/path/that/does/not/exist'])
-        expect.fail('Should have thrown')
-      } catch (error: unknown) {
-        const err = error as { code?: number }
-        expect(err.code).toBeGreaterThan(0)
-      }
+    it('returns an empty status for a missing root path', async () => {
+      const result = await runMdvdbJson<{
+        document_count: number
+        chunk_count: number
+      }>('status', [], '/nonexistent/path/that/does/not/exist')
+
+      expect(result.document_count).toBe(0)
+      expect(result.chunk_count).toBe(0)
     })
   })
 
@@ -217,8 +217,12 @@ describe.skipIf(!cliAvailable)('CLI Bridge Integration (real binary)', () => {
     beforeAll(async () => {
       tempDir = await mkdtemp(join(tmpdir(), 'mdvdb-integration-'))
       await writeFile(join(tempDir, 'sample.md'), '# Sample\n\nContent.\n')
-      // Initialize
-      await runMdvdb(['init', '--root', tempDir]).catch(() => {})
+      await runMdvdb(['init', '--root', tempDir])
+      await writeFile(
+        join(tempDir, '.markdownvdb', 'config.yaml'),
+        'embedding:\n  provider: mock\n  dimensions: 8\n'
+      )
+      await runMdvdb(['ingest', '--root', tempDir], { timeout: 120_000 })
     })
 
     afterAll(async () => {

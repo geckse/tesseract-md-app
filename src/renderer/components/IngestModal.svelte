@@ -295,6 +295,27 @@
             </div>
           {/if}
 
+          {#if (currentResult.module_reports ?? []).length > 0}
+            <div class="module-section">
+              <h3 class="module-title">Modules</h3>
+              <div class="module-list">
+                {#each currentResult.module_reports as report (report.module)}
+                  <div class="module-item">
+                    <span class="module-name"
+                      >{report.module === 'formula' ? 'ƒx Formula' : report.module}</span
+                    >
+                    <span class="module-detail">
+                      {report.fields_updated} fields updated across {report.files_evaluated} files
+                      {#if report.diagnostics.length > 0}
+                        · {report.diagnostics.length} diagnostics
+                      {/if}
+                    </span>
+                  </div>
+                {/each}
+              </div>
+            </div>
+          {/if}
+
           {#if currentResult.cancelled}
             <p class="cancelled-note">Indexing was cancelled before completion.</p>
           {/if}
@@ -499,6 +520,48 @@
   .error-detail {
     font-size: 11px;
     color: var(--color-text-dim, #71717a);
+  }
+
+  .module-section {
+    margin-top: 16px;
+    border-top: 1px solid var(--color-border, #27272a);
+    padding-top: 12px;
+  }
+
+  .module-title {
+    margin: 0 0 8px;
+    color: var(--color-text-muted, #a1a1aa);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .module-list {
+    display: flex;
+    max-height: 160px;
+    flex-direction: column;
+    gap: 6px;
+    overflow-y: auto;
+  }
+
+  .module-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px 8px;
+    border: 1px solid var(--color-border, #27272a);
+    border-radius: 4px;
+    background: var(--color-surface-elevated, #1e1e20);
+  }
+
+  .module-name {
+    color: var(--color-text, #e4e4e7);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+  }
+
+  .module-detail {
+    color: var(--color-text-dim, #71717a);
+    font-size: 11px;
   }
 
   .error-box {

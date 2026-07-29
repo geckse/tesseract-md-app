@@ -21,7 +21,7 @@ import { dirname, join } from 'node:path'
  * directory, then rename over the target). Strings are written as UTF-8.
  */
 export async function atomicWriteFile(absPath: string, content: string | Buffer): Promise<void> {
-  const tmpPath = join(dirname(absPath), `.${Date.now()}.${process.pid}.mdvdb.tmp`)
+  const tmpPath = join(dirname(absPath), `.${Date.now()}.${process.pid}.${randomUUID()}.mdvdb.tmp`)
   try {
     if (typeof content === 'string') {
       await fs.writeFile(tmpPath, content, 'utf-8')

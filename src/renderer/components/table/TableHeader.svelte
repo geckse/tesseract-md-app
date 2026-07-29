@@ -15,8 +15,9 @@
     tabId: string
     columns: CollectionColumn[]
     titleWidth: number
+    oneditformula?: (column: CollectionColumn) => void
   }
-  let { tabId, columns, titleWidth }: Props = $props()
+  let { tabId, columns, titleWidth, oneditformula = () => {} }: Props = $props()
 
   const sort = $derived<TableSort | undefined>(tableStore.mergedConfig(tabId).sort[0])
 
@@ -31,23 +32,45 @@
   let showTypePicker = $state(false)
   let showSettings = $state(false)
 
-  const columnMenuItems = $derived<PopoverMenuItem[]>(
-    menuColumn
-      ? [
-          { id: 'sort-asc', label: 'Sort ascending', icon: 'arrow_upward' },
-          { id: 'sort-desc', label: 'Sort descending', icon: 'arrow_downward' },
-          {
-            id: 'sort-clear',
-            label: 'Clear sort',
-            icon: 'unfold_more',
-            disabled: sortDir(menuColumn.name) === null
-          },
-          { id: 'change-type', label: 'Change type…', icon: 'swap_horiz', separatorBefore: true },
-          { id: 'rename', label: 'Rename property…', icon: 'drive_file_rename_outline' },
-          { id: 'settings', label: 'Property settings…', icon: 'tune' }
-        ]
-      : []
-  )
+  const columnMenuItems = $derived.by<PopoverMenuItem[]>(() => {
+    if (!menuColumn) return []
+    const sorting: PopoverMenuItem[] = [
+      { id: 'sort-asc', label: 'Sort ascending', icon: 'arrow_upward' },
+      { id: 'sort-desc', label: 'Sort descending', icon: 'arrow_downward' },
+      {
+        id: 'sort-clear',
+        label: 'Clear sort',
+        icon: 'unfold_more',
+        disabled: sortDir(menuColumn.name) === null
+      }
+    ]
+    if (menuColumn.field_type === 'Formula') {
+      return [
+        ...sorting,
+        { id: 'edit-formula', label: 'Edit formula…', icon: 'function', separatorBefore: true },
+        {
+          id: 'drop',
+          label: 'Drop column…',
+          icon: 'delete',
+          danger: true,
+          separatorBefore: true
+        }
+      ]
+    }
+    return [
+      ...sorting,
+      { id: 'change-type', label: 'Change type…', icon: 'swap_horiz', separatorBefore: true },
+      { id: 'rename', label: 'Rename property…', icon: 'drive_file_rename_outline' },
+      { id: 'settings', label: 'Property settings…', icon: 'tune' },
+      {
+        id: 'drop',
+        label: 'Drop column…',
+        icon: 'delete',
+        danger: true,
+        separatorBefore: true
+      }
+    ]
+  })
 
   function openColumnMenu(e: MouseEvent, col: CollectionColumn): void {
     e.stopPropagation()
@@ -71,6 +94,10 @@
       workspace.setTableEphemeral(tabId, { sort: [{ columnName: col.name, direction: 'desc' }] })
     } else if (id === 'sort-clear') {
       workspace.setTableEphemeral(tabId, { sort: [] })
+    } else if (id === 'edit-formula') {
+      oneditformula(col)
+    } else if (id === 'drop') {
+      propertyOps.openDrop({ kind: 'table', tabId, folderPath }, col.name)
     } else if (id === 'change-type') {
       showTypePicker = true
       return // keep menuColumn/anchor for the picker
@@ -108,7 +135,8 @@
     List: 'sell',
     Mixed: 'data_object',
     Relation: 'account_tree',
-    File: 'attach_file'
+    File: 'attach_file',
+    Formula: 'function'
   }
 
   function sortDir(name: string): 'asc' | 'desc' | null {
@@ -215,7 +243,9 @@
         class:unscoped={!col.in_schema}
         role="columnheader"
         aria-sort={ariaSort(col.name)}
-        title={col.in_schema ? `${col.name} (${col.field_type})` : `${col.name} (ad-hoc)`}
+        title={col.in_schema
+          ? `${col.name} (${col.field_type === 'Formula' ? `Formula → ${col.result_type ?? 'Json'}` : col.field_type})`
+          : `${col.name} (ad-hoc)`}
         onclick={() => cycleSort(col.name)}
       >
         <span class="material-symbols-outlined type-icon" aria-hidden="true">

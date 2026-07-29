@@ -16,6 +16,7 @@ import {
   overlayScopeKey,
   overlayFieldTypeFor,
   storageKindFor,
+  defaultValueForTarget,
   displayValue
 } from '../../src/main/property-ops'
 import type { PropertyOpRequest } from '../../src/preload/api'
@@ -198,6 +199,27 @@ describe('storageKindFor / overlayFieldTypeFor', () => {
   })
 })
 
+describe('defaultValueForTarget', () => {
+  const now = new Date('2026-07-29T13:45:00.000Z')
+
+  it('uses the same scalar defaults as Add property', () => {
+    expect(defaultValueForTarget('text', now)).toBe('')
+    expect(defaultValueForTarget('number', now)).toBe(0)
+    expect(defaultValueForTarget('boolean', now)).toBe(false)
+    expect(defaultValueForTarget('url', now)).toBe('https://')
+    expect(defaultValueForTarget('email', now)).toBe('')
+    expect(defaultValueForTarget('select', now)).toBe('')
+    expect(defaultValueForTarget('relation', now)).toBe('')
+    expect(defaultValueForTarget('date', now)).toBe('2026-07-29')
+  })
+
+  it('uses independent collection/object defaults', () => {
+    expect(defaultValueForTarget('tags', now)).toEqual([])
+    expect(defaultValueForTarget('file', now)).toEqual([])
+    expect(defaultValueForTarget('complex', now)).toEqual({})
+  })
+})
+
 describe('displayValue', () => {
   it('truncates long values to 200 chars + ellipsis', () => {
     const long = 'x'.repeat(300)
@@ -266,6 +288,41 @@ describe('planEntryFor', () => {
     expect(ok.action).toBe('rename')
     expect(ok.before).toBe('a')
   })
+
+  it('add: creates only missing keys and never overwrites existing values', () => {
+    const add = { kind: 'add', target: 'number' } as const
+    expect(planEntryFor(file({}), 'score', add)).toEqual({
+      path: 'docs/a.md',
+      action: 'add',
+      before: null,
+      after: '0'
+    })
+    expect(planEntryFor(file({ score: 99 }), 'score', add)).toEqual({
+      path: 'docs/a.md',
+      action: 'unchanged',
+      before: '99',
+      after: '99',
+      reason: 'property already exists'
+    })
+    expect(planEntryFor(file({ score: null }), 'score', add).action).toBe('unchanged')
+  })
+
+  it('drop: removes every present key, including null and empty values', () => {
+    for (const value of ['draft', null, '', ['a'], { nested: true }]) {
+      expect(planEntryFor(file({ status: value }), 'status', { kind: 'drop' })).toEqual({
+        path: 'docs/a.md',
+        action: 'drop',
+        before: displayValue(value as never),
+        after: null
+      })
+    }
+    expect(planEntryFor(file({}), 'status', { kind: 'drop' })).toEqual({
+      path: 'docs/a.md',
+      action: 'no-value',
+      before: null,
+      after: null
+    })
+  })
 })
 
 describe('planPropertyOp', () => {
@@ -289,7 +346,14 @@ describe('planPropertyOp', () => {
       ],
       req()
     )
-    expect(plan.totals).toEqual({ convert: 1, unchanged: 1, noValue: 1, skip: 2 })
+    expect(plan.totals).toEqual({
+      add: 0,
+      convert: 1,
+      drop: 0,
+      unchanged: 1,
+      noValue: 1,
+      skip: 2
+    })
     expect(plan.files).toHaveLength(5)
   })
 
@@ -315,11 +379,58 @@ describe('planPropertyOp', () => {
     })
   })
 
+  it('plans scoped adds, including an empty scope schema pin', () => {
+    const plan = planPropertyOp(
+      [
+        { path: 'a.md', frontmatter: {} },
+        { path: 'b.md', frontmatter: { priority: 7 } },
+        { path: 'broken.md', frontmatter: null }
+      ],
+      req({ key: 'priority', op: { kind: 'add', target: 'number' } })
+    )
+    expect(plan.totals).toEqual({
+      add: 1,
+      convert: 0,
+      drop: 0,
+      unchanged: 1,
+      noValue: 0,
+      skip: 1
+    })
+    expect(plan.schemaPin).toEqual({ scopeKey: 'docs', fieldType: 'number' })
+
+    expect(
+      planPropertyOp([], req({ key: 'payload', op: { kind: 'add', target: 'complex' } })).schemaPin
+    ).toEqual({ scopeKey: 'docs', fieldType: 'mixed' })
+  })
+
   it('never pins for single-file (scope null) or rename ops', () => {
     expect(planPropertyOp([], req({ scope: null, filePath: 'a.md' })).schemaPin).toBeNull()
     expect(
       planPropertyOp([], req({ op: { kind: 'rename', newKey: 'state' } })).schemaPin
     ).toBeNull()
+  })
+
+  it('plans drop as vault-wide regardless of the requested origin scope', () => {
+    const plan = planPropertyOp(
+      [
+        { path: 'docs/a.md', frontmatter: { status: '' } },
+        { path: 'notes/b.md', frontmatter: { status: null } },
+        { path: 'other.md', frontmatter: {} },
+        { path: 'broken.md', frontmatter: null }
+      ],
+      req({ scope: 'docs', op: { kind: 'drop' } })
+    )
+
+    expect(plan.scope).toBe('.')
+    expect(plan.totals).toEqual({
+      add: 0,
+      convert: 0,
+      drop: 2,
+      unchanged: 0,
+      noValue: 1,
+      skip: 1
+    })
+    expect(plan.schemaPin).toBeNull()
   })
 })
 

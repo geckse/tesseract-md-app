@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Component } from 'svelte'
-  import { tableStore } from '../../stores/table.svelte'
+  import { effectiveFieldValue, tableStore } from '../../stores/table.svelte'
   import { workspace } from '../../stores/workspace.svelte'
   import type { CollectionColumn, CollectionRow, JsonValue } from '../../types/cli'
   import type { CellProps } from './cells/types'
@@ -13,6 +13,7 @@
   import MixedCell from './cells/MixedCell.svelte'
   import RelationCell from './cells/RelationCell.svelte'
   import FileCell from './cells/FileCell.svelte'
+  import FormulaCell from './cells/FormulaCell.svelte'
   import { requestConfirmation } from '../../stores/confirmation'
   import { cliFeatures } from '../../lib/cli-features.svelte'
 
@@ -37,7 +38,8 @@
     // Renders regardless of CLI version (never gate rendering — phase 42):
     // without populate the chips fall back to a neutral client parse.
     Relation: RelationCell,
-    File: FileCell
+    File: FileCell,
+    Formula: FormulaCell
   }
 
   // Only one cell per row is in edit mode at a time.
@@ -56,8 +58,8 @@
     }
   })
 
-  function cellValue(name: string): JsonValue | undefined {
-    return row.frontmatter ? row.frontmatter[name] : undefined
+  function cellValue(column: CollectionColumn): JsonValue | undefined {
+    return effectiveFieldValue(row, column.name)
   }
 
   async function confirmDelete(): Promise<void> {
@@ -72,6 +74,7 @@
 
   function startEdit(col: CollectionColumn): void {
     if (readOnly) return
+    if (col.field_type === 'Formula') return
     if (col.field_type === 'File' && !cliFeatures.supportsFileFields) return
     // Boolean cells toggle directly — no edit mode.
     if (col.field_type === 'Boolean') return
@@ -116,13 +119,14 @@
     <div
       class="cell data-cell"
       tabindex="-1"
-      class:numeric={col.field_type === 'Number'}
-      class:editable={!readOnly && col.field_type !== 'Boolean'}
+      class:numeric={col.field_type === 'Number' ||
+        (col.field_type === 'Formula' && col.result_type === 'Number')}
+      class:editable={!readOnly && col.field_type !== 'Boolean' && col.field_type !== 'Formula'}
       class:editing={editingCol === col.name}
       class:saving={cs.saving}
       class:errored={!!cs.error}
       role="gridcell"
-      title={cs.error ?? undefined}
+      title={row.computed_field_errors?.[col.name]?.message ?? cs.error ?? undefined}
       style="width: {tableStore.columnWidth(tabId, col.name)}px; min-width: {tableStore.columnWidth(
         tabId,
         col.name
@@ -141,15 +145,16 @@
     >
       <Cell
         column={col}
-        value={cellValue(col.name)}
-        editing={editingCol === col.name}
-        {readOnly}
+        value={cellValue(col)}
+        editing={col.field_type !== 'Formula' && editingCol === col.name}
+        readOnly={readOnly || col.field_type === 'Formula'}
         oncommit={(value) => handleCommit(col, value)}
         oncancel={handleCancel}
         relations={row.relations?.[col.name]}
         root={tableStore.rootFor(tabId)}
         collectionId={tableStore.collectionIdFor(tabId)}
         scope={schemaScope}
+        computedError={row.computed_field_errors?.[col.name]}
       />
       {#if cs.saving}
         <span class="saving-dot" aria-hidden="true"></span>

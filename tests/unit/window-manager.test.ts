@@ -155,6 +155,18 @@ describe('WindowManager', () => {
       expect(allWindows).toContain(win3)
     })
 
+    it('loads and tracks a requested collection for a new window', () => {
+      const win = wm.createWindow({ collectionId: 'work notes' }) as unknown as MockBrowserWindow
+
+      expect(win.loadFile).toHaveBeenCalledWith(expect.any(String), {
+        search: 'collectionId=work+notes'
+      })
+      expect(wm.getWindowCollectionId(win.webContents.id)).toBe('work notes')
+
+      wm.setWindowCollectionId(win.webContents.id, 'personal')
+      expect(wm.getWindowCollectionId(win.webContents.id)).toBe('personal')
+    })
+
     it('removes window from tracking when closed', () => {
       const win = wm.createWindow()
       const id = win.webContents.id
@@ -163,6 +175,7 @@ describe('WindowManager', () => {
       win.close()
 
       expect(wm.getWindow(id)).toBeUndefined()
+      expect(wm.getWindowCollectionId(id)).toBeUndefined()
       expect(wm.getAllWindows()).toHaveLength(0)
     })
 

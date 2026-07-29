@@ -107,6 +107,17 @@
 
   const isMac = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().includes('MAC')
 
+  async function handleOpenCollectionInNewWindow() {
+    if (!contextMenuCollection) return
+    const id = contextMenuCollection.id
+    closeContextMenu()
+    try {
+      await window.api.newWindow(id)
+    } catch (err) {
+      console.error('Open collection in new window failed:', err)
+    }
+  }
+
   async function handleRevealCollection() {
     if (!contextMenuCollection) return
     const path = contextMenuCollection.path
@@ -345,6 +356,11 @@
       style="left: {contextMenuPosition.x}px; top: {contextMenuPosition.y}px;"
       onclick={(e) => e.stopPropagation()}
     >
+      <button class="context-menu-item" onclick={handleOpenCollectionInNewWindow}>
+        <span class="material-symbols-outlined">open_in_new</span>
+        <span class="context-menu-label">Open in New Window</span>
+      </button>
+      <div class="context-menu-separator"></div>
       <button class="context-menu-item" onclick={handleRevealCollection}>
         <span class="material-symbols-outlined">folder_open</span>
         <span class="context-menu-label">

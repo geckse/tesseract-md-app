@@ -105,6 +105,9 @@
   // ── Tab activation / close ────────────────────────────────────────
 
   function handleActivate(tabId: string) {
+    // Clicking an untouched table's tab is an explicit interaction: retain it
+    // instead of recycling it on the next folder click.
+    workspace.markTableInteracted(tabId)
     workspace.switchTab(tabId, paneId)
     onactivate?.(tabId)
   }

@@ -2,7 +2,13 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { workspace } from '@renderer/stores/workspace.svelte'
 import { tableStore, valueToString } from '@renderer/stores/table.svelte'
 import { TITLE_COLUMN } from '@renderer/stores/table-views.svelte'
-import type { CollectionColumn, CollectionOutput, CollectionRow } from '@renderer/types/cli'
+import { EXACT_NUMBER_KEY } from '../../src/shared/exact-number'
+import type {
+  CollectionColumn,
+  CollectionOutput,
+  CollectionRow,
+  JsonValue
+} from '@renderer/types/cli'
 
 function col(
   name: string,
@@ -17,7 +23,10 @@ function col(
     sample_values: [],
     allowed_values: null,
     required: false,
-    in_schema
+    in_schema,
+    relation_target: null,
+    formula: null,
+    result_type: null
   }
 }
 
@@ -31,12 +40,18 @@ function row(
     title: path.split('/').pop()!.replace('.md', ''),
     title_source: 'filename',
     frontmatter: frontmatter as CollectionRow['frontmatter'],
+    computed_fields: {},
+    computed_field_errors: {},
     content_hash: state === 'new' ? null : 'h',
     file_size: 1,
     modified_at: 1,
     indexed_at: state === 'new' ? null : 1,
     state
   }
+}
+
+function exactNumber(source: string): JsonValue {
+  return { [EXACT_NUMBER_KEY]: source }
 }
 
 const fixture: CollectionOutput = {
@@ -62,6 +77,18 @@ describe('valueToString', () => {
     expect(valueToString(null)).toBe('')
     expect(valueToString(undefined)).toBe('')
     expect(valueToString(['a', 'b'])).toBe('["a","b"]')
+  })
+
+  it('displays lossless decimal markers without exposing their transport object', () => {
+    expect(valueToString(exactNumber('12345678901234567890.12345678'))).toBe(
+      '12345678901234567890.12345678'
+    )
+    expect(
+      valueToString({
+        subtotal: exactNumber('0.10000000000000000001'),
+        rounded: 0.1
+      })
+    ).toBe('{"subtotal":0.10000000000000000001,"rounded":0.1}')
   })
 })
 
@@ -142,6 +169,85 @@ describe('tableStore (renderer data store)', () => {
     workspace.setTableEphemeral(tabId, { groupBy: 'status' })
     const groups = tableStore.groups(tabId)
     expect(groups?.map((g) => `${g.value}:${g.rows.length}`)).toEqual(['draft:1', 'published:2'])
+  })
+
+  it('filters and groups formula columns by materialized frontmatter, never stale cache values', async () => {
+    mockCollection.mockResolvedValueOnce({
+      ...fixture,
+      columns: [
+        ...fixture.columns,
+        {
+          ...col('total', 'Formula'),
+          formula: 'price * quantity',
+          result_type: 'Number'
+        }
+      ],
+      rows: fixture.rows.map((item, index) => ({
+        ...item,
+        frontmatter: { ...item.frontmatter, total: index === 1 ? 5 : 10 },
+        computed_fields: { total: 999 },
+        computed_field_errors: {}
+      }))
+    })
+    const tabId = workspace.openTableTab('blog')
+    await tableStore.load(tabId, 'c1', '/root')
+    workspace.setTableEphemeral(tabId, {
+      filters: [{ columnName: 'total', op: 'equals', value: 10 }],
+      groupBy: 'total'
+    })
+
+    expect(tableStore.filteredRows(tabId).map((item) => item.path)).toEqual([
+      'blog/a.md',
+      'blog/c.md'
+    ])
+    expect(tableStore.groups(tabId)?.map((group) => `${group.value}:${group.rows.length}`)).toEqual(
+      ['10:2']
+    )
+  })
+
+  it('uses formula result_type for string ranges and exact number comparisons', async () => {
+    const exactLow = exactNumber('9007199254740992')
+    const exactHigh = exactNumber('9007199254740993')
+    mockCollection.mockResolvedValueOnce({
+      ...fixture,
+      columns: [
+        {
+          ...col('code', 'Formula'),
+          formula: 'String(sequence)',
+          result_type: 'String'
+        },
+        {
+          ...col('amount', 'Formula'),
+          formula: 'subtotal + tax',
+          result_type: 'Number'
+        }
+      ],
+      rows: [
+        {
+          ...fixture.rows[0],
+          frontmatter: { ...fixture.rows[0].frontmatter, code: '10', amount: exactLow },
+          computed_fields: { code: 'stale', amount: 0 }
+        },
+        {
+          ...fixture.rows[1],
+          frontmatter: { ...fixture.rows[1].frontmatter, code: '2', amount: exactHigh },
+          computed_fields: { code: 'stale', amount: 0 }
+        }
+      ],
+      total_rows: 2
+    })
+    const tabId = workspace.openTableTab('blog')
+    await tableStore.load(tabId, 'c1', '/root')
+
+    workspace.setTableEphemeral(tabId, {
+      filters: [{ columnName: 'code', op: 'range', min: '2' }]
+    })
+    expect(tableStore.filteredRows(tabId).map((item) => item.path)).toEqual(['blog/b.md'])
+
+    workspace.setTableEphemeral(tabId, {
+      filters: [{ columnName: 'amount', op: 'range', min: exactHigh, max: exactHigh }]
+    })
+    expect(tableStore.filteredRows(tabId).map((item) => item.path)).toEqual(['blog/b.md'])
   })
 
   it('changing sort re-issues the CLI call with server-side --sort/--order', async () => {
@@ -339,6 +445,25 @@ describe('tableStore editing (39b)', () => {
     })
   })
 
+  it('rejects manual edits to CLI-maintained Formula frontmatter values', async () => {
+    api.collection.mockResolvedValueOnce({
+      ...fixture,
+      columns: [
+        ...fixture.columns,
+        {
+          ...col('total', 'Formula'),
+          formula: 'price * quantity',
+          result_type: 'Number'
+        }
+      ]
+    })
+    const tabId = workspace.openTableTab('blog')
+    await tableStore.load(tabId, 'c1', '/root')
+
+    await expect(tableStore.editCell(tabId, 'blog/a.md', 'total', 100)).resolves.toBe(false)
+    expect(api.updateFrontmatter).not.toHaveBeenCalled()
+  })
+
   it('strips proxies from committed values so the IPC patch is structured-cloneable', async () => {
     const tabId = await setup()
     // Cells can commit reactive $state proxies (e.g. ListCell's tag array);
@@ -380,6 +505,26 @@ describe('tableStore editing (39b)', () => {
     expect(content).toContain('status:')
     expect(content).not.toContain('extra:')
     expect(api.ingestFile).toHaveBeenCalledWith('/root', 'blog/new-post.md', { reindex: true })
+  })
+
+  it('addRow does not seed schema-only Formula columns into frontmatter', async () => {
+    api.collection.mockResolvedValueOnce({
+      ...fixture,
+      columns: [
+        ...fixture.columns,
+        {
+          ...col('total', 'Formula'),
+          formula: 'price * quantity',
+          result_type: 'Number'
+        }
+      ]
+    })
+    const tabId = workspace.openTableTab('blog')
+    await tableStore.load(tabId, 'c1', '/root')
+
+    await tableStore.addRow(tabId, 'formula-row')
+    const content = api.createFile.mock.calls[0][1] as string
+    expect(content).not.toContain('total:')
   })
 
   it('addRow rejects an empty file name', async () => {

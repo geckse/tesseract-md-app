@@ -28,8 +28,8 @@ export interface MenuActions {
   openRecent: (entry: { collectionId: string; filePath: string }) => void
   /** Clear the recent-files list and refresh the menu. */
   clearRecents: () => void
-  /** Open a new full app window. */
-  newWindow: () => void
+  /** Open a new full app window, optionally selecting one collection. */
+  newWindow: (collectionId?: string) => void
   /** Trigger an updater check (main-side). */
   checkForUpdates: () => void
   /** Show the native about panel. */
@@ -117,7 +117,7 @@ export function buildTemplate(
       id: 'file.new-window',
       label: 'New Window',
       ...rendererOwned('Shift+CmdOrCtrl+N'),
-      click: () => actions.newWindow()
+      click: () => actions.newWindow(state.activeCollectionId ?? undefined)
     },
     { type: 'separator' },
     {
@@ -578,6 +578,14 @@ export function buildTemplate(
         enabled: false
       },
       { id: 'collection.switch-menu', label: 'Switch Collection', submenu: switchSubmenu },
+      {
+        id: 'collection.open-new-window',
+        label: 'Open Collection in New Window',
+        enabled: hasActive,
+        click: () => {
+          if (state.activeCollectionId) actions.newWindow(state.activeCollectionId)
+        }
+      },
       { type: 'separator' },
       {
         id: 'collection.sync',

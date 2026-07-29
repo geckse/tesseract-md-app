@@ -4,7 +4,9 @@ import { render, screen, fireEvent } from '@testing-library/svelte'
 const setTableEphemeral = vi.fn()
 const openConvert = vi.fn()
 const openRename = vi.fn()
+const openDrop = vi.fn()
 const applyOverlayFieldPatch = vi.fn()
+const editFormula = vi.fn()
 
 vi.mock('../../src/renderer/stores/workspace.svelte', () => ({
   workspace: {
@@ -43,6 +45,7 @@ vi.mock('../../src/renderer/stores/property-ops.svelte', () => ({
     modal: null,
     openConvert: (...args: unknown[]) => openConvert(...args),
     openRename: (...args: unknown[]) => openRename(...args),
+    openDrop: (...args: unknown[]) => openDrop(...args),
     applyOverlayFieldPatch: (...args: unknown[]) => applyOverlayFieldPatch(...args)
   },
   scopeForTableTab: (f: string) => f || '.',
@@ -83,6 +86,14 @@ const tagsColumn: CollectionColumn = {
   field_type: 'List'
 }
 
+const formulaColumn: CollectionColumn = {
+  ...statusColumn,
+  name: 'total',
+  field_type: 'Formula',
+  formula: 'price * quantity',
+  result_type: 'Number'
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   cliFeatures.reset()
@@ -110,7 +121,14 @@ beforeEach(() => {
 })
 
 function renderHeader(columns: CollectionColumn[] = [statusColumn]) {
-  render(TableHeader, { props: { tabId: 't1', columns, titleWidth: 220 } })
+  render(TableHeader, {
+    props: {
+      tabId: 't1',
+      columns,
+      titleWidth: 220,
+      oneditformula: editFormula
+    }
+  })
 }
 
 describe('TableHeader column menu (phase 41)', () => {
@@ -135,6 +153,37 @@ describe('TableHeader column menu (phase 41)', () => {
     expect(screen.getByRole('menuitem', { name: /Rename property/ })).toBeTruthy()
     expect(screen.getByRole('menuitem', { name: /Property settings/ })).toBeTruthy()
     expect(screen.getByRole('menuitem', { name: /Sort ascending/ })).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: /Drop column/ }).className).toContain('danger')
+  })
+
+  it('offers Formula editing and routes the shared Drop action without conversion', async () => {
+    renderHeader([formulaColumn])
+    await fireEvent.click(screen.getByRole('button', { name: 'Column options for total' }))
+    expect(screen.queryByRole('menuitem', { name: /Change type/ })).toBeNull()
+    expect(screen.queryByRole('menuitem', { name: /Rename property/ })).toBeNull()
+
+    await fireEvent.mouseDown(screen.getByRole('menuitem', { name: /Edit formula/ }))
+    expect(editFormula).toHaveBeenCalledWith(formulaColumn)
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Column options for total' }))
+    const drop = screen.getByRole('menuitem', { name: /Drop column/ })
+    expect(drop.className).toContain('danger')
+    await fireEvent.mouseDown(drop)
+    expect(openDrop).toHaveBeenCalledWith(
+      { kind: 'table', tabId: 't1', folderPath: 'docs' },
+      'total'
+    )
+  })
+
+  it('routes ordinary columns through the same vault-wide Drop preview', async () => {
+    renderHeader()
+    await fireEvent.click(screen.getByRole('button', { name: 'Column options for status' }))
+    await fireEvent.mouseDown(screen.getByRole('menuitem', { name: /Drop column/ }))
+
+    expect(openDrop).toHaveBeenCalledWith(
+      { kind: 'table', tabId: 't1', folderPath: 'docs' },
+      'status'
+    )
   })
 
   it('sorts via the menu', async () => {

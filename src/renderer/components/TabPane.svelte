@@ -57,6 +57,12 @@
     }
   }
 
+  function handleContentInteraction() {
+    if (activeTab?.kind === 'table') {
+      workspace.markTableInteracted(activeTab.id)
+    }
+  }
+
   // ── Tab lifecycle ─────────────────────────────────────────────────
 
   function handleTabActivate(_tabId: string) {
@@ -150,7 +156,14 @@
   <ModeBar {paneId} />
 
   <!-- Content area -->
-  <div class="tab-pane-content">
+  <!-- Pointer, keyboard, and scroll use all count as interaction with a table
+       preview. Capture keeps promotion reliable when a child stops bubbling. -->
+  <div
+    class="tab-pane-content"
+    onpointerdowncapture={handleContentInteraction}
+    onkeydowncapture={handleContentInteraction}
+    onwheelcapture={handleContentInteraction}
+  >
     {#if tabKind === 'graph'}
       <div class="content-region" role="main" aria-label="Graph view">
         <LazyGraphView {paneId} />

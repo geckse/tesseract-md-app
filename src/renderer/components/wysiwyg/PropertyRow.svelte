@@ -1,5 +1,10 @@
 <script lang="ts">
-  import type { JsonValue, RelationValue, SchemaField } from '../../types/cli'
+  import type {
+    ComputedFieldDiagnostic,
+    JsonValue,
+    RelationValue,
+    SchemaField
+  } from '../../types/cli'
   import { cliFeatures } from '../../lib/cli-features.svelte'
   import { formatRelationValue } from '../../lib/relation-format'
   import { openResolvedPath } from '../../lib/link-navigation'
@@ -25,6 +30,7 @@
   import FileTile from '../FileTile.svelte'
   import { assetsByPath } from '../../stores/files'
   import { formatFileReference, parseFileReference } from '../../../shared/file-reference'
+  import { exactNumberText, stringifyExactJson } from '../../../shared/exact-number'
 
   export type DetectedType =
     | 'text'
@@ -52,6 +58,8 @@
     onTypeChange?: (target: DetectedType) => void
     /** Phase 41: request a recursive key rename. */
     onRename?: () => void
+    /** Open the schema-backed Formula definition editor. */
+    onEditFormula?: () => void
     /** Phase 41: overlay scope for Property settings (null = global section). */
     settingsScope?: string | null
     /** Phase 42: server-resolved relations for THIS key (from `get --populate`). */
@@ -60,6 +68,10 @@
     collectionPath?: string
     /** Active collection id (synced Select/Tags value colors). */
     collectionId?: string | null
+    /** CLI-maintained Formula values are visible in frontmatter but never user-editable. */
+    isFormula?: boolean
+    /** Formula evaluation failure for this materialized field, when present. */
+    formulaError?: ComputedFieldDiagnostic
   }
 
   let {
@@ -72,10 +84,13 @@
     onRemove,
     onTypeChange,
     onRename,
+    onEditFormula,
     settingsScope,
     relationValues,
     collectionPath,
-    collectionId = null
+    collectionId = null,
+    isFormula = false,
+    formulaError
   }: Props = $props()
 
   // ── Phase 41: type change / rename / settings affordances ─────────────
@@ -85,14 +100,20 @@
   let rowMenuAnchor = $state<HTMLElement | null>(null)
   let showSettings = $state(false)
 
-  const rowMenuItems: PopoverMenuItem[] = [
-    { id: 'change-type', label: 'Change type…', icon: 'swap_horiz' },
-    { id: 'rename', label: 'Rename property…', icon: 'drive_file_rename_outline' },
-    { id: 'settings', label: 'Property settings…', icon: 'tune' }
-  ]
+  const rowMenuItems = $derived<PopoverMenuItem[]>(
+    isFormula
+      ? [{ id: 'edit-formula', label: 'Edit formula…', icon: 'function' }]
+      : [
+          { id: 'change-type', label: 'Change type…', icon: 'swap_horiz' },
+          { id: 'rename', label: 'Rename property…', icon: 'drive_file_rename_outline' },
+          { id: 'settings', label: 'Property settings…', icon: 'tune' }
+        ]
+  )
 
   function handleRowMenuSelect(id: string): void {
-    if (id === 'change-type') {
+    if (id === 'edit-formula') {
+      onEditFormula?.()
+    } else if (id === 'change-type') {
       showTypePicker = true
     } else if (id === 'rename') {
       onRename?.()
@@ -294,10 +315,21 @@
   }
 
   let booleanIcon = $derived(value === true ? 'check_box' : 'check_box_outline_blank')
+
+  function formulaValueText(): string {
+    if (value === null) return '—'
+    const exact = exactNumberText(value)
+    if (exact !== null) return exact
+    if (typeof value === 'string') return value
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+    return stringifyExactJson(value)
+  }
 </script>
 
 <div class="pr">
-  {#if onTypeChange}
+  {#if isFormula}
+    <span class="material-symbols-outlined pr-type-icon" title="Formula">function</span>
+  {:else if onTypeChange}
     <button
       class="pr-type-btn"
       bind:this={typeAnchor}
@@ -321,19 +353,42 @@
     {#if schemaField?.required}
       <span class="pr-required">*</span>
     {/if}
-    <input
-      class="pr-key"
-      type="text"
-      value={rowKey}
-      placeholder="key"
-      aria-label="Property name"
-      title={schemaField?.description ?? ''}
-      oninput={(e) => onKeyChange((e.target as HTMLInputElement).value)}
-    />
+    {#if isFormula}
+      <span class="pr-key pr-key-readonly" title={schemaField?.description ?? ''}>{rowKey}</span>
+    {:else}
+      <input
+        class="pr-key"
+        type="text"
+        value={rowKey}
+        placeholder="key"
+        aria-label="Property name"
+        title={schemaField?.description ?? ''}
+        oninput={(e) => onKeyChange((e.target as HTMLInputElement).value)}
+      />
+    {/if}
   </div>
 
   <div class="pr-value-cell">
-    {#if fieldType === 'boolean'}
+    {#if isFormula}
+      <div
+        class="pr-formula"
+        class:pr-formula-error={!!formulaError}
+        aria-label={formulaError
+          ? `Formula error for ${rowKey}: ${formulaError.message}`
+          : `Formula value for ${rowKey}`}
+        title={formulaError?.message ?? formulaValueText()}
+      >
+        <span class="pr-formula-mark" aria-hidden="true">ƒx</span>
+        {#if formulaError}
+          <span class="material-symbols-outlined pr-formula-error-icon" aria-hidden="true"
+            >error</span
+          >
+          <span>{formulaError.code}</span>
+        {:else}
+          <span class="pr-formula-value">{formulaValueText()}</span>
+        {/if}
+      </div>
+    {:else if fieldType === 'boolean'}
       <button
         class="pr-toggle"
         class:pr-toggle-on={value === true}
@@ -661,13 +716,13 @@
     {/if}
   </div>
 
-  {#if onTypeChange}
+  {#if (isFormula && onEditFormula) || (!isFormula && onTypeChange)}
     <button
       class="pr-more"
       bind:this={rowMenuAnchor}
       onclick={() => (showRowMenu = !showRowMenu)}
-      title="Property options"
-      aria-label="Property options for {rowKey}"
+      title={isFormula ? 'Formula options' : 'Property options'}
+      aria-label="{isFormula ? 'Formula' : 'Property'} options for {rowKey}"
       aria-haspopup="menu"
       aria-expanded={showRowMenu}
     >
@@ -675,11 +730,18 @@
     </button>
   {/if}
 
-  <button class="pr-remove" onclick={onRemove} title="Remove property" aria-label="Remove property">
-    <span class="material-symbols-outlined">close</span>
-  </button>
+  {#if !isFormula}
+    <button
+      class="pr-remove"
+      onclick={onRemove}
+      title="Remove property"
+      aria-label="Remove property"
+    >
+      <span class="material-symbols-outlined">close</span>
+    </button>
+  {/if}
 
-  {#if showTypePicker && typeAnchor}
+  {#if !isFormula && showTypePicker && typeAnchor}
     <TypePickerDropdown
       anchorEl={typeAnchor}
       currentType={fieldType}
@@ -693,7 +755,7 @@
     <PopoverMenu
       anchorEl={rowMenuAnchor}
       items={rowMenuItems}
-      ariaLabel="Property options"
+      ariaLabel={isFormula ? 'Formula options' : 'Property options'}
       onselect={handleRowMenuSelect}
       ondismiss={() => (showRowMenu = false)}
     />
@@ -738,6 +800,48 @@
     width: 24px;
     text-align: center;
     transition: color 150ms ease;
+  }
+
+  .pr-key-readonly {
+    display: block;
+    cursor: default;
+  }
+
+  .pr-key-readonly:hover {
+    border-color: transparent;
+    color: var(--color-text-dim, #71717a);
+  }
+
+  .pr-formula {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    color: var(--color-text, #e4e4e7);
+  }
+
+  .pr-formula-mark {
+    flex-shrink: 0;
+    color: var(--color-primary, #00e5ff);
+    font-family: var(--font-mono, 'JetBrains Mono'), monospace;
+    font-size: 9px;
+    opacity: 0.7;
+  }
+
+  .pr-formula-value {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .pr-formula-error,
+  .pr-formula-error-icon {
+    color: var(--color-error, #ef4444);
+  }
+
+  .pr-formula-error-icon {
+    flex-shrink: 0;
+    font-size: 14px;
   }
   .pr:hover .pr-type-icon {
     color: var(--color-primary, #00e5ff);

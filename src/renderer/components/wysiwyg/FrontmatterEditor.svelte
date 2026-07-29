@@ -14,7 +14,7 @@
   /** Look up schema field definition by key name. */
   function getSchemaField(key: string): SchemaField | null {
     if (!schema?.fields) return null
-    return schema.fields.find((f) => f.name === key) ?? null
+    return schema.fields.find((f) => f.name === key && f.field_type !== 'Formula') ?? null
   }
 
   interface FrontmatterRow {
@@ -49,7 +49,10 @@
   function getUnusedSchemaFields(): string[] {
     if (!schema?.fields) return []
     const usedKeys = new Set(rows.map((r) => r.key.trim()).filter(Boolean))
-    return schema.fields.map((f) => f.name).filter((name) => !usedKeys.has(name))
+    return schema.fields
+      .filter((field) => field.field_type !== 'Formula')
+      .map((field) => field.name)
+      .filter((name) => !usedKeys.has(name))
   }
 
   /** Get a type-appropriate default value for a schema field type. */
@@ -72,10 +75,12 @@
   /** Map of field name → field type label for secondary display in autocomplete. */
   let fieldTypeLabels = $derived(
     new Map(
-      schema?.fields.map((f) => [
-        f.name,
-        f.field_type.charAt(0).toUpperCase() + f.field_type.slice(1).toLowerCase()
-      ]) ?? []
+      schema?.fields
+        .filter((field) => field.field_type !== 'Formula')
+        .map((f) => [
+          f.name,
+          f.field_type.charAt(0).toUpperCase() + f.field_type.slice(1).toLowerCase()
+        ]) ?? []
     )
   )
 

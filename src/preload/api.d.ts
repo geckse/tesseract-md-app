@@ -23,7 +23,10 @@ import type {
   CollectionOutput,
   JsonValue,
   WatchEventReport,
-  MimeCategory
+  MimeCategory,
+  FormulaResultType,
+  FormulaValidationResult,
+  ModuleReport
 } from '../renderer/types/cli'
 import type { PropertyValueColors, PropertyValueColorSelection } from '../shared/value-colors'
 import type { ExternalLinkPreview, LocalLinkPreview } from '../shared/link-preview'
@@ -321,15 +324,18 @@ export type PropertyTargetType =
   | 'file'
   | 'complex'
 
-/** A recursive property operation: retype a key, or rename it. */
+/** A recursive property operation: add, retype, rename, or vault-wide drop. */
 export type PropertyOp =
+  | { kind: 'add'; target: PropertyTargetType; allowedValues?: string[] }
   | { kind: 'convert'; target: PropertyTargetType; allowedValues?: string[] }
   | { kind: 'rename'; newKey: string }
+  | { kind: 'drop'; confirmedPaths?: string[] }
 
 /**
  * Request for a property operation. `scope` is the folder subtree (relative
  * path, no trailing slash; `''`/`'.'` = whole vault); `scope: null` targets the
- * single `filePath` only (vault-root files — no overlay pin).
+ * single `filePath` only (vault-root files — no overlay pin). Drop ignores
+ * `scope`/`filePath` and always targets the entire vault.
  */
 export interface PropertyOpRequest {
   collectionId: string
@@ -340,7 +346,14 @@ export interface PropertyOpRequest {
 }
 
 /** Per-file outcome the preview predicts. */
-export type PropertyOpPlanAction = 'convert' | 'rename' | 'unchanged' | 'no-value' | 'skip'
+export type PropertyOpPlanAction =
+  | 'add'
+  | 'convert'
+  | 'rename'
+  | 'drop'
+  | 'unchanged'
+  | 'no-value'
+  | 'skip'
 
 /** One file's row in the preview plan (values display-truncated). */
 export interface PropertyOpPlanEntry {
@@ -348,7 +361,7 @@ export interface PropertyOpPlanEntry {
   action: PropertyOpPlanAction
   before: string | null
   after: string | null
-  /** Present for 'skip' — why the value can't convert. */
+  /** Why a skipped/unchanged entry will not be written. */
   reason?: string
 }
 
@@ -364,7 +377,14 @@ export interface PropertyOpSchemaPin {
 export interface PropertyOpPlan {
   scope: string | null
   files: PropertyOpPlanEntry[]
-  totals: { convert: number; unchanged: number; noValue: number; skip: number }
+  totals: {
+    add: number
+    convert: number
+    drop: number
+    unchanged: number
+    noValue: number
+    skip: number
+  }
   schemaPin: PropertyOpSchemaPin | null
 }
 
@@ -392,12 +412,16 @@ export interface PropertyOpProgress {
 
 /** Overlay annotation patch (null clears the annotation). */
 export interface OverlayFieldPatch {
-  fieldType?: string
+  fieldType?: string | null
   description?: string | null
   required?: boolean | null
   allowedValues?: string[] | null
   /** Relation target folder annotation (phase 42; no trailing slash; null clears). */
   target?: string | null
+  /** JavaScript-style expression for a formula field; null clears it. */
+  formula?: string | null
+  /** Declared formula output type; null clears it. */
+  resultType?: FormulaResultType | null
 }
 
 /** A persisted slot in the legacy bottom panel (terminal) — shell + cwd only. */
@@ -525,6 +549,14 @@ export interface MdvdbApi {
   info(root: string, path?: string): Promise<VaultInfo>
   init(root: string): Promise<void>
   resetIndex(root: string): Promise<void>
+  /** Parse and validate one formula without mutating schema or index state. */
+  validateFormula(
+    root: string,
+    formula: string,
+    resultType: FormulaResultType
+  ): Promise<FormulaValidationResult>
+  /** Recompute and materialize formulas into Markdown for the vault or one folder scope. */
+  runFormulaModule(root: string, scope?: string): Promise<ModuleReport>
 
   // Collection management
   listCollections(): Promise<Collection[]>
@@ -626,12 +658,12 @@ export interface MdvdbApi {
   ): Promise<SavedTableView[]>
 
   // Property type conversion / schema editing (phase 41)
-  /** Compute the per-file conversion/rename plan for a property op (no writes). */
+  /** Compute the per-file add/convert/rename/drop plan for a property op (no writes). */
   previewPropertyOp(req: PropertyOpRequest): Promise<PropertyOpPlan>
   /**
-   * Apply a property op: batch-convert/rename across the scope (watcher paused,
-   * atomic per-file writes), pin the schema overlay, stream progress events
-   * keyed by `opId`. Returns per-file results.
+   * Apply a property op with the watcher paused and atomic per-file writes.
+   * Drop is vault-wide and removes every matching overlay definition. Streams
+   * progress events keyed by `opId` and returns per-file results.
    */
   applyPropertyOp(opId: string, req: PropertyOpRequest): Promise<PropertyOpResult>
   /** Write schema-overlay annotations (description/required/allowed values) — no file rewrites. */
@@ -641,6 +673,16 @@ export interface MdvdbApi {
     key: string,
     patch: OverlayFieldPatch
   ): Promise<void>
+  /** Validate, persist, and materialize one database formula with the watcher paused. */
+  saveFormula(
+    collectionId: string,
+    scope: string | null,
+    key: string,
+    formula: string,
+    resultType: FormulaResultType
+  ): Promise<ModuleReport>
+  /** Remove one database formula definition and its materialized Markdown values. */
+  removeFormula(collectionId: string, scope: string | null, key: string): Promise<ModuleReport>
   /** Read theme-palette slots persisted beside fields in `.markdownvdb.schema.yml`. */
   getPropertyValueColors(collectionId: string, scope: string | null): Promise<PropertyValueColors>
   /** Set one synced value-color slot; null restores its automatic assignment. */
@@ -740,7 +782,8 @@ export interface MdvdbApi {
   getWindowSession(): Promise<PersistedWindowState | null>
 
   // Multi-window management
-  newWindow(): Promise<void>
+  /** Open a full app window, optionally with a specific collection selected. */
+  newWindow(collectionId?: string): Promise<void>
 
   // Dirty-close guard (data safety): main intercepts native window close and
   // asks the renderer; the renderer answers with confirmClose() once the
@@ -894,6 +937,7 @@ export interface TerminalTitlePayload {
 /** Watcher event forwarded from the main process. */
 export type WatcherEvent =
   | { type: 'watch-event'; data: WatchEventReport }
+  | { type: 'module-report'; data: ModuleReport }
   | { type: 'state-change'; data: WatcherStatus['state'] }
   | { type: 'error'; data: { message: string } }
 

@@ -80,7 +80,10 @@ function getFocusedMenuState() {
   const context = target
     ? (windowMenuContexts.get(target.webContents.id) ?? DEFAULT_GRAPH_MENU_CONTEXT)
     : DEFAULT_GRAPH_MENU_CONTEXT
-  return getMenuState(context)
+  const windowCollectionId = target
+    ? windowManagerRef?.getWindowCollectionId(target.webContents.id)
+    : undefined
+  return getMenuState(context, windowCollectionId)
 }
 
 /** Merge a renderer's transient focused-view state and refresh the native menu. */
@@ -134,8 +137,8 @@ const menuActions: MenuActions = {
     initStore().set('recentFiles', [])
     refreshAppMenu()
   },
-  newWindow: () => {
-    windowManagerRef?.createWindow()
+  newWindow: (collectionId) => {
+    windowManagerRef?.createWindow({ collectionId })
   },
   checkForUpdates: () => {
     void getAppUpdater().checkForUpdates()

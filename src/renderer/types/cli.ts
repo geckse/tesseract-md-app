@@ -30,6 +30,10 @@ export interface SearchResultChunk {
 export interface SearchResultFile {
   path: string
   frontmatter: JsonValue | null
+  /** Non-authoritative module cache. Materialized Formula values live in frontmatter. */
+  computed_fields: Record<string, JsonValue>
+  /** Per-field module diagnostics for values that could not be computed. */
+  computed_field_errors: Record<string, ComputedFieldDiagnostic>
   file_size: number
   path_components: string[]
   modified_at: number | null
@@ -125,6 +129,8 @@ export interface IngestResult {
   errors: IngestError[]
   duration_secs: number
   cancelled: boolean
+  /** Reports from built-in modules executed as part of the ingest. */
+  module_reports: ModuleReport[]
 }
 
 /** A single ingestion error for a specific file. */
@@ -173,6 +179,9 @@ export interface DocumentInfo {
   path: string
   content_hash: string
   frontmatter: JsonValue | null
+  /** Non-authoritative module cache. Materialized Formula values live in frontmatter. */
+  computed_fields: Record<string, JsonValue>
+  computed_field_errors: Record<string, ComputedFieldDiagnostic>
   chunk_count: number
   file_size: number
   indexed_at: number
@@ -221,6 +230,62 @@ export type FieldType =
   | 'Mixed'
   | 'Relation'
   | 'File'
+  | 'Formula'
+
+/** Declared output type for a formula field. */
+export type FormulaResultType =
+  | 'String'
+  | 'Number'
+  | 'Boolean'
+  | 'Date'
+  | 'DateTime'
+  | 'List'
+  | 'Json'
+
+/** Stable diagnostic emitted by a computed-field module. */
+export interface ComputedFieldDiagnostic {
+  module: string
+  field: string
+  code: string
+  message: string
+  span_start: number | null
+  span_end: number | null
+}
+
+/** A module diagnostic enriched with the affected document path. */
+export interface ModuleDiagnostic extends ComputedFieldDiagnostic {
+  path: string | null
+}
+
+/** One built-in module's summary after ingest, watcher, or manual execution. */
+export interface ModuleReport {
+  module: string
+  event: string
+  files_evaluated: number
+  fields_updated: number
+  diagnostics: ModuleDiagnostic[]
+  duration_ms: number
+}
+
+export interface FormulaSourceSpan {
+  start: number
+  end: number
+}
+
+/** Parser/evaluator diagnostic returned by `modules validate formula`. */
+export interface FormulaDiagnostic {
+  module: string
+  field: string
+  code: string
+  message: string
+  span: FormulaSourceSpan | null
+}
+
+/** Result returned by `modules validate formula`. */
+export interface FormulaValidationResult {
+  valid: boolean
+  diagnostics: FormulaDiagnostic[]
+}
 
 /** A merged schema field combining inferred data with overlay annotations. */
 export interface SchemaField {
@@ -233,6 +298,10 @@ export interface SchemaField {
   required: boolean
   /** Overlay-declared FK target folder for relation fields (NO trailing slash). */
   relation_target: string | null
+  /** Formula source for `field_type: Formula`; null for ordinary fields. */
+  formula: string | null
+  /** Declared formula output type; null for ordinary fields. */
+  result_type: FormulaResultType | null
 }
 
 /** The complete metadata schema. */
@@ -267,6 +336,8 @@ export interface CollectionColumn {
   in_schema: boolean // false = key found only in a row's frontmatter, not the scoped schema
   /** Overlay-declared FK target folder for relation columns (NO trailing slash). */
   relation_target: string | null
+  formula: string | null
+  result_type: FormulaResultType | null
 }
 
 /** One table row = one Markdown document. */
@@ -276,6 +347,10 @@ export interface CollectionRow {
   title_source: TitleSource
   /** Always a JSON object (`{}` when none) — never null. RAW even under populate. */
   frontmatter: Record<string, JsonValue>
+  /** Non-authoritative module cache. Never takes precedence over frontmatter. */
+  computed_fields: Record<string, JsonValue>
+  /** Failed eager module results. Always present, even when empty. */
+  computed_field_errors: Record<string, ComputedFieldDiagnostic>
   content_hash: string | null // null for state:'new'
   file_size: number
   modified_at: number | null
@@ -667,6 +742,7 @@ export interface WatchEventReport {
   chunks_processed: number
   duration_ms: number
   error: string | null
+  module_reports: ModuleReport[]
 }
 
 // ─── Index Storage Types ─────────────────────────────────────────────

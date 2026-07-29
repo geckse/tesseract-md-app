@@ -47,7 +47,18 @@ const VALID_FIELD_TYPES = new Set([
   'date',
   'mixed',
   'relation',
-  'file'
+  'file',
+  'formula'
+])
+
+const VALID_FORMULA_RESULT_TYPES = new Set([
+  'String',
+  'Number',
+  'Boolean',
+  'Date',
+  'DateTime',
+  'List',
+  'Json'
 ])
 
 async function loadOverlayDocument(root: string): Promise<{ doc: Document; existed: boolean }> {
@@ -63,9 +74,13 @@ async function loadOverlayDocument(root: string): Promise<{ doc: Document; exist
   }
   const doc = parseDocument(raw)
   if (doc.errors.length > 0) throw new MalformedOverlayError()
-  // An empty file parses to null contents — ensure a map root for setIn.
-  if (doc.contents == null || (doc.contents as { items?: unknown }).items === undefined) {
+  // An empty file parses to null contents — ensure a map root for setIn. Any
+  // other scalar/sequence root is valid YAML but not a schema overlay and must
+  // never be silently replaced.
+  if (doc.contents == null) {
     doc.contents = doc.createNode({}) as Document['contents']
+  } else if (!isMap(doc.contents)) {
+    throw new MalformedOverlayError()
   }
   return { doc, existed: true }
 }
@@ -92,9 +107,35 @@ function deleteInIfPresent(doc: Document, path: (string | number)[]): void {
   if (doc.hasIn(path)) doc.deleteIn(path)
 }
 
+function hasYamlComment(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false
+  const node = value as { comment?: unknown; commentBefore?: unknown }
+  return Boolean(node.comment || node.commentBefore)
+}
+
 function deleteEmptyMap(doc: Document, path: (string | number)[]): void {
   const node = doc.getIn(path, true)
-  if (isMap(node) && node.items.length === 0) doc.deleteIn(path)
+  if (!isMap(node) || node.items.length !== 0 || hasYamlComment(node)) return
+
+  const parent = doc.getIn(path.slice(0, -1), true)
+  const key = path.at(-1)
+  const pair = isMap(parent)
+    ? parent.items.find((item) => {
+        const pairKey = (item.key as { value?: unknown } | null)?.value ?? item.key
+        return pairKey === key
+      })
+    : undefined
+  if (!hasYamlComment(pair)) doc.deleteIn(path)
+}
+
+function scopeMatchesPath(path: string, scope: string): boolean {
+  const normalizedPath = path.replace(/^\/+|\/+$/g, '')
+  const normalizedScope = scope.replace(/^\/+|\/+$/g, '')
+  return (
+    normalizedScope === '' ||
+    normalizedPath === normalizedScope ||
+    normalizedPath.startsWith(`${normalizedScope}/`)
+  )
 }
 
 function parseStoredValueColor(raw: unknown): PropertyValueColorSelection | null {
@@ -150,7 +191,7 @@ function resolvedValueColors(doc: Document, scopeKey: string | null): PropertyVa
   if (scopeKey === null || !overlay.scopes) return result
 
   const matchingScopes = Object.entries(overlay.scopes)
-    .filter(([scope]) => scopeKey.startsWith(scope) || scopeKey === scope)
+    .filter(([scope]) => scopeMatchesPath(scopeKey, scope))
     .sort(([left], [right]) => left.length - right.length)
   for (const [, scope] of matchingScopes) mergeValueColorFields(result, scope?.fields)
   return result
@@ -241,8 +282,22 @@ export async function upsertOverlayField(
       `Overlay scope keys must be non-empty and have no trailing slash: "${scopeKey}"`
     )
   }
-  if (patch.fieldType !== undefined && !VALID_FIELD_TYPES.has(patch.fieldType)) {
+  if (
+    patch.fieldType !== undefined &&
+    patch.fieldType !== null &&
+    !VALID_FIELD_TYPES.has(patch.fieldType)
+  ) {
     throw new Error(`Invalid overlay field_type: "${patch.fieldType}"`)
+  }
+  if (
+    patch.resultType !== undefined &&
+    patch.resultType !== null &&
+    !VALID_FORMULA_RESULT_TYPES.has(patch.resultType)
+  ) {
+    throw new Error(`Invalid formula result_type: "${patch.resultType}"`)
+  }
+  if (patch.formula !== undefined && patch.formula !== null && patch.formula.trim() === '') {
+    throw new Error('Formula expression cannot be empty')
   }
   // Relation target folders follow the phase-41 folder-key grammar: relative
   // path, non-empty, NO trailing slash (the CLI emits `relation_target`
@@ -259,7 +314,10 @@ export async function upsertOverlayField(
   const { doc } = await loadOverlayDocument(root)
   const base = fieldPath(scopeKey, key)
 
-  if (patch.fieldType !== undefined) doc.setIn([...base, 'field_type'], patch.fieldType)
+  if (patch.fieldType !== undefined) {
+    if (patch.fieldType === null) deleteInIfPresent(doc, [...base, 'field_type'])
+    else doc.setIn([...base, 'field_type'], patch.fieldType)
+  }
   if (patch.description !== undefined) {
     if (patch.description === null) deleteInIfPresent(doc, [...base, 'description'])
     else doc.setIn([...base, 'description'], patch.description)
@@ -279,8 +337,191 @@ export async function upsertOverlayField(
     if (patch.target === null) deleteInIfPresent(doc, [...base, 'target'])
     else doc.setIn([...base, 'target'], patch.target)
   }
+  if (patch.formula !== undefined) {
+    if (patch.formula === null) deleteInIfPresent(doc, [...base, 'formula'])
+    else doc.setIn([...base, 'formula'], patch.formula)
+  }
+  if (patch.resultType !== undefined) {
+    if (patch.resultType === null) deleteInIfPresent(doc, [...base, 'result_type'])
+    else doc.setIn([...base, 'result_type'], patch.resultType.toLowerCase())
+  }
+
+  // Clearing a formula definition may leave an empty field/scope shell. Prune
+  // only empty maps; comments and unrelated annotations stay untouched.
+  deleteEmptyMap(doc, base)
+  const fieldsPath = scopeKey === null ? ['fields'] : ['scopes', scopeKey, 'fields']
+  deleteEmptyMap(doc, fieldsPath)
+  if (scopeKey !== null) {
+    deleteEmptyMap(doc, ['scopes', scopeKey])
+    deleteEmptyMap(doc, ['scopes'])
+  }
 
   await writeOverlayDocument(root, doc)
+}
+
+/** Remove one complete overlay field entry while preserving the rest of the document. */
+export async function removeOverlayField(
+  root: string,
+  scopeKey: string | null,
+  key: string
+): Promise<boolean> {
+  const { doc, existed } = await loadOverlayDocument(root)
+  if (!existed) return false
+  const base = fieldPath(scopeKey, key)
+  if (!doc.hasIn(base)) return false
+
+  doc.deleteIn(base)
+  const fieldsPath = scopeKey === null ? ['fields'] : ['scopes', scopeKey, 'fields']
+  deleteEmptyMap(doc, fieldsPath)
+  if (scopeKey !== null) {
+    deleteEmptyMap(doc, ['scopes', scopeKey])
+    deleteEmptyMap(doc, ['scopes'])
+  }
+  await writeOverlayDocument(root, doc)
+  return true
+}
+
+/**
+ * Remove every global and scoped definition for one field.
+ *
+ * Drop-column is deliberately vault-wide, so leaving a descendant override
+ * behind would make the column reappear in that database after the next
+ * schema refresh. The complete overlay is parsed and structurally checked
+ * before the first mutation, then written once atomically.
+ */
+export async function removeOverlayFieldEverywhere(root: string, key: string): Promise<boolean> {
+  const { doc, existed } = await loadOverlayDocument(root)
+  if (!existed) return false
+
+  const overlay = doc.toJS() as unknown
+  if (overlay === null || typeof overlay !== 'object' || Array.isArray(overlay)) {
+    throw new MalformedOverlayError()
+  }
+  const rootMap = overlay as Record<string, unknown>
+  const fields = rootMap.fields
+  if (
+    fields !== undefined &&
+    (fields === null || typeof fields !== 'object' || Array.isArray(fields))
+  ) {
+    throw new Error(`Expected YAML collection at fields`)
+  }
+  const scopes = rootMap.scopes
+  if (
+    scopes !== undefined &&
+    (scopes === null || typeof scopes !== 'object' || Array.isArray(scopes))
+  ) {
+    throw new Error(`Expected YAML collection at scopes`)
+  }
+
+  const hasOwn = (value: object, property: string): boolean =>
+    Object.prototype.hasOwnProperty.call(value, property)
+  const removeGlobal = fields !== undefined && hasOwn(fields as object, key)
+  const scopedMatches: string[] = []
+
+  if (scopes !== undefined) {
+    for (const [scopeKey, rawScope] of Object.entries(scopes as Record<string, unknown>)) {
+      if (rawScope === null || typeof rawScope !== 'object' || Array.isArray(rawScope)) {
+        throw new Error(`Expected YAML collection at scopes.${scopeKey}`)
+      }
+      const scopeFields = (rawScope as Record<string, unknown>).fields
+      if (
+        scopeFields !== undefined &&
+        (scopeFields === null || typeof scopeFields !== 'object' || Array.isArray(scopeFields))
+      ) {
+        throw new Error(`Expected YAML collection at scopes.${scopeKey}.fields`)
+      }
+      if (scopeFields !== undefined && hasOwn(scopeFields as object, key)) {
+        scopedMatches.push(scopeKey)
+      }
+    }
+  }
+
+  if (!removeGlobal && scopedMatches.length === 0) return false
+
+  if (removeGlobal) {
+    doc.deleteIn(fieldPath(null, key))
+    deleteEmptyMap(doc, ['fields'])
+  }
+  for (const scopeKey of scopedMatches) {
+    doc.deleteIn(fieldPath(scopeKey, key))
+    deleteEmptyMap(doc, ['scopes', scopeKey, 'fields'])
+    deleteEmptyMap(doc, ['scopes', scopeKey])
+  }
+  deleteEmptyMap(doc, ['scopes'])
+
+  await writeOverlayDocument(root, doc)
+  return true
+}
+
+/** Exact on-disk state used to roll back a failed formula module run. */
+export interface OverlaySnapshot {
+  existed: boolean
+  content: string | null
+}
+
+export async function captureOverlaySnapshot(root: string): Promise<OverlaySnapshot> {
+  const path = join(root, OVERLAY_FILENAME)
+  try {
+    return { existed: true, content: await fs.readFile(path, 'utf-8') }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { existed: false, content: null }
+    }
+    throw error
+  }
+}
+
+export async function restoreOverlaySnapshot(
+  root: string,
+  snapshot: OverlaySnapshot
+): Promise<void> {
+  const path = join(root, OVERLAY_FILENAME)
+  if (snapshot.existed) {
+    const content = snapshot.content ?? ''
+    registerOwnWrite(path, 'write', content)
+    await atomicWriteFile(path, content)
+  } else {
+    registerOwnWrite(path, 'delete')
+    await fs.rm(path, { force: true })
+  }
+}
+
+/**
+ * Locate the most-specific overlay definition that currently produces a
+ * formula column for `scopeKey`. `undefined` means there is no formula
+ * definition; `null` identifies the global `fields:` map.
+ */
+export async function resolveOverlayFormulaScope(
+  root: string,
+  scopeKey: string | null,
+  key: string
+): Promise<string | null | undefined> {
+  const { doc } = await loadOverlayDocument(root)
+  const overlay = doc.toJS() as {
+    fields?: Record<string, { field_type?: unknown }>
+    scopes?: Record<string, { fields?: Record<string, { field_type?: unknown }> }>
+  } | null
+  if (!overlay) return undefined
+
+  let origin: string | null | undefined
+  const global = overlay.fields?.[key]
+  if (typeof global?.field_type === 'string' && global.field_type.toLowerCase() === 'formula') {
+    origin = null
+  }
+  if (scopeKey === null || !overlay.scopes) return origin
+
+  const matching = Object.entries(overlay.scopes)
+    .filter(([scope]) => scopeMatchesPath(scopeKey, scope))
+    .sort(([left], [right]) => left.length - right.length)
+  for (const [scope, value] of matching) {
+    const field = value.fields?.[key]
+    if (field === undefined) continue
+    origin =
+      typeof field.field_type === 'string' && field.field_type.toLowerCase() === 'formula'
+        ? scope
+        : undefined
+  }
+  return origin
 }
 
 /**

@@ -2,9 +2,11 @@ import { describe, it, expect } from 'vitest'
 import {
   FIELD_TO_DETECTED,
   detectedTypeForField,
+  schemaPatchForPropertyTarget,
   UNION_CONGRUENT
 } from '@renderer/lib/property-types'
 import type { FieldType } from '@renderer/types/cli'
+import type { PropertyTargetType } from '../../src/preload/api'
 
 describe('property types — relation (phase 42)', () => {
   it('the two hand-synced type unions stay congruent (compile-time guard)', () => {
@@ -37,5 +39,26 @@ describe('property types — relation (phase 42)', () => {
     expect(detectedTypeForField('Relation', null)).toBe('relation')
     // Non-relation fields keep the allowed_values → select rule.
     expect(detectedTypeForField('String', ['a'])).toBe('select')
+  })
+
+  it('maps every addable property type to its persisted schema field type', () => {
+    const expected: Record<PropertyTargetType, string> = {
+      text: 'string',
+      number: 'number',
+      boolean: 'boolean',
+      date: 'date',
+      datetime: 'date',
+      url: 'string',
+      email: 'string',
+      select: 'string',
+      tags: 'list',
+      relation: 'relation',
+      file: 'file',
+      complex: 'mixed'
+    }
+
+    for (const [target, fieldType] of Object.entries(expected)) {
+      expect(schemaPatchForPropertyTarget(target as PropertyTargetType)).toEqual({ fieldType })
+    }
   })
 })

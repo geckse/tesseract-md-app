@@ -90,6 +90,12 @@ export interface PopupWindowOptions {
   cwd?: string
 }
 
+/** Options for creating a full application window. */
+export interface MainWindowOptions {
+  /** Collection this window should select without changing another window. */
+  collectionId?: string
+}
+
 /** Data sent to popup renderer for dirty document or image transfer. */
 export interface PopupInitData {
   content: string | null
@@ -104,6 +110,9 @@ export class WindowManager {
 
   /** Set of webContents.id values that are popup windows. */
   private popups: Set<number> = new Set()
+
+  /** Per-window active collection overrides (absent means use the persisted default). */
+  private windowCollections: Map<number, string | null> = new Map()
 
   /** Callbacks invoked (with webContents.id) when a tracked window is closed. */
   private closeListeners: ((webContentsId: number) => void)[] = []
@@ -242,7 +251,7 @@ export class WindowManager {
    *
    * @returns The newly created BrowserWindow
    */
-  createWindow(): BrowserWindow {
+  createWindow(options: MainWindowOptions = {}): BrowserWindow {
     const store = initStore()
     const savedBounds = store.get('windowBounds', { x: 0, y: 0, width: 1200, height: 800 })
 
@@ -266,6 +275,9 @@ export class WindowManager {
 
     const id = win.webContents.id
     this.windows.set(id, win)
+    if (options.collectionId !== undefined) {
+      this.windowCollections.set(id, options.collectionId)
+    }
 
     this.installCloseGuard(win, id)
 
@@ -273,6 +285,7 @@ export class WindowManager {
     win.on('closed', () => {
       this.windows.delete(id)
       this.forceClose.delete(id)
+      this.windowCollections.delete(id)
       this.clearCloseTimer(id)
       for (const cb of this.closeListeners) {
         try {
@@ -339,14 +352,22 @@ export class WindowManager {
     win.on('resize', saveWindowBounds)
     win.on('move', saveWindowBounds)
 
+    const params = new URLSearchParams()
+    if (options.collectionId) params.set('collectionId', options.collectionId)
+    const query = params.toString()
+
     if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-      void win.loadURL(process.env['ELECTRON_RENDERER_URL']).catch((error: unknown) => {
+      const rendererUrl = process.env['ELECTRON_RENDERER_URL'] + (query ? `?${query}` : '')
+      void win.loadURL(rendererUrl).catch((error: unknown) => {
         console.error('Failed to load the Tesseract renderer:', error)
       })
     } else {
-      void win.loadFile(join(__dirname, '../renderer/index.html')).catch((error: unknown) => {
-        console.error('Failed to load the Tesseract renderer:', error)
-      })
+      const loadOptions = query ? { search: query } : undefined
+      void win
+        .loadFile(join(__dirname, '../renderer/index.html'), loadOptions)
+        .catch((error: unknown) => {
+          console.error('Failed to load the Tesseract renderer:', error)
+        })
     }
 
     return win
@@ -383,6 +404,9 @@ export class WindowManager {
     const id = win.webContents.id
     this.windows.set(id, win)
     this.popups.add(id)
+    if (options.collectionId !== undefined) {
+      this.windowCollections.set(id, options.collectionId)
+    }
 
     this.installCloseGuard(win, id)
 
@@ -390,6 +414,7 @@ export class WindowManager {
       this.windows.delete(id)
       this.popups.delete(id)
       this.forceClose.delete(id)
+      this.windowCollections.delete(id)
       this.clearCloseTimer(id)
       for (const cb of this.closeListeners) {
         try {
@@ -494,6 +519,20 @@ export class WindowManager {
     return this.popups.has(id)
   }
 
+  /** Record the collection selected in one full application window. */
+  setWindowCollectionId(webContentsId: number, collectionId: string | null): void {
+    if (!this.windows.has(webContentsId)) return
+    this.windowCollections.set(webContentsId, collectionId)
+  }
+
+  /**
+   * Return a window-specific collection selection. `undefined` means that
+   * window has no override and should use the persisted application default.
+   */
+  getWindowCollectionId(webContentsId: number): string | null | undefined {
+    return this.windowCollections.get(webContentsId)
+  }
+
   /**
    * Get a tracked window by its webContents.id.
    *
@@ -509,6 +548,7 @@ export class WindowManager {
     if (win) {
       this.windows.delete(id)
       this.popups.delete(id)
+      this.windowCollections.delete(id)
     }
     return undefined
   }
@@ -534,6 +574,7 @@ export class WindowManager {
     for (const id of stale) {
       this.windows.delete(id)
       this.popups.delete(id)
+      this.windowCollections.delete(id)
     }
 
     return live
@@ -566,6 +607,7 @@ export class WindowManager {
     // Clean up any stale entries
     for (const id of stale) {
       this.windows.delete(id)
+      this.windowCollections.delete(id)
     }
   }
 
@@ -599,6 +641,8 @@ export class WindowManager {
     const win = this.windows.get(id)
     if (!win || win.isDestroyed()) {
       this.windows.delete(id)
+      this.popups.delete(id)
+      this.windowCollections.delete(id)
       return
     }
 

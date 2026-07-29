@@ -12,7 +12,8 @@ const mockApi = {
   }),
   graphData: vi.fn(),
   tree: vi.fn().mockResolvedValue(null),
-  scanAssets: vi.fn().mockResolvedValue(null)
+  scanAssets: vi.fn().mockResolvedValue(null),
+  ingestFile: vi.fn()
 }
 Object.defineProperty(globalThis, 'window', { value: { api: mockApi }, writable: true })
 
@@ -31,6 +32,7 @@ import {
   syncGraphStoresFromTab
 } from '../../src/renderer/stores/graph'
 import { workspace } from '../../src/renderer/stores/workspace.svelte'
+import { tableStore } from '../../src/renderer/stores/table.svelte'
 import type { FileTree, GraphData, WatchEventReport } from '../../src/renderer/types/cli'
 
 function tree(): FileTree {
@@ -76,6 +78,7 @@ function report(over: Partial<WatchEventReport> = {}): WatchEventReport {
     chunks_processed: 1,
     duration_ms: 12,
     error: null,
+    module_reports: [],
     ...over
   }
 }
@@ -128,6 +131,61 @@ describe('Tier-2 watch-event integration (mdvdb reindex → app patch)', () => {
     await vi.advanceTimersByTimeAsync(600)
     expect(mockApi.status).toHaveBeenCalledTimes(1)
     expect(get(collectionStatus)?.document_count).toBe(10)
+  })
+
+  it('reloads open database tabs after formula hook execution', async () => {
+    const tabId = workspace.openTableTab('invoices')
+    const reload = vi.spyOn(tableStore, 'reload').mockResolvedValue()
+    handleWatcherEvent({
+      type: 'watch-event',
+      data: report({
+        module_reports: [
+          {
+            module: 'formula',
+            event: 'files_changed',
+            files_evaluated: 1,
+            fields_updated: 2,
+            diagnostics: [],
+            duration_ms: 3
+          }
+        ]
+      })
+    })
+
+    await vi.advanceTimersByTimeAsync(600)
+    expect(reload).toHaveBeenCalledWith(tabId)
+    reload.mockRestore()
+  })
+
+  it('refreshes every open database tab after a synthetic formula module report', async () => {
+    const invoicesTab = workspace.openTableTab('invoices')
+    workspace.markTableInteracted(invoicesTab)
+    const archiveTab = workspace.openTableTab('archive')
+    workspace.openTab('note.md')
+    const reload = vi.spyOn(tableStore, 'reload').mockResolvedValue()
+
+    handleWatcherEvent({
+      type: 'module-report',
+      data: {
+        module: 'formula',
+        event: 'manual_run',
+        files_evaluated: 2,
+        fields_updated: 4,
+        diagnostics: [],
+        duration_ms: 5
+      }
+    })
+
+    await vi.advanceTimersByTimeAsync(499)
+    expect(reload).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+
+    expect(reload).toHaveBeenCalledTimes(2)
+    expect(reload).toHaveBeenCalledWith(invoicesTab)
+    expect(reload).toHaveBeenCalledWith(archiveTab)
+    expect(mockApi.status).toHaveBeenCalledTimes(1)
+    expect(mockApi.ingestFile).not.toHaveBeenCalled()
+    reload.mockRestore()
   })
 
   it('optimistically bumps document_count on a successful Created event', () => {

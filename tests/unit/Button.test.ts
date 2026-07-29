@@ -36,6 +36,14 @@ describe('Button component', () => {
     expect(btn.className).toContain('btn-secondary')
   })
 
+  it('applies danger variant class for destructive actions', () => {
+    render(Button, {
+      props: { variant: 'danger', children: textSnippet('Drop') }
+    })
+
+    expect(screen.getByRole('button').className).toContain('btn-danger')
+  })
+
   it('applies size classes', () => {
     const { unmount } = render(Button, {
       props: { size: 'sm', children: textSnippet('S') }

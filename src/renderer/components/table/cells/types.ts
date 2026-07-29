@@ -1,4 +1,9 @@
-import type { CollectionColumn, JsonValue, RelationValue } from '../../../types/cli'
+import type {
+  CollectionColumn,
+  ComputedFieldDiagnostic,
+  JsonValue,
+  RelationValue
+} from '../../../types/cli'
 
 /**
  * Shared props contract for all data-cell editors.
@@ -23,6 +28,8 @@ export interface CellProps {
   collectionId?: string | null
   /** Schema-overlay scope for presentation annotations (`null` = global fields). */
   scope?: string | null
+  /** Formula/module diagnostic for this computed cell. */
+  computedError?: ComputedFieldDiagnostic
 }
 
 /** Missing / cleared frontmatter values render as an em-dash placeholder. */

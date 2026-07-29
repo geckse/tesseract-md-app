@@ -1,5 +1,5 @@
 /**
- * Property type conversion & rename across a folder database (phase 41).
+ * Property add, type conversion & rename across a folder database (phase 41).
  *
  * Pure conversion rules + plan builder (unit-testable, no I/O) plus the
  * main-process batch executor. Hard rules (from the PRD):
@@ -37,10 +37,15 @@ import {
   type FrontmatterPatch,
   type JsonValue
 } from './frontmatter'
-import { upsertOverlayField, renameOverlayField } from './schema-overlay'
-import { renamePropertyInViews } from './table-views'
+import {
+  upsertOverlayField,
+  renameOverlayField,
+  removeOverlayFieldEverywhere
+} from './schema-overlay'
+import { removePropertyFromViews, renamePropertyInViews } from './table-views'
 import type { WindowManager } from './window-manager'
 import { parseFileReference } from '../shared/file-reference'
+import { overlayFieldTypeForPropertyTarget } from '../shared/property-schema'
 
 // ─── Pure conversion rules (the matrix) ─────────────────────────────────
 
@@ -83,10 +88,43 @@ export function storageKindFor(target: PropertyTargetType): StorageKind | null {
 
 /** Overlay `field_type` string for a UI target type (datetime pins as date). */
 export function overlayFieldTypeFor(target: PropertyTargetType): string {
-  if (target === 'relation') return 'relation'
-  if (target === 'file') return 'file'
-  const kind = storageKindFor(target)
-  return kind === 'datetime' ? 'date' : (kind ?? 'mixed')
+  return overlayFieldTypeForPropertyTarget(target)
+}
+
+/**
+ * Typed initial value for a newly-created property. Mirrors the document
+ * header's Add property defaults so a column has the same on-disk shape no
+ * matter which app surface created it.
+ */
+export function defaultValueForTarget(
+  target: PropertyTargetType,
+  now: Date = new Date()
+): JsonValue {
+  switch (target) {
+    case 'number':
+      return 0
+    case 'boolean':
+      return false
+    case 'date':
+      return now.toISOString().slice(0, 10)
+    case 'datetime':
+      return `${now.toISOString().slice(0, 10)}T${now
+        .getHours()
+        .toString()
+        .padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`
+    case 'url':
+      return 'https://'
+    case 'tags':
+    case 'file':
+      return []
+    case 'complex':
+      return {}
+    case 'text':
+    case 'email':
+    case 'select':
+    case 'relation':
+      return ''
+  }
 }
 
 export type ConvertOutcome =
@@ -251,6 +289,36 @@ export function planEntryFor(
   }
   const value = file.frontmatter[key]
 
+  if (op.kind === 'drop') {
+    if (!Object.prototype.hasOwnProperty.call(file.frontmatter, key)) {
+      return { path: file.path, action: 'no-value', before: null, after: null }
+    }
+    return {
+      path: file.path,
+      action: 'drop',
+      before: displayValue(value),
+      after: null
+    }
+  }
+
+  if (op.kind === 'add') {
+    if (Object.prototype.hasOwnProperty.call(file.frontmatter, key)) {
+      return {
+        path: file.path,
+        action: 'unchanged',
+        before: displayValue(value),
+        after: displayValue(value),
+        reason: 'property already exists'
+      }
+    }
+    return {
+      path: file.path,
+      action: 'add',
+      before: null,
+      after: displayValue(defaultValueForTarget(op.target))
+    }
+  }
+
   if (op.kind === 'rename') {
     if (value === undefined) {
       return { path: file.path, action: 'no-value', before: null, after: null }
@@ -302,16 +370,18 @@ export function overlayScopeKey(scope: string): string | null {
 /** Build the full plan over parsed file inputs. Pure. */
 export function planPropertyOp(files: PlanFileInput[], req: PropertyOpRequest): PropertyOpPlan {
   const entries = files.map((f) => planEntryFor(f, req.key, req.op))
-  const totals = { convert: 0, unchanged: 0, noValue: 0, skip: 0 }
+  const totals = { add: 0, convert: 0, drop: 0, unchanged: 0, noValue: 0, skip: 0 }
   for (const e of entries) {
-    if (e.action === 'convert' || e.action === 'rename') totals.convert++
+    if (e.action === 'add') totals.add++
+    else if (e.action === 'convert' || e.action === 'rename') totals.convert++
+    else if (e.action === 'drop') totals.drop++
     else if (e.action === 'unchanged') totals.unchanged++
     else if (e.action === 'no-value') totals.noValue++
     else totals.skip++
   }
 
   let schemaPin: PropertyOpSchemaPin | null = null
-  if (req.scope !== null && req.op.kind === 'convert') {
+  if (req.scope !== null && (req.op.kind === 'add' || req.op.kind === 'convert')) {
     schemaPin = {
       scopeKey: overlayScopeKey(req.scope),
       fieldType: overlayFieldTypeFor(req.op.target)
@@ -321,7 +391,12 @@ export function planPropertyOp(files: PlanFileInput[], req: PropertyOpRequest): 
     }
   }
 
-  return { scope: req.scope, files: entries, totals, schemaPin }
+  return {
+    scope: req.op.kind === 'drop' ? '.' : req.scope,
+    files: entries,
+    totals,
+    schemaPin
+  }
 }
 
 // ─── File enumeration + frontmatter reading (I/O) ───────────────────────
@@ -338,6 +413,10 @@ function getCollection(collectionId: string): { id: string; path: string } {
  * (nothing on disk to write). Single-file requests return just that file.
  */
 async function enumerateFiles(root: string, req: PropertyOpRequest): Promise<string[]> {
+  if (req.op.kind === 'drop') {
+    const output = await execCommand<CollectionOutput>('collection', ['.', '--recursive'], root)
+    return output.rows.filter((r) => r.state !== 'deleted').map((r) => r.path)
+  }
   if (req.scope === null) {
     if (!req.filePath) throw new Error('filePath is required when scope is null')
     return [req.filePath]
@@ -364,6 +443,33 @@ async function readFrontmatter(absolutePath: string): Promise<Record<string, Jso
   return obj !== null && typeof obj === 'object' && !Array.isArray(obj)
     ? (obj as Record<string, JsonValue>)
     : {}
+}
+
+/** Re-read disk and return the exact set of parseable files that contain a Drop key. */
+async function currentDropPaths(
+  collectionId: string,
+  paths: string[],
+  key: string
+): Promise<string[]> {
+  const affected = new Set<string>()
+  for (const path of paths) {
+    let absolutePath: string
+    try {
+      absolutePath = resolveWithinCollection(collectionId, path)
+    } catch {
+      continue
+    }
+    try {
+      const frontmatter = await readFrontmatter(absolutePath)
+      if (frontmatter !== null && Object.prototype.hasOwnProperty.call(frontmatter, key)) {
+        affected.add(path)
+      }
+    } catch {
+      // An unreadable/deleted file is not currently a confirmed writable
+      // target. If it was confirmed previously, the set comparison will fail.
+    }
+  }
+  return [...affected].sort()
 }
 
 // ─── Preview ────────────────────────────────────────────────────────────
@@ -394,7 +500,7 @@ export async function previewPropertyOp(req: PropertyOpRequest): Promise<Propert
 const runningOps = new Set<string>()
 
 /**
- * Characters we refuse in a renamed key so it stays a plain YAML scalar.
+ * Characters we refuse in a newly-added or renamed key so it stays a plain YAML scalar.
  * Interior hyphens ("created-at") are fine; leading `-`/`?` and indicator
  * characters are not.
  */
@@ -402,6 +508,17 @@ const INVALID_KEY = /[:#[\]{}&*!|>'"%@`,\n\t]|^[\s?-]|\s$/
 
 function validateRequest(req: PropertyOpRequest): void {
   if (!req.key || !req.key.trim()) throw new Error('Property key is required')
+  if (req.op.kind === 'add') {
+    if (req.key === 'title' || req.key === 'path') {
+      throw new Error(`"${req.key}" is reserved`)
+    }
+    if (INVALID_KEY.test(req.key)) {
+      throw new Error('Property names cannot contain YAML special characters')
+    }
+    if (req.op.target === 'select' && !req.op.allowedValues?.length) {
+      throw new Error('Select properties require at least one allowed value')
+    }
+  }
   if (req.op.kind === 'rename') {
     const newKey = req.op.newKey
     if (!newKey || !newKey.trim()) throw new Error('New property name is required')
@@ -414,10 +531,40 @@ function validateRequest(req: PropertyOpRequest): void {
   }
 }
 
+/** Drop apply-only confirmation payload. Preview is intentionally allowed to omit it. */
+function requireConfirmedDropPaths(req: PropertyOpRequest): string[] | null {
+  if (req.op.kind !== 'drop') return null
+  const paths = req.op.confirmedPaths
+  if (!Array.isArray(paths)) {
+    throw new Error(
+      'Drop requires a fresh confirmed preview. Refresh the preview and confirm again.'
+    )
+  }
+  if (paths.some((path) => typeof path !== 'string' || path.length === 0)) {
+    throw new Error('Drop confirmation contains an invalid document path. Refresh the preview.')
+  }
+  if (new Set(paths).size !== paths.length) {
+    throw new Error('Drop confirmation contains duplicate document paths. Refresh the preview.')
+  }
+  return [...paths].sort()
+}
+
+function assertDropPreviewFresh(confirmedPaths: string[], currentPaths: string[]): void {
+  const matches =
+    confirmedPaths.length === currentPaths.length &&
+    confirmedPaths.every((path, index) => path === currentPaths[index])
+  if (!matches) {
+    throw new Error(
+      'Drop preview is stale because the affected documents changed. Refresh the preview and confirm again.'
+    )
+  }
+}
+
 /**
- * Apply a property op: batch-convert/rename across the scope with the vault
- * watcher paused, then pin the schema overlay. Progress is streamed to the
- * invoking window as `schema:property-op-progress` events keyed by `opId`.
+ * Apply a property op with the vault watcher paused. Add/convert/rename use the
+ * requested scope; drop is always vault-wide and removes every overlay
+ * definition before touching Markdown. Progress is streamed to the invoking
+ * window as `schema:property-op-progress` events keyed by `opId`.
  *
  * The caller (renderer) owns the follow-up sequence (incremental ingest →
  * schema/table refresh → file-sync routing) so the UI stays honest — this
@@ -430,24 +577,47 @@ export async function applyPropertyOp(
   req: PropertyOpRequest
 ): Promise<PropertyOpResult> {
   validateRequest(req)
+  const confirmedDropPaths = requireConfirmedDropPaths(req)
   const collection = getCollection(req.collectionId)
   if (runningOps.has(req.collectionId)) {
     throw new Error('A property operation is already running for this collection')
   }
   runningOps.add(req.collectionId)
   try {
-    const paths = await enumerateFiles(collection.path, req)
+    let paths = req.op.kind === 'drop' ? [] : await enumerateFiles(collection.path, req)
     const entries: PropertyOpResultEntry[] = []
     const broadcast = { windowManager, senderId: event.sender.id }
+    const scopeKey = req.scope === null ? null : overlayScopeKey(req.scope)
+    let overlayWritten = false
 
     // Pause the mdvdb watcher for the whole batch so it never re-ingests
-    // mid-conversion; chokidar Tier-1 events are already tagged via
-    // registerOwnWrite inside the shared write tail.
+    // mid-operation. Schema changes happen first: a malformed overlay therefore
+    // aborts before any Markdown is changed. Drop removes global plus every
+    // scoped definition so the column cannot reappear from an inherited pin.
+    // Chokidar Tier-1 events are already tagged via registerOwnWrite.
     const { withWatcherPaused } = await import('./ipc-handlers')
     await withWatcherPaused(collection.path, async () => {
+      let confirmedDropSet: Set<string> | null = null
+      if (req.op.kind === 'drop') {
+        paths = await enumerateFiles(collection.path, req)
+        const latestDropPaths = await currentDropPaths(req.collectionId, paths, req.key)
+        assertDropPreviewFresh(confirmedDropPaths ?? [], latestDropPaths)
+        confirmedDropSet = new Set(confirmedDropPaths ?? [])
+        overlayWritten = await removeOverlayFieldEverywhere(collection.path, req.key)
+      } else if (req.scope !== null && (req.op.kind === 'add' || req.op.kind === 'convert')) {
+        const patch: OverlayFieldPatch = { fieldType: overlayFieldTypeFor(req.op.target) }
+        if (req.op.target === 'select') patch.allowedValues = req.op.allowedValues ?? []
+        await upsertOverlayField(collection.path, scopeKey, req.key, patch)
+        overlayWritten = true
+      }
+
       for (let i = 0; i < paths.length; i++) {
         const path = paths[i]
-        entries.push(await applyToFile(req, path, broadcast))
+        entries.push(
+          req.op.kind === 'drop' && !confirmedDropSet?.has(path)
+            ? await inspectUnconfirmedDropFile(req, path)
+            : await applyToFile(req, path, broadcast, confirmedDropSet)
+        )
         if (!event.sender.isDestroyed()) {
           event.sender.send('schema:property-op-progress', {
             opId,
@@ -457,22 +627,23 @@ export async function applyPropertyOp(
           })
         }
       }
+
+      if (req.op.kind === 'drop') {
+        // Saved-view cleanup is auxiliary. A locked/corrupt views file must not
+        // hide the Markdown outcomes or prevent the renderer's required ingest;
+        // stale references already degrade safely against the live columns.
+        try {
+          await removePropertyFromViews(req.collectionId, req.key)
+        } catch (error) {
+          console.warn(`property-ops: could not clean saved views for "${req.key}":`, error)
+        }
+      }
     })
 
-    // Pin the chosen type in the schema overlay (skip for single-file ops).
-    let overlayWritten = false
-    if (req.scope !== null) {
-      const scopeKey = overlayScopeKey(req.scope)
-      if (req.op.kind === 'convert') {
-        const patch: OverlayFieldPatch = { fieldType: overlayFieldTypeFor(req.op.target) }
-        if (req.op.target === 'select') patch.allowedValues = req.op.allowedValues ?? []
-        await upsertOverlayField(collection.path, scopeKey, req.key, patch)
-        overlayWritten = true
-      } else {
-        overlayWritten = await renameOverlayField(collection.path, scopeKey, req.key, req.op.newKey)
-        // Best-effort: keep saved table views pointing at the renamed column.
-        await renamePropertyInViews(req.collectionId, scopeKey ?? '', req.key, req.op.newKey)
-      }
+    if (req.scope !== null && req.op.kind === 'rename') {
+      overlayWritten = await renameOverlayField(collection.path, scopeKey, req.key, req.op.newKey)
+      // Best-effort: keep saved table views pointing at the renamed column.
+      await renamePropertyInViews(req.collectionId, scopeKey ?? '', req.key, req.op.newKey)
     }
 
     const totals = { ok: 0, skipped: 0, failed: 0 }
@@ -484,15 +655,26 @@ export async function applyPropertyOp(
 }
 
 /**
- * Apply the op to a single file, recomputing the conversion from the current
- * on-disk value. Never modifies a file whose value is missing, unchanged,
- * unconvertible, or whose YAML is malformed.
+ * Apply the op to a single file, recomputing it from the current on-disk
+ * value. Add never overwrites an existing key. No operation modifies
+ * unchanged, unconvertible, or malformed YAML.
  */
 async function applyToFile(
   req: PropertyOpRequest,
   path: string,
-  broadcast: { windowManager: WindowManager; senderId: number | null }
+  broadcast: { windowManager: WindowManager; senderId: number | null },
+  confirmedDropPaths: ReadonlySet<string> | null
 ): Promise<PropertyOpResultEntry> {
+  // Defense in depth: even if a future caller bypasses the outer batch-loop
+  // gate, an unconfirmed path can never reach the destructive write tail.
+  if (req.op.kind === 'drop' && !confirmedDropPaths?.has(path)) {
+    return {
+      path,
+      status: 'failed',
+      reason: 'document was not part of the confirmed Drop preview — file not modified'
+    }
+  }
+
   let absolutePath: string
   try {
     absolutePath = resolveWithinCollection(req.collectionId, path)
@@ -513,11 +695,13 @@ async function applyToFile(
         path,
         status: 'skipped',
         reason:
-          entry.action === 'no-value'
-            ? 'no value'
-            : req.scope !== null
-              ? 'value already compatible; schema change only'
-              : 'already the target type'
+          req.op.kind === 'add'
+            ? 'property already exists'
+            : entry.action === 'no-value'
+              ? 'no value'
+              : req.scope !== null
+                ? 'value already compatible; schema change only'
+                : 'already the target type'
       }
     }
     if (entry.action === 'skip') {
@@ -525,7 +709,11 @@ async function applyToFile(
     }
 
     let patch: FrontmatterPatch
-    if (req.op.kind === 'rename') {
+    if (req.op.kind === 'drop') {
+      patch = { unset: [req.key] }
+    } else if (req.op.kind === 'add') {
+      patch = { set: { [req.key]: defaultValueForTarget(req.op.target) } }
+    } else if (req.op.kind === 'rename') {
       const value = frontmatter![req.key]
       patch = { set: { [req.op.newKey]: value as JsonValue }, unset: [req.key] }
     } else {
@@ -538,6 +726,48 @@ async function applyToFile(
     return { path, status: 'ok' }
   } catch (err) {
     return { path, status: 'failed', reason: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/**
+ * Account for a vault file that was not in the confirmed affected set without
+ * ever writing it. This preserves malformed-file reporting while guaranteeing
+ * that only confirmed paths can reach the shared write tail.
+ */
+async function inspectUnconfirmedDropFile(
+  req: PropertyOpRequest,
+  path: string
+): Promise<PropertyOpResultEntry> {
+  let absolutePath: string
+  try {
+    absolutePath = resolveWithinCollection(req.collectionId, path)
+  } catch (error) {
+    return {
+      path,
+      status: 'failed',
+      reason: error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  try {
+    const frontmatter = await readFrontmatter(absolutePath)
+    if (frontmatter === null) {
+      return { path, status: 'failed', reason: 'invalid YAML frontmatter — file not modified' }
+    }
+    if (Object.prototype.hasOwnProperty.call(frontmatter, req.key)) {
+      return {
+        path,
+        status: 'failed',
+        reason: 'document changed after Drop confirmation — file not modified'
+      }
+    }
+    return { path, status: 'skipped', reason: 'no value' }
+  } catch (error) {
+    return {
+      path,
+      status: 'failed',
+      reason: error instanceof Error ? error.message : String(error)
+    }
   }
 }
 

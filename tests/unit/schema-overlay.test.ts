@@ -5,7 +5,12 @@ import { tmpdir } from 'node:os'
 import { parse as parseYaml } from 'yaml'
 
 import {
+  captureOverlaySnapshot,
+  restoreOverlaySnapshot,
+  resolveOverlayFormulaScope,
   upsertOverlayField,
+  removeOverlayField,
+  removeOverlayFieldEverywhere,
   renameOverlayField,
   readOverlayValueColors,
   setOverlayValueColor,
@@ -28,6 +33,62 @@ async function readOverlay(): Promise<string> {
 }
 
 describe('upsertOverlayField', () => {
+  it('writes formula source and result type without disturbing comments', async () => {
+    await writeFile(
+      join(root, OVERLAY_FILENAME),
+      '# formulas stay in schema\nscopes:\n  invoices:\n    fields:\n      status:\n        field_type: string\n',
+      'utf-8'
+    )
+
+    await upsertOverlayField(root, 'invoices', 'total', {
+      fieldType: 'formula',
+      formula: 'price * quantity',
+      resultType: 'Number'
+    })
+
+    const raw = await readOverlay()
+    const parsed = parseYaml(raw)
+    expect(raw).toContain('# formulas stay in schema')
+    expect(parsed.scopes.invoices.fields.total).toEqual({
+      field_type: 'formula',
+      formula: 'price * quantity',
+      result_type: 'number'
+    })
+    expect(parsed.scopes.invoices.fields.status.field_type).toBe('string')
+  })
+
+  it('clears formula annotations and prunes empty scope maps', async () => {
+    await upsertOverlayField(root, 'invoices', 'total', {
+      fieldType: 'formula',
+      formula: 'price * quantity',
+      resultType: 'Number'
+    })
+    await upsertOverlayField(root, 'invoices', 'total', {
+      fieldType: null,
+      formula: null,
+      resultType: null
+    })
+
+    expect(parseYaml(await readOverlay())).toEqual({})
+  })
+
+  it('rejects empty formulas and invalid result types', async () => {
+    await expect(
+      upsertOverlayField(root, 'docs', 'total', {
+        fieldType: 'formula',
+        formula: '  ',
+        resultType: 'Number'
+      })
+    ).rejects.toThrow(/cannot be empty/)
+    await expect(
+      upsertOverlayField(root, 'docs', 'total', {
+        fieldType: 'formula',
+        formula: 'price',
+        resultType: 'Currency' as never
+      })
+    ).rejects.toThrow(/result_type/)
+  })
+
   it('accepts the File field type', async () => {
     await upsertOverlayField(root, null, 'attachments', { fieldType: 'file' })
     const parsed = parseYaml(await readOverlay())
@@ -129,6 +190,178 @@ describe('upsertOverlayField', () => {
     )
     // Untouched on disk.
     expect(await readOverlay()).toBe('not: [valid: yaml: !!')
+  })
+
+  it.each([
+    ['scalar', 'this is valid yaml\n'],
+    ['sequence', '- fields\n- scopes\n']
+  ])('refuses to clobber a %s overlay root', async (_kind, source) => {
+    await writeFile(join(root, OVERLAY_FILENAME), source, 'utf-8')
+
+    await expect(
+      upsertOverlayField(root, 'docs', 'total', {
+        fieldType: 'formula',
+        formula: 'price * quantity',
+        resultType: 'Number'
+      })
+    ).rejects.toThrow(MalformedOverlayError)
+
+    expect(await readOverlay()).toBe(source)
+  })
+})
+
+describe('removeOverlayField', () => {
+  it('removes only the selected formula field and preserves siblings/comments', async () => {
+    await writeFile(
+      join(root, OVERLAY_FILENAME),
+      '# keep me\nscopes:\n  invoices:\n    fields:\n      total:\n        field_type: formula\n        formula: price * quantity\n        result_type: number\n      status:\n        field_type: string\n',
+      'utf-8'
+    )
+
+    await expect(removeOverlayField(root, 'invoices', 'total')).resolves.toBe(true)
+    const raw = await readOverlay()
+    const parsed = parseYaml(raw)
+    expect(raw).toContain('# keep me')
+    expect(parsed.scopes.invoices.fields.total).toBeUndefined()
+    expect(parsed.scopes.invoices.fields.status).toEqual({ field_type: 'string' })
+  })
+})
+
+describe('removeOverlayFieldEverywhere', () => {
+  it('removes global and every scoped definition while preserving siblings and comments', async () => {
+    await writeFile(
+      join(root, OVERLAY_FILENAME),
+      [
+        '# keep root comment',
+        'fields:',
+        '  status:',
+        '    field_type: string',
+        '  author:',
+        '    field_type: string',
+        'scopes:',
+        '  docs:',
+        '    fields:',
+        '      status:',
+        '        field_type: number',
+        '      category:',
+        '        field_type: string',
+        '  docs/guides:',
+        '    fields:',
+        '      status:',
+        '        description: Guide status',
+        '  notes:',
+        '    fields:',
+        '      pinned:',
+        '        field_type: boolean',
+        ''
+      ].join('\n'),
+      'utf-8'
+    )
+
+    await expect(removeOverlayFieldEverywhere(root, 'status')).resolves.toBe(true)
+    const raw = await readOverlay()
+    const parsed = parseYaml(raw)
+    expect(raw).toContain('# keep root comment')
+    expect(parsed.fields).toEqual({ author: { field_type: 'string' } })
+    expect(parsed.scopes.docs.fields).toEqual({
+      category: { field_type: 'string' }
+    })
+    expect(parsed.scopes['docs/guides']).toBeUndefined()
+    expect(parsed.scopes.notes.fields).toEqual({
+      pinned: { field_type: 'boolean' }
+    })
+  })
+
+  it('returns false without creating or rewriting an overlay when the field is absent', async () => {
+    await expect(removeOverlayFieldEverywhere(root, 'status')).resolves.toBe(false)
+    await expect(access(join(root, OVERLAY_FILENAME))).rejects.toThrow()
+
+    const source = '# keep\nfields:\n  author:\n    field_type: string\n'
+    await writeFile(join(root, OVERLAY_FILENAME), source, 'utf-8')
+    await expect(removeOverlayFieldEverywhere(root, 'status')).resolves.toBe(false)
+    expect(await readOverlay()).toBe(source)
+  })
+
+  it('refuses malformed overlays without changing their bytes', async () => {
+    const source = 'scopes: [unclosed\n'
+    await writeFile(join(root, OVERLAY_FILENAME), source, 'utf-8')
+
+    await expect(removeOverlayFieldEverywhere(root, 'status')).rejects.toThrow(
+      MalformedOverlayError
+    )
+    expect(await readOverlay()).toBe(source)
+  })
+})
+
+describe('formula overlay resolution and rollback', () => {
+  it('resolves the most-specific inherited formula definition', async () => {
+    await writeFile(
+      join(root, OVERLAY_FILENAME),
+      [
+        'fields:',
+        '  total:',
+        '    field_type: formula',
+        '    formula: subtotal',
+        '    result_type: number',
+        'scopes:',
+        '  invoices:',
+        '    fields:',
+        '      total:',
+        '        field_type: formula',
+        '        formula: subtotal + tax',
+        '        result_type: number',
+        '      tax:',
+        '        field_type: formula',
+        '        formula: subtotal * 0.2',
+        '        result_type: number',
+        '  invoices/archived:',
+        '    fields:',
+        '      total:',
+        '        field_type: number',
+        ''
+      ].join('\n'),
+      'utf-8'
+    )
+
+    await expect(resolveOverlayFormulaScope(root, null, 'total')).resolves.toBeNull()
+    await expect(resolveOverlayFormulaScope(root, 'invoices/current', 'total')).resolves.toBe(
+      'invoices'
+    )
+    await expect(resolveOverlayFormulaScope(root, 'invoices/archived/2025', 'total')).resolves.toBe(
+      undefined
+    )
+  })
+
+  it('matches inherited scopes on path-segment boundaries', async () => {
+    await writeFile(
+      join(root, OVERLAY_FILENAME),
+      'scopes:\n  invoices:\n    fields:\n      tax:\n        field_type: formula\n        formula: subtotal * 0.2\n        result_type: number\n',
+      'utf-8'
+    )
+
+    await expect(resolveOverlayFormulaScope(root, 'invoices/2026', 'tax')).resolves.toBe('invoices')
+    await expect(resolveOverlayFormulaScope(root, 'invoices-old', 'tax')).resolves.toBeUndefined()
+  })
+
+  it('captures and restores an existing overlay byte-for-byte', async () => {
+    const original =
+      '# preserve this exact formatting\nfields: { total: { field_type: formula, formula: price } }\n'
+    await writeFile(join(root, OVERLAY_FILENAME), original, 'utf-8')
+    const snapshot = await captureOverlaySnapshot(root)
+
+    await writeFile(join(root, OVERLAY_FILENAME), 'fields: {}\n', 'utf-8')
+    await restoreOverlaySnapshot(root, snapshot)
+
+    expect(await readOverlay()).toBe(original)
+  })
+
+  it('restores a missing overlay by removing the newly-created file', async () => {
+    const snapshot = await captureOverlaySnapshot(root)
+    await writeFile(join(root, OVERLAY_FILENAME), 'fields: {}\n', 'utf-8')
+
+    await restoreOverlaySnapshot(root, snapshot)
+
+    await expect(access(join(root, OVERLAY_FILENAME))).rejects.toThrow()
   })
 })
 

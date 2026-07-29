@@ -13,6 +13,7 @@ import { join } from 'node:path'
 import { CliNotFoundError, CliExecutionError, CliParseError, CliTimeoutError } from './errors'
 import { getInstallPath, getWellKnownBinDirs } from './cli-paths'
 import { getCliInfo } from './store'
+import { preserveExactJsonNumbers } from '../shared/exact-number'
 
 const execFileAsync = promisify(execFile)
 
@@ -33,6 +34,7 @@ const MAX_BUFFER = 10 * 1024 * 1024
 
 /** Huge chunk topologies can exceed the default subprocess output ceiling. */
 const GRAPH_MAX_BUFFER = 256 * 1024 * 1024
+const DATA_MAX_BUFFER = 128 * 1024 * 1024
 
 /** Options for execCommand */
 export interface ExecCommandOptions {
@@ -68,12 +70,14 @@ function calculateRetryDelay(attempt: number): number {
 
 /** Use a larger subprocess buffer for graph payloads without raising every command's ceiling. */
 function maxBufferForCommand(command: string): number {
-  return command === 'graph' ? GRAPH_MAX_BUFFER : MAX_BUFFER
+  if (command === 'graph') return GRAPH_MAX_BUFFER
+  if (command === 'collection' || command === 'search' || command === 'get') return DATA_MAX_BUFFER
+  return MAX_BUFFER
 }
 
 /** Parse CLI JSON without a reviver traversal over every graph property. */
 function parseCommandJson<T>(output: string): T {
-  return JSON.parse(output) as T
+  return JSON.parse(preserveExactJsonNumbers(output)) as T
 }
 
 /** Prefer stderr, but keep Node execution failures useful when stderr is empty. */

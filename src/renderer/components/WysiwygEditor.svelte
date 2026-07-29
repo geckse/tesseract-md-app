@@ -25,9 +25,10 @@
     type EditorCommandSignal
   } from '../stores/editor'
   import { computeFixedHeadingLevels, type ParsedHeading } from '../lib/markdown-structure'
+  import type { DocumentSchemaMutationContext } from '../lib/property-types'
   import { relativeToCollection } from '../lib/path'
   import { buildTocTiptapJSON } from '../lib/tiptap/toc-content'
-  import { propertiesFileContent } from '../stores/properties'
+  import { loadProperties, propertiesFileContent } from '../stores/properties'
   import ConflictNotification from './ConflictNotification.svelte'
   import ClipboardImageSaveModal from './ClipboardImageSaveModal.svelte'
   import DocumentHeader from './wysiwyg/DocumentHeader.svelte'
@@ -750,6 +751,62 @@
     return true
   }
 
+  /**
+   * Schema/module runs can mutate a document's frontmatter on disk. Flush the
+   * originating editor and await the write so the CLI never evaluates stale
+   * inputs or has its materialized value overwritten by a later editor save.
+   */
+  async function flushBeforeSchemaMutation(context: DocumentSchemaMutationContext): Promise<void> {
+    const entry = pool.get(context.tabId)
+    const candidate = workspace.tabs[context.tabId]
+    const tab = candidate?.kind === 'document' ? candidate : null
+    if (!entry || !tab) throw new Error('No active document')
+    if (tab.isUntitled) throw new Error('Save this document before changing its schema')
+    if (!tab.isDirty) return
+
+    const content = getFullContentForEntry(entry)
+    const fullPath = `${context.collectionPath}/${context.filePath}`
+    await window.api.writeFile(fullPath, content)
+
+    entry.lastSavedContent = content
+    tab.content = content
+    tab.savedContent = content
+    if (activeTabId === context.tabId) isDirty.set(false)
+    dismissConflict(context.filePath)
+  }
+
+  /**
+   * A successful Formula mutation may change both the schema definition and
+   * this file's materialized value. Re-read both explicitly; schema overlay
+   * writes are intentionally watcher-suppressed and therefore cannot be left
+   * to an eventual filesystem event.
+   */
+  async function reconcileAfterSchemaMutation(
+    context: DocumentSchemaMutationContext
+  ): Promise<void> {
+    const entry = pool.get(context.tabId)
+    const candidate = workspace.tabs[context.tabId]
+    const tab = candidate?.kind === 'document' ? candidate : null
+    if (!entry || !tab || tab.isUntitled) return
+    if (tab.isDirty) return
+
+    const lastSlash = context.filePath.lastIndexOf('/')
+    const pathPrefix = lastSlash > 0 ? context.filePath.substring(0, lastSlash) : undefined
+    const fullPath = `${context.collectionPath}/${context.filePath}`
+    const refreshActiveStores =
+      currentActiveCollection?.id === context.collectionId && activeTabId === context.tabId
+    const tasks: Promise<unknown>[] = [window.api.readFile(fullPath)]
+    if (refreshActiveStores) {
+      tasks.push(fetchSchema(context.collectionPath, pathPrefix), loadProperties(context.filePath))
+    }
+    const [content] = await Promise.all(tasks)
+
+    tab.content = content as string
+    tab.savedContent = content as string
+    applyExternalContent(entry, content as string, tab)
+    if (activeTabId === context.tabId) isDirty.set(false)
+  }
+
   // ── Discard ───────────────────────────────────────────────────────────
 
   function handleDiscard(): void {
@@ -1200,8 +1257,11 @@
         filePath={activeDocTab.filePath}
         collectionPath={currentActiveCollection?.path ?? ''}
         collectionId={currentActiveCollection?.id ?? null}
+        documentTabId={activeTabId}
         isUntitled={activeDocTab.isUntitled}
         onFileRenamed={handleFileRenamed}
+        onBeforeSchemaMutate={flushBeforeSchemaMutation}
+        onSchemaApplied={reconcileAfterSchemaMutation}
       />
       <div class="wysiwyg-content" bind:this={editorHost}></div>
     </div>

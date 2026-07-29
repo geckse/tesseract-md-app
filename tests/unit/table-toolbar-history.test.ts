@@ -40,6 +40,15 @@ describe('TableToolbar undo/redo controls', () => {
     expect(screen.getByTitle<HTMLButtonElement>(/^Redo/).disabled).toBe(true)
   })
 
+  it('offers Add column instead of the formula-only action', async () => {
+    const onaddcolumn = vi.fn()
+    render(TableToolbar, { props: { tabId, onsaveview: () => {}, onaddcolumn } })
+
+    expect(screen.queryByRole('button', { name: 'Add formula' })).toBeNull()
+    await fireEvent.click(screen.getByRole('button', { name: 'Add column' }))
+    expect(onaddcolumn).toHaveBeenCalledOnce()
+  })
+
   it('enables undo after a recorded mutation; click calls tableStore.undo', async () => {
     const undoSpy = vi.spyOn(tableStore, 'undo').mockResolvedValue()
     render(TableToolbar, { props: { tabId, onsaveview: () => {} } })

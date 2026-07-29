@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render } from '@testing-library/svelte'
+import { fireEvent, render } from '@testing-library/svelte'
 import { tick } from 'svelte'
 
 // Mock window.api before importing stores/components.
@@ -106,5 +106,29 @@ describe('TabPane terminal keep-alive frames', () => {
     workspace.closeTab(term, paneId)
     await tick()
     expect(container.querySelectorAll('.terminal-frame')).toHaveLength(0)
+  })
+
+  it('promotes a table preview when its content or tab is used', async () => {
+    const paneId = workspace.paneOrder[0]
+    const contentTab = workspace.openTableTab('docs', { paneId })
+    const { container, getByRole } = render(TabPane, { props: { paneId } })
+
+    expect(
+      workspace.tabs[contentTab]?.kind === 'table' && workspace.tabs[contentTab].isPreview
+    ).toBe(true)
+    await fireEvent.pointerDown(container.querySelector('.tab-pane-content')!)
+    expect(
+      workspace.tabs[contentTab]?.kind === 'table' && workspace.tabs[contentTab].isPreview
+    ).toBe(false)
+
+    const tabClick = workspace.openTableTab('archive', { paneId })
+    await tick()
+    expect(workspace.tabs[tabClick]?.kind === 'table' && workspace.tabs[tabClick].isPreview).toBe(
+      true
+    )
+    await fireEvent.click(getByRole('tab', { name: /archive.*Delete to close/ }))
+    expect(workspace.tabs[tabClick]?.kind === 'table' && workspace.tabs[tabClick].isPreview).toBe(
+      false
+    )
   })
 })

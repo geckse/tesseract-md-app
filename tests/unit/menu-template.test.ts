@@ -379,6 +379,7 @@ describe('buildTemplate', () => {
         'collection.rebuild',
         'collection.toggle-watcher',
         'collection.doctor',
+        'collection.open-new-window',
         'collection.reveal',
         'collection.copy-path',
         'collection.open-terminal',
@@ -403,6 +404,17 @@ describe('buildTemplate', () => {
       expect(actions.sendCommand).toHaveBeenCalledWith('collection.switch', {
         collectionId: 'col-1'
       })
+    })
+
+    it('opens the active collection in a new full window', () => {
+      const template = buildTemplate(makeState(), actions)
+      const item = findById(template, 'collection.open-new-window')!
+
+      expect(item.label).toBe('Open Collection in New Window')
+      expect(item.enabled).toBe(true)
+      item.click!(undefined as never, undefined as never, undefined as never)
+
+      expect(actions.newWindow).toHaveBeenCalledWith('col-1')
     })
 
     it('reflects the persisted watcher flag as a checkbox', () => {

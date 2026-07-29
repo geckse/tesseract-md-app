@@ -58,11 +58,15 @@ export const MAX_RECENT_MENU_ITEMS = 15
 
 /** Snapshot persisted menu state and combine it with the supplied graph context. */
 export function getMenuState(
-  graphContext: GraphMenuContext = DEFAULT_GRAPH_MENU_CONTEXT
+  graphContext: GraphMenuContext = DEFAULT_GRAPH_MENU_CONTEXT,
+  windowCollectionId?: string | null
 ): MenuState {
   const store = initStore()
   const collections = getCollections()
-  const active = getActiveCollection()
+  const active =
+    windowCollectionId === undefined
+      ? getActiveCollection()
+      : (collections.find((collection) => collection.id === windowCollectionId) ?? null)
 
   const collectionMap = new Map(collections.map((c) => [c.id, c]))
   const recents: MenuRecentEntry[] = []

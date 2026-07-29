@@ -171,6 +171,12 @@ export interface TableTab {
   activeViewId: string | null
   /** Ephemeral, unsaved table state overlaid on top of the active saved view. */
   ephemeral: TableViewConfig | null
+  /**
+   * Untouched folder tables act as previews and are recycled by the next folder
+   * open in this pane. This is transient UI state and is intentionally omitted
+   * from persisted sessions and cross-window transfer payloads.
+   */
+  isPreview: boolean
 }
 
 /** Discriminated union of all tab types. */
@@ -825,8 +831,12 @@ class WorkspaceStore {
   }
 
   /**
-   * Open a folder as an editable frontmatter table. If a table tab for the same
-   * folder already exists in the target pane, switch to it. Returns the tab ID.
+   * Open a folder as an editable frontmatter table.
+   *
+   * If the pane already has an untouched preview table, recycle it so browsing
+   * through folders does not grow the tab bar. Once the user interacts with a
+   * preview it is promoted and the next folder open creates a new preview.
+   * A table for the requested folder is always deduped first.
    */
   openTableTab(folderPath: string, opts?: { recursive?: boolean; paneId?: string }): string {
     const targetPaneId = opts?.paneId ?? this.defaultEditorPaneId
@@ -844,6 +854,31 @@ class WorkspaceStore {
 
     const parts = folderPath.split('/').filter(Boolean)
     const title = parts.length > 0 ? parts[parts.length - 1] : 'Root'
+
+    // Recycle the pane's untouched table preview. At most one should normally
+    // exist, but finding it explicitly keeps the behavior stable after moves.
+    const previewTabId = pane.tabOrder.find((tabId) => {
+      const tab = this.tabs[tabId]
+      return tab?.kind === 'table' && tab.isPreview
+    })
+    if (previewTabId) {
+      const preview = this.tabs[previewTabId]
+      if (preview?.kind === 'table') {
+        this.tabs[previewTabId] = {
+          ...preview,
+          folderPath,
+          title,
+          recursive: opts?.recursive ?? false,
+          activeViewId: null,
+          ephemeral: null,
+          isPreview: true
+        }
+        this.switchTab(previewTabId, targetPaneId)
+        this._scheduleSave()
+        return previewTabId
+      }
+    }
+
     const tab: TableTab = {
       id: crypto.randomUUID(),
       kind: 'table',
@@ -851,7 +886,8 @@ class WorkspaceStore {
       title,
       recursive: opts?.recursive ?? false,
       activeViewId: null,
-      ephemeral: null
+      ephemeral: null,
+      isPreview: true
     }
     this.tabs[tab.id] = tab
 
@@ -874,11 +910,19 @@ class WorkspaceStore {
     return tab.id
   }
 
+  /** Promote an untouched table preview after a real user interaction. */
+  markTableInteracted(tabId: string): void {
+    const tab = this.tabs[tabId]
+    if (tab?.kind === 'table' && tab.isPreview) {
+      this.tabs[tabId] = { ...tab, isPreview: false }
+    }
+  }
+
   /** Toggle recursive scope on a table tab. */
   setTableRecursive(tabId: string, recursive: boolean): void {
     const tab = this.tabs[tabId]
     if (tab && tab.kind === 'table') {
-      this.tabs[tabId] = { ...tab, recursive }
+      this.tabs[tabId] = { ...tab, recursive, isPreview: false }
       this._scheduleSave()
     }
   }
@@ -887,7 +931,7 @@ class WorkspaceStore {
   setTableActiveView(tabId: string, viewId: string | null): void {
     const tab = this.tabs[tabId]
     if (tab && tab.kind === 'table') {
-      this.tabs[tabId] = { ...tab, activeViewId: viewId, ephemeral: null }
+      this.tabs[tabId] = { ...tab, activeViewId: viewId, ephemeral: null, isPreview: false }
       this._scheduleSave()
     }
   }
@@ -903,7 +947,11 @@ class WorkspaceStore {
         groupBy: null,
         collapsedGroups: []
       }
-      this.tabs[tabId] = { ...tab, ephemeral: { ...base, ...patch } }
+      this.tabs[tabId] = {
+        ...tab,
+        ephemeral: { ...base, ...patch },
+        isPreview: false
+      }
       this._scheduleSave()
     }
   }
@@ -1485,6 +1533,8 @@ class WorkspaceStore {
         paneId: targetPaneId
       })
       if (data.tableViewId) this.setTableActiveView(tabId, data.tableViewId)
+      // Attaching a deliberately detached tab must never make it disposable.
+      this.markTableInteracted(tabId)
       return tabId
     }
 
@@ -1849,7 +1899,9 @@ class WorkspaceStore {
           title,
           recursive: persistedTab.recursive ?? false,
           activeViewId: persistedTab.tableViewId ?? null,
-          ephemeral: null
+          ephemeral: null,
+          // A tab explicitly retained across sessions is not a disposable preview.
+          isPreview: false
         }
         this.tabs[tab.id] = tab
         this._insertTabBeforeGraph(pane, tab.id)
@@ -2037,7 +2089,9 @@ class WorkspaceStore {
         title: parts.length > 0 ? parts[parts.length - 1] : 'Root',
         recursive: options.recursive ?? false,
         activeViewId: options.tableViewId ?? null,
-        ephemeral: null
+        ephemeral: null,
+        // Popup tabs are explicitly opened and cannot participate in pane previews.
+        isPreview: false
       } as TableTab
     } else if (kind === 'terminal') {
       tab = {

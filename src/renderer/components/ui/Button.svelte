@@ -2,7 +2,7 @@
   import type { Snippet } from 'svelte'
 
   interface ButtonProps {
-    variant?: 'primary' | 'secondary'
+    variant?: 'primary' | 'secondary' | 'danger'
     size?: 'sm' | 'md' | 'lg'
     disabled?: boolean
     onclick?: (e: MouseEvent) => void
@@ -67,6 +67,15 @@
     background: var(--color-surface-dark, #0a0a0a);
     border-color: var(--color-border-hover, #3f3f46);
     color: var(--color-text-white, #fff);
+  }
+
+  .btn-danger {
+    background: var(--color-error, #ef4444);
+    color: var(--color-text-white, #fff);
+  }
+
+  .btn-danger:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--color-error, #ef4444) 82%, black);
   }
 
   /* --- Sizes --- */

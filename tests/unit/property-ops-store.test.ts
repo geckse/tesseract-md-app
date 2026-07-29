@@ -45,6 +45,7 @@ import {
   scopeForTableTab,
   isVaultWideScope
 } from '../../src/renderer/stores/property-ops.svelte'
+import { activeCollection } from '../../src/renderer/stores/collections'
 import { workspace } from '../../src/renderer/stores/workspace.svelte'
 import { tableStore } from '../../src/renderer/stores/table.svelte'
 import { fetchSchema } from '../../src/renderer/stores/schema'
@@ -54,7 +55,7 @@ import type { PropertyOpPlan, PropertyOpResult } from '../../src/preload/api'
 const emptyPlan: PropertyOpPlan = {
   scope: 'docs',
   files: [],
-  totals: { convert: 0, unchanged: 0, noValue: 0, skip: 0 },
+  totals: { add: 0, drop: 0, convert: 0, unchanged: 0, noValue: 0, skip: 0 },
   schemaPin: { scopeKey: 'docs', fieldType: 'number' }
 }
 
@@ -78,6 +79,14 @@ interface MockApi {
 let mockApi: MockApi
 let progressCallback: ((p: unknown) => void) | null = null
 let unsubscribed = false
+
+function setActiveCollection(value: { id: string; path: string; name: string }): void {
+  ;(
+    activeCollection as unknown as {
+      set(next: { id: string; path: string; name: string }): void
+    }
+  ).set(value)
+}
 
 beforeEach(() => {
   callOrder.length = 0
@@ -108,6 +117,7 @@ beforeEach(() => {
   })
   ;(workspace as { tabs: Record<string, unknown> }).tabs = {}
   ;(workspace as { focusedDocumentTab: unknown }).focusedDocumentTab = null
+  setActiveCollection({ id: 'c1', path: '/vault', name: 'Vault' })
   vi.mocked(tableStore.reload).mockClear()
   vi.mocked(fetchSchema).mockClear()
   vi.mocked(handleVaultFileEvent).mockClear()
@@ -189,6 +199,192 @@ describe('openConvert', () => {
     propertyOps.openConvert({ kind: 'panel', filePath: 'docs/a.md' }, 'status', 'number', 'text')
     await vi.waitFor(() => expect(propertyOps.modal?.phase).toBe('error'))
     expect(propertyOps.modal?.error).toBe('boom')
+  })
+})
+
+describe('openAdd', () => {
+  it('builds a recursive table-scope add request and previews it', async () => {
+    const addPlan: PropertyOpPlan = {
+      ...emptyPlan,
+      files: [{ path: 'docs/a.md', action: 'add', before: null, after: '0' }],
+      totals: { add: 1, drop: 0, convert: 0, unchanged: 0, noValue: 0, skip: 0 }
+    }
+    mockApi.previewPropertyOp.mockResolvedValueOnce(addPlan)
+
+    propertyOps.openAdd({ kind: 'table', tabId: 't1', folderPath: 'docs' }, 'priority', 'number')
+
+    await vi.waitFor(() => expect(propertyOps.modal?.phase).toBe('preview'))
+    expect(mockApi.previewPropertyOp).toHaveBeenCalledWith({
+      collectionId: 'c1',
+      scope: 'docs',
+      filePath: null,
+      key: 'priority',
+      op: { kind: 'add', target: 'number' }
+    })
+    expect(propertyOps.modal?.plan).toEqual(addPlan)
+    expect(propertyOps.modal?.currentType).toBeNull()
+  })
+
+  it('initializes Select allowed values without deriving values from existing properties', async () => {
+    propertyOps.openAdd({ kind: 'table', tabId: 't1', folderPath: '' }, 'status', 'select')
+    await vi.waitFor(() => expect(propertyOps.modal?.phase).toBe('preview'))
+
+    expect(propertyOps.modal?.req.scope).toBe('.')
+    const op = propertyOps.modal?.req.op
+    expect(op?.kind === 'add' && op.allowedValues).toEqual([])
+  })
+})
+
+describe('openDrop', () => {
+  const dropPlan: PropertyOpPlan = {
+    scope: '.',
+    files: [
+      { path: 'docs/a.md', action: 'drop', before: 'draft', after: null },
+      { path: 'other.md', action: 'no-value', before: null, after: null }
+    ],
+    totals: { add: 0, drop: 1, convert: 0, unchanged: 0, noValue: 1, skip: 0 },
+    schemaPin: null
+  }
+
+  it('always builds a vault-wide request and captures its collection context', async () => {
+    mockApi.previewPropertyOp.mockResolvedValueOnce(dropPlan)
+
+    propertyOps.openDrop(
+      { kind: 'table', tabId: 't1', folderPath: 'deeply/nested/database' },
+      'status'
+    )
+
+    await vi.waitFor(() => expect(propertyOps.modal?.phase).toBe('preview'))
+    expect(mockApi.previewPropertyOp).toHaveBeenCalledWith({
+      collectionId: 'c1',
+      scope: '.',
+      filePath: null,
+      key: 'status',
+      op: { kind: 'drop' }
+    })
+    expect(propertyOps.modal?.req.op).toEqual({
+      kind: 'drop',
+      confirmedPaths: ['docs/a.md']
+    })
+    expect(propertyOps.modal?.collection).toEqual({ id: 'c1', path: '/vault' })
+  })
+
+  it('replaces confirmations from a refreshed preview without sending the stale set', async () => {
+    const refreshedPlan: PropertyOpPlan = {
+      ...dropPlan,
+      files: [
+        { path: 'new.md', action: 'drop', before: 'new value', after: null },
+        { path: 'docs/a.md', action: 'no-value', before: null, after: null }
+      ]
+    }
+    mockApi.previewPropertyOp.mockResolvedValueOnce(dropPlan).mockResolvedValueOnce(refreshedPlan)
+
+    propertyOps.openDrop({ kind: 'table', tabId: 't1', folderPath: 'docs' }, 'status')
+    await vi.waitFor(() => expect(propertyOps.modal?.phase).toBe('preview'))
+    expect(propertyOps.modal?.req.op).toEqual({
+      kind: 'drop',
+      confirmedPaths: ['docs/a.md']
+    })
+
+    await propertyOps.preview()
+
+    expect(mockApi.previewPropertyOp).toHaveBeenNthCalledWith(2, {
+      collectionId: 'c1',
+      scope: '.',
+      filePath: null,
+      key: 'status',
+      op: { kind: 'drop' }
+    })
+    expect(propertyOps.modal?.req.op).toEqual({
+      kind: 'drop',
+      confirmedPaths: ['new.md']
+    })
+  })
+
+  it('clears stale confirmations when a refreshed preview fails', async () => {
+    mockApi.previewPropertyOp
+      .mockResolvedValueOnce(dropPlan)
+      .mockRejectedValueOnce(new Error('preview failed'))
+
+    propertyOps.openDrop({ kind: 'table', tabId: 't1', folderPath: 'docs' }, 'status')
+    await vi.waitFor(() => expect(propertyOps.modal?.phase).toBe('preview'))
+
+    await propertyOps.preview()
+
+    expect(propertyOps.modal?.phase).toBe('error')
+    expect(propertyOps.modal?.req.op).toEqual({ kind: 'drop' })
+
+    await propertyOps.apply()
+
+    expect(mockApi.applyPropertyOp).not.toHaveBeenCalled()
+    expect(propertyOps.modal?.phase).toBe('error')
+  })
+
+  it('blocks apply while an affected document tab has unsaved changes', async () => {
+    ;(workspace as { tabs: Record<string, unknown> }).tabs = {
+      doc: {
+        id: 'doc',
+        kind: 'document',
+        filePath: 'docs/a.md',
+        isUntitled: false,
+        isDirty: true
+      }
+    }
+    mockApi.previewPropertyOp.mockResolvedValue(dropPlan)
+
+    propertyOps.openDrop({ kind: 'table', tabId: 't1', folderPath: 'docs' }, 'status')
+    await vi.waitFor(() => expect(propertyOps.modal?.phase).toBe('preview'))
+    expect(propertyOps.modal?.dirtyAffected).toEqual(['docs/a.md'])
+
+    await propertyOps.apply()
+
+    expect(mockApi.applyPropertyOp).not.toHaveBeenCalled()
+    expect(propertyOps.modal?.phase).toBe('preview')
+  })
+
+  it('rechecks dirty documents at click time instead of trusting the preview snapshot', async () => {
+    const tab = {
+      id: 'doc',
+      kind: 'document',
+      filePath: 'newly-dirty.md',
+      isUntitled: false,
+      isDirty: false
+    }
+    ;(workspace as { tabs: Record<string, unknown> }).tabs = { doc: tab }
+    mockApi.previewPropertyOp.mockResolvedValue(dropPlan)
+
+    propertyOps.openDrop({ kind: 'table', tabId: 't1', folderPath: 'docs' }, 'status')
+    await vi.waitFor(() => expect(propertyOps.modal?.phase).toBe('preview'))
+    expect(propertyOps.modal?.dirtyAffected).toEqual([])
+
+    tab.isDirty = true
+    await propertyOps.apply()
+
+    expect(mockApi.applyPropertyOp).not.toHaveBeenCalled()
+    expect(propertyOps.modal?.dirtyAffected).toEqual(['newly-dirty.md'])
+    expect(propertyOps.modal?.phase).toBe('preview')
+  })
+
+  it('finishes the captured vault refresh without touching a newly active collection', async () => {
+    mockApi.previewPropertyOp.mockResolvedValueOnce(dropPlan)
+    propertyOps.openDrop({ kind: 'table', tabId: 't1', folderPath: 'docs' }, 'status')
+    await vi.waitFor(() => expect(propertyOps.modal?.phase).toBe('preview'))
+
+    setActiveCollection({ id: 'c2', path: '/other-vault', name: 'Other Vault' })
+    await propertyOps.apply()
+
+    expect(mockApi.applyPropertyOp).toHaveBeenCalledWith(expect.any(String), {
+      collectionId: 'c1',
+      scope: '.',
+      filePath: null,
+      key: 'status',
+      op: { kind: 'drop', confirmedPaths: ['docs/a.md'] }
+    })
+    expect(mockApi.ingest).toHaveBeenCalledWith('/vault')
+    expect(vi.mocked(fetchSchema)).not.toHaveBeenCalled()
+    expect(vi.mocked(tableStore.reload)).not.toHaveBeenCalled()
+    expect(vi.mocked(handleVaultFileEvent)).not.toHaveBeenCalled()
+    expect(propertyOps.modal?.phase).toBe('report')
   })
 })
 
@@ -311,5 +507,17 @@ describe('applyOverlayFieldPatch', () => {
       propertyOps.applyOverlayFieldPatch('docs', 'status', { allowedValues: ['draft', 'paid'] })
     ).rejects.toThrow('Changes were saved, but refreshing the index failed: index is locked')
     expect(vi.mocked(fetchSchema)).not.toHaveBeenCalled()
+  })
+
+  it('refreshes every table after writing a global schema field', async () => {
+    ;(workspace as { tabs: Record<string, unknown> }).tabs = {
+      root: { id: 'root', kind: 'table', folderPath: '' },
+      docs: { id: 'docs', kind: 'table', folderPath: 'docs' }
+    }
+
+    await propertyOps.applyOverlayFieldPatch(null, 'priority', { fieldType: 'number' })
+
+    expect(vi.mocked(tableStore.reload)).toHaveBeenCalledWith('root')
+    expect(vi.mocked(tableStore.reload)).toHaveBeenCalledWith('docs')
   })
 })

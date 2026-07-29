@@ -8,6 +8,7 @@ import type {
 } from '../types/cli'
 import { cliFeatures } from '../lib/cli-features.svelte'
 import { parseHeadings } from '../lib/markdown-structure'
+import { parseFrontmatterData, splitFrontmatter } from '../lib/tiptap/markdown-bridge'
 import { activeCollection } from './collections'
 
 /** Document info for the selected file (from CLI `get` command). */
@@ -36,73 +37,10 @@ let propertiesGeneration = 0
 
 /** Parse YAML frontmatter from raw markdown content. */
 function parseFrontmatter(content: string): Record<string, JsonValue> | null {
-  const lines = content.split('\n')
-  if (lines[0]?.trimEnd() !== '---') return null
-
-  let endIdx = -1
-  for (let i = 1; i < lines.length; i++) {
-    if (lines[i].trimEnd() === '---') {
-      endIdx = i
-      break
-    }
-  }
-  if (endIdx === -1) return null
-
-  const result: Record<string, JsonValue> = {}
-  let currentKey: string | null = null
-
-  for (let i = 1; i < endIdx; i++) {
-    const line = lines[i]
-    // Array continuation item (e.g. "  - value")
-    if (/^\s+-\s+/.test(line) && currentKey) {
-      const item = line.replace(/^\s+-\s+/, '').trim()
-      const existing = result[currentKey]
-      if (Array.isArray(existing)) {
-        existing.push(unquote(item))
-      }
-      continue
-    }
-
-    const colonIdx = line.indexOf(':')
-    if (colonIdx === -1) continue
-
-    const key = line.slice(0, colonIdx).trim()
-    const rawValue = line.slice(colonIdx + 1).trim()
-    currentKey = key
-
-    if (rawValue === '') {
-      // Could be start of a block array or multiline — init as empty array
-      result[key] = []
-    } else if (/^\[.*\]$/.test(rawValue)) {
-      // Inline array: [a, b, c]
-      const inner = rawValue.slice(1, -1)
-      result[key] = inner.split(',').map((s) => unquote(s.trim()))
-    } else if (rawValue === 'true') {
-      result[key] = true
-    } else if (rawValue === 'false') {
-      result[key] = false
-    } else if (/^-?\d+(\.\d+)?$/.test(rawValue)) {
-      result[key] = Number(rawValue)
-    } else {
-      result[key] = unquote(rawValue)
-    }
-  }
-
-  // Clean up: convert empty arrays back to null if they never got items
-  for (const [k, v] of Object.entries(result)) {
-    if (Array.isArray(v) && v.length === 0) {
-      result[k] = ''
-    }
-  }
-
+  const { frontmatter } = splitFrontmatter(content.replace(/\r\n/g, '\n'))
+  if (frontmatter === null) return null
+  const result = parseFrontmatterData(frontmatter)
   return Object.keys(result).length > 0 ? result : null
-}
-
-function unquote(s: string): string {
-  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
-    return s.slice(1, -1)
-  }
-  return s
 }
 
 /** Parsed frontmatter — live from editor content, falls back to index data. */

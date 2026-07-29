@@ -50,6 +50,7 @@ vi.mock('../../src/main/ipc-handlers', () => ({
 import { previewPropertyOp, applyPropertyOp } from '../../src/main/property-ops'
 import { renamePropertyInViews } from '../../src/main/table-views'
 import { OVERLAY_FILENAME } from '../../src/main/schema-overlay'
+import { execCommand } from '../../src/main/cli'
 import type { PropertyOpRequest, PropertyOpProgress } from '../../src/preload/api'
 import type { IpcMainInvokeEvent } from 'electron'
 import type { WindowManager } from '../../src/main/window-manager'
@@ -115,6 +116,7 @@ beforeEach(async () => {
   await mkdir(join(root, 'docs'), { recursive: true })
   watcherPauses = 0
   enumeratedRows = []
+  vi.mocked(execCommand).mockClear()
 })
 
 afterEach(async () => {
@@ -138,8 +140,482 @@ describe('previewPropertyOp', () => {
     ]
     const plan = await previewPropertyOp(convertReq())
     expect(plan.files).toHaveLength(3) // deleted row excluded
-    expect(plan.totals).toEqual({ convert: 1, unchanged: 0, noValue: 1, skip: 1 })
+    expect(plan.totals).toEqual({
+      add: 0,
+      convert: 1,
+      drop: 0,
+      unchanged: 0,
+      noValue: 1,
+      skip: 1
+    })
     expect(plan.schemaPin).toEqual({ scopeKey: 'docs', fieldType: 'number' })
+  })
+
+  it('rejects reserved add keys and Select columns without allowed values', async () => {
+    await expect(
+      previewPropertyOp(convertReq({ key: 'path', op: { kind: 'add', target: 'text' } }))
+    ).rejects.toThrow('"path" is reserved')
+    await expect(
+      previewPropertyOp(convertReq({ key: 'stage', op: { kind: 'add', target: 'select' } }))
+    ).rejects.toThrow('at least one allowed value')
+  })
+})
+
+describe('applyPropertyOp — add', () => {
+  it('adds typed defaults without overwriting existing keys and isolates malformed files', async () => {
+    await seed('docs/a.md', '# No frontmatter yet\n')
+    await seed('docs/b.md', '---\npriority: 7\n---\nBody B\n')
+    await seed('docs/broken.md', '---\npriority: [unclosed\nBody\n')
+    enumeratedRows = [
+      { path: 'docs/a.md', state: 'indexed' },
+      { path: 'docs/b.md', state: 'indexed' },
+      { path: 'docs/broken.md', state: 'modified' }
+    ]
+    const { event, windowManager, broadcasts } = makeEventAndWindows()
+
+    const result = await applyPropertyOp(event, windowManager, 'op-add', {
+      collectionId: 'c1',
+      scope: 'docs',
+      filePath: null,
+      key: 'priority',
+      op: { kind: 'add', target: 'number' }
+    })
+
+    expect(result.totals).toEqual({ ok: 1, skipped: 1, failed: 1 })
+    expect(result.entries).toContainEqual({ path: 'docs/a.md', status: 'ok' })
+    expect(result.entries).toContainEqual({
+      path: 'docs/b.md',
+      status: 'skipped',
+      reason: 'property already exists'
+    })
+    expect(result.entries.find((entry) => entry.path === 'docs/broken.md')?.reason).toMatch(
+      /invalid YAML frontmatter/
+    )
+
+    const added = parseYaml((await readFile(join(root, 'docs/a.md'), 'utf-8')).split('---')[1])
+    expect(added.priority).toBe(0)
+    const existing = parseYaml((await readFile(join(root, 'docs/b.md'), 'utf-8')).split('---')[1])
+    expect(existing.priority).toBe(7)
+    expect(await readFile(join(root, 'docs/broken.md'), 'utf-8')).toBe(
+      '---\npriority: [unclosed\nBody\n'
+    )
+
+    const overlay = parseYaml(await readFile(join(root, OVERLAY_FILENAME), 'utf-8'))
+    expect(overlay.scopes.docs.fields.priority.field_type).toBe('number')
+    expect(result.overlayWritten).toBe(true)
+    expect(watcherPauses).toBe(1)
+    expect(broadcasts.filter((entry) => entry.channel === 'file:saved-externally')).toHaveLength(1)
+  })
+
+  it('pins an empty scoped column even when there are no Markdown rows', async () => {
+    const { event, windowManager } = makeEventAndWindows()
+    const result = await applyPropertyOp(event, windowManager, 'op-empty-add', {
+      collectionId: 'c1',
+      scope: 'docs',
+      filePath: null,
+      key: 'payload',
+      op: { kind: 'add', target: 'complex' }
+    })
+
+    expect(result.totals).toEqual({ ok: 0, skipped: 0, failed: 0 })
+    expect(result.overlayWritten).toBe(true)
+    const overlay = parseYaml(await readFile(join(root, OVERLAY_FILENAME), 'utf-8'))
+    expect(overlay.scopes.docs.fields.payload.field_type).toBe('mixed')
+  })
+
+  it('persists Select allowed values as part of the added schema field', async () => {
+    await seed('docs/a.md', '# A\n')
+    enumeratedRows = [{ path: 'docs/a.md', state: 'indexed' }]
+    const { event, windowManager } = makeEventAndWindows()
+
+    await applyPropertyOp(event, windowManager, 'op-select-add', {
+      collectionId: 'c1',
+      scope: 'docs',
+      filePath: null,
+      key: 'stage',
+      op: { kind: 'add', target: 'select', allowedValues: ['draft', 'published'] }
+    })
+
+    const overlay = parseYaml(await readFile(join(root, OVERLAY_FILENAME), 'utf-8'))
+    expect(overlay.scopes.docs.fields.stage).toEqual({
+      field_type: 'string',
+      allowed_values: ['draft', 'published']
+    })
+  })
+
+  it('validates the schema overlay before changing Markdown', async () => {
+    const original = '# A\n'
+    await seed('docs/a.md', original)
+    await seed(OVERLAY_FILENAME, 'scopes: [unclosed\n')
+    enumeratedRows = [{ path: 'docs/a.md', state: 'indexed' }]
+    const { event, windowManager } = makeEventAndWindows()
+
+    await expect(
+      applyPropertyOp(event, windowManager, 'op-malformed-overlay', {
+        collectionId: 'c1',
+        scope: 'docs',
+        filePath: null,
+        key: 'priority',
+        op: { kind: 'add', target: 'number' }
+      })
+    ).rejects.toThrow(/not valid YAML|refusing to overwrite/)
+
+    expect(await readFile(join(root, 'docs/a.md'), 'utf-8')).toBe(original)
+    expect(await readFile(join(root, OVERLAY_FILENAME), 'utf-8')).toBe('scopes: [unclosed\n')
+  })
+})
+
+describe('applyPropertyOp — drop', () => {
+  it('drops the key vault-wide, including null/empty values and every overlay definition', async () => {
+    await mkdir(join(root, 'notes'), { recursive: true })
+    await seed('docs/a.md', '---\nstatus: draft\nauthor: Ada\n---\nBody A\n')
+    await seed('docs/empty.md', '---\nstatus: ""\nkeep: true\n---\nBody empty\n')
+    await seed('notes/b.md', '---\nstatus: null\ncategory: note\n---\nBody B\n')
+    await seed('root.md', '---\ntitle: No status\n---\nRoot body\n')
+    await seed(
+      OVERLAY_FILENAME,
+      [
+        '# keep overlay comment',
+        'fields:',
+        '  status:',
+        '    field_type: string',
+        '  author:',
+        '    field_type: string',
+        'scopes:',
+        '  docs:',
+        '    fields:',
+        '      status:',
+        '        field_type: string',
+        '  notes:',
+        '    fields:',
+        '      status:',
+        '        description: Note status',
+        '      category:',
+        '        field_type: string',
+        ''
+      ].join('\n')
+    )
+    await mkdir(join(root, '.markdownvdb'), { recursive: true })
+    await writeFile(
+      join(root, '.markdownvdb', 'table-views.json'),
+      JSON.stringify({
+        version: 1,
+        folders: {
+          docs: [
+            {
+              id: 'v1',
+              name: 'By status',
+              version: 1,
+              config: {
+                sort: [{ columnName: 'status', direction: 'asc' }],
+                filters: [{ columnName: 'status', op: 'equals', value: 'draft' }],
+                columns: [{ name: 'status', hidden: false, width: 120, order: 0 }],
+                groupBy: 'status',
+                collapsedGroups: ['draft']
+              },
+              recursive: true,
+              isDefault: false,
+              createdAt: 1,
+              updatedAt: 1
+            }
+          ]
+        }
+      }),
+      'utf-8'
+    )
+    enumeratedRows = [
+      { path: 'docs/a.md', state: 'indexed' },
+      { path: 'docs/empty.md', state: 'indexed' },
+      { path: 'notes/b.md', state: 'modified' },
+      { path: 'root.md', state: 'indexed' },
+      { path: 'gone.md', state: 'deleted' }
+    ]
+    const { event, windowManager, progress, broadcasts } = makeEventAndWindows()
+
+    const plan = await previewPropertyOp({
+      collectionId: 'c1',
+      scope: 'docs',
+      filePath: null,
+      key: 'status',
+      op: { kind: 'drop' }
+    })
+    expect(plan.scope).toBe('.')
+    expect(plan.files.map((entry) => entry.path)).toEqual([
+      'docs/a.md',
+      'docs/empty.md',
+      'notes/b.md',
+      'root.md'
+    ])
+    expect(plan.totals).toEqual({
+      add: 0,
+      convert: 0,
+      drop: 3,
+      unchanged: 0,
+      noValue: 1,
+      skip: 0
+    })
+    const confirmedPaths = plan.files
+      .filter((entry) => entry.action === 'drop')
+      .map((entry) => entry.path)
+
+    const result = await applyPropertyOp(event, windowManager, 'op-drop', {
+      collectionId: 'c1',
+      scope: 'docs',
+      filePath: null,
+      key: 'status',
+      op: { kind: 'drop', confirmedPaths }
+    })
+
+    expect(result.totals).toEqual({ ok: 3, skipped: 1, failed: 0 })
+    expect(result.overlayWritten).toBe(true)
+    expect(watcherPauses).toBe(1)
+    expect(progress).toHaveLength(4)
+    expect(broadcasts.filter((item) => item.channel === 'file:saved-externally')).toHaveLength(3)
+    expect(vi.mocked(execCommand)).toHaveBeenCalledWith('collection', ['.', '--recursive'], root)
+
+    const a = parseYaml((await readFile(join(root, 'docs/a.md'), 'utf-8')).split('---')[1])
+    const empty = parseYaml((await readFile(join(root, 'docs/empty.md'), 'utf-8')).split('---')[1])
+    const b = parseYaml((await readFile(join(root, 'notes/b.md'), 'utf-8')).split('---')[1])
+    expect(a).toEqual({ author: 'Ada' })
+    expect(empty).toEqual({ keep: true })
+    expect(b).toEqual({ category: 'note' })
+    expect(await readFile(join(root, 'docs/a.md'), 'utf-8')).toContain('---\nBody A\n')
+
+    const overlayRaw = await readFile(join(root, OVERLAY_FILENAME), 'utf-8')
+    const overlay = parseYaml(overlayRaw)
+    expect(overlayRaw).toContain('# keep overlay comment')
+    expect(overlay.fields).toEqual({ author: { field_type: 'string' } })
+    expect(overlay.scopes.docs).toBeUndefined()
+    expect(overlay.scopes.notes.fields).toEqual({
+      category: { field_type: 'string' }
+    })
+
+    const views = JSON.parse(
+      await readFile(join(root, '.markdownvdb', 'table-views.json'), 'utf-8')
+    )
+    expect(views.folders.docs[0].config).toEqual({
+      sort: [],
+      filters: [],
+      columns: [],
+      groupBy: null,
+      collapsedGroups: []
+    })
+  })
+
+  it('drops an inferred ad-hoc field when no overlay file exists', async () => {
+    await seed('docs/a.md', '---\nstatus: draft\n---\nBody\n')
+    enumeratedRows = [{ path: 'docs/a.md', state: 'indexed' }]
+    const { event, windowManager } = makeEventAndWindows()
+
+    const result = await applyPropertyOp(event, windowManager, 'op-drop-ad-hoc', {
+      collectionId: 'c1',
+      scope: 'docs',
+      filePath: null,
+      key: 'status',
+      op: { kind: 'drop', confirmedPaths: ['docs/a.md'] }
+    })
+
+    expect(result).toMatchObject({
+      totals: { ok: 1, skipped: 0, failed: 0 },
+      overlayWritten: false
+    })
+    expect(parseYaml((await readFile(join(root, 'docs/a.md'), 'utf-8')).split('---')[1])).toEqual(
+      {}
+    )
+    await expect(readFile(join(root, OVERLAY_FILENAME), 'utf-8')).rejects.toThrow()
+  })
+
+  it('refuses a malformed overlay before deleting any Markdown values', async () => {
+    const original = '---\nstatus: draft\n---\nBody\n'
+    await seed('docs/a.md', original)
+    await seed(OVERLAY_FILENAME, 'scopes: [unclosed\n')
+    enumeratedRows = [{ path: 'docs/a.md', state: 'indexed' }]
+    const { event, windowManager, broadcasts } = makeEventAndWindows()
+
+    await expect(
+      applyPropertyOp(event, windowManager, 'op-drop-malformed', {
+        collectionId: 'c1',
+        scope: 'docs',
+        filePath: null,
+        key: 'status',
+        op: { kind: 'drop', confirmedPaths: ['docs/a.md'] }
+      })
+    ).rejects.toThrow(/not valid YAML|refusing to overwrite/)
+
+    expect(await readFile(join(root, 'docs/a.md'), 'utf-8')).toBe(original)
+    expect(await readFile(join(root, OVERLAY_FILENAME), 'utf-8')).toBe('scopes: [unclosed\n')
+    expect(broadcasts).toHaveLength(0)
+  })
+
+  it('continues past malformed frontmatter and reports the file as failed', async () => {
+    const broken = '---\nstatus: [unclosed\n---\nBroken body\n'
+    await seed('docs/a.md', '---\nstatus: draft\nkeep: yes\n---\nBody\n')
+    await seed('docs/broken.md', broken)
+    enumeratedRows = [
+      { path: 'docs/a.md', state: 'indexed' },
+      { path: 'docs/broken.md', state: 'modified' }
+    ]
+    const { event, windowManager } = makeEventAndWindows()
+
+    const result = await applyPropertyOp(event, windowManager, 'op-drop-broken-frontmatter', {
+      collectionId: 'c1',
+      scope: 'docs',
+      filePath: null,
+      key: 'status',
+      op: { kind: 'drop', confirmedPaths: ['docs/a.md'] }
+    })
+
+    expect(result.entries).toEqual([
+      { path: 'docs/a.md', status: 'ok' },
+      {
+        path: 'docs/broken.md',
+        status: 'failed',
+        reason: 'invalid YAML frontmatter — file not modified'
+      }
+    ])
+    expect(result.totals).toEqual({ ok: 1, skipped: 0, failed: 1 })
+    expect(parseYaml((await readFile(join(root, 'docs/a.md'), 'utf-8')).split('---')[1])).toEqual({
+      keep: 'yes'
+    })
+    expect(await readFile(join(root, 'docs/broken.md'), 'utf-8')).toBe(broken)
+  })
+
+  it('requires a confirmed preview before any destructive mutation', async () => {
+    const original = '---\nstatus: draft\n---\nBody\n'
+    const overlay = 'fields:\n  status:\n    field_type: string\n'
+    await seed('docs/a.md', original)
+    await seed(OVERLAY_FILENAME, overlay)
+    enumeratedRows = [{ path: 'docs/a.md', state: 'indexed' }]
+    const { event, windowManager, broadcasts } = makeEventAndWindows()
+
+    await expect(
+      applyPropertyOp(event, windowManager, 'op-drop-unconfirmed', {
+        collectionId: 'c1',
+        scope: 'docs',
+        filePath: null,
+        key: 'status',
+        op: { kind: 'drop' }
+      })
+    ).rejects.toThrow(/fresh confirmed preview/)
+
+    expect(watcherPauses).toBe(0)
+    expect(broadcasts).toHaveLength(0)
+    expect(await readFile(join(root, 'docs/a.md'), 'utf-8')).toBe(original)
+    expect(await readFile(join(root, OVERLAY_FILENAME), 'utf-8')).toBe(overlay)
+  })
+
+  it('aborts without mutations when a document becomes newly affected after preview', async () => {
+    const aBefore = '---\nstatus: draft\nkeep: a\n---\nA\n'
+    const bBefore = '---\nkeep: b\n---\nB\n'
+    const bAfter = '---\nstatus: review\nkeep: b\n---\nB\n'
+    const overlay = 'fields:\n  status:\n    field_type: string\n'
+    const views = JSON.stringify({
+      version: 1,
+      folders: {
+        docs: [
+          {
+            id: 'v1',
+            name: 'By status',
+            version: 1,
+            config: {
+              sort: [{ columnName: 'status', direction: 'asc' }],
+              filters: [],
+              columns: [],
+              groupBy: null,
+              collapsedGroups: []
+            },
+            recursive: true,
+            isDefault: false,
+            createdAt: 1,
+            updatedAt: 1
+          }
+        ]
+      }
+    })
+    await seed('docs/a.md', aBefore)
+    await seed('docs/b.md', bBefore)
+    await seed(OVERLAY_FILENAME, overlay)
+    await mkdir(join(root, '.markdownvdb'), { recursive: true })
+    await seed('.markdownvdb/table-views.json', views)
+    enumeratedRows = [
+      { path: 'docs/a.md', state: 'indexed' },
+      { path: 'docs/b.md', state: 'indexed' }
+    ]
+    const plan = await previewPropertyOp({
+      collectionId: 'c1',
+      scope: 'docs',
+      filePath: null,
+      key: 'status',
+      op: { kind: 'drop' }
+    })
+    const confirmedPaths = plan.files
+      .filter((entry) => entry.action === 'drop')
+      .map((entry) => entry.path)
+    expect(confirmedPaths).toEqual(['docs/a.md'])
+
+    await seed('docs/b.md', bAfter)
+    const { event, windowManager, progress, broadcasts } = makeEventAndWindows()
+    await expect(
+      applyPropertyOp(event, windowManager, 'op-drop-newly-affected', {
+        collectionId: 'c1',
+        scope: 'docs',
+        filePath: null,
+        key: 'status',
+        op: { kind: 'drop', confirmedPaths }
+      })
+    ).rejects.toThrow(/preview is stale.*Refresh the preview/)
+
+    expect(watcherPauses).toBe(1)
+    expect(progress).toHaveLength(0)
+    expect(broadcasts).toHaveLength(0)
+    expect(await readFile(join(root, 'docs/a.md'), 'utf-8')).toBe(aBefore)
+    expect(await readFile(join(root, 'docs/b.md'), 'utf-8')).toBe(bAfter)
+    expect(await readFile(join(root, OVERLAY_FILENAME), 'utf-8')).toBe(overlay)
+    expect(await readFile(join(root, '.markdownvdb', 'table-views.json'), 'utf-8')).toBe(views)
+  })
+
+  it('aborts without mutations when a confirmed document is no longer affected', async () => {
+    const aBefore = '---\nstatus: draft\nkeep: a\n---\nA\n'
+    const bBefore = '---\nstatus: review\nkeep: b\n---\nB\n'
+    const bAfter = '---\nkeep: b\n---\nB\n'
+    const overlay = 'fields:\n  status:\n    field_type: string\n'
+    await seed('docs/a.md', aBefore)
+    await seed('docs/b.md', bBefore)
+    await seed(OVERLAY_FILENAME, overlay)
+    enumeratedRows = [
+      { path: 'docs/a.md', state: 'indexed' },
+      { path: 'docs/b.md', state: 'indexed' }
+    ]
+    const plan = await previewPropertyOp({
+      collectionId: 'c1',
+      scope: 'docs',
+      filePath: null,
+      key: 'status',
+      op: { kind: 'drop' }
+    })
+    const confirmedPaths = plan.files
+      .filter((entry) => entry.action === 'drop')
+      .map((entry) => entry.path)
+    expect(confirmedPaths).toEqual(['docs/a.md', 'docs/b.md'])
+
+    await seed('docs/b.md', bAfter)
+    const { event, windowManager, progress, broadcasts } = makeEventAndWindows()
+    await expect(
+      applyPropertyOp(event, windowManager, 'op-drop-no-longer-affected', {
+        collectionId: 'c1',
+        scope: 'docs',
+        filePath: null,
+        key: 'status',
+        op: { kind: 'drop', confirmedPaths }
+      })
+    ).rejects.toThrow(/preview is stale.*Refresh the preview/)
+
+    expect(watcherPauses).toBe(1)
+    expect(progress).toHaveLength(0)
+    expect(broadcasts).toHaveLength(0)
+    expect(await readFile(join(root, 'docs/a.md'), 'utf-8')).toBe(aBefore)
+    expect(await readFile(join(root, 'docs/b.md'), 'utf-8')).toBe(bAfter)
+    expect(await readFile(join(root, OVERLAY_FILENAME), 'utf-8')).toBe(overlay)
   })
 })
 

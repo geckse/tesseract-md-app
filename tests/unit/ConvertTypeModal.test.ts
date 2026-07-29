@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/svelte'
+import { render, screen, within } from '@testing-library/svelte'
 
 // Mock the store's leaf deps so the real property-ops store loads cleanly.
 vi.mock('../../src/renderer/stores/collections', async () => {
@@ -36,6 +36,7 @@ function modalState(over: Partial<PropertyOpModalState> = {}): PropertyOpModalSt
   return {
     phase: 'preview',
     origin: { kind: 'table', tabId: 't1', folderPath: 'knowledge-graph' },
+    collection: { id: 'c1', path: '/vault' },
     req: {
       collectionId: 'c1',
       scope: 'knowledge-graph',
@@ -66,7 +67,7 @@ const plan: PropertyOpPlan = {
     },
     { path: 'knowledge-graph/c.md', action: 'no-value', before: null, after: null }
   ],
-  totals: { convert: 1, unchanged: 0, noValue: 1, skip: 1 },
+  totals: { add: 0, drop: 0, convert: 1, unchanged: 0, noValue: 1, skip: 1 },
   schemaPin: { scopeKey: 'knowledge-graph', fieldType: 'number' }
 }
 
@@ -79,7 +80,7 @@ describe('ConvertTypeModal', () => {
   it('renders the preview: totals, per-file rows, skip reasons, schema pin', () => {
     propertyOps.modal = modalState({ plan })
     render(ConvertTypeModal)
-    expect(screen.getByRole('dialog', { name: 'Change type of status' })).toBeTruthy()
+    expect(screen.getByRole('dialog', { name: /Change type:/ })).toBeTruthy()
     expect(screen.getByText(/1 file convert/)).toBeTruthy()
     expect(screen.getByText(/1 skipped/)).toBeTruthy()
     expect(screen.getByText('knowledge-graph/b.md')).toBeTruthy()
@@ -91,7 +92,11 @@ describe('ConvertTypeModal', () => {
 
   it('offers "Update schema only" when nothing converts but a pin exists', () => {
     propertyOps.modal = modalState({
-      plan: { ...plan, files: [], totals: { convert: 0, unchanged: 0, noValue: 0, skip: 0 } }
+      plan: {
+        ...plan,
+        files: [],
+        totals: { add: 0, drop: 0, convert: 0, unchanged: 0, noValue: 0, skip: 0 }
+      }
     })
     render(ConvertTypeModal)
     const btn = screen.getByRole('button', { name: 'Update schema only' }) as HTMLButtonElement
@@ -110,7 +115,7 @@ describe('ConvertTypeModal', () => {
       plan: {
         scope: null,
         files: [],
-        totals: { convert: 0, unchanged: 0, noValue: 0, skip: 0 },
+        totals: { add: 0, drop: 0, convert: 0, unchanged: 0, noValue: 0, skip: 0 },
         schemaPin: null
       }
     })
@@ -125,6 +130,46 @@ describe('ConvertTypeModal', () => {
     expect(screen.getByText(/unsaved changes in open tabs/)).toBeTruthy()
   })
 
+  it('uses add-column language and counts without presenting existing keys as writes', () => {
+    propertyOps.modal = modalState({
+      req: {
+        collectionId: 'c1',
+        scope: 'knowledge-graph',
+        filePath: null,
+        key: 'payload',
+        op: { kind: 'add', target: 'complex' }
+      },
+      currentType: null,
+      plan: {
+        scope: 'knowledge-graph',
+        files: [
+          {
+            path: 'knowledge-graph/a.md',
+            action: 'add',
+            before: null,
+            after: '{}'
+          },
+          {
+            path: 'knowledge-graph/b.md',
+            action: 'unchanged',
+            before: '{"kept":true}',
+            after: '{"kept":true}',
+            reason: 'property already exists'
+          }
+        ],
+        totals: { add: 1, drop: 0, convert: 0, unchanged: 1, noValue: 0, skip: 0 },
+        schemaPin: { scopeKey: 'knowledge-graph', fieldType: 'mixed' }
+      }
+    })
+
+    render(ConvertTypeModal)
+    expect(screen.getByRole('dialog', { name: /Add column:/ })).toBeTruthy()
+    expect(screen.getByText(/1 file add/)).toBeTruthy()
+    expect(screen.getByText(/1 already have this property/)).toBeTruthy()
+    expect(screen.getByText(/never overwritten/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Add to 1 file' })).toBeTruthy()
+  })
+
   it('shows the streamed progress during the run', () => {
     propertyOps.modal = modalState({
       phase: 'running',
@@ -136,6 +181,31 @@ describe('ConvertTypeModal', () => {
     expect(screen.getByText(/3\/14/)).toBeTruthy()
     const cancel = screen.getByRole('button', { name: 'Cancel' }) as HTMLButtonElement
     expect(cancel.disabled).toBe(true)
+  })
+
+  it('labels streamed Drop progress as a column removal', () => {
+    propertyOps.modal = modalState({
+      phase: 'running',
+      req: {
+        collectionId: 'c1',
+        scope: '.',
+        filePath: null,
+        key: 'status',
+        op: { kind: 'drop' }
+      },
+      plan: {
+        scope: '.',
+        files: [{ path: 'invoices/a.md', action: 'drop', before: 'paid', after: null }],
+        totals: { add: 0, drop: 1, convert: 0, unchanged: 0, noValue: 0, skip: 0 },
+        schemaPin: null
+      },
+      progress: { opId: 'op1', done: 1, total: 3, path: 'invoices/a.md' }
+    })
+
+    render(ConvertTypeModal)
+
+    expect(screen.getByText(/Dropping column…\s*1\/3/)).toBeTruthy()
+    expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('1')
   })
 
   it('reports ok/skipped/failed with reasons', () => {
@@ -170,7 +240,7 @@ describe('ConvertTypeModal', () => {
       }
     })
     render(ConvertTypeModal)
-    expect(screen.getByRole('dialog', { name: 'Rename property status' })).toBeTruthy()
+    expect(screen.getByRole('dialog', { name: /Rename property:/ })).toBeTruthy()
     expect(screen.getByRole('textbox', { name: 'New property name' })).toBeTruthy()
     const preview = screen.getByRole('button', { name: 'Preview' }) as HTMLButtonElement
     expect(preview.disabled).toBe(true)
@@ -189,5 +259,148 @@ describe('ConvertTypeModal', () => {
     })
     render(ConvertTypeModal)
     expect(screen.getByText(/entire vault/)).toBeTruthy()
+  })
+
+  it('warns irreversibly and lists exactly the documents affected by Drop', () => {
+    propertyOps.modal = modalState({
+      req: {
+        collectionId: 'c1',
+        scope: '.',
+        filePath: null,
+        key: 'status',
+        op: { kind: 'drop' }
+      },
+      plan: {
+        scope: '.',
+        files: [
+          { path: 'invoices/a.md', action: 'drop', before: 'paid', after: null },
+          { path: 'invoices/b.md', action: 'no-value', before: null, after: null },
+          {
+            path: 'broken.md',
+            action: 'skip',
+            before: null,
+            after: null,
+            reason: 'invalid YAML frontmatter'
+          }
+        ],
+        totals: { add: 0, drop: 1, convert: 0, unchanged: 0, noValue: 1, skip: 1 },
+        schemaPin: null
+      }
+    })
+
+    render(ConvertTypeModal)
+
+    expect(screen.getByRole('dialog', { name: 'Drop column: status' })).toBeTruthy()
+    const warning = screen.getByRole('alert')
+    const warningText = warning.textContent?.replace(/\s+/g, ' ') ?? ''
+    expect(warningText).toContain('This cannot be undone')
+    expect(warningText).toContain("document's frontmatter")
+    expect(warningText).toContain('field will be removed from the schema')
+    expect(screen.getByText(/1 affected document/)).toBeTruthy()
+    expect(screen.getByText(/1 without this field/)).toBeTruthy()
+    expect(screen.getByText(/1 skipped/)).toBeTruthy()
+
+    const affected = screen.getByRole('list', { name: 'Affected documents' })
+    expect(within(affected).getByText('invoices/a.md')).toBeTruthy()
+    expect(within(affected).getByText('paid')).toBeTruthy()
+    expect(within(affected).queryByText('invoices/b.md')).toBeNull()
+    expect(within(affected).queryByText('broken.md')).toBeNull()
+
+    const drop = screen.getByRole('button', {
+      name: 'Drop from 1 document'
+    }) as HTMLButtonElement
+    expect(drop.className).toContain('btn-danger')
+    expect(drop.disabled).toBe(false)
+  })
+
+  it('blocks the Drop CTA while an open document has unsaved changes', () => {
+    propertyOps.modal = modalState({
+      req: {
+        collectionId: 'c1',
+        scope: '.',
+        filePath: null,
+        key: 'status',
+        op: { kind: 'drop' }
+      },
+      plan: {
+        scope: '.',
+        files: [{ path: 'a.md', action: 'drop', before: 'draft', after: null }],
+        totals: { add: 0, drop: 1, convert: 0, unchanged: 0, noValue: 0, skip: 0 },
+        schemaPin: null
+      },
+      dirtyAffected: ['other-open-document.md']
+    })
+
+    render(ConvertTypeModal)
+
+    expect(screen.getByText(/Drop is blocked/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Refresh preview' })).toBeTruthy()
+    expect(
+      (screen.getByRole('button', { name: 'Drop from 1 document' }) as HTMLButtonElement).disabled
+    ).toBe(true)
+  })
+
+  it('allows a schema-only Drop when no document currently contains the field', () => {
+    propertyOps.modal = modalState({
+      req: {
+        collectionId: 'c1',
+        scope: '.',
+        filePath: null,
+        key: 'status',
+        op: { kind: 'drop' }
+      },
+      plan: {
+        scope: '.',
+        files: [{ path: 'a.md', action: 'no-value', before: null, after: null }],
+        totals: { add: 0, drop: 0, convert: 0, unchanged: 0, noValue: 1, skip: 0 },
+        schemaPin: null
+      }
+    })
+
+    render(ConvertTypeModal)
+
+    expect(screen.getByText(/still remove its schema definition/)).toBeTruthy()
+    const drop = screen.getByRole('button', { name: 'Drop column' }) as HTMLButtonElement
+    expect(drop.className).toContain('btn-danger')
+    expect(drop.disabled).toBe(false)
+  })
+
+  it('reports Drop removals without listing every already-absent document as skipped', () => {
+    propertyOps.modal = modalState({
+      phase: 'report',
+      req: {
+        collectionId: 'c1',
+        scope: '.',
+        filePath: null,
+        key: 'status',
+        op: { kind: 'drop' }
+      },
+      plan: {
+        scope: '.',
+        files: [],
+        totals: { add: 0, drop: 1, convert: 0, unchanged: 0, noValue: 2, skip: 1 },
+        schemaPin: null
+      },
+      result: {
+        entries: [
+          { path: 'changed.md', status: 'ok' },
+          { path: 'absent-a.md', status: 'skipped', reason: 'no value' },
+          { path: 'absent-b.md', status: 'skipped', reason: 'no value' },
+          { path: 'malformed.md', status: 'skipped', reason: 'invalid YAML frontmatter' },
+          { path: 'locked.md', status: 'failed', reason: 'permission denied' }
+        ],
+        totals: { ok: 1, skipped: 3, failed: 1 },
+        overlayWritten: true
+      }
+    })
+
+    render(ConvertTypeModal)
+
+    const totals = document.querySelector('.totals')?.textContent?.replace(/\s+/g, ' ') ?? ''
+    expect(totals).toContain('1 removed · 2 already absent · 1 skipped · 1 failed')
+    expect(screen.getByText('malformed.md')).toBeTruthy()
+    expect(screen.queryByText('absent-a.md')).toBeNull()
+    expect(screen.queryByText('absent-b.md')).toBeNull()
+    expect(screen.getByText(/Schema definition removed/)).toBeTruthy()
   })
 })

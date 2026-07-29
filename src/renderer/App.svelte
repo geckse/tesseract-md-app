@@ -114,6 +114,7 @@
   // ── Popup Mode Detection ──────────────────────────────────────────
   const popupParams = new URLSearchParams(window.location.search)
   const isPopupMode = popupParams.get('mode') === 'popup'
+  const initialCollectionId = isPopupMode ? null : popupParams.get('collectionId')
 
   let searchAreaEl: HTMLElement | undefined = $state(undefined)
 
@@ -134,7 +135,7 @@
 
     // Load collections first, then restore tab session once the active collection is known.
     // restoreSession() validates file existence via the preload API, so it needs an active collection.
-    loadCollections().then(async () => {
+    loadCollections(initialCollectionId).then(async () => {
       // Load the navigation trees for the active collection. Graph data stays
       // cold until a graph tab is restored or explicitly activated.
       loadFileTree().catch(() => {})
@@ -510,7 +511,7 @@
         meta: true,
         shift: true,
         handler: () => {
-          window.api.newWindow()
+          void window.api.newWindow(get(activeCollectionId) ?? undefined)
         }
       }),
 

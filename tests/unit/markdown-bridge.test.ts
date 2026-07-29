@@ -3,8 +3,10 @@ import {
   splitFrontmatter,
   joinFrontmatter,
   parseFrontmatterData,
-  serializeFrontmatter
+  serializeFrontmatter,
+  serializeFrontmatterPreservingFields
 } from '@renderer/lib/tiptap/markdown-bridge'
+import { EXACT_NUMBER_KEY } from '../../src/shared/exact-number'
 
 describe('splitFrontmatter', () => {
   it('extracts frontmatter and body', () => {
@@ -89,6 +91,26 @@ describe('parseFrontmatterData', () => {
     expect(data.rating).toBe(3.5)
   })
 
+  it('preserves precision-sensitive numeric tokens', () => {
+    const data = parseFrontmatterData(
+      'total: 0.1234567890123456789012345678\nsequence: 9007199254740993'
+    )
+    expect(data.total).toEqual({
+      [EXACT_NUMBER_KEY]: '0.1234567890123456789012345678'
+    })
+    expect(data.sequence).toEqual({ [EXACT_NUMBER_KEY]: '9007199254740993' })
+  })
+
+  it('parses nested formula JSON values through the YAML AST', () => {
+    const data = parseFrontmatterData(
+      'summary:\n  subtotal: 12.5\n  flags:\n    - paid\n    - priority'
+    )
+    expect(data.summary).toEqual({
+      subtotal: 12.5,
+      flags: ['paid', 'priority']
+    })
+  })
+
   it('parses inline arrays', () => {
     const data = parseFrontmatterData('tags: [a, b, c]')
     expect(data.tags).toEqual(['a', 'b', 'c'])
@@ -147,6 +169,32 @@ describe('serializeFrontmatter', () => {
     expect(parsed.count).toBe(5)
     expect(parsed.draft).toBe(false)
     expect(parsed.tags).toEqual(['x', 'y'])
+  })
+})
+
+describe('serializeFrontmatterPreservingFields', () => {
+  it('keeps formula YAML pairs byte-exact while updating sibling fields', () => {
+    const original = [
+      'price: 1',
+      'total: 0.1234567890123456789012345678 # exact',
+      'payload:',
+      '  nested: 9007199254740993',
+      '  values:',
+      '    - 0.10000000000000001',
+      'status: draft'
+    ].join('\n')
+
+    const parsed = parseFrontmatterData(original)
+    parsed.price = 2
+    parsed.status = 'paid'
+    const output = serializeFrontmatterPreservingFields(original, parsed, ['total', 'payload'])
+
+    expect(output).toContain('price: 2')
+    expect(output).toContain('status: paid')
+    expect(output).toContain('total: 0.1234567890123456789012345678 # exact')
+    expect(output).toContain(
+      'payload:\n  nested: 9007199254740993\n  values:\n    - 0.10000000000000001'
+    )
   })
 })
 

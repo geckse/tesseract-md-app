@@ -27,7 +27,12 @@ Object.defineProperty(globalThis, 'window', {
   writable: true
 })
 
-import { watcherState, watcherError, watcherToggling } from '../../src/renderer/stores/watcher'
+import {
+  watcherState,
+  watcherError,
+  watcherToggling,
+  watcherEvents
+} from '../../src/renderer/stores/watcher'
 import { collections, activeCollectionId } from '../../src/renderer/stores/collections'
 import WatcherToggle from '@renderer/components/WatcherToggle.svelte'
 
@@ -45,6 +50,7 @@ function resetStores() {
   watcherState.set('stopped')
   watcherError.set(null)
   watcherToggling.set(false)
+  watcherEvents.set([])
   setActiveCollection(null)
 }
 
@@ -108,6 +114,38 @@ describe('WatcherToggle component', () => {
     render(WatcherToggle)
     const btn = screen.getByRole('button')
     expect(btn.getAttribute('title')).toBe('Watcher: stopped')
+  })
+
+  it('surfaces recent formula hook activity in the watcher title', () => {
+    watcherEvents.set([
+      {
+        type: 'watch-event',
+        data: {
+          event_type: 'Modified',
+          path: 'invoice.md',
+          success: true,
+          chunks_processed: 1,
+          duration_ms: 4,
+          error: null,
+          module_reports: [
+            {
+              module: 'formula',
+              event: 'files_changed',
+              files_evaluated: 1,
+              fields_updated: 3,
+              diagnostics: [],
+              duration_ms: 1
+            }
+          ]
+        }
+      }
+    ])
+    render(WatcherToggle)
+
+    expect(screen.getByRole('button').getAttribute('title')).toBe(
+      'Formula: 3 fields updated, 0 diagnostics'
+    )
+    expect(screen.getByText('ƒx')).toBeTruthy()
   })
 
   it('calls toggleWatcher on click when not toggling', async () => {

@@ -76,6 +76,7 @@ describe('native menu window routing', () => {
       isPopup: (webContentsId: number) => webContentsId === 22,
       getPrimaryWindowId: () => 101,
       getWindow: (windowId: number) => (windowId === 101 ? primary : undefined),
+      getWindowCollectionId: () => 'col-1',
       getAllWindows: () => [primary, popup],
       createWindow: vi.fn(),
       broadcastToAll: vi.fn()

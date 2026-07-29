@@ -1291,6 +1291,7 @@ describe('WorkspaceStore', () => {
         expect(tab.title).toBe('blog')
         expect(tab.recursive).toBe(false)
         expect(tab.activeViewId).toBeNull()
+        expect(tab.isPreview).toBe(true)
       }
     })
 
@@ -1308,6 +1309,57 @@ describe('WorkspaceStore', () => {
       expect(tableTabs).toHaveLength(1)
     })
 
+    it('recycles an untouched table tab while the user skims folders', () => {
+      const first = workspace.openTableTab('blog', { recursive: true })
+      workspace.setTableActiveView(first, 'temporary-view')
+      // Restore preview state to isolate replacement cleanup from the setter's
+      // intentional promotion behavior.
+      const firstTab = workspace.tabs[first]
+      expect(firstTab?.kind).toBe('table')
+      if (firstTab?.kind === 'table') {
+        workspace.tabs[first] = {
+          ...firstTab,
+          ephemeral: {
+            sort: [],
+            filters: [],
+            columns: [],
+            groupBy: 'status',
+            collapsedGroups: []
+          },
+          isPreview: true
+        }
+      }
+
+      const second = workspace.openTableTab('archive')
+
+      expect(second).toBe(first)
+      const tab = workspace.tabs[second]
+      expect(tab?.kind).toBe('table')
+      if (tab?.kind === 'table') {
+        expect(tab.folderPath).toBe('archive')
+        expect(tab.title).toBe('archive')
+        expect(tab.recursive).toBe(false)
+        expect(tab.activeViewId).toBeNull()
+        expect(tab.ephemeral).toBeNull()
+        expect(tab.isPreview).toBe(true)
+      }
+      expect(Object.values(workspace.tabs).filter((t) => t.kind === 'table')).toHaveLength(1)
+    })
+
+    it('opens a new table tab after the previous preview was interacted with', () => {
+      const first = workspace.openTableTab('blog')
+      workspace.markTableInteracted(first)
+
+      const second = workspace.openTableTab('archive')
+
+      expect(second).not.toBe(first)
+      expect(workspace.tabs[first]?.kind === 'table' && workspace.tabs[first].isPreview).toBe(false)
+      expect(workspace.tabs[second]?.kind === 'table' && workspace.tabs[second].isPreview).toBe(
+        true
+      )
+      expect(Object.values(workspace.tabs).filter((t) => t.kind === 'table')).toHaveLength(2)
+    })
+
     it('setTableRecursive / setTableActiveView / setTableEphemeral mutate the tab', () => {
       const tabId = workspace.openTableTab('blog')
       workspace.setTableRecursive(tabId, true)
@@ -1320,6 +1372,7 @@ describe('WorkspaceStore', () => {
         // setting an active view clears ephemeral; then we set a new ephemeral patch
         expect(tab.activeViewId).toBe('view-1')
         expect(tab.ephemeral?.groupBy).toBe('status')
+        expect(tab.isPreview).toBe(false)
       }
     })
 

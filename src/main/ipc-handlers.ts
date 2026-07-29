@@ -107,7 +107,10 @@ import type {
   ScopedSchema,
   Config,
   DoctorResult,
-  CollectionOutput
+  CollectionOutput,
+  FormulaResultType,
+  FormulaValidationResult,
+  ModuleReport
 } from '../renderer/types/cli'
 import type { SerializedError } from './errors'
 import type { GraphMenuContext } from '../preload/api'
@@ -250,17 +253,34 @@ export async function destroyWatcherManager(): Promise<void> {
  * If the watcher was not running, just executes the callback directly.
  * Exported for the phase-41 batch property converter (`property-ops.ts`).
  */
+let watcherPauseQueue: Promise<void> = Promise.resolve()
+
 export async function withWatcherPaused<T>(root: string, fn: () => Promise<T>): Promise<T> {
+  const previous = watcherPauseQueue
+  let release!: () => void
+  watcherPauseQueue = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await previous.catch(() => {})
+  try {
+    return await withWatcherPausedUnlocked(root, fn)
+  } finally {
+    release()
+  }
+}
+
+async function withWatcherPausedUnlocked<T>(root: string, fn: () => Promise<T>): Promise<T> {
   const watcher = watcherManager
   // `start()` returns after spawning the child, while its state is still
   // `starting`. A schema/property operation can immediately request an ingest
   // during that window; the child already owns the index lock even though
   // `isRunning()` is still false. Treat both states as active so the ingest
   // cannot race the freshly restarted watcher.
-  const wasActive =
-    (watcher?.isRunning() ?? false) || (watcher?.getState() ?? 'stopped') === 'starting'
+  const state = watcher?.getState() ?? 'stopped'
+  const wasActive = state === 'running' || state === 'starting'
+  const restartRoot = watcher?.getRoot() ?? root
 
-  if (wasActive && watcher) {
+  if (watcher && (wasActive || state === 'stopping')) {
     await watcher.stop()
   }
 
@@ -268,9 +288,14 @@ export async function withWatcherPaused<T>(root: string, fn: () => Promise<T>): 
     return await fn()
   } finally {
     if (wasActive && watcher) {
-      await watcher.start(root)
+      await watcher.start(restartRoot)
     }
   }
+}
+
+function assertFormulaModuleReport(report: ModuleReport): void {
+  const failure = report.diagnostics.find((diagnostic) => diagnostic.code === 'module_error')
+  if (failure) throw new Error(`Formula module failed: ${failure.message}`)
 }
 
 /**
@@ -350,6 +375,32 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
   // Status
   ipcMain.handle('cli:status', (_event, root: string) =>
     wrapHandler(() => execCommand<IndexStatus>('status', [], root))
+  )
+
+  // Built-in Formula module. Validation is read-only; a manual run materializes
+  // values into Markdown and therefore shares the watcher pause discipline used
+  // by ingest.
+  ipcMain.handle(
+    'cli:modules-validate-formula',
+    (_event, root: string, formula: string, resultType: FormulaResultType) =>
+      wrapHandler(() =>
+        execCommand<FormulaValidationResult>(
+          'modules',
+          ['validate', 'formula', '--formula', formula, '--result-type', resultType.toLowerCase()],
+          root
+        )
+      )
+  )
+
+  ipcMain.handle('cli:modules-run-formula', (_event, root: string, scope?: string) =>
+    wrapHandler(() =>
+      withWatcherPaused(root, () => {
+        const args = ['run', 'formula']
+        const normalized = scope?.replace(/\/+$/, '')
+        if (normalized && normalized !== '.') args.push('--path', normalized)
+        return execCommand<ModuleReport>('modules', args, root, { timeout: INGEST_TIMEOUT_MS })
+      })
+    )
   )
 
   // Ingest
@@ -690,9 +741,10 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
     })
   )
 
-  ipcMain.handle('collections:set-active', (_event, id: string) =>
+  ipcMain.handle('collections:set-active', (event, id: string) =>
     wrapHandler(async () => {
       setActiveCollection(id)
+      windowManager.setWindowCollectionId(event.sender.id, id)
 
       const active = getActiveCollection()
 
@@ -990,6 +1042,157 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
       wrapHandler(async () => {
         const m = await import('./property-ops')
         return m.updateOverlayField(collectionId, scope, key, patch)
+      })
+  )
+
+  // Formula definition lifecycle: validate before touching disk, then keep the
+  // watcher stopped across the comment-preserving overlay write and Markdown
+  // materialization so tables never observe a half-applied definition.
+  ipcMain.handle(
+    'schema:save-formula',
+    (
+      _event,
+      collectionId: string,
+      scope: string | null,
+      key: string,
+      formula: string,
+      resultType: FormulaResultType
+    ) =>
+      wrapHandler(async () => {
+        const collection = getCollections().find((item) => item.id === collectionId)
+        if (!collection) throw new Error(`Collection not found: ${collectionId}`)
+        const field = key.trim()
+        if (!field) throw new Error('Formula field name is required')
+        if (field !== key) throw new Error('Formula field names cannot start or end with spaces')
+        if (field === 'title' || field === 'path') {
+          throw new Error(`"${field}" is reserved and cannot be a formula field`)
+        }
+        if (!formula.trim()) throw new Error('Formula expression is required')
+
+        const validation = await execCommand<FormulaValidationResult>(
+          'modules',
+          ['validate', 'formula', '--formula', formula, '--result-type', resultType.toLowerCase()],
+          collection.path
+        )
+        if (!validation.valid) {
+          throw new Error(
+            validation.diagnostics.map((diagnostic) => diagnostic.message).join('\n') ||
+              'Formula is not valid'
+          )
+        }
+
+        const scopeKey = scope && scope !== '.' ? scope.replace(/\/+$/, '') : null
+        return withWatcherPaused(collection.path, async () => {
+          const {
+            captureOverlaySnapshot,
+            restoreOverlaySnapshot,
+            resolveOverlayFormulaScope,
+            upsertOverlayField
+          } = await import('./schema-overlay')
+          const snapshot = await captureOverlaySnapshot(collection.path)
+          const existingScope = await resolveOverlayFormulaScope(collection.path, scopeKey, field)
+          const targetScope = existingScope === undefined ? scopeKey : existingScope
+          let mutated = false
+          try {
+            await upsertOverlayField(collection.path, targetScope, field, {
+              fieldType: 'formula',
+              formula,
+              resultType
+            })
+            mutated = true
+            const args = ['run', 'formula']
+            if (targetScope) args.push('--path', targetScope)
+            const report = await execCommand<ModuleReport>('modules', args, collection.path, {
+              timeout: INGEST_TIMEOUT_MS
+            })
+            assertFormulaModuleReport(report)
+            windowManager.broadcastToAll('watcher:event', {
+              type: 'module-report',
+              data: report
+            })
+            return report
+          } catch (error) {
+            if (mutated) {
+              await restoreOverlaySnapshot(collection.path, snapshot)
+              try {
+                const rollback = await execCommand<ModuleReport>(
+                  'modules',
+                  ['run', 'formula'],
+                  collection.path,
+                  { timeout: INGEST_TIMEOUT_MS }
+                )
+                assertFormulaModuleReport(rollback)
+              } catch (rollbackError) {
+                throw new Error(
+                  `${error instanceof Error ? error.message : String(error)}; rollback recompute failed: ${
+                    rollbackError instanceof Error ? rollbackError.message : String(rollbackError)
+                  }`
+                )
+              }
+            }
+            throw error
+          }
+        })
+      })
+  )
+
+  ipcMain.handle(
+    'schema:remove-formula',
+    (_event, collectionId: string, scope: string | null, key: string) =>
+      wrapHandler(async () => {
+        const collection = getCollections().find((item) => item.id === collectionId)
+        if (!collection) throw new Error(`Collection not found: ${collectionId}`)
+        const scopeKey = scope && scope !== '.' ? scope.replace(/\/+$/, '') : null
+        return withWatcherPaused(collection.path, async () => {
+          const {
+            captureOverlaySnapshot,
+            removeOverlayField,
+            resolveOverlayFormulaScope,
+            restoreOverlaySnapshot
+          } = await import('./schema-overlay')
+          const origin = await resolveOverlayFormulaScope(collection.path, scopeKey, key)
+          if (origin === undefined) {
+            throw new Error(`Formula "${key}" is not defined for this collection`)
+          }
+          const snapshot = await captureOverlaySnapshot(collection.path)
+          let mutated = false
+          try {
+            const removed = await removeOverlayField(collection.path, origin, key)
+            if (!removed) throw new Error(`Formula "${key}" could not be removed`)
+            mutated = true
+            const args = ['run', 'formula']
+            if (origin) args.push('--path', origin)
+            const report = await execCommand<ModuleReport>('modules', args, collection.path, {
+              timeout: INGEST_TIMEOUT_MS
+            })
+            assertFormulaModuleReport(report)
+            windowManager.broadcastToAll('watcher:event', {
+              type: 'module-report',
+              data: report
+            })
+            return report
+          } catch (error) {
+            if (mutated) {
+              await restoreOverlaySnapshot(collection.path, snapshot)
+              try {
+                const rollback = await execCommand<ModuleReport>(
+                  'modules',
+                  ['run', 'formula'],
+                  collection.path,
+                  { timeout: INGEST_TIMEOUT_MS }
+                )
+                assertFormulaModuleReport(rollback)
+              } catch (rollbackError) {
+                throw new Error(
+                  `${error instanceof Error ? error.message : String(error)}; rollback recompute failed: ${
+                    rollbackError instanceof Error ? rollbackError.message : String(rollbackError)
+                  }`
+                )
+              }
+            }
+            throw error
+          }
+        })
       })
   )
 
@@ -1749,9 +1952,12 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
   })
 
   // Multi-window management
-  ipcMain.handle('window:new', () =>
+  ipcMain.handle('window:new', (_event, collectionId?: string) =>
     wrapHandler(async () => {
-      windowManager.createWindow()
+      if (collectionId && !getCollections().some((collection) => collection.id === collectionId)) {
+        throw new Error(`Collection not found: ${collectionId}`)
+      }
+      windowManager.createWindow({ collectionId })
     })
   )
 

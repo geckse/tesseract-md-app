@@ -81,6 +81,15 @@ describe('collections store', () => {
       expect(get(activeCollectionId)).toBeNull()
     })
 
+    it('uses a requested new-window collection without changing the persisted default', async () => {
+      mockApi.listCollections.mockResolvedValue([col1, col2])
+
+      await loadCollections('b')
+
+      expect(get(activeCollectionId)).toBe('b')
+      expect(mockApi.getActiveCollection).not.toHaveBeenCalled()
+    })
+
     it('sets loading to false even on error', async () => {
       mockApi.listCollections.mockRejectedValue(new Error('fail'))
 

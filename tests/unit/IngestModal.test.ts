@@ -65,6 +65,40 @@ beforeEach(() => {
 })
 
 describe('IngestModal error states', () => {
+  it('shows formula module activity in a completed ingest report', () => {
+    ingestResult.set({
+      files_indexed: 2,
+      files_skipped: 0,
+      files_removed: 0,
+      chunks_created: 2,
+      api_calls: 1,
+      files_failed: 0,
+      errors: [],
+      duration_secs: 0.5,
+      cancelled: false,
+      module_reports: [
+        {
+          module: 'formula',
+          event: 'full_ingest',
+          files_evaluated: 2,
+          fields_updated: 4,
+          diagnostics: [],
+          duration_ms: 2
+        }
+      ]
+    })
+    ingestModalOpen.set(true)
+
+    const { container } = render(IngestModal)
+
+    expect(screen.getByText('ƒx Formula')).toBeTruthy()
+    expect(screen.getByText(/4 fields updated across 2 files/)).toBeTruthy()
+    const moduleSection = container.querySelector('.module-section')
+    expect(moduleSection).toBeTruthy()
+    expect(moduleSection?.querySelector('.errors-title')).toBeNull()
+    expect(moduleSection?.querySelector('.error-item')).toBeNull()
+  })
+
   it('preserves the corrupted-index branch for index-corrupted errors', () => {
     openWithError("CLI command 'ingest' failed after 3 attempts: index corrupted: bad header")
 
