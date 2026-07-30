@@ -64,6 +64,10 @@ test.describe('Large file-tree performance', () => {
         `# Performance fixture ${index}\n\nDeterministic large-tree content.\n`
       )
     }
+
+    // The sidebar's file tree is index-backed. Build the deterministic fixture
+    // before Electron starts instead of racing the app's optional watcher.
+    execFileSync(cliPath, ['ingest', '--root', vaultDir], { timeout: 60_000 })
   })
 
   test.beforeEach(async () => {

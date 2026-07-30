@@ -3,6 +3,7 @@ import type { SearchOutput, SearchMode } from '../types/cli'
 import { classifyCliError, type ClassifiedError } from '../lib/cli-errors'
 import { activeCollection } from './collections'
 import { graphHoveredFilePath } from './graph'
+import { activeScopePath } from './shards'
 
 /** Whether the search panel is open. */
 export const searchOpen = writable<boolean>(false)
@@ -101,7 +102,8 @@ async function performSearch(query: string): Promise<void> {
     const result = await window.api.search(collection.path, query, {
       mode,
       boostLinks: true,
-      expand: expandEnabled ? 1 : undefined
+      expand: expandEnabled ? 1 : undefined,
+      path: get(activeScopePath) ?? undefined
     })
 
     // Ignore stale results

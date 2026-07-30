@@ -6,6 +6,7 @@
   import { recordNavigation } from '../stores/navigation'
   import { fuzzyFilter } from '../lib/fuzzy-match'
   import type { FileTreeNode } from '../types/cli'
+  import { activeScopePath, isPathInShard, pathRelativeToShard } from '../stores/shards'
 
   interface QuickOpenResult {
     path: string
@@ -17,6 +18,7 @@
   let currentOpen = $state(false)
   let currentFiles: FileTreeNode[] = $state([])
   let currentCollection: import('../../preload/api').Collection | null = $state(null)
+  let currentScopePath: string | null = $state(null)
   let query = $state('')
   let selectedIndex = $state(0)
   let inputEl: HTMLInputElement | undefined = $state(undefined)
@@ -30,12 +32,17 @@
   quickOpenModalOpen.subscribe((v) => (currentOpen = v))
   flatFileList.subscribe((v) => (currentFiles = v))
   activeCollection.subscribe((v) => (currentCollection = v))
+  activeScopePath.subscribe((v) => (currentScopePath = v))
+
+  let scopedFiles = $derived(
+    currentFiles.filter((file) => isPathInShard(file.path, currentScopePath))
+  )
 
   // Default results: file tree (no query)
   let defaultResults = $derived<QuickOpenResult[]>(
-    currentFiles.slice(0, 50).map((f) => ({
+    scopedFiles.slice(0, 50).map((f) => ({
       path: f.path,
-      label: f.path,
+      label: pathRelativeToShard(f.path, currentScopePath),
       state: f.state,
       matchIndices: []
     }))
@@ -44,11 +51,11 @@
   // Fuzzy-filtered results for instant local matching
   let fuzzyResults = $derived.by<QuickOpenResult[]>(() => {
     if (!query.trim()) return []
-    return fuzzyFilter(query, currentFiles, (f) => f.path)
+    return fuzzyFilter(query, scopedFiles, (f) => f.path)
       .slice(0, 50)
       .map(({ item, match }) => ({
         path: item.path,
-        label: item.path,
+        label: pathRelativeToShard(item.path, currentScopePath),
         state: item.state,
         matchIndices: match.indices
       }))
@@ -74,12 +81,14 @@
       try {
         result = await window.api.search(currentCollection.path, searchQuery, {
           mode: 'hybrid',
-          limit: 20
+          limit: 20,
+          path: currentScopePath ?? undefined
         })
       } catch {
         result = await window.api.search(currentCollection.path, searchQuery, {
           mode: 'lexical',
-          limit: 20
+          limit: 20,
+          path: currentScopePath ?? undefined
         })
       }
 
@@ -89,13 +98,14 @@
       const seen = new Set<string>()
       const deduped: QuickOpenResult[] = []
       for (const r of result.results) {
-        if (!seen.has(r.file.path)) {
+        if (isPathInShard(r.file.path, currentScopePath) && !seen.has(r.file.path)) {
           seen.add(r.file.path)
+          const label = pathRelativeToShard(r.file.path, currentScopePath)
           deduped.push({
             path: r.file.path,
-            label: r.file.path,
+            label,
             state: null,
-            matchIndices: findMatchIndices(r.file.path, searchQuery)
+            matchIndices: findMatchIndices(label, searchQuery)
           })
         }
       }

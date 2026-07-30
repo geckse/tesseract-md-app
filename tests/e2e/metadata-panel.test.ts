@@ -117,7 +117,7 @@ test.describe('Metadata Panel', () => {
       .locator('.tree-row:not(.directory)', { hasText: 'Writing and editing.md' })
       .first()
     await writing.click({ button: 'right' })
-    await window.getByRole('button', { name: 'Open in New Tab' }).click()
+    await window.getByRole('menuitem', { name: 'Open in New Tab' }).click()
     await expect(window.locator('.tab-item[aria-selected="true"] .tab-title')).toHaveText(
       'Writing and editing.md'
     )

@@ -80,11 +80,11 @@ test.describe('Favorites and native recents', () => {
     await expect(row).toBeVisible()
 
     await row.click({ button: 'right' })
-    await window.getByRole('button', { name: 'Add to Favorites' }).click()
+    await window.getByRole('menuitem', { name: 'Add to Favorites' }).click()
     await expect(window.locator('.favorite-item', { hasText: 'Start Here.md' })).toBeVisible()
 
     await row.click({ button: 'right' })
-    await window.getByRole('button', { name: 'Remove from Favorites' }).click()
+    await window.getByRole('menuitem', { name: 'Remove from Favorites' }).click()
     await expect(window.locator('.favorites-section')).toHaveCount(0)
 
     await electronApp.close()
@@ -114,6 +114,17 @@ test.describe('Favorites and native recents', () => {
       Menu.getApplicationMenu()?.getMenuItemById('file.open-recent.1')?.click()
     })
     await expect(window.getByRole('heading', { name: 'Welcome to Tesseract' })).toBeVisible()
+    // Opening through the native menu records the file asynchronously. Wait
+    // for that write/menu rebuild before clearing, otherwise a late record can
+    // legitimately repopulate the list after the clear click.
+    await expect
+      .poll(() =>
+        electronApp.evaluate(
+          ({ Menu }) =>
+            Menu.getApplicationMenu()?.getMenuItemById('file.open-recent.0')?.label ?? ''
+        )
+      )
+      .toBe('Start Here.md — Tesseract Example')
 
     await electronApp.evaluate(({ Menu }) => {
       Menu.getApplicationMenu()?.getMenuItemById('file.clear-recents')?.click()

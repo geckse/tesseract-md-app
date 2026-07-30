@@ -17,6 +17,8 @@
   import { workspace } from '../stores/workspace.svelte'
   import type { TabState } from '../stores/workspace.svelte'
   import { syncFileStoresFromTab } from '../stores/files'
+  import { loadGraphData, syncGraphStoresFromTab } from '../stores/graph'
+  import { setActiveShard } from '../stores/shards'
   import { openDroppedPath } from '../lib/drop-payload'
   import TabItem from './TabItem.svelte'
   import type { TabTransferData } from '../../preload/api'
@@ -79,10 +81,22 @@
 
   // ── Cross-window tab attach listener ──────────────────────────────
 
-  function handleTabAttach(data: TabTransferData) {
+  async function handleTabAttach(data: TabTransferData) {
     const newTabId = workspace.attachTab(data, paneId)
     if (newTabId) {
-      syncFileStoresFromTab()
+      if (data.kind === 'graph') {
+        if (Object.prototype.hasOwnProperty.call(data, 'shardId')) {
+          try {
+            await setActiveShard(data.shardId ?? null)
+          } catch {
+            await setActiveShard(null)
+          }
+        }
+        syncGraphStoresFromTab()
+        void loadGraphData()
+      } else {
+        syncFileStoresFromTab()
+      }
       onactivate?.(newTabId)
     }
   }

@@ -29,6 +29,8 @@ import {
   graphColoringMode,
   graphLevel,
   graphPathFilter,
+  graphEffectivePathFilter,
+  graphContextRevision,
   setGraphLevel,
   graphHighlightedFolder,
   graphEdgeFilter,
@@ -45,6 +47,7 @@ import {
   selectGraphNode,
   resetGraphState,
   resetGraphForCollectionSwitch,
+  setupGraphShardContextSync,
   cycleColoringMode,
   setGraphHighlightedFolder,
   toggleEdgeClusterFilter,
@@ -57,6 +60,11 @@ import {
 import { workspace } from '../../src/renderer/stores/workspace.svelte'
 
 import { collections, activeCollectionId } from '../../src/renderer/stores/collections'
+import {
+  activeShardId,
+  projectConfigInvalidation,
+  shardsByCollection
+} from '../../src/renderer/stores/shards'
 
 /**
  * Reset workspace and transient graph stores to defaults.
@@ -79,6 +87,9 @@ function resetStores() {
   graphEdgeWeakThreshold.set(0.3)
   collections.set([])
   activeCollectionId.set(null)
+  shardsByCollection.set({})
+  activeShardId.set(null)
+  projectConfigInvalidation.set(null)
   syncGraphStoresFromTab()
 }
 
@@ -102,6 +113,19 @@ const sampleGraphData = {
   ],
   edges: [{ source: 'a.md', target: 'b.md' }],
   clusters: [{ id: 0, label: 'Cluster 0', keywords: ['test'] }]
+}
+
+function sampleShardGraphData(shardId: string, shardPath: string) {
+  return {
+    ...sampleGraphData,
+    analysis: {
+      context: 'shard' as const,
+      shard_id: shardId,
+      shard_path: shardPath,
+      clusters: 'ready' as const,
+      topics: 'none' as const
+    }
+  }
 }
 
 /**
@@ -129,7 +153,7 @@ describe('graph store', () => {
 
       await loadGraphData()
 
-      expect(mockApi.graphData).toHaveBeenCalledWith('/test', 'document', undefined)
+      expect(mockApi.graphData).toHaveBeenCalledWith('/test', 'document', undefined, undefined)
       expect(get(graphData)).toEqual(sampleGraphData)
       expect(get(graphLoading)).toBe(false)
       expect(get(graphError)).toBeNull()
@@ -153,6 +177,21 @@ describe('graph store', () => {
       expect(get(graphLoading)).toBe(false)
     })
 
+    it('renders a missing first index as the empty Graph state', async () => {
+      activateCollection(collection)
+      mockApi.graphData.mockRejectedValue(
+        new Error(
+          "[CliExecutionError] CLI command 'graph' failed: error: index not found: /test/.markdownvdb/index"
+        )
+      )
+
+      await loadGraphData()
+
+      expect(get(graphError)).toBeNull()
+      expect(get(graphData)).toBeNull()
+      expect(get(graphLoading)).toBe(false)
+    })
+
     it('replacement-loads an active empty graph after the first ingest', async () => {
       activateCollection(collection)
       mockApi.graphData.mockResolvedValue(sampleGraphData)
@@ -162,7 +201,7 @@ describe('graph store', () => {
 
       await refreshGraphData()
 
-      expect(mockApi.graphData).toHaveBeenCalledWith('/test', 'document', undefined)
+      expect(mockApi.graphData).toHaveBeenCalledWith('/test', 'document', undefined, undefined)
       expect(get(graphData)).toEqual(sampleGraphData)
       expect(get(graphError)).toBeNull()
       expect(get(graphLoading)).toBe(false)
@@ -274,6 +313,71 @@ describe('graph store', () => {
       })
     })
 
+    it('refreshes an active graph and resets analysis interactions on project-config edits', async () => {
+      activateCollection(collection)
+      mockApi.graphData.mockResolvedValue(sampleGraphData)
+      activateGraphTab()
+      await vi.waitFor(() => expect(get(graphData)).toEqual(sampleGraphData))
+      vi.clearAllMocks()
+
+      graphSelectedNode.set({ path: 'a.md', cluster_id: 0 })
+      graphOpenedNode.set({ path: 'a.md', cluster_id: 0 })
+      graphHighlightedFolder.set('docs')
+      graphEdgeFilter.set(new Set([4]))
+      graphUnconnectedHighlight.set(true)
+      const contextRevision = get(graphContextRevision)
+
+      projectConfigInvalidation.set({
+        collectionId: collection.id,
+        root: collection.path,
+        generation: 1
+      })
+
+      expect(get(graphSelectedNode)).toBeNull()
+      expect(get(graphOpenedNode)).toBeNull()
+      expect(get(graphHighlightedFolder)).toBeNull()
+      expect(get(graphEdgeFilter)).toBeNull()
+      expect(get(graphUnconnectedHighlight)).toBe(false)
+      expect(get(graphContextRevision)).toBe(contextRevision + 1)
+      await vi.waitFor(() => {
+        expect(mockApi.graphData).toHaveBeenCalledOnce()
+        expect(get(graphDataDirty)).toBe(false)
+      })
+    })
+
+    it('coalesces repeated hidden project-config edits until graph activation', async () => {
+      activateCollection(collection)
+      graphData.set(sampleGraphData)
+      mockApi.graphData.mockResolvedValue(sampleGraphData)
+      graphSelectedNode.set({ path: 'a.md', cluster_id: 0 })
+      graphEdgeFilter.set(new Set([2]))
+      const contextRevision = get(graphContextRevision)
+
+      projectConfigInvalidation.set({
+        collectionId: collection.id,
+        root: collection.path,
+        generation: 2
+      })
+      projectConfigInvalidation.set({
+        collectionId: collection.id,
+        root: collection.path,
+        generation: 3
+      })
+
+      expect(get(graphDataDirty)).toBe(true)
+      expect(get(graphSelectedNode)).toBeNull()
+      expect(get(graphEdgeFilter)).toBeNull()
+      expect(get(graphContextRevision)).toBe(contextRevision + 2)
+      expect(mockApi.graphData).not.toHaveBeenCalled()
+
+      activateGraphTab()
+
+      await vi.waitFor(() => {
+        expect(mockApi.graphData).toHaveBeenCalledOnce()
+        expect(get(graphDataDirty)).toBe(false)
+      })
+    })
+
     it('loads a cold graph when its tab becomes active', async () => {
       activateCollection(collection)
       mockApi.graphData.mockResolvedValue(sampleGraphData)
@@ -306,7 +410,7 @@ describe('graph store', () => {
       await resetGraphForCollectionSwitch(wasGraphActive)
 
       expect(get(graphViewActive)).toBe(true)
-      expect(mockApi.graphData).toHaveBeenCalledWith('/next', 'document', undefined)
+      expect(mockApi.graphData).toHaveBeenCalledWith('/next', 'document', undefined, undefined)
       expect(get(graphData)).toEqual(sampleGraphData)
     })
 
@@ -328,10 +432,228 @@ describe('graph store', () => {
       expect(get(graphViewActive)).toBe(true)
       expect(get(graphPathFilter)).toBe('docs/api')
       expect(mockApi.graphData).toHaveBeenCalledTimes(1)
-      expect(mockApi.graphData).toHaveBeenCalledWith('/test', 'document', 'docs/api')
+      expect(mockApi.graphData).toHaveBeenCalledWith('/test', 'document', 'docs/api', undefined)
       expect(get(graphData)).toEqual(sampleGraphData)
       expect(get(graphSelectedNode)).toBeNull()
       expect(get(graphOpenedNode)).toBeNull()
+    })
+
+    it('keeps Shard analysis identity while narrowing topology to a descendant path', async () => {
+      activateCollection(collection)
+      shardsByCollection.set({
+        [collection.id]: [
+          {
+            id: 'research',
+            name: 'Research',
+            path: 'work/research',
+            parent_id: null,
+            exists: true
+          }
+        ]
+      })
+      activeShardId.set('research')
+      graphPathFilter.set('work/research/papers')
+      mockApi.graphData.mockResolvedValue(sampleShardGraphData('research', 'work/research'))
+
+      await loadGraphData()
+
+      expect(mockApi.graphData).toHaveBeenCalledWith(
+        '/test',
+        'document',
+        'work/research/papers',
+        'research'
+      )
+      expect(get(graphEffectivePathFilter)).toEqual({
+        path: 'work/research/papers',
+        disjoint: false
+      })
+    })
+
+    it('clears scope-local selections, highlights, and edge filters when context changes', async () => {
+      activateCollection(collection)
+      shardsByCollection.set({
+        [collection.id]: [
+          {
+            id: 'research',
+            name: 'Research',
+            path: 'work/research',
+            parent_id: null,
+            exists: true
+          },
+          {
+            id: 'archive',
+            name: 'Archive',
+            path: 'work/archive',
+            parent_id: null,
+            exists: true
+          }
+        ]
+      })
+      mockApi.graphData
+        .mockResolvedValueOnce(sampleShardGraphData('research', 'work/research'))
+        .mockResolvedValueOnce(sampleShardGraphData('archive', 'work/archive'))
+      activeShardId.set('research')
+      await loadGraphData()
+
+      graphSelectedNode.set({ path: 'work/research/a.md', cluster_id: 0 })
+      graphOpenedNode.set({ path: 'work/research/a.md', cluster_id: 0 })
+      graphHighlightedFolder.set('research')
+      graphEdgeFilter.set(new Set([4]))
+      graphUnconnectedHighlight.set(true)
+
+      activeShardId.set('archive')
+      await loadGraphData()
+
+      expect(get(graphSelectedNode)).toBeNull()
+      expect(get(graphOpenedNode)).toBeNull()
+      expect(get(graphHighlightedFolder)).toBeNull()
+      expect(get(graphEdgeFilter)).toBeNull()
+      expect(get(graphUnconnectedHighlight)).toBe(false)
+      expect(mockApi.graphData).toHaveBeenLastCalledWith(
+        '/test',
+        'document',
+        'work/archive',
+        'archive'
+      )
+    })
+
+    it('automatically replacement-loads an active graph when a Shard becomes active', async () => {
+      activateCollection(collection)
+      mockApi.graphData
+        .mockResolvedValueOnce(sampleGraphData)
+        .mockResolvedValueOnce(sampleShardGraphData('research', 'work/research'))
+      activateGraphTab()
+      await vi.waitFor(() => expect(get(graphData)).toEqual(sampleGraphData))
+
+      shardsByCollection.set({
+        [collection.id]: [
+          {
+            id: 'research',
+            name: 'Research',
+            path: 'work/research',
+            parent_id: null,
+            exists: true
+          }
+        ]
+      })
+      const stopSync = setupGraphShardContextSync()
+      try {
+        activeShardId.set('research')
+
+        // The Collection payload is removed synchronously before the Shard
+        // command resolves, so it can never carry a Shard heading.
+        expect(get(graphData)).toBeNull()
+        expect(get(graphLoading)).toBe(true)
+        await vi.waitFor(() => {
+          expect(mockApi.graphData).toHaveBeenCalledTimes(2)
+          expect(get(graphData)).toEqual(sampleShardGraphData('research', 'work/research'))
+        })
+        expect(mockApi.graphData).toHaveBeenLastCalledWith(
+          '/test',
+          'document',
+          'work/research',
+          'research'
+        )
+      } finally {
+        stopSync()
+      }
+    })
+
+    it('keeps a hidden graph cold and dirty until its Shard context is activated', async () => {
+      activateCollection(collection)
+      graphData.set(sampleGraphData)
+      shardsByCollection.set({
+        [collection.id]: [
+          {
+            id: 'research',
+            name: 'Research',
+            path: 'work/research',
+            parent_id: null,
+            exists: true
+          }
+        ]
+      })
+      mockApi.graphData.mockResolvedValue(sampleShardGraphData('research', 'work/research'))
+      const stopSync = setupGraphShardContextSync()
+      try {
+        activeShardId.set('research')
+
+        expect(get(graphViewActive)).toBe(false)
+        expect(get(graphData)).toBeNull()
+        expect(get(graphDataDirty)).toBe(true)
+        expect(mockApi.graphData).not.toHaveBeenCalled()
+
+        activateGraphTab()
+        await vi.waitFor(() => {
+          expect(mockApi.graphData).toHaveBeenCalledOnce()
+          expect(get(graphData)).toEqual(sampleShardGraphData('research', 'work/research'))
+        })
+      } finally {
+        stopSync()
+      }
+    })
+
+    it('clears the Collection graph and surfaces a failed Shard replacement', async () => {
+      activateCollection(collection)
+      mockApi.graphData
+        .mockResolvedValueOnce(sampleGraphData)
+        .mockRejectedValueOnce(new Error('Shard analysis failed'))
+      activateGraphTab()
+      await vi.waitFor(() => expect(get(graphData)).toEqual(sampleGraphData))
+
+      shardsByCollection.set({
+        [collection.id]: [
+          {
+            id: 'research',
+            name: 'Research',
+            path: 'work/research',
+            parent_id: null,
+            exists: true
+          }
+        ]
+      })
+      const stopSync = setupGraphShardContextSync()
+      try {
+        activeShardId.set('research')
+
+        expect(get(graphData)).toBeNull()
+        await vi.waitFor(() => {
+          expect(get(graphError)).toBe('Shard analysis failed')
+          expect(get(graphLoading)).toBe(false)
+        })
+        expect(get(graphData)).toBeNull()
+      } finally {
+        stopSync()
+      }
+    })
+
+    it('rejects a Collection payload returned for a Shard request', async () => {
+      activateCollection(collection)
+      shardsByCollection.set({
+        [collection.id]: [
+          {
+            id: 'research',
+            name: 'Research',
+            path: 'work/research',
+            parent_id: null,
+            exists: true
+          }
+        ]
+      })
+      activeShardId.set('research')
+      mockApi.graphData.mockResolvedValue({
+        ...sampleGraphData,
+        analysis: {
+          context: 'collection',
+          clusters: 'ready',
+          topics: 'none'
+        }
+      })
+
+      await loadGraphData()
+
+      expect(get(graphData)).toBeNull()
+      expect(get(graphError)).toContain('returned Collection analysis')
     })
 
     it('does not activate or load Graph when another view was active before switching', async () => {
@@ -358,7 +680,7 @@ describe('graph store', () => {
 
       // The PopupShell load path: loadGraphData must use the popup tab's level
       await loadGraphData()
-      expect(mockApi.graphData).toHaveBeenCalledWith('/test', 'chunk', undefined)
+      expect(mockApi.graphData).toHaveBeenCalledWith('/test', 'chunk', undefined, undefined)
       expect(get(graphData)).toEqual(sampleGraphData)
     })
 
@@ -372,7 +694,7 @@ describe('graph store', () => {
       setGraphLevel('chunk')
 
       expect(get(graphLevel)).toBe('chunk')
-      expect(mockApi.graphData).toHaveBeenCalledWith('/test', 'chunk', undefined)
+      expect(mockApi.graphData).toHaveBeenCalledWith('/test', 'chunk', undefined, undefined)
     })
   })
 

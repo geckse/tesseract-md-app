@@ -75,9 +75,12 @@ export interface PopupWindowOptions {
   isUntitled?: boolean
   collectionId?: string
   collectionPath?: string
+  defaultDirectory?: string
   mimeCategory?: string
   graphLevel?: string
   graphColoringMode?: string
+  shardId?: string
+  graphPathFilter?: string
   isDirty?: boolean
   content?: string | null
   savedContent?: string | null
@@ -94,6 +97,8 @@ export interface PopupWindowOptions {
 export interface MainWindowOptions {
   /** Collection this window should select without changing another window. */
   collectionId?: string
+  /** Optional Shard context within the selected collection. */
+  shardId?: string
 }
 
 /** Data sent to popup renderer for dirty document or image transfer. */
@@ -354,6 +359,7 @@ export class WindowManager {
 
     const params = new URLSearchParams()
     if (options.collectionId) params.set('collectionId', options.collectionId)
+    if (options.shardId) params.set('shardId', options.shardId)
     const query = params.toString()
 
     if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -473,9 +479,12 @@ export class WindowManager {
     if (options.isUntitled) params.set('isUntitled', 'true')
     if (options.collectionId) params.set('collectionId', options.collectionId)
     if (options.collectionPath) params.set('collectionPath', options.collectionPath)
+    if (options.defaultDirectory) params.set('defaultDirectory', options.defaultDirectory)
     if (options.mimeCategory) params.set('mimeCategory', options.mimeCategory)
     if (options.graphLevel) params.set('graphLevel', options.graphLevel)
     if (options.graphColoringMode) params.set('graphColoringMode', options.graphColoringMode)
+    if (options.shardId) params.set('shardId', options.shardId)
+    if (options.graphPathFilter) params.set('graphPathFilter', options.graphPathFilter)
     if (options.recursive) params.set('recursive', 'true')
     if (options.tableViewId) params.set('tableViewId', options.tableViewId)
     if (options.terminalId) params.set('terminalId', options.terminalId)

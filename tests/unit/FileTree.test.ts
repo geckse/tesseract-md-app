@@ -52,6 +52,11 @@ import {
 } from '../../src/renderer/stores/graph'
 import { workspace } from '../../src/renderer/stores/workspace.svelte'
 import { cliFeatures } from '../../src/renderer/lib/cli-features.svelte'
+import {
+  activeShardId,
+  clearShardState,
+  shardsByCollection
+} from '../../src/renderer/stores/shards'
 import FileTree from '@renderer/components/FileTree.svelte'
 import type { FileTree as FileTreeType, GraphData } from '../../src/renderer/types/cli'
 
@@ -121,6 +126,7 @@ function resetStores() {
   infoModalOpen.set(false)
   infoScope.set(null)
   graphData.set(null)
+  clearShardState()
   cliFeatures.reset()
 }
 
@@ -319,6 +325,30 @@ describe('FileTree component', () => {
     expect(screen.getByText('new-file.md')).toBeTruthy()
   })
 
+  it('marks configured Shard folders without marking ordinary folders', () => {
+    setActiveCollection()
+    fileTree.set(sampleTree)
+    shardsByCollection.set({
+      '1': [
+        {
+          id: 'docs',
+          name: 'Docs',
+          path: 'docs',
+          parent_id: null,
+          exists: true
+        }
+      ]
+    })
+
+    const { container } = render(FileTree)
+
+    const docsNode = screen.getByText('docs').closest('.tree-node')
+    expect(
+      docsNode?.querySelector('.shard-indicator [data-shard-icon="faceted-gem-outline"]')
+    ).toBeTruthy()
+    expect(container.querySelectorAll('.shard-indicator')).toHaveLength(1)
+  })
+
   it('calls loadFileTree on retry click', async () => {
     setActiveCollection()
     fileTreeError.set('Failed to load')
@@ -435,6 +465,42 @@ describe('FileTree component', () => {
     })
   })
 
+  it('offers Shard creation for a folder without a Shard definition', async () => {
+    setActiveCollection()
+    fileTree.set(sampleTree)
+    const oncreateshard = vi.fn()
+
+    render(FileTree, { props: { oncreateshard } })
+    const docsRow = screen.getByText('docs').closest('button')!
+    await fireEvent.contextMenu(docsRow, { clientX: 20, clientY: 20 })
+
+    await fireEvent.click(screen.getByRole('menuitem', { name: /Create Shard from Folder/ }))
+
+    expect(oncreateshard).toHaveBeenCalledWith({ path: 'docs' })
+  })
+
+  it('hides Shard creation for a folder that is already a Shard', async () => {
+    setActiveCollection()
+    fileTree.set(sampleTree)
+    shardsByCollection.set({
+      '1': [
+        {
+          id: 'docs',
+          name: 'Docs',
+          path: 'docs',
+          parent_id: null,
+          exists: true
+        }
+      ]
+    })
+
+    render(FileTree)
+    const docsRow = screen.getByText('docs').closest('button')!
+    await fireEvent.contextMenu(docsRow, { clientX: 20, clientY: 20 })
+
+    expect(screen.queryByRole('menuitem', { name: /Create Shard from Folder/ })).toBeNull()
+  })
+
   it('creates a root folder from the empty-tree background menu', async () => {
     setActiveCollection()
     fileTree.set({
@@ -456,6 +522,31 @@ describe('FileTree component', () => {
     await fireEvent.keyDown(input, { key: 'Enter' })
 
     await vi.waitFor(() => expect(mockApi.createDirectory).toHaveBeenCalledWith('/test/notes'))
+  })
+
+  it('opens the active Shard from the background as a recursive table', async () => {
+    setActiveCollection()
+    fileTree.set(sampleTree)
+    shardsByCollection.set({
+      '1': [
+        {
+          id: 'docs',
+          name: 'Docs',
+          path: 'docs',
+          parent_id: null,
+          exists: true
+        }
+      ]
+    })
+    activeShardId.set('docs')
+    const onfolderopen = vi.fn()
+
+    const { container } = render(FileTree, { props: { onfolderopen } })
+    const content = container.querySelector<HTMLElement>('.file-tree-content')!
+    await fireEvent.contextMenu(content, { clientX: 24, clientY: 40 })
+    await fireEvent.click(screen.getByRole('menuitem', { name: /Open Shard as Table/ }))
+
+    expect(onfolderopen).toHaveBeenCalledWith({ path: 'docs', recursive: true })
   })
 
   it('keeps the inline creator open and reports invalid names', async () => {
@@ -515,7 +606,7 @@ describe('FileTree component', () => {
     await fireEvent.click(screen.getByText('Show in Graph'))
 
     await vi.waitFor(() => {
-      expect(mockApi.graphData).toHaveBeenCalledWith('/test', 'document', 'docs')
+      expect(mockApi.graphData).toHaveBeenCalledWith('/test', 'document', 'docs', undefined)
     })
     expect(get(graphViewActive)).toBe(true)
     expect(get(graphPathFilter)).toBe('docs')

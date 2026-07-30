@@ -22,6 +22,7 @@
     isDirty,
     activeSection,
     settingsTarget,
+    topicsSettingsScopeRequest,
     saveStatus,
     loadUserConfig,
     loadCollectionConfig,
@@ -35,13 +36,17 @@
   import { settingsOpen, shortcutsModalOpen } from '../stores/ui'
   import { collections, activeCollection } from '../stores/collections'
   import type { Collection } from '../../preload/api'
-  import type { TopicDef, CustomClusterSummary, TopicUnassigned } from '../types/cli'
+  import type { TopicDef, CustomClusterSummary, TopicUnassigned, ShardInfo } from '../types/cli'
   import {
     topicDefs,
     topicSummaries,
     topicUnassigned,
     topicsNeedIngest,
+    topicsLoading,
+    topicErrors,
     loadTopics,
+    selectTopicScope,
+    markCollectionTopicsNeedIngest,
     addTopic,
     updateTopic,
     removeTopic,
@@ -51,7 +56,14 @@
   } from '../stores/topics'
   import { runIngest, ingestRunning } from '../stores/ingest'
   import CustomClusterModal from './CustomClusterModal.svelte'
+  import ShardIcon from './ShardIcon.svelte'
   import { compareSemver } from '../lib/cli-features.svelte'
+  import {
+    activeShardId,
+    buildShardTree,
+    shardsByCollection,
+    type ShardTreeNode
+  } from '../stores/shards'
 
   interface SettingsProps {
     onclose: () => void
@@ -93,7 +105,7 @@
     search: 'Default parameters for search queries.',
     chunking: 'Control how documents are split into chunks before embedding.',
     clusters:
-      'Define topics with seed phrases and descriptions. Documents are assigned by semantic similarity. Changes apply immediately to the collection config.',
+      'Define semantic Topics for the collection or one Shard. Changes apply immediately to the selected project-local scope.',
     terminal:
       'Configure the embedded terminal. Leave the shell path blank to use your system default.',
     appearance: 'Visual preferences for the app.',
@@ -111,12 +123,28 @@
   let currentTopicSummaries: CustomClusterSummary[] = $state([])
   let currentTopicUnassigned: TopicUnassigned | null = $state(null)
   let currentTopicsNeedIngest = $state(false)
+  let currentTopicsLoading = $state(false)
+  let currentTopicLoadErrors = $state({
+    definitions: null as string | null,
+    summaries: null as string | null,
+    unassigned: null as string | null
+  })
   let clusterModalOpen = $state(false)
   let clusterEditIndex: number | null = $state(null)
   let topicsError = $state('')
   let migratingTopics = $state(false)
   let currentIngestRunning = $state(false)
   let currentActiveCollectionId: string | null = $state(null)
+  let currentActiveShardId: string | null = $state(null)
+  let currentShardsByCollection: Record<string, ShardInfo[]> = $state({})
+  let selectedTopicShardId: string | null = $state(null)
+  let topicScopeInitializedCollectionId: string | null = null
+  let lastTopicLoadKey: string | null = null
+  let currentTopicsScopeRequest: {
+    collectionId: string
+    shardId: string | null
+    sequence: number
+  } | null = $state(null)
 
   // Clustering controls initialized from the resolved CLI config
   let topicsFloor = $state(0.3)
@@ -127,8 +155,13 @@
   topicSummaries.subscribe((v) => (currentTopicSummaries = v))
   topicUnassigned.subscribe((v) => (currentTopicUnassigned = v))
   topicsNeedIngest.subscribe((v) => (currentTopicsNeedIngest = v))
+  topicsLoading.subscribe((v) => (currentTopicsLoading = v))
+  topicErrors.subscribe((v) => (currentTopicLoadErrors = v))
   ingestRunning.subscribe((v) => (currentIngestRunning = v))
   activeCollection.subscribe((v) => (currentActiveCollectionId = v?.id ?? null))
+  activeShardId.subscribe((v) => (currentActiveShardId = v))
+  shardsByCollection.subscribe((v) => (currentShardsByCollection = v))
+  topicsSettingsScopeRequest.subscribe((v) => (currentTopicsScopeRequest = v))
 
   // CLI state
   let cliPath = $state('')
@@ -183,6 +216,33 @@
   let targetCollection = $derived(
     isGlobal ? null : (allCollections.find((c) => c.id === currentTarget) ?? null)
   )
+  let targetShards = $derived(
+    targetCollection ? (currentShardsByCollection[targetCollection.id] ?? []) : []
+  )
+  let selectedTopicShard = $derived(
+    selectedTopicShardId
+      ? (targetShards.find((shard) => shard.id === selectedTopicShardId) ?? null)
+      : null
+  )
+  let selectedTopicScopeName = $derived(
+    selectedTopicShard?.name ?? targetCollection?.name ?? 'Collection'
+  )
+
+  interface TopicScopeRow {
+    shard: ShardInfo
+    depth: number
+  }
+
+  function flattenTopicScopes(nodes: ShardTreeNode[], depth: number = 0): TopicScopeRow[] {
+    const rows: TopicScopeRow[] = []
+    for (const node of nodes) {
+      rows.push({ shard: node.shard, depth })
+      rows.push(...flattenTopicScopes(node.children, depth + 1))
+    }
+    return rows
+  }
+
+  let topicScopeRows = $derived(flattenTopicScopes(buildShardTree(targetShards)))
 
   // Resolve effective config value: draft > collection override > user draft > user saved > empty
   function getConfigValue(key: string): string {
@@ -342,11 +402,40 @@
     }
   })
 
-  // Load topics (CLI-backed) + resolved clustering config when the target collection changes
+  // Select the Topic scope once per Settings target. Explicit context-menu
+  // deep links win; otherwise the active collection's Shard is the default.
+  // A separate load key includes missing-folder state so definitions remain
+  // editable while computed summaries are suppressed.
   $effect(() => {
     if (!isGlobal && targetCollection) {
       const root = targetCollection.path
-      loadTopics(root)
+      const request =
+        currentTopicsScopeRequest?.collectionId === targetCollection.id
+          ? currentTopicsScopeRequest
+          : null
+      if (request) {
+        selectedTopicShardId = request.shardId
+        topicScopeInitializedCollectionId = targetCollection.id
+        topicsSettingsScopeRequest.set(null)
+      } else if (topicScopeInitializedCollectionId !== targetCollection.id) {
+        selectedTopicShardId =
+          targetCollection.id === currentActiveCollectionId ? currentActiveShardId : null
+        topicScopeInitializedCollectionId = targetCollection.id
+      }
+
+      const shard = selectedTopicShardId
+        ? (targetShards.find((item) => item.id === selectedTopicShardId) ?? null)
+        : null
+      const loadKey = `${root}\u0000${selectedTopicShardId ?? ''}\u0000${shard?.exists ?? 'unknown'}`
+      if (lastTopicLoadKey !== loadKey) {
+        lastTopicLoadKey = loadKey
+        selectTopicScope(root, selectedTopicShardId)
+        void loadTopics(root, selectedTopicShardId, {
+          activate: false,
+          includeComputed: shard?.exists !== false
+        })
+      }
+
       window.api
         .config(root)
         .then((cfg) => {
@@ -356,11 +445,15 @@
         })
         .catch(() => {})
     } else {
+      topicScopeInitializedCollectionId = null
+      lastTopicLoadKey = null
+      selectedTopicShardId = null
       resetTopicsState()
     }
   })
 
   function getTopicSummary(name: string): CustomClusterSummary | null {
+    if (selectedTopicShard?.exists === false) return null
     return currentTopicSummaries.find((c) => c.name === name) ?? null
   }
 
@@ -372,8 +465,18 @@
       : ''
   )
   let showLegacyImport = $derived(
-    legacyTopicsRaw.trim().length > 0 && currentTopicDefs.length === 0
+    selectedTopicShardId === null &&
+      legacyTopicsRaw.trim().length > 0 &&
+      currentTopicDefs.length === 0
   )
+
+  function handleTopicScopeSelect(shardId: string | null): void {
+    if (!targetCollection || shardId === selectedTopicShardId) return
+    selectedTopicShardId = shardId
+    clusterEditIndex = null
+    clusterModalOpen = false
+    topicsError = ''
+  }
 
   async function handleLegacyImport() {
     if (!targetCollection) return
@@ -404,7 +507,7 @@
     if (!def) return
     topicsError = ''
     try {
-      await removeTopic(targetCollection.path, def.name)
+      await removeTopic(targetCollection.path, def.name, selectedTopicShardId)
     } catch (err) {
       topicsError = err instanceof Error ? err.message : String(err)
     }
@@ -417,9 +520,9 @@
     clusterModalOpen = false
     try {
       if (editingName) {
-        await updateTopic(targetCollection.path, editingName, def)
+        await updateTopic(targetCollection.path, editingName, def, selectedTopicShardId)
       } else {
-        await addTopic(targetCollection.path, def)
+        await addTopic(targetCollection.path, def, selectedTopicShardId)
       }
     } catch (err) {
       topicsError = err instanceof Error ? err.message : String(err)
@@ -440,7 +543,7 @@
         'clustering.topics.min_similarity',
         String(value)
       )
-      topicsNeedIngest.set(true)
+      markCollectionTopicsNeedIngest(targetCollection.path)
     } catch (err) {
       topicsError = err instanceof Error ? err.message : String(err)
     }
@@ -452,7 +555,7 @@
     topicsError = ''
     try {
       await window.api.setConfigValue(targetCollection.path, 'clustering.algorithm', value)
-      topicsNeedIngest.set(true)
+      markCollectionTopicsNeedIngest(targetCollection.path)
     } catch (err) {
       topicsError = err instanceof Error ? err.message : String(err)
     }
@@ -466,6 +569,16 @@
     } catch {
       // Non-critical — the notice below the slider explains the reindex requirement
     }
+  }
+
+  async function handleTopicsReingest(): Promise<void> {
+    if (!targetCollection || selectedTopicShard?.exists === false) return
+    await runIngest()
+    markCollectionTopicsNeedIngest(targetCollection.path, false)
+    await loadTopics(targetCollection.path, selectedTopicShardId, {
+      activate: false,
+      includeComputed: true
+    })
   }
 
   async function checkForUpdate() {
@@ -1234,12 +1347,77 @@
         {:else if currentSection === 'clusters' && !isGlobal}
           <div class="section">
             <div class="section-header-row">
-              <h2 class="section-title">Topics</h2>
-              <button class="btn-icon" onclick={handleAddCluster} title="Add topic">
+              <h2 class="section-title">
+                Topics
+                <span class="topic-scope-heading">· {selectedTopicScopeName}</span>
+              </h2>
+              <button
+                class="btn-icon"
+                onclick={handleAddCluster}
+                title={selectedTopicShardId
+                  ? `Add topic to ${selectedTopicScopeName}`
+                  : 'Add collection topic'}
+              >
                 <span class="material-symbols-outlined">add</span>
               </button>
             </div>
             <p class="section-explainer">{sectionExplainers.clusters}</p>
+
+            <div class="topic-scope-picker">
+              <span class="field-label">Topic Scope</span>
+              <div class="topic-scope-tree" role="tree" aria-label="Topic scope">
+                <button
+                  type="button"
+                  class="topic-scope-row"
+                  class:active={selectedTopicShardId === null}
+                  role="treeitem"
+                  aria-level="1"
+                  aria-selected={selectedTopicShardId === null}
+                  onclick={() => handleTopicScopeSelect(null)}
+                >
+                  <span class="material-symbols-outlined" aria-hidden="true">folder_open</span>
+                  <span>Collection-wide Topics</span>
+                </button>
+                {#each topicScopeRows as row (row.shard.id)}
+                  <button
+                    type="button"
+                    class="topic-scope-row shard-scope-row"
+                    class:active={selectedTopicShardId === row.shard.id}
+                    class:missing={!row.shard.exists}
+                    role="treeitem"
+                    aria-level={row.depth + 2}
+                    aria-selected={selectedTopicShardId === row.shard.id}
+                    style:padding-left={`${12 + (row.depth + 1) * 16}px`}
+                    title={row.shard.exists
+                      ? `${row.shard.name} Topics`
+                      : `Missing folder: ${row.shard.path}. Topic definitions remain editable.`}
+                    onclick={() => handleTopicScopeSelect(row.shard.id)}
+                  >
+                    <ShardIcon size={15} />
+                    <span>{row.shard.name}</span>
+                    {#if !row.shard.exists}
+                      <span
+                        class="material-symbols-outlined topic-scope-warning"
+                        aria-label="Missing folder">warning</span
+                      >
+                    {/if}
+                  </button>
+                {/each}
+              </div>
+              <p class="field-hint">
+                Collection Topics apply at the root. Each Shard keeps its own local definitions.
+              </p>
+            </div>
+
+            {#if selectedTopicShard?.exists === false}
+              <div class="field-notice topics-banner missing-shard-topics" role="status">
+                <span class="material-symbols-outlined notice-icon">warning</span>
+                <span class="topics-banner-text">
+                  This Shard folder is missing. Its local Topic definitions remain editable, but
+                  computed assignments are unavailable until the folder is restored or retargeted.
+                </span>
+              </div>
+            {/if}
 
             {#if showLegacyImport}
               <div class="field-notice topics-banner">
@@ -1262,10 +1440,10 @@
                 {#if targetCollection && targetCollection.id === currentActiveCollectionId}
                   <button
                     class="action-btn"
-                    onclick={() => runIngest()}
-                    disabled={currentIngestRunning}
+                    onclick={handleTopicsReingest}
+                    disabled={currentIngestRunning || selectedTopicShard?.exists === false}
                   >
-                    {currentIngestRunning ? 'Ingesting…' : 'Re-ingest now'}
+                    {currentIngestRunning ? 'Ingesting…' : 'Re-ingest collection'}
                   </button>
                 {/if}
               </div>
@@ -1274,9 +1452,33 @@
             {#if topicsError}
               <p class="field-error">{topicsError}</p>
             {/if}
+            {#if currentTopicLoadErrors.definitions}
+              <div class="field-notice topics-banner topic-load-error" role="alert">
+                <span class="material-symbols-outlined notice-icon">error</span>
+                <span class="topics-banner-text">
+                  Topic definitions could not be refreshed: {currentTopicLoadErrors.definitions}
+                  Existing definitions are shown where available.
+                </span>
+              </div>
+            {/if}
+            {#if selectedTopicShard?.exists !== false && (currentTopicLoadErrors.summaries || currentTopicLoadErrors.unassigned)}
+              <div class="field-notice topics-banner topic-load-error" role="status">
+                <span class="material-symbols-outlined notice-icon">info</span>
+                <span class="topics-banner-text">
+                  Computed Topic assignments are unavailable.
+                  {currentTopicLoadErrors.summaries ?? currentTopicLoadErrors.unassigned}
+                </span>
+              </div>
+            {/if}
 
-            {#if currentTopicDefs.length === 0}
-              <p class="empty-state">No topics defined. Click + to add one.</p>
+            {#if currentTopicsLoading && currentTopicDefs.length === 0}
+              <p class="empty-state">Loading Topics…</p>
+            {:else if currentTopicDefs.length === 0}
+              <p class="empty-state">
+                {selectedTopicShardId
+                  ? 'No local Topics defined for this Shard. Click + to add one.'
+                  : 'No collection-wide Topics defined. Click + to add one.'}
+              </p>
             {:else}
               <div class="cluster-list">
                 {#each currentTopicDefs as def, i}
@@ -1325,7 +1527,7 @@
               </div>
             {/if}
 
-            {#if currentTopicUnassigned}
+            {#if currentTopicUnassigned && selectedTopicShard?.exists !== false}
               <div class="unassigned-row">
                 <span class="material-symbols-outlined unassigned-icon">scatter_plot</span>
                 Unassigned: {currentTopicUnassigned.count}
@@ -1333,7 +1535,9 @@
             {/if}
 
             <div class="field-group" style="margin-top: 20px;">
-              <label class="field-label" for="setting-topics-floor">Similarity Floor</label>
+              <label class="field-label" for="setting-topics-floor"
+                >Collection-wide Similarity Floor</label
+              >
               <div class="field-row slider-row">
                 <span class="slider-label">Loose</span>
                 <input
@@ -1352,14 +1556,14 @@
                 <span class="slider-value">{topicsFloor.toFixed(2)}</span>
               </div>
               <div class="field-hint">
-                Global minimum similarity for topic assignment. Topics with a custom threshold
-                override this.
+                Minimum similarity shared by the collection and every Shard. Topics with a custom
+                threshold override this.
               </div>
             </div>
 
             <div class="field-group">
               <label class="field-label" for="setting-clustering-algorithm"
-                >Clustering Algorithm</label
+                >Collection-wide Clustering Algorithm</label
               >
               <div class="field-row">
                 <select
@@ -1373,7 +1577,8 @@
                 </select>
               </div>
               <div class="field-hint">
-                Algorithm used for automatic clustering. Changing it requires a re-ingest.
+                Algorithm shared by collection and Shard analysis. Changing it requires a collection
+                re-ingest.
               </div>
             </div>
           </div>
@@ -2350,6 +2555,86 @@
     align-items: center;
     justify-content: space-between;
     gap: 8px;
+  }
+
+  .topic-scope-heading {
+    color: var(--color-primary, #00e5ff);
+    font-weight: 500;
+    text-transform: none;
+    letter-spacing: normal;
+  }
+
+  .topic-scope-picker {
+    margin-bottom: 16px;
+  }
+
+  .topic-scope-tree {
+    overflow: hidden;
+    border: 1px solid var(--color-border, #27272a);
+    border-radius: var(--radius-md, 6px);
+    background: var(--color-surface-darker, #0a0a0a);
+  }
+
+  .topic-scope-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    width: 100%;
+    min-height: 30px;
+    padding: 5px 12px;
+    border: 0;
+    background: transparent;
+    color: var(--color-text-dim, #71717a);
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .topic-scope-row + .topic-scope-row {
+    border-top: 1px solid color-mix(in srgb, var(--color-border, #27272a) 70%, transparent);
+  }
+
+  .topic-scope-row:hover,
+  .topic-scope-row:focus-visible {
+    background: var(--color-surface, #161617);
+    color: var(--color-text, #e4e4e7);
+    outline: none;
+  }
+
+  .topic-scope-row:focus-visible {
+    box-shadow: inset 0 0 0 1px var(--color-primary, #00e5ff);
+  }
+
+  .topic-scope-row.active {
+    background: var(--color-primary-dim, rgba(0, 229, 255, 0.1));
+    color: var(--color-primary, #00e5ff);
+  }
+
+  .topic-scope-row .material-symbols-outlined {
+    font-size: 16px;
+  }
+
+  .shard-scope-row {
+    color: var(--color-text, #e4e4e7);
+  }
+
+  .shard-scope-row.missing {
+    color: var(--color-warning, #f59e0b);
+  }
+
+  .topic-scope-warning {
+    margin-left: auto;
+    color: var(--color-warning, #f59e0b);
+  }
+
+  .missing-shard-topics {
+    border-color: rgba(245, 158, 11, 0.35);
+    color: var(--color-warning, #f59e0b);
+  }
+
+  .topic-load-error {
+    border-color: rgba(239, 68, 68, 0.35);
   }
 
   .cluster-list {

@@ -8,20 +8,24 @@
   import { requestSave } from '../stores/editor'
   import { loadProperties } from '../stores/properties'
   import type { UnifiedTreeNode } from '../types/cli'
+  import { activeScopePath } from '../stores/shards'
 
   interface SaveAsModalProps {
     tabId: string
     onclose: () => void
     onsaved?: (filePath: string) => void
+    defaultDirectory?: string
   }
 
-  let { tabId, onclose, onsaved }: SaveAsModalProps = $props()
+  let { tabId, onclose, onsaved, defaultDirectory }: SaveAsModalProps = $props()
 
   let filename = $state('')
   let selectedDir = $state('')
   let error = $state<string | null>(null)
   let saving = $state(false)
   let inputEl: HTMLInputElement | undefined = $state(undefined)
+  let currentScopePath: string | null = $state(null)
+  activeScopePath.subscribe((value) => (currentScopePath = value))
 
   // Extract the tab to get the default filename
   const tab = $derived(workspace.tabs[tabId] as DocumentTab | undefined)
@@ -32,6 +36,11 @@
       const name = tab.title.replace(/\.md$/, '')
       filename = name
     }
+  })
+
+  $effect(() => {
+    const initialDirectory = defaultDirectory ?? currentScopePath
+    if (initialDirectory && !selectedDir) selectedDir = initialDirectory
   })
 
   // Focus input on mount
@@ -47,7 +56,7 @@
   unifiedTree.subscribe((v) => (currentTree = v))
 
   const directories = $derived.by(() => {
-    const dirs: string[] = [''] // Root (collection root)
+    const dirs: string[] = [defaultDirectory ?? currentScopePath ?? '']
     if (!currentTree) return dirs
 
     function walk(nodes: UnifiedTreeNode[]) {
@@ -59,7 +68,7 @@
       }
     }
     walk(currentTree.children)
-    return dirs.sort()
+    return [...new Set(dirs)].sort()
   })
 
   async function handleSave() {
@@ -136,6 +145,11 @@
   /** Display label for a directory path. */
   function dirLabel(dirPath: string): string {
     if (!dirPath) return '/ (collection root)'
+    if (
+      (defaultDirectory && dirPath === defaultDirectory) ||
+      (currentScopePath && dirPath === currentScopePath)
+    )
+      return '/ (Shard root)'
     return '/' + dirPath
   }
 </script>

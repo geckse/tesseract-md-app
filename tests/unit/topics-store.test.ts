@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { get } from 'svelte/store'
 
+const mockInvalidateGraphAnalysis = vi.hoisted(() => vi.fn())
+vi.mock('@renderer/stores/graph', () => ({
+  invalidateGraphAnalysis: mockInvalidateGraphAnalysis
+}))
+
 // Mock window.api before importing the store
 const mockApi = {
   clusterDefinitions: vi.fn(),
@@ -23,7 +28,12 @@ import {
   topicUnassigned,
   topicsNeedIngest,
   topicsLoading,
+  topicErrors,
+  topicComputedEnabled,
+  topicStatesByScope,
+  topicScopeKey,
   loadTopics,
+  refreshActiveTopicsForConfig,
   addTopic,
   updateTopic,
   removeTopic,
@@ -55,6 +65,8 @@ beforeEach(() => {
   mockApi.updateTopic.mockResolvedValue(undefined)
   mockApi.removeTopic.mockResolvedValue(undefined)
   mockApi.deleteCollectionConfig.mockResolvedValue(undefined)
+  mockInvalidateGraphAnalysis.mockReset()
+  mockInvalidateGraphAnalysis.mockResolvedValue(undefined)
 })
 
 describe('loadTopics', () => {
@@ -80,6 +92,19 @@ describe('loadTopics', () => {
 
   it('does not flag topicsNeedIngest on a plain load', async () => {
     await loadTopics(ROOT)
+    expect(get(topicsNeedIngest)).toBe(false)
+  })
+
+  it('restores needs-ingest state when definitions have no computed summaries', async () => {
+    mockApi.customClusters.mockResolvedValueOnce([])
+
+    await loadTopics(ROOT)
+
+    expect(get(topicsNeedIngest)).toBe(true)
+    expect(get(topicStatesByScope)[topicScopeKey(ROOT)].needsIngest).toBe(true)
+
+    await loadTopics(ROOT)
+
     expect(get(topicsNeedIngest)).toBe(false)
   })
 
@@ -110,6 +135,70 @@ describe('loadTopics', () => {
     expect(get(topicDefs)).toEqual([])
     expect(get(topicSummaries)).not.toEqual([])
   })
+
+  it('loads and guards collection and Shard scopes independently', async () => {
+    await loadTopics(ROOT)
+    mockApi.clusterDefinitions.mockResolvedValueOnce([{ ...sampleDef, name: 'Shard AI' }])
+
+    await loadTopics(ROOT, 'research')
+
+    expect(mockApi.clusterDefinitions).toHaveBeenLastCalledWith(ROOT, 'research')
+    expect(mockApi.customClusters).toHaveBeenLastCalledWith(ROOT, 'research')
+    expect(mockApi.topicUnassigned).toHaveBeenLastCalledWith(ROOT, 'research')
+    expect(get(topicDefs).map((def) => def.name)).toEqual(['Shard AI'])
+
+    const states = get(topicStatesByScope)
+    expect(states[topicScopeKey(ROOT)].definitions[0].name).toBe('AI')
+    expect(states[topicScopeKey(ROOT, 'research')].definitions[0].name).toBe('Shard AI')
+  })
+
+  it('keeps last good values and records independent read errors', async () => {
+    await loadTopics(ROOT)
+    mockApi.clusterDefinitions.mockRejectedValueOnce(new Error('bad definitions'))
+    mockApi.customClusters.mockRejectedValueOnce(new Error('bad summaries'))
+
+    await loadTopics(ROOT)
+
+    expect(get(topicDefs)).toEqual([sampleDef])
+    expect(get(topicSummaries)).toHaveLength(1)
+    expect(get(topicErrors)).toMatchObject({
+      definitions: 'bad definitions',
+      summaries: 'bad summaries'
+    })
+  })
+
+  it('loads definitions only when computed state is disabled for a missing Shard', async () => {
+    await loadTopics(ROOT, 'missing', { includeComputed: false })
+
+    expect(mockApi.clusterDefinitions).toHaveBeenCalledWith(ROOT, 'missing')
+    expect(mockApi.customClusters).not.toHaveBeenCalled()
+    expect(mockApi.topicUnassigned).not.toHaveBeenCalled()
+    expect(get(topicComputedEnabled)).toBe(false)
+  })
+
+  it('refreshes the active matching scope after external config edits', async () => {
+    await loadTopics(ROOT, 'research')
+    vi.clearAllMocks()
+    mockApi.clusterDefinitions.mockResolvedValue([{ ...sampleDef, name: 'Externally Edited' }])
+
+    await refreshActiveTopicsForConfig(ROOT)
+
+    expect(mockApi.clusterDefinitions).toHaveBeenCalledWith(ROOT, 'research')
+    expect(mockApi.customClusters).toHaveBeenCalledWith(ROOT, 'research')
+    expect(get(topicDefs)[0].name).toBe('Externally Edited')
+  })
+
+  it('keeps computed reads disabled when an external edit leaves the Shard missing', async () => {
+    await loadTopics(ROOT, 'missing', { includeComputed: false })
+    vi.clearAllMocks()
+    mockApi.clusterDefinitions.mockResolvedValue([sampleDef])
+
+    await refreshActiveTopicsForConfig(ROOT)
+
+    expect(mockApi.clusterDefinitions).toHaveBeenCalledWith(ROOT, 'missing')
+    expect(mockApi.customClusters).not.toHaveBeenCalled()
+    expect(mockApi.topicUnassigned).not.toHaveBeenCalled()
+  })
 })
 
 describe('topic mutations', () => {
@@ -118,6 +207,7 @@ describe('topic mutations', () => {
     expect(mockApi.addTopic).toHaveBeenCalledWith(ROOT, sampleDef)
     expect(mockApi.clusterDefinitions).toHaveBeenCalled()
     expect(get(topicsNeedIngest)).toBe(true)
+    expect(mockInvalidateGraphAnalysis).toHaveBeenCalledOnce()
   })
 
   it('updateTopic addresses the topic by its current name', async () => {
@@ -137,9 +227,10 @@ describe('topic mutations', () => {
     mockApi.addTopic.mockRejectedValue(new Error('topic already exists'))
     await expect(addTopic(ROOT, sampleDef)).rejects.toThrow('topic already exists')
     expect(get(topicsNeedIngest)).toBe(false)
+    expect(mockInvalidateGraphAnalysis).not.toHaveBeenCalled()
   })
 
-  it('does not repaint a new target after an old-root mutation finishes', async () => {
+  it('refreshes and flags the mutated scope without repainting the active scope', async () => {
     let resolveAdd!: () => void
     await loadTopics('/old')
     mockApi.addTopic.mockReturnValueOnce(new Promise<void>((resolve) => (resolveAdd = resolve)))
@@ -150,8 +241,25 @@ describe('topic mutations', () => {
     resolveAdd()
     await adding
 
-    expect(mockApi.clusterDefinitions).toHaveBeenCalledTimes(callsBeforeResolve)
+    expect(mockApi.clusterDefinitions).toHaveBeenCalledTimes(callsBeforeResolve + 1)
     expect(get(topicsNeedIngest)).toBe(false)
+    expect(get(topicStatesByScope)[topicScopeKey('/old')].needsIngest).toBe(true)
+    expect(get(topicStatesByScope)[topicScopeKey('/current')].needsIngest).toBe(false)
+  })
+
+  it('passes a Shard id through mutations and keeps computed reads disabled', async () => {
+    await loadTopics(ROOT, 'missing', { includeComputed: false })
+    vi.clearAllMocks()
+    mockApi.addTopic.mockResolvedValue(undefined)
+    mockApi.clusterDefinitions.mockResolvedValue([sampleDef])
+
+    await addTopic(ROOT, sampleDef, 'missing')
+
+    expect(mockApi.addTopic).toHaveBeenCalledWith(ROOT, sampleDef, 'missing')
+    expect(mockApi.clusterDefinitions).toHaveBeenCalledWith(ROOT, 'missing')
+    expect(mockApi.customClusters).not.toHaveBeenCalled()
+    expect(mockApi.topicUnassigned).not.toHaveBeenCalled()
+    expect(get(topicsNeedIngest)).toBe(true)
   })
 })
 

@@ -24,6 +24,8 @@ const mockSetActiveCollection = vi.fn()
 const mockGetActiveCollection = vi.fn()
 const mockGetCollectionSkillsDismissed = vi.fn()
 const mockSetCollectionSkillsDismissed = vi.fn()
+const mockGetActiveShardId = vi.fn()
+const mockSetActiveShardId = vi.fn()
 vi.mock('../../src/main/store', () => ({
   getCollections: (...args: unknown[]) => mockGetCollections(...args),
   addCollection: (...args: unknown[]) => mockAddCollection(...args),
@@ -32,6 +34,8 @@ vi.mock('../../src/main/store', () => ({
   getActiveCollection: (...args: unknown[]) => mockGetActiveCollection(...args),
   getCollectionSkillsDismissed: (...args: unknown[]) => mockGetCollectionSkillsDismissed(...args),
   setCollectionSkillsDismissed: (...args: unknown[]) => mockSetCollectionSkillsDismissed(...args),
+  getActiveShardId: (...args: unknown[]) => mockGetActiveShardId(...args),
+  setActiveShardId: (...args: unknown[]) => mockSetActiveShardId(...args),
   getOnboardingComplete: vi.fn().mockReturnValue(false),
   setOnboardingComplete: vi.fn(),
   getEditorFontSize: vi.fn().mockReturnValue(17),
@@ -117,6 +121,8 @@ const mockRename = vi.fn().mockResolvedValue(undefined)
 const mockRm = vi.fn().mockResolvedValue(undefined)
 const mockLink = vi.fn().mockResolvedValue(undefined)
 const mockMkdir = vi.fn().mockResolvedValue(undefined)
+const mockAccess = vi.fn()
+const mockStat = vi.fn()
 vi.mock('node:fs', () => ({
   default: {
     promises: {
@@ -125,7 +131,9 @@ vi.mock('node:fs', () => ({
       rename: (...args: unknown[]) => mockRename(...args),
       rm: (...args: unknown[]) => mockRm(...args),
       link: (...args: unknown[]) => mockLink(...args),
-      mkdir: (...args: unknown[]) => mockMkdir(...args)
+      mkdir: (...args: unknown[]) => mockMkdir(...args),
+      access: (...args: unknown[]) => mockAccess(...args),
+      stat: (...args: unknown[]) => mockStat(...args)
     }
   },
   promises: {
@@ -134,7 +142,9 @@ vi.mock('node:fs', () => ({
     rename: (...args: unknown[]) => mockRename(...args),
     rm: (...args: unknown[]) => mockRm(...args),
     link: (...args: unknown[]) => mockLink(...args),
-    mkdir: (...args: unknown[]) => mockMkdir(...args)
+    mkdir: (...args: unknown[]) => mockMkdir(...args),
+    access: (...args: unknown[]) => mockAccess(...args),
+    stat: (...args: unknown[]) => mockStat(...args)
   }
 }))
 
@@ -333,6 +343,8 @@ beforeEach(() => {
   mockGetActiveCollection.mockReset()
   mockGetCollectionSkillsDismissed.mockReset().mockReturnValue(false)
   mockSetCollectionSkillsDismissed.mockReset()
+  mockGetActiveShardId.mockReset()
+  mockSetActiveShardId.mockReset()
   mockCheckCollectionSkills.mockReset()
   mockInstallCollectionSkills.mockReset()
   mockPickCollectionFolder.mockReset()
@@ -347,6 +359,8 @@ beforeEach(() => {
   mockRm.mockReset().mockResolvedValue(undefined)
   mockLink.mockReset().mockResolvedValue(undefined)
   mockMkdir.mockReset().mockResolvedValue(undefined)
+  mockAccess.mockReset()
+  mockStat.mockReset()
   mockWatcherStart.mockReset()
   mockWatcherStop.mockReset()
   mockWatcherDestroy.mockReset()
@@ -407,6 +421,14 @@ describe('registerIpcHandlers', () => {
     expect(channels).toContain('cli:doctor')
     expect(channels).toContain('cli:info')
     expect(channels).toContain('cli:init')
+    expect(channels).toContain('cli:shards-list')
+    expect(channels).toContain('cli:shards-get')
+    expect(channels).toContain('cli:shards-add')
+    expect(channels).toContain('cli:shards-update')
+    expect(channels).toContain('cli:shards-remove')
+    expect(channels).toContain('cli:shards-retarget')
+    expect(channels).toContain('store:get-active-shard-id')
+    expect(channels).toContain('store:set-active-shard-id')
     expect(channels).toContain('fs:file-thumbnail')
     expect(channels).toContain('link-preview:external')
     expect(channels).toContain('link-preview:local')
@@ -496,7 +518,7 @@ describe('registerIpcHandlers', () => {
     // Dirty-close guard (data safety)
     expect(channels).toContain('app:confirm-close')
     expect(channels).toContain('app:cancel-close')
-    expect(channels).toHaveLength(145)
+    expect(channels).toHaveLength(153)
   })
 })
 
@@ -593,6 +615,163 @@ describe('IPC handler argument passing', () => {
       const result = await handler()
       expect(result).toBe('0.1.0')
       expect(mockGetCliVersion).toHaveBeenCalled()
+    })
+  })
+
+  describe('named Shards', () => {
+    it('constructs add and update arguments without leaking undefined options', async () => {
+      mockExecCommand.mockResolvedValue({ action: 'added', shards: [] })
+      const add = getHandler('cli:shards-add')
+      await add(fakeEvent, '/tmp/project', 'deep-work', 'work/deep', {
+        name: 'Deep Work',
+        createDir: true
+      })
+
+      expect(mockExecCommand).toHaveBeenCalledWith(
+        'shards',
+        ['add', 'deep-work', '--path', 'work/deep', '--name', 'Deep Work', '--create-dir'],
+        '/tmp/project'
+      )
+
+      mockExecCommand.mockClear()
+      const update = getHandler('cli:shards-update')
+      await update(fakeEvent, '/tmp/project', 'deep-work', {
+        path: 'archive/deep',
+        name: ''
+      })
+
+      expect(mockExecCommand).toHaveBeenCalledWith(
+        'shards',
+        ['update', 'deep-work', '--name', '', '--path', 'archive/deep'],
+        '/tmp/project'
+      )
+    })
+
+    it('passes list, get, remove, and retarget through their stable CLI contracts', async () => {
+      mockExecCommand.mockResolvedValue({ shards: [], total_shards: 0 })
+
+      await getHandler('cli:shards-list')(fakeEvent, '/tmp/project')
+      await getHandler('cli:shards-get')(fakeEvent, '/tmp/project', 'research')
+      await getHandler('cli:shards-remove')(fakeEvent, '/tmp/project', 'research')
+      await getHandler('cli:shards-retarget')(
+        fakeEvent,
+        '/tmp/project',
+        'work/research',
+        'archive/research'
+      )
+
+      expect(mockExecCommand).toHaveBeenNthCalledWith(1, 'shards', ['list'], '/tmp/project')
+      expect(mockExecCommand).toHaveBeenNthCalledWith(
+        2,
+        'shards',
+        ['get', 'research'],
+        '/tmp/project'
+      )
+      expect(mockExecCommand).toHaveBeenNthCalledWith(
+        3,
+        'shards',
+        ['remove', 'research'],
+        '/tmp/project'
+      )
+      expect(mockExecCommand).toHaveBeenNthCalledWith(
+        4,
+        'shards',
+        ['retarget', 'work/research', 'archive/research'],
+        '/tmp/project'
+      )
+    })
+
+    it('persists the selected Shard only for a registered collection', async () => {
+      mockGetCollections.mockReturnValue([{ id: 'vault-1' }])
+      mockGetActiveShardId.mockReturnValue('research')
+
+      const getSelected = getHandler('store:get-active-shard-id')
+      const setSelected = getHandler('store:set-active-shard-id')
+
+      await expect(getSelected(fakeEvent, 'vault-1')).resolves.toBe('research')
+      await expect(setSelected(fakeEvent, 'vault-1', 'research')).resolves.toBeUndefined()
+      expect(mockGetActiveShardId).toHaveBeenCalledWith('vault-1')
+      expect(mockSetActiveShardId).toHaveBeenCalledWith('vault-1', 'research')
+
+      await expect(setSelected(fakeEvent, 'missing', null)).resolves.toMatchObject({
+        error: true,
+        message: 'Collection not found: missing'
+      })
+      expect(mockSetActiveShardId).toHaveBeenCalledTimes(1)
+    })
+
+    it('retargets contained Shards after an in-app directory rename', async () => {
+      mockGetCollections.mockReturnValue([
+        {
+          id: 'vault-1',
+          name: 'Vault',
+          path: '/tmp/project',
+          addedAt: 1,
+          lastOpenedAt: 1
+        }
+      ])
+      mockAccess.mockRejectedValue(Object.assign(new Error('missing'), { code: 'ENOENT' }))
+      mockStat.mockResolvedValue({ isDirectory: () => true })
+      mockExecCommand
+        .mockResolvedValueOnce({
+          shards: [
+            {
+              id: 'research',
+              name: 'Research',
+              path: 'work/research',
+              parent_id: null,
+              exists: true
+            }
+          ],
+          total_shards: 1
+        })
+        .mockResolvedValueOnce({ action: 'retarget', shards: [] })
+
+      const handler = getHandler('fs:rename-file')
+      await handler(fakeEvent, '/tmp/project/work', '/tmp/project/archive')
+
+      expect(mockRename).toHaveBeenCalledWith('/tmp/project/work', '/tmp/project/archive')
+      expect(mockExecCommand).toHaveBeenNthCalledWith(
+        2,
+        'shards',
+        ['retarget', 'work', 'archive'],
+        '/tmp/project'
+      )
+    })
+
+    it('rolls the directory rename back when Shard retargeting fails', async () => {
+      mockGetCollections.mockReturnValue([
+        {
+          id: 'vault-1',
+          name: 'Vault',
+          path: '/tmp/project',
+          addedAt: 1,
+          lastOpenedAt: 1
+        }
+      ])
+      mockAccess.mockRejectedValue(Object.assign(new Error('missing'), { code: 'ENOENT' }))
+      mockStat.mockResolvedValue({ isDirectory: () => true })
+      mockExecCommand
+        .mockResolvedValueOnce({
+          shards: [
+            {
+              id: 'research',
+              name: 'Research',
+              path: 'work/research',
+              parent_id: null,
+              exists: true
+            }
+          ],
+          total_shards: 1
+        })
+        .mockRejectedValueOnce(new Error('manifest locked'))
+
+      const handler = getHandler('fs:rename-file')
+      const result = await handler(fakeEvent, '/tmp/project/work', '/tmp/project/archive')
+
+      expect(mockRename).toHaveBeenNthCalledWith(1, '/tmp/project/work', '/tmp/project/archive')
+      expect(mockRename).toHaveBeenNthCalledWith(2, '/tmp/project/archive', '/tmp/project/work')
+      expect(result).toMatchObject({ error: true, message: 'manifest locked' })
     })
   })
 
@@ -1040,17 +1219,24 @@ describe('IPC handler argument passing', () => {
         edges: [],
         contexts: ['full context remains interned'],
         clusters: [],
-        level: 'chunk'
+        level: 'chunk',
+        analysis: {
+          context: 'shard',
+          shard_id: 'research',
+          shard_path: 'docs/research',
+          clusters: 'ready',
+          topics: 'none'
+        }
       }
       mockExecCommand.mockResolvedValue(compact)
       const handler = getHandler('cli:graph')
 
-      const result = await handler(fakeEvent, '/tmp/project', 'chunk', 'docs/')
+      const result = await handler(fakeEvent, '/tmp/project', 'chunk', 'docs/research/', 'research')
 
       expect(result).toBe(compact)
       expect(mockExecCommand).toHaveBeenCalledWith(
         'graph',
-        ['--compact', '--level', 'chunk', '--path', 'docs/'],
+        ['--compact', '--level', 'chunk', '--shard', 'research', '--path', 'docs/research/'],
         '/tmp/project',
         { signal: expect.any(AbortSignal) }
       )
@@ -2262,6 +2448,16 @@ describe('Topics IPC handlers', () => {
       const args = mockExecCommand.mock.calls[0][1] as string[]
       expect(args).not.toContain('--json')
     })
+
+    it('prefixes a Shard scope before the add subcommand', async () => {
+      const handler = getHandler('cli:clusters-add')
+      await handler(fakeEvent, '/vault', { name: 'Local', seeds: ['notes'] }, 'research')
+      expect(mockExecCommand).toHaveBeenCalledWith(
+        'clusters',
+        ['--shard', 'research', 'add', 'Local', '--seeds', 'notes'],
+        '/vault'
+      )
+    })
   })
 
   describe('cli:clusters-update', () => {
@@ -2306,6 +2502,26 @@ describe('Topics IPC handlers', () => {
       ])
       expect(args).not.toContain('--rename')
     })
+
+    it('prefixes a Shard scope before the update subcommand', async () => {
+      const handler = getHandler('cli:clusters-update')
+      await handler(fakeEvent, '/vault', 'Local', { name: 'Local', seeds: ['updated'] }, 'research')
+      expect(mockExecCommand).toHaveBeenCalledWith(
+        'clusters',
+        [
+          '--shard',
+          'research',
+          'update',
+          'Local',
+          '--seeds',
+          'updated',
+          '--description',
+          '',
+          '--threshold=-1'
+        ],
+        '/vault'
+      )
+    })
   })
 
   describe('cli:clusters-remove', () => {
@@ -2313,6 +2529,16 @@ describe('Topics IPC handlers', () => {
       const handler = getHandler('cli:clusters-remove')
       await handler(fakeEvent, '/vault', 'Old Topic')
       expect(mockExecCommand).toHaveBeenCalledWith('clusters', ['remove', 'Old Topic'], '/vault')
+    })
+
+    it('prefixes a Shard scope before remove', async () => {
+      const handler = getHandler('cli:clusters-remove')
+      await handler(fakeEvent, '/vault', 'Local', 'research')
+      expect(mockExecCommand).toHaveBeenCalledWith(
+        'clusters',
+        ['--shard', 'research', 'remove', 'Local'],
+        '/vault'
+      )
     })
   })
 
@@ -2323,6 +2549,16 @@ describe('Topics IPC handlers', () => {
       const result = await handler(fakeEvent, '/vault')
       expect(mockExecCommand).toHaveBeenCalledWith('clusters', ['unassigned'], '/vault')
       expect(result).toEqual({ count: 2, paths: ['a.md', 'b.md'] })
+    })
+
+    it('prefixes a Shard scope before unassigned', async () => {
+      const handler = getHandler('cli:clusters-unassigned')
+      await handler(fakeEvent, '/vault', 'research')
+      expect(mockExecCommand).toHaveBeenCalledWith(
+        'clusters',
+        ['--shard', 'research', 'unassigned'],
+        '/vault'
+      )
     })
   })
 
@@ -2344,6 +2580,34 @@ describe('Topics IPC handlers', () => {
       const handler = getHandler('cli:clusters-list')
       await handler(fakeEvent, '/vault')
       expect(mockExecCommand).toHaveBeenCalledWith('clusters', ['list'], '/vault')
+    })
+
+    it('prefixes a Shard scope before list', async () => {
+      const handler = getHandler('cli:clusters-list')
+      await handler(fakeEvent, '/vault', 'research')
+      expect(mockExecCommand).toHaveBeenCalledWith(
+        'clusters',
+        ['--shard', 'research', 'list'],
+        '/vault'
+      )
+    })
+  })
+
+  describe('computed cluster scopes', () => {
+    it('passes optional Shard scope to auto and custom summaries', async () => {
+      await getHandler('cli:clusters')(fakeEvent, '/vault', 'research')
+      expect(mockExecCommand).toHaveBeenLastCalledWith(
+        'clusters',
+        ['--shard', 'research'],
+        '/vault'
+      )
+
+      await getHandler('cli:custom-clusters')(fakeEvent, '/vault', 'research')
+      expect(mockExecCommand).toHaveBeenLastCalledWith(
+        'clusters',
+        ['--shard', 'research', '--custom'],
+        '/vault'
+      )
     })
   })
 })

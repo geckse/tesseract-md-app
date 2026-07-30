@@ -10,6 +10,7 @@
     ondismiss: () => void
     onrecenter: () => void
     ontogglelabels: () => void
+    onmanagetopics?: () => void
     onscreenshot: () => void
     onscreenshottransparent: () => void
   }
@@ -23,6 +24,7 @@
     ondismiss,
     onrecenter,
     ontogglelabels,
+    onmanagetopics,
     onscreenshot,
     onscreenshottransparent
   }: Props = $props()
@@ -127,6 +129,21 @@
   </button>
 
   <div class="context-menu-separator" role="separator"></div>
+
+  {#if onmanagetopics}
+    <button
+      type="button"
+      class="context-menu-item"
+      role="menuitem"
+      disabled={actionsDisabled}
+      onclick={onmanagetopics}
+    >
+      <span class="material-symbols-outlined" aria-hidden="true">category</span>
+      <span>Manage Topics…</span>
+    </button>
+
+    <div class="context-menu-separator" role="separator"></div>
+  {/if}
 
   <button
     type="button"

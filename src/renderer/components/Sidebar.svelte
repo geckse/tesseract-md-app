@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import {
     collections,
     activeCollectionId,
@@ -10,17 +11,38 @@
     openDoctorModal,
     openInfoModal
   } from '../stores/collections'
-  import { loadFileTree, loadAssetTree, syncFileStoresFromTab } from '../stores/files'
+  import {
+    loadFileTree,
+    loadAssetTree,
+    scopedFileCount,
+    syncFileStoresFromTab
+  } from '../stores/files'
   import { workspace } from '../stores/workspace.svelte'
   import { runIngest } from '../stores/ingest'
   import { settingsOpen } from '../stores/ui'
-  import { settingsTarget, activeSection } from '../stores/settings'
+  import { settingsTarget, activeSection, openTopicsSettings } from '../stores/settings'
   import { watcherState, toggleWatcher } from '../stores/watcher'
   import { terminalStore } from '../stores/terminal.svelte'
   import FileTree from './FileTree.svelte'
   import Favorites from './Favorites.svelte'
   import ResizeHandle from './ResizeHandle.svelte'
   import type { Collection } from '../../preload/api'
+  import type { ShardInfo } from '../types/cli'
+  import ShardModal from './ShardModal.svelte'
+  import ShardIcon from './ShardIcon.svelte'
+  import {
+    activeShard,
+    activeShardId,
+    buildShardTree,
+    refreshAllShards,
+    refreshShards,
+    removeShardDefinition,
+    setActiveShard,
+    shardErrorsByCollection,
+    shardsByCollection,
+    type ShardTreeNode
+  } from '../stores/shards'
+  import { openGraphViewForPath } from '../stores/graph'
 
   interface SidebarProps {
     onnavigate?: (detail: { id: string }) => void
@@ -30,9 +52,20 @@
   let { onfileselect }: SidebarProps = $props()
 
   let contextMenuCollection: Collection | null = $state(null)
+  let contextMenuShard: ShardInfo | null = $state(null)
   let contextMenuPosition = $state({ x: 0, y: 0 })
   let dropdownOpen = $state(false)
   let settingsSubmenuOpen = $state(false)
+  let shardModalOpen = $state(false)
+  let shardModalCollectionId: string | undefined = $state(undefined)
+  let shardModalShard: ShardInfo | null = $state(null)
+  let shardModalInitialPath = $state('')
+  let expandedCollections: Set<string> = $state(new Set())
+  let expandedShards: Set<string> = $state(new Set())
+  let focusedSwitcherIndex = $state(0)
+  let switcherTree: HTMLDivElement | null = $state(null)
+  const initializedExpandableShards = new Set<string>()
+  let expandedActiveCollectionId: string | null = null
 
   /** Settings sections offered in the collection context menu. */
   const settingsSections = [
@@ -50,6 +83,101 @@
   let currentActiveCollection: Collection | null = $derived(
     currentCollections.find((c) => c.id === currentActiveCollectionId) ?? null
   )
+  let currentActiveShard: ShardInfo | null = $state(null)
+  let currentActiveShardId: string | null = $state(null)
+  let currentShardsByCollection: Record<string, ShardInfo[]> = $state({})
+  let currentShardErrors: Record<string, string | null> = $state({})
+  let currentScopedFileCount = $state(0)
+  activeShard.subscribe((value) => (currentActiveShard = value))
+  activeShardId.subscribe((value) => (currentActiveShardId = value))
+  shardsByCollection.subscribe((value) => (currentShardsByCollection = value))
+  shardErrorsByCollection.subscribe((value) => (currentShardErrors = value))
+  scopedFileCount.subscribe((value) => (currentScopedFileCount = value))
+
+  interface SwitcherRow {
+    key: string
+    kind: 'collection' | 'shard'
+    collection: Collection
+    shard?: ShardInfo
+    depth: number
+    hasChildren?: boolean
+  }
+
+  function flattenShardNodes(
+    collection: Collection,
+    nodes: ShardTreeNode[],
+    depth: number
+  ): SwitcherRow[] {
+    const rows: SwitcherRow[] = []
+    for (const node of nodes) {
+      rows.push({
+        key: `${collection.id}:${node.shard.id}`,
+        kind: 'shard',
+        collection,
+        shard: node.shard,
+        depth,
+        hasChildren: node.children.length > 0
+      })
+      if (expandedShards.has(`${collection.id}:${node.shard.id}`)) {
+        rows.push(...flattenShardNodes(collection, node.children, depth + 1))
+      }
+    }
+    return rows
+  }
+
+  let switcherRows = $derived.by<SwitcherRow[]>(() => {
+    const rows: SwitcherRow[] = []
+    for (const collection of currentCollections) {
+      const shardTree = buildShardTree(currentShardsByCollection[collection.id] ?? [])
+      const hasChildren = shardTree.length > 0
+      rows.push({
+        key: collection.id,
+        kind: 'collection',
+        collection,
+        depth: 1,
+        hasChildren
+      })
+      if (hasChildren && expandedCollections.has(collection.id)) {
+        rows.push(...flattenShardNodes(collection, shardTree, 2))
+      }
+    }
+    return rows
+  })
+
+  $effect(() => {
+    if (currentActiveCollectionId && currentActiveCollectionId !== expandedActiveCollectionId) {
+      expandedActiveCollectionId = currentActiveCollectionId
+      expandedCollections = new Set(untrack(() => expandedCollections)).add(
+        currentActiveCollectionId
+      )
+    }
+  })
+
+  // New definitions start expanded so hierarchy is immediately legible; users
+  // can collapse any nested branch with ArrowLeft.
+  $effect(() => {
+    const newKeys: string[] = []
+    for (const collection of currentCollections) {
+      for (const shard of currentShardsByCollection[collection.id] ?? []) {
+        if (
+          (currentShardsByCollection[collection.id] ?? []).some(
+            (candidate) => candidate.parent_id === shard.id
+          )
+        ) {
+          const key = `${collection.id}:${shard.id}`
+          if (!initializedExpandableShards.has(key)) newKeys.push(key)
+        }
+      }
+    }
+    if (newKeys.length > 0) {
+      const next = new Set(untrack(() => expandedShards))
+      for (const key of newKeys) {
+        initializedExpandableShards.add(key)
+        next.add(key)
+      }
+      expandedShards = next
+    }
+  })
 
   async function handleAddCollection(): Promise<Collection | null> {
     const collection = await addAndActivateCollection()
@@ -60,13 +188,25 @@
   }
 
   async function handleCollectionClick(collection: Collection) {
-    await setActiveCollection(collection.id)
-    await Promise.all([loadFileTree(), loadAssetTree()])
+    if (collection.id !== currentActiveCollectionId) {
+      await setActiveCollection(collection.id)
+      await Promise.all([loadFileTree(), loadAssetTree(), refreshShards(collection.id)])
+    }
   }
 
   function handleCollectionContextMenu(event: MouseEvent, collection: Collection) {
     event.preventDefault()
     contextMenuCollection = collection
+    contextMenuShard = null
+    contextMenuPosition = { x: event.clientX, y: event.clientY }
+    settingsSubmenuOpen = false
+  }
+
+  function handleShardContextMenu(event: MouseEvent, collection: Collection, shard: ShardInfo) {
+    event.preventDefault()
+    event.stopPropagation()
+    contextMenuCollection = collection
+    contextMenuShard = shard
     contextMenuPosition = { x: event.clientX, y: event.clientY }
     settingsSubmenuOpen = false
   }
@@ -75,15 +215,21 @@
     if (!contextMenuCollection) return
     await removeCollection(contextMenuCollection.id)
     contextMenuCollection = null
+    contextMenuShard = null
   }
 
   function closeContextMenu() {
     contextMenuCollection = null
+    contextMenuShard = null
     settingsSubmenuOpen = false
   }
 
   function toggleDropdown() {
     dropdownOpen = !dropdownOpen
+    if (dropdownOpen) {
+      void refreshAllShards()
+      requestAnimationFrame(() => focusSwitcherRow(focusedSwitcherIndex))
+    }
   }
 
   function closeDropdown() {
@@ -98,6 +244,106 @@
   async function handleDropdownSelect(collection: Collection) {
     dropdownOpen = false
     await handleCollectionClick(collection)
+    await setActiveShard(null)
+  }
+
+  async function handleDropdownShardSelect(collection: Collection, shard: ShardInfo) {
+    if (!shard.exists) return
+    dropdownOpen = false
+    await handleCollectionClick(collection)
+    await refreshShards(collection.id)
+    await setActiveShard(shard.id)
+  }
+
+  function toggleCollectionExpanded(collectionId: string): void {
+    const next = new Set(expandedCollections)
+    if (next.has(collectionId)) next.delete(collectionId)
+    else next.add(collectionId)
+    expandedCollections = next
+  }
+
+  function toggleShardExpanded(collectionId: string, shardId: string): void {
+    const key = `${collectionId}:${shardId}`
+    const next = new Set(expandedShards)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    expandedShards = next
+  }
+
+  function focusSwitcherRow(index: number): void {
+    focusedSwitcherIndex = Math.max(0, Math.min(index, switcherRows.length - 1))
+    requestAnimationFrame(() => {
+      switcherTree
+        ?.querySelector<HTMLButtonElement>(`[data-switcher-index="${focusedSwitcherIndex}"]`)
+        ?.focus()
+    })
+  }
+
+  function handleSwitcherKeydown(event: KeyboardEvent): void {
+    const row = switcherRows[focusedSwitcherIndex]
+    if (!row) return
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      focusSwitcherRow(focusedSwitcherIndex + 1)
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      focusSwitcherRow(focusedSwitcherIndex - 1)
+    } else if (event.key === 'Home') {
+      event.preventDefault()
+      focusSwitcherRow(0)
+    } else if (event.key === 'End') {
+      event.preventDefault()
+      focusSwitcherRow(switcherRows.length - 1)
+    } else if (event.key === 'ArrowRight' && row.kind === 'collection') {
+      event.preventDefault()
+      if (!row.hasChildren) return
+      if (!expandedCollections.has(row.collection.id)) {
+        toggleCollectionExpanded(row.collection.id)
+      } else {
+        focusSwitcherRow(focusedSwitcherIndex + 1)
+      }
+    } else if (event.key === 'ArrowRight' && row.kind === 'shard' && row.shard) {
+      event.preventDefault()
+      const key = `${row.collection.id}:${row.shard.id}`
+      if (row.hasChildren && !expandedShards.has(key)) {
+        toggleShardExpanded(row.collection.id, row.shard.id)
+      } else if (row.hasChildren) {
+        focusSwitcherRow(focusedSwitcherIndex + 1)
+      }
+    } else if (event.key === 'ArrowLeft') {
+      event.preventDefault()
+      if (row.kind === 'collection') {
+        if (row.hasChildren && expandedCollections.has(row.collection.id)) {
+          toggleCollectionExpanded(row.collection.id)
+        }
+      } else {
+        const rowShardId = row.shard?.id
+        if (
+          rowShardId &&
+          row.hasChildren &&
+          expandedShards.has(`${row.collection.id}:${rowShardId}`)
+        ) {
+          toggleShardExpanded(row.collection.id, rowShardId)
+          return
+        }
+        const parentId = row.shard?.parent_id
+        const parentIndex = switcherRows.findIndex(
+          (candidate) =>
+            candidate.collection.id === row.collection.id &&
+            (parentId
+              ? candidate.kind === 'shard' && candidate.shard?.id === parentId
+              : candidate.kind === 'collection')
+        )
+        if (parentIndex >= 0) focusSwitcherRow(parentIndex)
+      }
+    } else if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      if (row.kind === 'collection') void handleDropdownSelect(row.collection)
+      else if (row.shard) void handleDropdownShardSelect(row.collection, row.shard)
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      closeDropdown()
+    }
   }
 
   async function handleDropdownAdd() {
@@ -110,17 +356,87 @@
   async function handleOpenCollectionInNewWindow() {
     if (!contextMenuCollection) return
     const id = contextMenuCollection.id
+    const shardId = contextMenuShard?.id
     closeContextMenu()
     try {
-      await window.api.newWindow(id)
+      await window.api.newWindow(id, shardId)
     } catch (err) {
       console.error('Open collection in new window failed:', err)
     }
   }
 
+  async function ensureContextShardActive(): Promise<void> {
+    if (!contextMenuCollection || !contextMenuShard) return
+    await handleCollectionClick(contextMenuCollection)
+    await refreshShards(contextMenuCollection.id)
+    if (contextMenuShard.exists) await setActiveShard(contextMenuShard.id)
+  }
+
+  async function openCreateShard(collectionId: string, path = ''): Promise<void> {
+    closeContextMenu()
+    const collection = currentCollections.find((item) => item.id === collectionId)
+    if (collection) await handleCollectionClick(collection)
+    shardModalCollectionId = collectionId
+    shardModalShard = null
+    shardModalInitialPath = path
+    shardModalOpen = true
+  }
+
+  async function openEditShard(collectionId: string, shard: ShardInfo): Promise<void> {
+    closeContextMenu()
+    const collection = currentCollections.find((item) => item.id === collectionId)
+    if (collection) await handleCollectionClick(collection)
+    shardModalCollectionId = collectionId
+    shardModalShard = shard
+    shardModalInitialPath = shard.path
+    shardModalOpen = true
+  }
+
+  async function handleRemoveShard(): Promise<void> {
+    if (!contextMenuCollection || !contextMenuShard) return
+    const collectionId = contextMenuCollection.id
+    const shard = contextMenuShard
+    closeContextMenu()
+    const confirmed = await window.api.showConfirmation({
+      title: `Remove Shard “${shard.name}”?`,
+      message:
+        'The Shard definition and its local Topic definitions will be removed. Its folder, files, and the shared collection index remain untouched.',
+      confirmLabel: 'Remove Shard',
+      tone: 'danger'
+    })
+    if (!confirmed) return
+    await removeShardDefinition(shard.id, collectionId)
+  }
+
+  async function handleShardInformation(): Promise<void> {
+    if (!contextMenuShard) return
+    const path = contextMenuShard.path
+    await ensureContextShardActive()
+    closeContextMenu()
+    openInfoModal(path)
+  }
+
+  async function handleShardGraph(): Promise<void> {
+    if (!contextMenuShard) return
+    const path = contextMenuShard.path
+    await ensureContextShardActive()
+    closeContextMenu()
+    void openGraphViewForPath(path)
+  }
+
+  function handleManageShardTopics(): void {
+    if (!contextMenuCollection || !contextMenuShard) return
+    const collectionId = contextMenuCollection.id
+    const shardId = contextMenuShard.id
+    closeContextMenu()
+    openTopicsSettings(collectionId, shardId)
+  }
+
   async function handleRevealCollection() {
     if (!contextMenuCollection) return
-    const path = contextMenuCollection.path
+    const path = contextMenuShard
+      ? `${contextMenuCollection.path}/${contextMenuShard.path}`
+      : contextMenuCollection.path
     closeContextMenu()
     try {
       await window.api.showItemInFolder(path)
@@ -131,7 +447,9 @@
 
   async function handleCopyCollectionPath() {
     if (!contextMenuCollection) return
-    const path = contextMenuCollection.path
+    const path = contextMenuShard
+      ? `${contextMenuCollection.path}/${contextMenuShard.path}`
+      : contextMenuCollection.path
     closeContextMenu()
     await window.api.writeToClipboard(path)
   }
@@ -141,6 +459,10 @@
     if (!contextMenuCollection) return
     const id = contextMenuCollection.id
     closeContextMenu()
+    if (section === 'clusters') {
+      openTopicsSettings(id, null)
+      return
+    }
     settingsTarget.set(id)
     activeSection.set(section)
     settingsOpen.set(true)
@@ -182,9 +504,11 @@
 
   async function handleInformation() {
     if (!contextMenuCollection) return
+    const scope =
+      contextMenuCollection.id === currentActiveCollectionId ? currentActiveShard?.path : undefined
     await ensureContextCollectionActive()
     closeContextMenu()
-    openInfoModal()
+    openInfoModal(scope)
   }
 
   function handleWatcherToggle() {
@@ -195,11 +519,16 @@
   function handleOpenInTerminal() {
     if (!contextMenuCollection) return
     const target = contextMenuCollection
+    const shard = contextMenuShard
     closeContextMenu()
-    void terminalStore.createTerminal({ cwd: target.path, title: target.name })
+    void terminalStore.createTerminal({
+      cwd: shard ? `${target.path}/${shard.path}` : target.path,
+      title: shard?.name ?? target.name
+    })
   }
 
   function formatStats(status: typeof currentCollectionStatus): string {
+    if (currentActiveShard) return `${currentScopedFileCount} docs`
     if (!status) return ''
     const docs = status.document_count ?? 0
     return `${docs} docs`
@@ -264,11 +593,18 @@
               if (currentActiveCollection) handleCollectionContextMenu(e, currentActiveCollection)
             }}
           >
-            <span class="material-symbols-outlined switcher-icon">folder_open</span>
+            {#if currentActiveShard}
+              <span class="switcher-icon shard-icon-slot"><ShardIcon size={18} /></span>
+            {:else}
+              <span class="material-symbols-outlined switcher-icon">folder_open</span>
+            {/if}
             <div class="switcher-info">
-              <span class="switcher-label"
-                >{currentActiveCollection?.name ?? 'Select collection'}</span
-              >
+              <span class="switcher-label">
+                {currentActiveCollection?.name ?? 'Select collection'}{#if currentActiveShard}
+                  <span class="switcher-breadcrumb-separator">
+                    ›
+                  </span>{currentActiveShard.name}{/if}
+              </span>
               {#if currentActiveCollection && currentCollectionStatus}
                 <span class="switcher-stats">{formatStats(currentCollectionStatus)}</span>
               {:else if currentActiveCollection}
@@ -284,23 +620,126 @@
             <!-- svelte-ignore a11y_click_events_have_key_events -->
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <div class="dropdown-overlay" onclick={closeDropdown}></div>
-            <div class="dropdown-menu">
-              {#each currentCollections as collection}
-                <button
-                  class="dropdown-item"
-                  class:active={currentActiveCollectionId === collection.id}
-                  onclick={() => handleDropdownSelect(collection)}
-                  oncontextmenu={(e) => handleCollectionContextMenu(e, collection)}
-                >
-                  <span class="material-symbols-outlined dropdown-item-icon">
-                    {currentActiveCollectionId === collection.id ? 'folder_open' : 'folder'}
-                  </span>
-                  <span class="dropdown-item-label">{collection.name}</span>
-                  {#if currentActiveCollectionId === collection.id}
-                    <span class="material-symbols-outlined dropdown-check">check</span>
-                  {/if}
-                </button>
+            <div
+              bind:this={switcherTree}
+              class="dropdown-menu"
+              role="tree"
+              aria-label="Collections and Shards"
+              tabindex="-1"
+              onkeydown={handleSwitcherKeydown}
+            >
+              {#each switcherRows as row, index (row.key)}
+                {#if row.kind === 'collection'}
+                  <div class="dropdown-tree-row" role="presentation">
+                    {#if row.hasChildren}
+                      <button
+                        class="dropdown-expand"
+                        aria-label={expandedCollections.has(row.collection.id)
+                          ? `Collapse ${row.collection.name}`
+                          : `Expand ${row.collection.name}`}
+                        tabindex="-1"
+                        onclick={(event) => {
+                          event.stopPropagation()
+                          toggleCollectionExpanded(row.collection.id)
+                        }}
+                      >
+                        <span class="material-symbols-outlined">
+                          {expandedCollections.has(row.collection.id)
+                            ? 'expand_more'
+                            : 'chevron_right'}
+                        </span>
+                      </button>
+                    {/if}
+                    <button
+                      class="dropdown-item collection-row"
+                      class:active={currentActiveCollectionId === row.collection.id &&
+                        !currentActiveShardId}
+                      role="treeitem"
+                      aria-level="1"
+                      aria-selected={currentActiveCollectionId === row.collection.id &&
+                        !currentActiveShardId}
+                      aria-expanded={row.hasChildren
+                        ? expandedCollections.has(row.collection.id)
+                        : undefined}
+                      data-switcher-index={index}
+                      tabindex={focusedSwitcherIndex === index ? 0 : -1}
+                      onfocus={() => (focusedSwitcherIndex = index)}
+                      onclick={() => handleDropdownSelect(row.collection)}
+                      oncontextmenu={(event) => handleCollectionContextMenu(event, row.collection)}
+                    >
+                      <span class="material-symbols-outlined dropdown-item-icon">
+                        {currentActiveCollectionId === row.collection.id ? 'folder_open' : 'folder'}
+                      </span>
+                      <span class="dropdown-item-label">{row.collection.name}</span>
+                      {#if currentActiveCollectionId === row.collection.id && !currentActiveShardId}
+                        <span class="material-symbols-outlined dropdown-check">check</span>
+                      {/if}
+                    </button>
+                  </div>
+                {:else if row.shard}
+                  <div class="dropdown-tree-row shard-tree-row" role="presentation">
+                    {#if row.hasChildren}
+                      <button
+                        class="dropdown-expand"
+                        aria-label={expandedShards.has(`${row.collection.id}:${row.shard.id}`)
+                          ? `Collapse ${row.shard.name}`
+                          : `Expand ${row.shard.name}`}
+                        tabindex="-1"
+                        style:left={`${3 + (row.depth - 1) * 14}px`}
+                        onclick={(event) => {
+                          event.stopPropagation()
+                          toggleShardExpanded(row.collection.id, row.shard!.id)
+                        }}
+                      >
+                        <span class="material-symbols-outlined">
+                          {expandedShards.has(`${row.collection.id}:${row.shard.id}`)
+                            ? 'expand_more'
+                            : 'chevron_right'}
+                        </span>
+                      </button>
+                    {/if}
+                    <button
+                      class="dropdown-item shard-row"
+                      class:active={currentActiveCollectionId === row.collection.id &&
+                        currentActiveShardId === row.shard.id}
+                      class:missing={!row.shard.exists}
+                      role="treeitem"
+                      aria-level={row.depth}
+                      aria-selected={currentActiveCollectionId === row.collection.id &&
+                        currentActiveShardId === row.shard.id}
+                      aria-expanded={row.hasChildren
+                        ? expandedShards.has(`${row.collection.id}:${row.shard.id}`)
+                        : undefined}
+                      aria-disabled={!row.shard.exists}
+                      data-switcher-index={index}
+                      tabindex={focusedSwitcherIndex === index ? 0 : -1}
+                      style:padding-left={`${28 + (row.depth - 1) * 14}px`}
+                      onfocus={() => (focusedSwitcherIndex = index)}
+                      onclick={() => handleDropdownShardSelect(row.collection, row.shard!)}
+                      oncontextmenu={(event) =>
+                        handleShardContextMenu(event, row.collection, row.shard!)}
+                      title={row.shard.exists
+                        ? row.shard.path
+                        : `Missing folder: ${row.shard.path}`}
+                    >
+                      <span class="dropdown-item-icon shard-icon-slot">
+                        <ShardIcon size={16} />
+                      </span>
+                      <span class="dropdown-item-label">{row.shard.name}</span>
+                      {#if !row.shard.exists}
+                        <span class="material-symbols-outlined dropdown-warning">warning</span>
+                      {:else if currentActiveCollectionId === row.collection.id && currentActiveShardId === row.shard.id}
+                        <span class="material-symbols-outlined dropdown-check">check</span>
+                      {/if}
+                    </button>
+                  </div>
+                {/if}
               {/each}
+              {#if Object.values(currentShardErrors).some(Boolean)}
+                <div class="dropdown-error" role="status">
+                  Some Shards could not be loaded. Open the collection to retry.
+                </div>
+              {/if}
               <div class="dropdown-separator"></div>
               <button class="dropdown-item add-item" onclick={handleDropdownAdd}>
                 <span class="material-symbols-outlined dropdown-item-icon">create_new_folder</span>
@@ -323,9 +762,10 @@
               forceNewTab: detail.forceNewTab
             })}
           onfolderopen={(detail) => {
-            workspace.openTableTab(detail.path)
+            workspace.openTableTab(detail.path, detail.recursive ? { recursive: true } : undefined)
             syncFileStoresFromTab()
           }}
+          oncreateshard={(detail) => void openCreateShard(currentActiveCollectionId!, detail.path)}
         />
       </div>
     {/if}
@@ -356,88 +796,154 @@
       style="left: {contextMenuPosition.x}px; top: {contextMenuPosition.y}px;"
       onclick={(e) => e.stopPropagation()}
     >
-      <button class="context-menu-item" onclick={handleOpenCollectionInNewWindow}>
-        <span class="material-symbols-outlined">open_in_new</span>
-        <span class="context-menu-label">Open in New Window</span>
-      </button>
-      <div class="context-menu-separator"></div>
-      <button class="context-menu-item" onclick={handleRevealCollection}>
-        <span class="material-symbols-outlined">folder_open</span>
-        <span class="context-menu-label">
-          {isMac ? 'Reveal in Finder' : 'Reveal in File Explorer'}
-        </span>
-      </button>
-      <button class="context-menu-item" onclick={handleCopyCollectionPath}>
-        <span class="material-symbols-outlined">content_copy</span>
-        <span class="context-menu-label">Copy Path</span>
-      </button>
-      <button class="context-menu-item" onclick={handleOpenInTerminal}>
-        <span class="material-symbols-outlined">terminal</span>
-        <span class="context-menu-label">Open in Terminal</span>
-      </button>
-      <div class="context-menu-separator"></div>
-      <button class="context-menu-item" onclick={handleSyncCollection}>
-        <span class="material-symbols-outlined">sync</span>
-        <span class="context-menu-label">Sync (Incremental)</span>
-      </button>
-      <button class="context-menu-item" onclick={handleReindexCollection}>
-        <span class="material-symbols-outlined">restart_alt</span>
-        <span class="context-menu-label">Reindex Collection</span>
-      </button>
-      {#if contextMenuCollection.id === currentActiveCollectionId}
-        <button class="context-menu-item" onclick={handleWatcherToggle}>
-          <span class="material-symbols-outlined">
-            {currentWatcherState === 'running' ? 'visibility_off' : 'visibility'}
-          </span>
+      {#if contextMenuShard}
+        <button
+          class="context-menu-item"
+          onclick={() => void openEditShard(contextMenuCollection!.id, contextMenuShard!)}
+        >
+          <span class="material-symbols-outlined">edit</span>
+          <span class="context-menu-label">Edit Shard…</span>
+        </button>
+        <button class="context-menu-item" onclick={handleShardInformation}>
+          <span class="material-symbols-outlined">info</span>
+          <span class="context-menu-label">Information</span>
+        </button>
+        <button class="context-menu-item" onclick={handleManageShardTopics}>
+          <span class="material-symbols-outlined">category</span>
+          <span class="context-menu-label">Manage Topics…</span>
+        </button>
+        <button
+          class="context-menu-item"
+          onclick={handleShardGraph}
+          disabled={!contextMenuShard.exists}
+        >
+          <span class="material-symbols-outlined">hub</span>
+          <span class="context-menu-label">Show in Graph</span>
+        </button>
+        <div class="context-menu-separator"></div>
+        <button class="context-menu-item" onclick={handleOpenCollectionInNewWindow}>
+          <span class="material-symbols-outlined">open_in_new</span>
+          <span class="context-menu-label">Open in New Window</span>
+        </button>
+        <button class="context-menu-item" onclick={handleRevealCollection}>
+          <span class="material-symbols-outlined">folder_open</span>
           <span class="context-menu-label">
-            {currentWatcherState === 'running' ? 'Stop Watching' : 'Watch for Changes'}
+            {isMac ? 'Reveal in Finder' : 'Reveal in File Explorer'}
           </span>
+        </button>
+        <button class="context-menu-item" onclick={handleCopyCollectionPath}>
+          <span class="material-symbols-outlined">content_copy</span>
+          <span class="context-menu-label">Copy Path</span>
+        </button>
+        <button class="context-menu-item" onclick={handleOpenInTerminal}>
+          <span class="material-symbols-outlined">terminal</span>
+          <span class="context-menu-label">Open in Terminal</span>
+        </button>
+        <div class="context-menu-separator"></div>
+        <button class="context-menu-item danger" onclick={handleRemoveShard}>
+          <span class="material-symbols-outlined">delete</span>
+          <span class="context-menu-label">Remove Shard</span>
+        </button>
+      {:else}
+        <button class="context-menu-item" onclick={handleOpenCollectionInNewWindow}>
+          <span class="material-symbols-outlined">open_in_new</span>
+          <span class="context-menu-label">Open in New Window</span>
+        </button>
+        <div class="context-menu-separator"></div>
+        <button class="context-menu-item" onclick={handleRevealCollection}>
+          <span class="material-symbols-outlined">folder_open</span>
+          <span class="context-menu-label">
+            {isMac ? 'Reveal in Finder' : 'Reveal in File Explorer'}
+          </span>
+        </button>
+        <button class="context-menu-item" onclick={handleCopyCollectionPath}>
+          <span class="material-symbols-outlined">content_copy</span>
+          <span class="context-menu-label">Copy Path</span>
+        </button>
+        <button class="context-menu-item" onclick={handleOpenInTerminal}>
+          <span class="material-symbols-outlined">terminal</span>
+          <span class="context-menu-label">Open in Terminal</span>
+        </button>
+        <div class="context-menu-separator"></div>
+        <button class="context-menu-item" onclick={handleSyncCollection}>
+          <span class="material-symbols-outlined">sync</span>
+          <span class="context-menu-label">Sync (Incremental)</span>
+        </button>
+        <button class="context-menu-item" onclick={handleReindexCollection}>
+          <span class="material-symbols-outlined">restart_alt</span>
+          <span class="context-menu-label">Reindex Collection</span>
+        </button>
+        {#if contextMenuCollection.id === currentActiveCollectionId}
+          <button class="context-menu-item" onclick={handleWatcherToggle}>
+            <span class="material-symbols-outlined">
+              {currentWatcherState === 'running' ? 'visibility_off' : 'visibility'}
+            </span>
+            <span class="context-menu-label">
+              {currentWatcherState === 'running' ? 'Stop Watching' : 'Watch for Changes'}
+            </span>
+          </button>
+        {/if}
+        <button class="context-menu-item" onclick={handleRunDoctor}>
+          <span class="material-symbols-outlined">troubleshoot</span>
+          <span class="context-menu-label">Run Doctor…</span>
+        </button>
+        <button class="context-menu-item" onclick={handleInformation}>
+          <span class="material-symbols-outlined">info</span>
+          <span class="context-menu-label">Information</span>
+        </button>
+        <button
+          class="context-menu-item"
+          onclick={() => void openCreateShard(contextMenuCollection!.id)}
+        >
+          <ShardIcon size={16} />
+          <span class="context-menu-label">Create Shard…</span>
+        </button>
+        <div class="context-menu-separator"></div>
+        <div
+          class="submenu-wrapper"
+          onmouseenter={() => (settingsSubmenuOpen = true)}
+          onmouseleave={() => (settingsSubmenuOpen = false)}
+        >
+          <button
+            class="context-menu-item submenu-parent"
+            onclick={() => (settingsSubmenuOpen = !settingsSubmenuOpen)}
+          >
+            <span class="material-symbols-outlined">settings</span>
+            <span class="context-menu-label">Settings</span>
+            <span class="material-symbols-outlined submenu-arrow">chevron_right</span>
+          </button>
+          {#if settingsSubmenuOpen}
+            <div class="context-submenu">
+              {#each settingsSections as entry (entry.section)}
+                <button
+                  class="context-menu-item"
+                  title={entry.label}
+                  onclick={() => handleCollectionSettingsSection(entry.section)}
+                >
+                  <span class="material-symbols-outlined">{entry.icon}</span>
+                  <span class="context-menu-label">{entry.label}</span>
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
+        <div class="context-menu-separator"></div>
+        <button class="context-menu-item danger" onclick={handleRemoveCollection}>
+          <span class="material-symbols-outlined">delete</span>
+          <span class="context-menu-label">Remove Collection</span>
         </button>
       {/if}
-      <button class="context-menu-item" onclick={handleRunDoctor}>
-        <span class="material-symbols-outlined">troubleshoot</span>
-        <span class="context-menu-label">Run Doctor…</span>
-      </button>
-      <button class="context-menu-item" onclick={handleInformation}>
-        <span class="material-symbols-outlined">info</span>
-        <span class="context-menu-label">Information</span>
-      </button>
-      <div class="context-menu-separator"></div>
-      <div
-        class="submenu-wrapper"
-        onmouseenter={() => (settingsSubmenuOpen = true)}
-        onmouseleave={() => (settingsSubmenuOpen = false)}
-      >
-        <button
-          class="context-menu-item submenu-parent"
-          onclick={() => (settingsSubmenuOpen = !settingsSubmenuOpen)}
-        >
-          <span class="material-symbols-outlined">settings</span>
-          <span class="context-menu-label">Settings</span>
-          <span class="material-symbols-outlined submenu-arrow">chevron_right</span>
-        </button>
-        {#if settingsSubmenuOpen}
-          <div class="context-submenu">
-            {#each settingsSections as entry (entry.section)}
-              <button
-                class="context-menu-item"
-                title={entry.label}
-                onclick={() => handleCollectionSettingsSection(entry.section)}
-              >
-                <span class="material-symbols-outlined">{entry.icon}</span>
-                <span class="context-menu-label">{entry.label}</span>
-              </button>
-            {/each}
-          </div>
-        {/if}
-      </div>
-      <div class="context-menu-separator"></div>
-      <button class="context-menu-item danger" onclick={handleRemoveCollection}>
-        <span class="material-symbols-outlined">delete</span>
-        <span class="context-menu-label">Remove Collection</span>
-      </button>
     </div>
   </div>
+{/if}
+
+{#if shardModalOpen}
+  <ShardModal
+    collectionId={shardModalCollectionId}
+    shard={shardModalShard}
+    initialPath={shardModalInitialPath}
+    onclose={() => (shardModalOpen = false)}
+  />
 {/if}
 
 <style>
@@ -553,6 +1059,12 @@
     flex-shrink: 0;
   }
 
+  .shard-icon-slot {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
   .switcher-info {
     display: flex;
     flex-direction: column;
@@ -569,6 +1081,10 @@
     white-space: nowrap;
     width: 100%;
     text-align: left;
+  }
+
+  .switcher-breadcrumb-separator {
+    color: var(--color-text-dim, #71717a);
   }
 
   .switcher-stats {
@@ -667,6 +1183,63 @@
     font-family: inherit;
     transition: all 0.15s;
     text-align: left;
+  }
+
+  .dropdown-tree-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+
+  .dropdown-tree-row .dropdown-item {
+    padding-left: 28px;
+  }
+
+  .dropdown-expand {
+    position: absolute;
+    left: 3px;
+    z-index: 1;
+    display: grid;
+    width: 22px;
+    height: 26px;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--color-text-dim, #71717a);
+    cursor: pointer;
+  }
+
+  .dropdown-expand:hover,
+  .dropdown-expand:focus-visible {
+    background: var(--color-surface-darker, #0a0a0a);
+    color: var(--color-text, #e4e4e7);
+  }
+
+  .dropdown-expand .material-symbols-outlined {
+    font-size: 15px;
+  }
+
+  .shard-row .dropdown-item-icon {
+    color: var(--color-primary, #00e5ff);
+  }
+
+  .shard-row.missing {
+    color: var(--color-warning, #f59e0b);
+  }
+
+  .dropdown-warning {
+    flex-shrink: 0;
+    color: var(--color-warning, #f59e0b);
+    font-size: 15px;
+  }
+
+  .dropdown-error {
+    padding: 7px 10px;
+    color: var(--color-warning, #f59e0b);
+    font-size: 10px;
+    line-height: 1.35;
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -768,6 +1341,11 @@
   .context-menu-item:hover {
     background: var(--color-surface-darker, #0a0a0a);
     color: var(--color-text-white, #fff);
+  }
+
+  .context-menu-item:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
   }
 
   .context-menu-item.danger:hover {

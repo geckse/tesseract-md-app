@@ -68,6 +68,16 @@ describe('GraphBackgroundContextMenu', () => {
     expect(screen.queryByRole('menuitem', { name: 'Hide labels' })).toBeNull()
   })
 
+  it('offers an optional scoped Topic-management action', async () => {
+    const onmanagetopics = vi.fn()
+    renderMenu({ onmanagetopics })
+
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Manage Topics…' }))
+
+    expect(onmanagetopics).toHaveBeenCalledOnce()
+    expect(screen.getAllByRole('menuitem')).toHaveLength(5)
+  })
+
   it('dismisses from the backdrop and Escape key', async () => {
     const handlers = renderMenu()
     const backdrop = screen.getByRole('button', { name: 'Dismiss graph background menu' })

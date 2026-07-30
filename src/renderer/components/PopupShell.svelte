@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { get } from 'svelte/store'
   import Editor from './Editor.svelte'
   import WysiwygEditor from './WysiwygEditor.svelte'
   import LazyGraphView from './LazyGraphView.svelte'
@@ -38,6 +39,12 @@
   import type { PopupInitData, TabTransferData } from '../../preload/api'
   import type { MimeCategory, GraphLevel } from '../types/cli'
   import type { GraphColoringMode } from '../stores/workspace.svelte'
+  import {
+    activeShardId,
+    restoreShardForCollection,
+    setupShardInvalidationListener,
+    teardownShardInvalidationListener
+  } from '../stores/shards'
 
   interface PopupShellProps {
     urlParams: URLSearchParams
@@ -58,11 +65,14 @@
   const filePath = params.get('filePath') ?? ''
   const collectionId = params.get('collectionId') ?? ''
   const collectionPath = params.get('collectionPath') ?? ''
+  const defaultDirectory = params.get('defaultDirectory') ?? undefined
   const initialEditorMode = (params.get('editorMode') ?? 'wysiwyg') as EditorMode
   const popupIsUntitled = params.get('isUntitled') === 'true'
   const mimeCategory = (params.get('mimeCategory') ?? 'other') as MimeCategory
   const initialGraphLevel = (params.get('graphLevel') ?? 'document') as GraphLevel
   const graphColoringMode = (params.get('graphColoringMode') ?? 'cluster') as GraphColoringMode
+  const initialShardId = params.get('shardId')
+  const initialGraphPathFilter = params.get('graphPathFilter')
   const tableRecursive = params.get('recursive') === 'true'
   const tableViewId = params.get('tableViewId') ?? undefined
   const terminalId = params.get('terminalId') ?? ''
@@ -153,22 +163,38 @@
       mimeCategory,
       graphLevel: initialGraphLevel,
       graphColoringMode,
+      graphPathFilter: initialGraphPathFilter,
       recursive: tableRecursive,
       tableViewId,
       terminalId,
       title: terminalTitle
     })
-    contentReady = true
     syncFileStoresFromTab()
 
     // Graph popups do not run the main-window initialization path. Syncing the
     // popup's active graph tab activates the lazy graph-store load using its
-    // level/coloring URL parameters.
+    // level/coloring/scope URL parameters. Resolve the Shard definition first
+    // so its immutable id selects analysis while graphPathFilter narrows topology.
     if (kind === 'graph') {
-      syncGraphStoresFromTab()
+      // App.svelte deliberately skips main-window initialization for popups.
+      // Register the same single project-config listener after seeding this
+      // popup's collection so external Shard/Topic edits refresh its graph.
+      setupShardInvalidationListener()
+      const activateGraphPopup = async (): Promise<void> => {
+        if (collectionId && initialShardId) {
+          await restoreShardForCollection(collectionId, initialShardId)
+        } else {
+          activeShardId.set(null)
+        }
+        contentReady = true
+        syncGraphStoresFromTab()
+      }
+      void activateGraphPopup()
       // Main routes only graph-scoped native commands to graph popups.
       window.api.onMenuCommand(handleMenuCommand)
       window.addEventListener('focus', refreshGraphMenuOnFocus)
+    } else {
+      contentReady = true
     }
 
     // Untitled notes: load the file tree so the Save As dialog can offer
@@ -315,6 +341,7 @@
       window.api.removeImageSavedExternallyListener()
       window.api.removeCloseRequestListener()
       if (kind === 'graph') {
+        teardownShardInvalidationListener()
         window.api.removeMenuCommandListener()
         window.removeEventListener('focus', refreshGraphMenuOnFocus)
       }
@@ -417,7 +444,13 @@
         cwd: meta?.cwd ?? terminalCwd
       }
     } else {
-      data = { kind: 'graph', graphLevel: t.graphLevel, graphColoringMode: t.graphColoringMode }
+      data = {
+        kind: 'graph',
+        graphLevel: t.graphLevel,
+        graphColoringMode: t.graphColoringMode,
+        shardId: get(activeShardId),
+        graphPathFilter: t.graphPathFilter
+      }
     }
 
     window.api.popBack(data)
@@ -512,6 +545,7 @@
   {#if currentSaveAsTabId === tabId && tabId}
     <SaveAsModal
       tabId={currentSaveAsTabId}
+      {defaultDirectory}
       onclose={() => dismissSaveAs()}
       onsaved={() => syncFileStoresFromTab()}
     />

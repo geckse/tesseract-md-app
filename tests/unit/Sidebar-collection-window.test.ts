@@ -10,10 +10,33 @@ vi.mock('../../src/renderer/components/FileTree.svelte', stub)
 vi.mock('../../src/renderer/components/Favorites.svelte', stub)
 vi.mock('../../src/renderer/components/ResizeHandle.svelte', stub)
 
-vi.mock('../../src/renderer/stores/files', () => ({
-  loadFileTree: vi.fn().mockResolvedValue(undefined),
-  loadAssetTree: vi.fn().mockResolvedValue(undefined),
-  syncFileStoresFromTab: vi.fn()
+vi.mock('../../src/renderer/stores/files', async () => {
+  const { writable } = await import('svelte/store')
+  return {
+    loadFileTree: vi.fn().mockResolvedValue(undefined),
+    loadAssetTree: vi.fn().mockResolvedValue(undefined),
+    scopedFileCount: writable(0),
+    syncFileStoresFromTab: vi.fn()
+  }
+})
+
+vi.mock('../../src/renderer/stores/shards', async () => {
+  const { writable } = await import('svelte/store')
+  return {
+    activeShard: writable(null),
+    activeShardId: writable(null),
+    shardsByCollection: writable({}),
+    shardErrorsByCollection: writable({}),
+    buildShardTree: vi.fn().mockReturnValue([]),
+    refreshAllShards: vi.fn().mockResolvedValue(undefined),
+    refreshShards: vi.fn().mockResolvedValue([]),
+    removeShardDefinition: vi.fn().mockResolvedValue(undefined),
+    setActiveShard: vi.fn().mockResolvedValue(undefined)
+  }
+})
+
+vi.mock('../../src/renderer/stores/graph', () => ({
+  openGraphViewForPath: vi.fn().mockResolvedValue(undefined)
 }))
 
 vi.mock('../../src/renderer/stores/workspace.svelte', () => ({
@@ -84,6 +107,6 @@ describe('Sidebar collection context menu', () => {
     await fireEvent.contextMenu(workButton!)
     await fireEvent.click(screen.getByRole('button', { name: /Open in New Window/ }))
 
-    expect(newWindow).toHaveBeenCalledWith('work')
+    expect(newWindow).toHaveBeenCalledWith('work', undefined)
   })
 })

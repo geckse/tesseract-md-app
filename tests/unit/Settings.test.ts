@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/svelte'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/svelte'
 
 // Mock window.api before importing stores
 const mockApi = {
@@ -17,6 +17,9 @@ const mockApi = {
   clusterDefinitions: vi.fn().mockResolvedValue([]),
   customClusters: vi.fn().mockResolvedValue([]),
   topicUnassigned: vi.fn().mockResolvedValue(null),
+  addTopic: vi.fn().mockResolvedValue(undefined),
+  updateTopic: vi.fn().mockResolvedValue(undefined),
+  removeTopic: vi.fn().mockResolvedValue(undefined),
   getUserConfig: vi.fn().mockResolvedValue({}),
   getCollectionConfig: vi.fn().mockResolvedValue({}),
   setUserConfig: vi.fn().mockResolvedValue(undefined),
@@ -59,9 +62,12 @@ import {
   userDraft,
   collectionDraft,
   collectionDeletions,
+  topicsSettingsScopeRequest,
   stageUserConfig
 } from '../../src/renderer/stores/settings'
 import { collections, activeCollectionId } from '../../src/renderer/stores/collections'
+import { activeShardId, shardsByCollection } from '../../src/renderer/stores/shards'
+import { resetTopicsState } from '../../src/renderer/stores/topics'
 import { get } from 'svelte/store'
 import Settings from '@renderer/components/Settings.svelte'
 
@@ -74,8 +80,12 @@ function resetStores() {
   collectionDeletions.set(new Set())
   activeSection.set('cli')
   settingsTarget.set('global')
+  topicsSettingsScopeRequest.set(null)
   collections.set([])
   activeCollectionId.set(null)
+  activeShardId.set(null)
+  shardsByCollection.set({})
+  resetTopicsState()
 }
 
 beforeEach(() => {
@@ -173,6 +183,78 @@ describe('Settings component', () => {
     await fireEvent.click(embeddingTab!)
 
     expect(get(activeSection)).toBe('embedding')
+  })
+
+  it('defaults Topic management to the active Shard and exposes the nested scope tree', async () => {
+    collections.set([{ id: 'c1', name: 'My Notes', path: '/tmp/notes' }])
+    activeCollectionId.set('c1')
+    activeShardId.set('research')
+    shardsByCollection.set({
+      c1: [
+        {
+          id: 'research',
+          name: 'Research',
+          path: 'research',
+          parent_id: null,
+          exists: true
+        },
+        {
+          id: 'papers',
+          name: 'Papers',
+          path: 'research/papers',
+          parent_id: 'research',
+          exists: true
+        }
+      ]
+    })
+    settingsTarget.set('c1')
+    activeSection.set('clusters')
+
+    render(Settings, { props: { onclose: vi.fn() } })
+
+    const scopeTree = await screen.findByRole('tree', { name: 'Topic scope' })
+    const research = within(scopeTree).getByRole('treeitem', { name: 'Research' })
+    const papers = within(scopeTree).getByRole('treeitem', { name: 'Papers' })
+    expect(research.getAttribute('aria-selected')).toBe('true')
+    expect(research.getAttribute('aria-level')).toBe('2')
+    expect(papers.getAttribute('aria-level')).toBe('3')
+    await waitFor(() =>
+      expect(mockApi.clusterDefinitions).toHaveBeenCalledWith('/tmp/notes', 'research')
+    )
+  })
+
+  it('keeps missing Shard Topic definitions selectable but skips computed reads', async () => {
+    collections.set([{ id: 'c1', name: 'My Notes', path: '/tmp/notes' }])
+    activeCollectionId.set('c1')
+    shardsByCollection.set({
+      c1: [
+        {
+          id: 'retired',
+          name: 'Retired',
+          path: 'retired',
+          parent_id: null,
+          exists: false
+        }
+      ]
+    })
+    settingsTarget.set('c1')
+    activeSection.set('clusters')
+    render(Settings, { props: { onclose: vi.fn() } })
+
+    const scopeTree = await screen.findByRole('tree', { name: 'Topic scope' })
+    mockApi.clusterDefinitions.mockClear()
+    mockApi.customClusters.mockClear()
+    mockApi.topicUnassigned.mockClear()
+    await fireEvent.click(within(scopeTree).getByRole('treeitem', { name: /Retired/ }))
+
+    await waitFor(() =>
+      expect(mockApi.clusterDefinitions).toHaveBeenCalledWith('/tmp/notes', 'retired')
+    )
+    expect(mockApi.customClusters).not.toHaveBeenCalled()
+    expect(mockApi.topicUnassigned).not.toHaveBeenCalled()
+    expect(screen.getByText(/local Topic definitions remain editable/)).toBeTruthy()
+    expect(screen.getByText('Collection-wide Similarity Floor')).toBeTruthy()
+    expect(screen.getByText('Collection-wide Clustering Algorithm')).toBeTruthy()
   })
 
   it('API key input has show/hide toggle', async () => {

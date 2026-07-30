@@ -253,6 +253,25 @@ describe('WindowManager', () => {
       wm.createPopupWindow({ kind: 'document' })
       expect(lastBrowserWindowOptions().backgroundColor).toBe('#e9e9e9')
     })
+
+    it('passes graph Shard and descendant path context to popup renderers', () => {
+      const popup = wm.createPopupWindow({
+        kind: 'graph',
+        collectionId: 'work',
+        collectionPath: '/vault',
+        graphLevel: 'chunk',
+        graphColoringMode: 'folder',
+        shardId: 'research',
+        graphPathFilter: 'work/research/papers'
+      }) as unknown as MockBrowserWindow
+
+      expect(popup.loadFile).toHaveBeenCalledWith(expect.any(String), {
+        search: expect.stringContaining('shardId=research')
+      })
+      const search = popup.loadFile.mock.calls[0][1]?.search as string
+      expect(search).toContain('graphPathFilter=work%2Fresearch%2Fpapers')
+      expect(search).toContain('graphLevel=chunk')
+    })
   })
 
   describe('platform titlebar options', () => {

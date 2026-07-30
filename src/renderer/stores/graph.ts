@@ -11,6 +11,14 @@ import { activeCollection } from './collections'
 import { workspace, saveDefaultGraphColoringMode } from './workspace.svelte'
 import type { GraphTab, GraphColoringMode } from './workspace.svelte'
 import { toggleVisibleEdgeCluster } from '../lib/graph-legend-filters'
+import {
+  activeShard,
+  activeShardId,
+  activeScopePath,
+  intersectShardScope,
+  projectConfigInvalidation
+} from './shards'
+import { assertShardGraphAnalysis } from '../lib/graph-analysis'
 
 // Re-export the type for backward compat (consumers import it from graph.ts)
 export type { GraphColoringMode }
@@ -152,6 +160,30 @@ export const graphPathFilter: Writable<string | null> = {
   }
 }
 
+/** Effective CLI path after intersecting the tab filter with the active Shard. */
+export const graphEffectivePathFilter = derived(
+  [graphPathFilter, activeScopePath],
+  ([$filter, $scope]) => intersectShardScope($scope, $filter)
+)
+
+function graphPathInsideActiveBoundary(path: string | null): string | null {
+  if (!path) return null
+  const scope = get(activeScopePath)
+  if (!scope) return path
+  const intersection = intersectShardScope(scope, path)
+  // Equal and ancestor filters do not narrow the Shard and should not survive
+  // as a redundant removable chip.
+  return !intersection.disjoint && intersection.path === intersectShardScope(scope, null).path
+    ? null
+    : path
+}
+
+/** A new Collection has no index until its first ingest; that is an empty state, not a failure. */
+function isMissingGraphIndexError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.toLowerCase().includes('index not found:')
+}
+
 // ─── Shared transient state (not per-tab) ───────────────────────────
 //
 // These remain plain writables because they represent transient UI
@@ -202,6 +234,13 @@ export const graphHoveredFilePath = writable<string | null>(null)
 
 /** Visible edge-cluster IDs. `null` means all; an empty set means hide every typed edge. */
 export const graphEdgeFilter = writable<Set<number> | null>(null)
+
+/**
+ * Bumped whenever collection, Shard analysis context, effective folder scope,
+ * or graph level changes. GraphView uses it to clear component-local legend
+ * and search highlights that must never leak into another context.
+ */
+export const graphContextRevision = writable<number>(0)
 
 /** Whether nodes without incoming or outgoing connections are highlighted. */
 export const graphUnconnectedHighlight = writable<boolean>(false)
@@ -258,7 +297,21 @@ let inFlightGraphLoad: InFlightGraphLoad | null = null
 /** Avoid scheduling more than one follow-up refresh microtask. */
 let followUpRefreshQueued = false
 
+/** Last graph request identity whose transient interactions are still valid. */
+let activeGraphContextKey: string | null = null
+
 // ─── Actions ────────────────────────────────────────────────────────
+
+/** Clear interactions whose ids/counts only make sense inside one graph context. */
+function resetGraphContextInteractions(): void {
+  graphSelectedNode.set(null)
+  graphOpenedNode.set(null)
+  graphHighlightedFolder.set(null)
+  graphHoveredFilePath.set(null)
+  graphEdgeFilter.set(null)
+  graphUnconnectedHighlight.set(false)
+  graphContextRevision.update((revision) => revision + 1)
+}
 
 /**
  * Load graph data for the active collection.
@@ -285,7 +338,15 @@ export function loadGraphData(mode: 'replace' | 'refresh' = 'replace'): Promise<
 
   const level = get(graphLevel)
   const pathFilter = get(graphPathFilter)
-  const requestKey = `${collection.id}\0${collection.path}\0${level}\0${pathFilter ?? ''}`
+  const shardId = get(activeShardId)
+  const effectiveScope = intersectShardScope(get(activeScopePath), pathFilter)
+  const requestKey = `${collection.id}\0${collection.path}\0${level}\0${
+    shardId ?? ''
+  }\0${effectiveScope.disjoint ? '<disjoint>' : (effectiveScope.path ?? '')}`
+  if (activeGraphContextKey !== requestKey) {
+    activeGraphContextKey = requestKey
+    resetGraphContextInteractions()
+  }
   if (inFlightGraphLoad?.key === requestKey) {
     if (inFlightGraphLoad.mode === mode) return inFlightGraphLoad.promise
     // An index invalidation that lands during a replacement read is serviced
@@ -303,6 +364,16 @@ export function loadGraphData(mode: 'replace' | 'refresh' = 'replace'): Promise<
     graphError.set(null)
   }
 
+  if (effectiveScope.disjoint) {
+    graphLoadMode.set(mode)
+    graphDataSource.set('cli')
+    graphData.set({ nodes: [], edges: [], contexts: [], clusters: [], level })
+    graphError.set(null)
+    graphDataDirty.set(false)
+    graphLoading.set(false)
+    return Promise.resolve()
+  }
+
   const request = {
     key: requestKey,
     mode,
@@ -313,10 +384,16 @@ export function loadGraphData(mode: 'replace' | 'refresh' = 'replace'): Promise<
   const promise = (async (): Promise<void> => {
     let loadedSuccessfully = false
     try {
-      const data = await window.api.graphData(collection.path, level, pathFilter ?? undefined)
+      const data = await window.api.graphData(
+        collection.path,
+        level,
+        effectiveScope.path ?? undefined,
+        shardId ?? undefined
+      )
 
       // Ignore stale results
       if (generation !== loadGeneration) return
+      if (shardId) assertShardGraphAnalysis(data, shardId)
 
       graphLoadMode.set(mode)
       graphDataSource.set('cli')
@@ -334,8 +411,10 @@ export function loadGraphData(mode: 'replace' | 'refresh' = 'replace'): Promise<
         console.warn('Background graph refresh failed:', err)
         return
       }
-      graphError.set(err instanceof Error ? err.message : String(err))
       graphData.set(null)
+      graphError.set(
+        isMissingGraphIndexError(err) ? null : err instanceof Error ? err.message : String(err)
+      )
     } finally {
       if (generation === loadGeneration && mode === 'replace') {
         graphLoading.set(false)
@@ -354,6 +433,10 @@ export function loadGraphData(mode: 'replace' | 'refresh' = 'replace'): Promise<
 
 /** Background graph re-fetch — the entry point for index-change consumers. */
 export function refreshGraphData(): Promise<void> {
+  const currentFilter = get(graphPathFilter)
+  const constrainedFilter = graphPathInsideActiveBoundary(currentFilter)
+  if (constrainedFilter !== currentFilter) graphPathFilter.set(constrainedFilter)
+
   dirtyGeneration++
   graphDataDirty.set(true)
 
@@ -369,6 +452,66 @@ export function refreshGraphData(): Promise<void> {
   }
   return loadGraphData('refresh')
 }
+
+/**
+ * Make a Collection/Shard analysis transition an authoritative replacement.
+ *
+ * Unlike an index refresh, a context change must never retain the previous
+ * graph on failure: doing so could present Collection cluster ids under a
+ * Shard heading. Hidden graph tabs become cold and dirty, then replacement-
+ * load the selected context when activated.
+ */
+export function replaceGraphAnalysisContext(): Promise<void> {
+  // Supersede any in-flight response before clearing its visible payload.
+  loadGeneration++
+  activeGraphContextKey = null
+  resetGraphContextInteractions()
+  graphLoadMode.set('replace')
+  graphDataSource.set('cli')
+  graphData.set(null)
+  graphError.set(null)
+  graphLoading.set(false)
+  graphDataDirty.set(true)
+
+  if (!get(graphViewActive)) return Promise.resolve()
+  return loadGraphData('replace')
+}
+
+/**
+ * Keep the graph synchronized with immutable Shard identity and path.
+ *
+ * Explicit setup keeps the listener scoped to a normal app window while also
+ * making the automatic Collection → Shard transition independently testable.
+ */
+export function setupGraphShardContextSync(): () => void {
+  const contextKey = (shard: { id: string; path: string } | null): string =>
+    shard ? `${shard.id}\0${shard.path}` : ''
+  let previousContext = contextKey(get(activeShard))
+
+  return activeShard.subscribe((shard) => {
+    const nextContext = contextKey(shard)
+    if (nextContext === previousContext) return
+    previousContext = nextContext
+    void replaceGraphAnalysisContext()
+  })
+}
+
+/**
+ * Invalidate config-derived graph analysis even when the topology request key
+ * is unchanged. Topic edits can renumber/remove cluster ids, so transient
+ * selections and filters must never survive this revision boundary.
+ */
+export function invalidateGraphAnalysis(): Promise<void> {
+  resetGraphContextInteractions()
+  return refreshGraphData()
+}
+
+projectConfigInvalidation.subscribe((event) => {
+  if (!event) return
+  const collection = get(activeCollection)
+  if (collection?.id !== event.collectionId || collection.path !== event.root) return
+  void invalidateGraphAnalysis()
+})
 
 /** Load or refresh the graph only when its tab is the active view. */
 function ensureGraphDataForActiveView(): Promise<void> {
@@ -438,7 +581,7 @@ export function openGraphView(): void {
  */
 export function openGraphViewForPath(path: string): Promise<void> {
   workspace.switchToGraphTab()
-  graphPathFilter.set(path)
+  graphPathFilter.set(graphPathInsideActiveBoundary(path))
   graphSelectedNode.set(null)
   graphOpenedNode.set(null)
   return loadGraphData('replace')
@@ -456,7 +599,7 @@ export function setGraphLevel(level: GraphLevel): void {
 
 /** Set the path filter and reload graph data. */
 export function setGraphPathFilter(path: string | null): void {
-  graphPathFilter.set(path)
+  graphPathFilter.set(graphPathInsideActiveBoundary(path))
   graphSelectedNode.set(null)
   graphOpenedNode.set(null)
   if (get(graphViewActive)) {
@@ -611,6 +754,7 @@ export function resetGraphState(): void {
   dirtyGeneration++
   inFlightGraphLoad = null
   followUpRefreshQueued = false
+  activeGraphContextKey = null
   graphData.set(null)
   graphLoadMode.set('replace')
   graphDataSource.set('cli')
@@ -625,6 +769,7 @@ export function resetGraphState(): void {
   graphUnconnectedHighlight.set(false)
   graphSemanticEdgesEnabled.set(true)
   graphEdgeWeakThreshold.set(0.3)
+  graphContextRevision.update((revision) => revision + 1)
   // Per-tab state (graphLevel, graphColoringMode, graphPathFilter) resets
   // with workspace.reset() — no need to reset here.
   syncGraphStoresFromTab()

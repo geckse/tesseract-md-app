@@ -20,6 +20,8 @@ import type {
   TableViewConfig
 } from '../../preload/api'
 import { createImageEditDraft, type ImageEditDraft } from '../../shared/image-edit'
+import { get } from 'svelte/store'
+import { activeShardId } from './shards'
 
 // Re-export shared table-view config types for renderer consumers.
 export type {
@@ -1423,7 +1425,9 @@ class WorkspaceStore {
       return {
         kind: 'graph',
         graphLevel: tab.graphLevel,
-        graphColoringMode: tab.graphColoringMode
+        graphColoringMode: tab.graphColoringMode,
+        shardId: get(activeShardId),
+        graphPathFilter: tab.graphPathFilter
       }
     }
 
@@ -1520,6 +1524,21 @@ class WorkspaceStore {
     if (data.kind === 'graph') {
       // For graph, just switch to the existing graph tab in this pane
       if (pane.graphTabId) {
+        const graphTab = this.tabs[pane.graphTabId]
+        if (graphTab?.kind === 'graph') {
+          if (data.graphLevel === 'document' || data.graphLevel === 'chunk') {
+            graphTab.graphLevel = data.graphLevel
+          }
+          if (
+            data.graphColoringMode === 'cluster' ||
+            data.graphColoringMode === 'custom-cluster' ||
+            data.graphColoringMode === 'folder' ||
+            data.graphColoringMode === 'none'
+          ) {
+            graphTab.graphColoringMode = data.graphColoringMode
+          }
+          graphTab.graphPathFilter = data.graphPathFilter ?? null
+        }
         this.switchTab(pane.graphTabId, targetPaneId)
         return pane.graphTabId
       }
@@ -2026,6 +2045,7 @@ class WorkspaceStore {
       imageEditDraft?: ImageEditDraft
       graphLevel?: GraphLevel
       graphColoringMode?: GraphColoringMode
+      graphPathFilter?: string | null
       recursive?: boolean
       tableViewId?: string
       terminalId?: string
@@ -2107,7 +2127,7 @@ class WorkspaceStore {
         kind: 'graph',
         title: 'Graph',
         graphLevel: options.graphLevel ?? 'document',
-        graphPathFilter: null,
+        graphPathFilter: options.graphPathFilter ?? null,
         graphColoringMode: options.graphColoringMode ?? loadDefaultGraphColoringMode()
       } as GraphTab
     }

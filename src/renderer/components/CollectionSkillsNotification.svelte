@@ -113,7 +113,7 @@
       var(--color-primary, #00e5ff) 10%,
       var(--color-surface, #161617)
     );
-    color: var(--color-text-main, #e4e4e7);
+    color: var(--color-text, #e4e4e7);
     font-size: 13px;
   }
 
@@ -178,6 +178,10 @@
     border-color: color-mix(in srgb, var(--color-primary, #00e5ff) 45%, transparent);
     color: var(--color-primary, #00e5ff);
     font-weight: 600;
+  }
+
+  :global(html[data-theme='light']) .banner-btn-primary {
+    color: var(--color-primary-dark, #007d8b);
   }
 
   .banner-btn:disabled,

@@ -13,6 +13,7 @@
 
   /** Per-graph-tab selected node ID cache. */
   let selectedNodeIdCache: string | null = null
+  let selectedNodeContextRevisionCache: number | null = null
 
   /** Flag to suppress focusCameraOnNode during state restore. */
   let suppressCameraFocus = false
@@ -22,6 +23,7 @@
     cameraStateCache.clear()
     nodePositionCache.clear()
     selectedNodeIdCache = null
+    selectedNodeContextRevisionCache = null
   }
 </script>
 
@@ -39,6 +41,8 @@
     graphColoringMode,
     graphLevel,
     graphPathFilter,
+    graphEffectivePathFilter,
+    graphContextRevision,
     graphHighlightedFolder,
     graphHoveredFilePath,
     graphLoadMode,
@@ -60,7 +64,14 @@
     type GraphMenuAction
   } from '../stores/graph'
   import type { GraphColoringMode } from '../stores/graph'
-  import type { GraphLevel, GraphNode, GraphData, GraphContextItem } from '../types/cli'
+  import type {
+    GraphLevel,
+    GraphNode,
+    GraphData,
+    GraphContextItem,
+    GraphCluster,
+    ShardInfo
+  } from '../types/cli'
   import { selectedFilePath } from '../stores/files'
   import { openResolvedPathOtherPane } from '../lib/link-navigation'
   import { activeCollection, activeCollectionId } from '../stores/collections'
@@ -73,6 +84,7 @@
   import GraphPresentationControl from './GraphPresentationControl.svelte'
   import GraphBackgroundContextMenu from './GraphBackgroundContextMenu.svelte'
   import PopoverMenu, { type PopoverMenuItem } from './ui/PopoverMenu.svelte'
+  import ShardIcon from './ShardIcon.svelte'
   import {
     edgeClusterColor,
     isEdgeVisible,
@@ -183,6 +195,22 @@
     type Graph3DData
   } from '../lib/graph-3d-bridge'
   import { graphTopLevelFolder, type GraphGroupId } from '../lib/graph-grouping'
+  import {
+    activeShard,
+    activeShardId,
+    activeScopePath,
+    intersectShardScope,
+    pathRelativeToShard
+  } from '../stores/shards'
+  import { ingestRunning, runIngest } from '../stores/ingest'
+  import { openTopicsSettings } from '../stores/settings'
+  import {
+    graphAnalysisDisplayContext,
+    graphAnalysisLegendHeading,
+    graphAnalysisNotice,
+    localGraphClusters,
+    localUnassignedTopicCount
+  } from '../lib/graph-analysis'
 
   // ─── Props ─────────────────────────────────────────────────────────
 
@@ -473,6 +501,9 @@
   let unsubSelected: (() => void) | null = null
   let unsubFilePath: (() => void) | null = null
   let unsubPathFilter: (() => void) | null = null
+  let unsubShardScope: (() => void) | null = null
+  let unsubActiveShard: (() => void) | null = null
+  let unsubGraphContext: (() => void) | null = null
   let unsubHighlightedFolder: (() => void) | null = null
   let unsubHoveredFilePath: (() => void) | null = null
   let unsubEdgeFilter: (() => void) | null = null
@@ -487,10 +518,14 @@
   let unsubCustomClusterPalette: (() => void) | null = null
   let unsubEdgePalette: (() => void) | null = null
   let unsubArrowPalette: (() => void) | null = null
+  let unsubIngestRunning: (() => void) | null = null
   let removeGraphMenuActionListener: (() => void) | null = null
 
   // Reactive local copies for template use
   let currentData: GraphData | null = $state(null)
+  let currentLocalClusters: GraphCluster[] = $state.raw([])
+  let currentLocalTopics: GraphCluster[] = $state.raw([])
+  let currentLocalUnassignedCount = $state(0)
   let currentLoading = $state(false)
   let currentError: string | null = $state(null)
   let currentColoringMode: GraphColoringMode = $state('cluster')
@@ -498,6 +533,9 @@
   let currentLevel: GraphLevel = $state('document')
   let _currentFilePath: string | null = $state(null)
   let currentPathFilter: string | null = $state(null)
+  let currentShardScope: string | null = $state(null)
+  let currentActiveShard: ShardInfo | null = $state(null)
+  let currentIngestRunning = $state(false)
   let currentHighlightedFolder: string | null = $state(null)
   let _currentHoveredFilePath: string | null = $state(null)
   let currentEdgeFilter: Set<number> | null = $state(null)
@@ -519,6 +557,7 @@
   let contextMenuY = $state(0)
   let backgroundContextMenuOpen = $state(false)
   let graphScreenshotExporting = $state(false)
+  let lastGraphContextRevision: number | null = null
 
   // Legend visibility
   let legendVisible = $state(true)
@@ -544,9 +583,9 @@
     VIEW_MODES.find((m) => m.id === currentColoringMode) ?? VIEW_MODES[0]
   )
 
-  /** Dropdown items — Topics is disabled when the collection defines none. */
+  /** Dropdown items — Topics is disabled when the current analysis has no visible members. */
   let viewModeItems = $derived.by<PopoverMenuItem[]>(() => {
-    const hasTopics = (currentData?.custom_clusters?.length ?? 0) > 0
+    const hasTopics = getCustomClusters().length > 0
     return VIEW_MODES.map((m) => ({
       id: m.id,
       label: m.label,
@@ -883,13 +922,23 @@
     }
 
     const generation = ++graphSearchGeneration
+    const effectiveScope = get(graphEffectivePathFilter)
+    if (effectiveScope.disjoint) {
+      graphSearchScores = new Map()
+      graphSearchContextScores = new Map()
+      graphSearchResultCount = 0
+      graphSearchLoading = false
+      graphSearchError = null
+      return
+    }
 
     try {
       const result = await window.api.search(collection.path, query, {
         mode: 'hybrid',
         boostLinks: true,
         expand: 1,
-        limit: 50
+        limit: 50,
+        path: effectiveScope.path ?? undefined
       })
 
       // Ignore stale results
@@ -1242,6 +1291,24 @@
     if (highlightedTopicId == null) return
     highlightedTopicId = null
     syncBatchedVisuals()
+    syncHullLegendHighlight()
+  }
+
+  /** Clear component-local interactions when graph ids acquire a new scope meaning. */
+  function resetGraphViewContextInteractions(): void {
+    highlightedClusterId = null
+    highlightedTopicId = null
+    hoveredNode = null
+    hoveredEdge = null
+    contextMenuNode = null
+    backgroundContextMenuOpen = false
+    viewModeMenuOpen = false
+    selectedNodeIdCache = null
+    selectedNodeContextRevisionCache = null
+    if (presentationActive) {
+      finishGraphPresentation(false, 'Graph presentation cancelled because the scope changed.')
+    }
+    clearGraphSearch()
     syncHullLegendHighlight()
   }
 
@@ -2822,9 +2889,10 @@
     }
 
     // Restore selected node if cached (suppress camera focus — camera is already restored)
-    if (selectedNodeIdCache) {
+    if (selectedNodeIdCache && selectedNodeContextRevisionCache === get(graphContextRevision)) {
       const nodeId = selectedNodeIdCache
       selectedNodeIdCache = null
+      selectedNodeContextRevisionCache = null
       const matchingNode = graph3DData.nodes.find((n) => n.id === nodeId)
       if (matchingNode) {
         suppressCameraFocus = true
@@ -2836,6 +2904,9 @@
           suppressCameraFocus = false
         })
       }
+    } else {
+      selectedNodeIdCache = null
+      selectedNodeContextRevisionCache = null
     }
     lastFedData = data
     feedSpan.end({ outcome: 'success' })
@@ -3340,6 +3411,10 @@
       }
       const prev = currentData
       currentData = d
+      currentLocalClusters = d ? localGraphClusters(d, d.clusters, 'cluster') : []
+      currentLocalTopics =
+        d && d.custom_clusters ? localGraphClusters(d, d.custom_clusters, 'topic') : []
+      currentLocalUnassignedCount = d ? localUnassignedTopicCount(d.nodes) : 0
       unconnectedNodeIds = d ? findUnconnectedNodeIds(d.nodes, d.edges) : new Set()
       if (currentUnconnectedHighlight) syncBatchedVisuals()
       if (d && d.nodes.length > 0 && !graph && webglSupported) {
@@ -3436,6 +3511,24 @@
     // Path filter
     unsubPathFilter = graphPathFilter.subscribe((p) => {
       currentPathFilter = p
+    })
+    unsubShardScope = activeScopePath.subscribe((path) => {
+      currentShardScope = path
+    })
+    unsubActiveShard = activeShard.subscribe((shard) => {
+      currentActiveShard = shard
+    })
+    unsubGraphContext = graphContextRevision.subscribe((revision) => {
+      if (lastGraphContextRevision === null) {
+        lastGraphContextRevision = revision
+        return
+      }
+      if (lastGraphContextRevision === revision) return
+      lastGraphContextRevision = revision
+      resetGraphViewContextInteractions()
+    })
+    unsubIngestRunning = ingestRunning.subscribe((running) => {
+      currentIngestRunning = running
     })
 
     // Folder highlight
@@ -3812,10 +3905,19 @@
 
   // ─── Legend Helpers ─────────────────────────────────────────────────
 
+  function graphAnalysisContextName(): string {
+    return graphAnalysisDisplayContext(currentData?.analysis, currentActiveShard).contextName
+  }
+
+  function graphLegendTitle(): string {
+    if (currentColoringMode === 'none') return ''
+    const provenance = graphAnalysisDisplayContext(currentData?.analysis, currentActiveShard)
+    return graphAnalysisLegendHeading(currentColoringMode, provenance.shardName ?? undefined)
+  }
+
   /** Get cluster items for legend display. */
   function getClusters(): { id: number; label: string; color: string; member_count: number }[] {
-    if (!currentData) return []
-    return currentData.clusters.map((c) => ({
+    return currentLocalClusters.map((c) => ({
       id: c.id,
       label: c.label,
       color: paletteColor(currentClusterPalette, c.id),
@@ -3830,8 +3932,7 @@
     color: string
     member_count: number
   }[] {
-    if (!currentData?.custom_clusters) return []
-    return currentData.custom_clusters.map((c) => ({
+    return currentLocalTopics.map((c) => ({
       id: c.id,
       label: c.label,
       color: paletteColor(currentCustomClusterPalette, c.id),
@@ -3839,11 +3940,24 @@
     }))
   }
 
-  /** Client-side count of document-level nodes with no topic (Unassigned). */
+  /** Client-side count of unique visible documents with no topic (Unassigned). */
   function getUnassignedCount(): number {
-    if (!currentData) return 0
-    return currentData.nodes.filter((n) => n.chunk_index == null && n.custom_cluster_id == null)
-      .length
+    return currentLocalUnassignedCount
+  }
+
+  function currentAnalysisNotice() {
+    return graphAnalysisNotice(currentData?.analysis, graphAnalysisContextName())
+  }
+
+  function handleAnalysisReingest(): void {
+    if (currentIngestRunning) return
+    void runIngest(false)
+  }
+
+  function handleManageTopics(): void {
+    backgroundContextMenuOpen = false
+    const collectionId = get(activeCollectionId)
+    if (collectionId) openTopicsSettings(collectionId, get(activeShardId))
   }
 
   /** Look up a topic name by id in the current graph data. */
@@ -4326,6 +4440,8 @@
 
     // Save selected node ID
     selectedNodeIdCache = currentSelected?.id ?? null
+    selectedNodeContextRevisionCache =
+      selectedNodeIdCache === null ? null : get(graphContextRevision)
 
     // Clean up graph search debounce timer
     if (graphSearchDebounceTimer) {
@@ -4399,6 +4515,9 @@
     unsubSelected?.()
     unsubFilePath?.()
     unsubPathFilter?.()
+    unsubShardScope?.()
+    unsubActiveShard?.()
+    unsubGraphContext?.()
     unsubHighlightedFolder?.()
     unsubHoveredFilePath?.()
     unsubEdgeFilter?.()
@@ -4413,6 +4532,7 @@
     unsubCustomClusterPalette?.()
     unsubEdgePalette?.()
     unsubArrowPalette?.()
+    unsubIngestRunning?.()
     removeGraphMenuActionListener?.()
   })
 
@@ -4440,7 +4560,7 @@
         exportingScreenshot: graphScreenshotExporting,
         level: currentLevel,
         coloringMode: currentColoringMode,
-        topicsAvailable: (currentData?.custom_clusters?.length ?? 0) > 0
+        topicsAvailable: getCustomClusters().length > 0
       })
       .catch(() => {})
   })
@@ -4490,8 +4610,77 @@
     {:else if !currentData || currentData.nodes.length === 0}
       <div class="graph-empty">
         <span class="material-symbols-outlined">hub</span>
-        <p>No files indexed. Run ingest to build the graph.</p>
+        {#if intersectShardScope(currentShardScope, currentPathFilter).disjoint}
+          <p>That folder is outside the active Shard.</p>
+          <p class="graph-empty-hint">Clear the folder filter to return to the Shard graph.</p>
+          <button class="retry-btn" onclick={() => setGraphPathFilter(null)}>
+            Clear folder filter
+          </button>
+        {:else if currentShardScope || currentPathFilter}
+          <p>No files found in this graph scope.</p>
+          {#if currentPathFilter}
+            <button class="retry-btn" onclick={() => setGraphPathFilter(null)}>
+              Clear folder filter
+            </button>
+          {/if}
+        {:else}
+          <p>No files indexed. Run ingest to build the graph.</p>
+        {/if}
       </div>
+    {/if}
+
+    {#if !currentLoading && !currentError && webglSupported}
+      <!-- The active Shard remains visible even when its graph is empty. -->
+      {#if currentShardScope}
+        <div class="graph-path-badge shard-boundary">
+          <span class="path-badge-icon"><ShardIcon size={14} /></span>
+          <span class="path-badge-text">{currentShardScope}</span>
+          <span class="path-badge-lock" title="Active Shard boundary">lock</span>
+        </div>
+      {/if}
+
+      <!-- Optional descendant/ad-hoc path filter. Clearing returns to the Shard. -->
+      {#if currentPathFilter}
+        <div class="graph-path-badge" class:with-shard={!!currentShardScope}>
+          <span class="material-symbols-outlined path-badge-icon">folder</span>
+          <span class="path-badge-text">
+            {currentShardScope
+              ? pathRelativeToShard(currentPathFilter, currentShardScope) || 'Shard root'
+              : currentPathFilter}
+          </span>
+          <button
+            class="path-badge-close"
+            onclick={() => setGraphPathFilter(null)}
+            title="Clear path filter">×</button
+          >
+        </div>
+      {/if}
+
+      {#if currentAnalysisNotice()}
+        {@const notice = currentAnalysisNotice()}
+        {#if notice}
+          <div
+            class="graph-analysis-notice"
+            class:warning={notice.tone === 'warning'}
+            class:error={notice.tone === 'error'}
+            role="status"
+            aria-live="polite"
+          >
+            <span class="material-symbols-outlined" aria-hidden="true">
+              {notice.tone === 'error' ? 'error' : 'info'}
+            </span>
+            <span>{notice.message}</span>
+            {#if notice.canReingest}
+              <button onclick={handleAnalysisReingest} disabled={currentIngestRunning}>
+                {currentIngestRunning ? 'Re-ingesting…' : 'Re-ingest'}
+              </button>
+            {/if}
+            {#if notice.canManageTopics}
+              <button onclick={handleManageTopics}>Manage Topics…</button>
+            {/if}
+          </div>
+        {/if}
+      {/if}
     {/if}
 
     <!-- Proximity node labels (document mode only, distance-based) -->
@@ -4564,7 +4753,9 @@
                 collectionId: colId ?? undefined,
                 collectionPath: collection?.path,
                 graphLevel: currentLevel,
-                graphColoringMode: currentColoringMode
+                graphColoringMode: currentColoringMode,
+                shardId: get(activeShardId) ?? undefined,
+                graphPathFilter: currentPathFilter ?? undefined
               })
             }}
           >
@@ -4657,22 +4848,13 @@
         </div>
       {/if}
 
-      <!-- Path filter badge -->
-      {#if currentPathFilter}
-        <div class="graph-path-badge">
-          <span class="material-symbols-outlined path-badge-icon">folder</span>
-          <span class="path-badge-text">{currentPathFilter}</span>
-          <button
-            class="path-badge-close"
-            onclick={() => setGraphPathFilter(null)}
-            title="Clear path filter">×</button
-          >
-        </div>
-      {/if}
-
       <!-- Folder highlight badge -->
       {#if currentHighlightedFolder}
-        <div class="graph-folder-badge" class:has-path-filter={!!currentPathFilter}>
+        <div
+          class="graph-folder-badge"
+          class:has-path-filter={!!currentPathFilter || !!currentShardScope}
+          class:has-two-path-filters={!!currentPathFilter && !!currentShardScope}
+        >
           <span class="material-symbols-outlined folder-badge-icon">folder_open</span>
           <span class="folder-badge-text">{currentHighlightedFolder}</span>
           <button
@@ -4816,6 +4998,7 @@
           ondismiss={dismissBackgroundContextMenu}
           onrecenter={handleBackgroundRecenter}
           ontogglelabels={handleBackgroundToggleLabels}
+          onmanagetopics={handleManageTopics}
           onscreenshot={() => handleBackgroundScreenshot(false)}
           onscreenshottransparent={() => handleBackgroundScreenshot(true)}
         />
@@ -4854,13 +5037,7 @@
       {#if (currentColoringMode === 'cluster' && getClusters().length > 0) || (currentColoringMode === 'custom-cluster' && getCustomClusters().length > 0) || (currentColoringMode === 'folder' && folderColorMap.size > 0)}
         <div class="graph-legend">
           <div class="legend-header">
-            <span class="legend-title"
-              >{currentColoringMode === 'cluster'
-                ? 'Clusters'
-                : currentColoringMode === 'custom-cluster'
-                  ? 'Topics'
-                  : 'Folders'}</span
-            >
+            <span class="legend-title">{graphLegendTitle()}</span>
             <button
               class="legend-toggle"
               onclick={toggleLegend}
@@ -5188,6 +5365,64 @@
 
   .retry-btn:hover {
     background: var(--color-border, #27272a);
+  }
+
+  .graph-analysis-notice {
+    position: absolute;
+    top: calc(var(--space-3, 0.75rem) + 36px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: var(--z-base, 10);
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 0.5rem);
+    max-width: min(560px, calc(100% - 2rem));
+    padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
+    background: var(--color-surface, #161617);
+    border: 1px solid var(--color-border, #27272a);
+    border-radius: var(--radius-md, 0.375rem);
+    color: var(--color-text-dim, #71717a);
+    font-family: var(--font-display, 'Space Grotesk', sans-serif);
+    font-size: var(--text-xs, 0.625rem);
+    box-shadow: var(--shadow-md, 0 8px 24px rgba(0, 0, 0, 0.28));
+  }
+
+  .graph-analysis-notice.warning {
+    border-color: color-mix(in srgb, var(--color-warning, #f59e0b) 45%, transparent);
+  }
+
+  .graph-analysis-notice.error {
+    border-color: color-mix(in srgb, var(--color-error, #ef4444) 45%, transparent);
+  }
+
+  .graph-analysis-notice .material-symbols-outlined {
+    flex-shrink: 0;
+    font-size: 16px;
+    color: var(--color-primary, #00e5ff);
+  }
+
+  .graph-analysis-notice.warning .material-symbols-outlined {
+    color: var(--color-warning, #f59e0b);
+  }
+
+  .graph-analysis-notice.error .material-symbols-outlined {
+    color: var(--color-error, #ef4444);
+  }
+
+  .graph-analysis-notice button {
+    flex-shrink: 0;
+    padding: 3px 8px;
+    border: 1px solid var(--color-primary, #00e5ff);
+    border-radius: var(--radius-sm, 0.25rem);
+    background: transparent;
+    color: var(--color-primary, #00e5ff);
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .graph-analysis-notice button:disabled {
+    cursor: default;
+    opacity: 0.5;
   }
 
   .graph-notice {
@@ -5634,8 +5869,24 @@
   }
 
   .path-badge-icon {
+    display: inline-flex;
+    align-items: center;
     font-size: 14px;
     color: var(--color-text-dim, #71717a);
+  }
+
+  .graph-path-badge.with-shard {
+    top: calc(var(--space-3, 0.75rem) + 64px);
+  }
+
+  .graph-path-badge.shard-boundary {
+    border-color: var(--color-primary-glow, #00e5ff40);
+  }
+
+  .path-badge-lock {
+    color: var(--color-text-dim, #71717a);
+    font-family: 'Material Symbols Outlined';
+    font-size: 13px;
   }
 
   .path-badge-text {
@@ -5684,6 +5935,10 @@
 
   .graph-folder-badge.has-path-filter {
     top: calc(var(--space-3, 0.75rem) + 64px);
+  }
+
+  .graph-folder-badge.has-two-path-filters {
+    top: calc(var(--space-3, 0.75rem) + 96px);
   }
 
   .folder-badge-icon {

@@ -5,6 +5,7 @@ import {
   saveDefaultGraphColoringMode
 } from '@renderer/stores/workspace.svelte'
 import type { AssetTab, DocumentTab, GraphTab, TabState } from '@renderer/stores/workspace.svelte'
+import { activeShardId } from '@renderer/stores/shards'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -35,6 +36,7 @@ function asDocTab(tab: TabState | undefined): DocumentTab {
 
 describe('WorkspaceStore', () => {
   beforeEach(() => {
+    activeShardId.set(null)
     workspace.reset()
   })
 
@@ -929,8 +931,31 @@ describe('WorkspaceStore', () => {
       expect(data).toEqual({
         kind: 'graph',
         graphLevel: 'document',
-        graphColoringMode: 'cluster'
+        graphColoringMode: 'cluster',
+        shardId: null,
+        graphPathFilter: null
       })
+    })
+
+    it('serializes and restores graph Shard and descendant path context', () => {
+      const graphTabId = getGraphTabId(getDefaultPaneId())
+      const graphTab = workspace.tabs[graphTabId] as GraphTab
+      graphTab.graphLevel = 'chunk'
+      graphTab.graphPathFilter = 'work/research/papers'
+      activeShardId.set('research')
+
+      const data = workspace.serializeTab(graphTabId)
+      expect(data).toMatchObject({
+        kind: 'graph',
+        graphLevel: 'chunk',
+        shardId: 'research',
+        graphPathFilter: 'work/research/papers'
+      })
+
+      workspace.attachTab(data!)
+      const attached = workspace.tabs[graphTabId] as GraphTab
+      expect(attached.graphPathFilter).toBe('work/research/papers')
+      expect(attached.graphLevel).toBe('chunk')
     })
 
     it('serializes a dirty image recipe for popup detaching', () => {
@@ -1450,7 +1475,8 @@ describe('WorkspaceStore', () => {
     it('initAsPopup registers a graph tab as the pane graphTabId', () => {
       const tabId = workspace.initAsPopup('graph', {
         graphLevel: 'chunk',
-        graphColoringMode: 'folder'
+        graphColoringMode: 'folder',
+        graphPathFilter: 'work/research/papers'
       })
 
       const tab = workspace.tabs[tabId]
@@ -1458,6 +1484,7 @@ describe('WorkspaceStore', () => {
       if (tab?.kind === 'graph') {
         expect(tab.graphLevel).toBe('chunk')
         expect(tab.graphColoringMode).toBe('folder')
+        expect(tab.graphPathFilter).toBe('work/research/papers')
       }
       // graphTabId must point at the tab — getFocusedGraphTab() resolves
       // graphLevel/graphColoringMode through it

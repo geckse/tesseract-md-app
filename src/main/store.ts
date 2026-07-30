@@ -108,6 +108,8 @@ export interface AppStore {
   primaryColor: string | null
   collectionColors: Record<string, string>
   watcherEnabled: Record<string, boolean>
+  /** Last selected project-local Shard id per collection. Definitions stay in config.yaml. */
+  activeShardIds: Record<string, string>
   /** Collections whose Tesseract skills banner was permanently dismissed. */
   collectionSkillsDismissed: Record<string, boolean>
   /** Obsidian topic sync provenance per collection (phase 44). */
@@ -311,6 +313,10 @@ const schema = {
   watcherEnabled: {
     type: 'object' as const,
     default: {} as Record<string, boolean>
+  },
+  activeShardIds: {
+    type: 'object' as const,
+    default: {} as Record<string, string>
   },
   collectionSkillsDismissed: {
     type: 'object' as const,
@@ -592,6 +598,21 @@ export function setWatcherEnabled(collectionId: string, enabled: boolean): void 
     delete flags[collectionId]
   }
   s.set('watcherEnabled', flags)
+}
+
+/** Last selected Shard id for a collection, or null for the collection root. */
+export function getActiveShardId(collectionId: string): string | null {
+  const s = initStore()
+  return s.get('activeShardIds', {})[collectionId] ?? null
+}
+
+/** Persist a collection's last selected Shard id; null selects its root. */
+export function setActiveShardId(collectionId: string, shardId: string | null): void {
+  const s = initStore()
+  const ids = s.get('activeShardIds', {})
+  if (shardId) ids[collectionId] = shardId
+  else delete ids[collectionId]
+  s.set('activeShardIds', ids)
 }
 
 /** Whether the skills install/update banner is permanently hidden for a collection. */

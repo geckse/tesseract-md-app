@@ -11,7 +11,7 @@
 import { writable, get } from 'svelte/store'
 import type { ObsidianTopicsSyncedEvent } from '../../preload/api'
 import { activeCollectionId } from './collections'
-import { topicsNeedIngest, loadTopics } from './topics'
+import { activeTopicScope, loadTopics, markTopicsNeedIngest, selectTopicScope } from './topics'
 
 /** Last unacknowledged sync event, or null. */
 export const obsidianImportNotice = writable<ObsidianTopicsSyncedEvent | null>(null)
@@ -24,10 +24,14 @@ export const obsidianImportNotice = writable<ObsidianTopicsSyncedEvent | null>(n
 export function handleObsidianTopicsSynced(event: ObsidianTopicsSyncedEvent): void {
   obsidianImportNotice.set(event)
   if (get(activeCollectionId) === event.collectionId) {
-    const refresh = loadTopics(event.root)
-    // loadTopics synchronously establishes the new root and clears the prior
-    // root's transient flag; mark this root dirty after that scope hand-off.
-    topicsNeedIngest.set(true)
+    if (!get(activeTopicScope)) {
+      selectTopicScope(event.root, null)
+    }
+    // Obsidian imports are collection-owned even while Settings is presenting
+    // a Shard-local topic scope. Refresh and flag the root without stealing
+    // the user's selected Settings scope.
+    const refresh = loadTopics(event.root, null, { activate: false })
+    markTopicsNeedIngest(event.root, null)
     refresh.catch(() => {})
   }
 }

@@ -74,6 +74,18 @@ test.describe('Property type conversion (phase 41)', () => {
       join(vaultDir, 'notes', 'gamma.md'),
       '---\ntitle: Gamma\npriority: not-a-number\n---\n\n# Gamma\n'
     )
+    mkdirSync(join(vaultDir, '.markdownvdb'), { recursive: true })
+    writeFileSync(
+      join(vaultDir, '.markdownvdb', 'config.yaml'),
+      'embedding:\n  provider: mock\n  dimensions: 8\n'
+    )
+    writeFileSync(
+      join(vaultDir, '.markdownvdb.schema.yml'),
+      'scopes:\n  notes:\n    fields:\n      priority:\n        field_type: text\n'
+    )
+    // The sidebar tree and property schema are index-backed. Seed them before
+    // Electron starts so this test exercises conversion rather than startup.
+    execFileSync(cliPath, ['ingest', '--root', vaultDir], { timeout: 60_000 })
 
     const now = Date.now()
     const cliVersion = execFileSync(cliPath, ['--version'], { timeout: 10_000 })
@@ -123,7 +135,9 @@ test.describe('Property type conversion (phase 41)', () => {
     await picker.getByRole('option', { name: 'Number' }).dispatchEvent('mousedown')
 
     // The conversion modal previews the folder database.
-    const dialog = window.getByRole('dialog', { name: 'Change type of priority' })
+    const dialog = window.getByRole('dialog', {
+      name: /Change type:\s*priority\s*Number/
+    })
     await expect(dialog).toBeVisible({ timeout: 10_000 })
     await expect(dialog.getByText(/2 files convert/)).toBeVisible({ timeout: 10_000 })
     await expect(dialog.getByText(/1 skipped/)).toBeVisible()
@@ -132,7 +146,7 @@ test.describe('Property type conversion (phase 41)', () => {
     // Convert and wait for the report.
     await dialog.getByRole('button', { name: 'Convert 2 files' }).click()
     await expect(dialog.locator('p.totals')).toContainText(
-      /2 converted\s*·\s*1 skipped\s*·\s*0 failed/,
+      /2\s*converted\s*·\s*1 skipped\s*·\s*0 failed/,
       { timeout: 30_000 }
     )
     await dialog.getByRole('button', { name: 'Close' }).click()
@@ -170,14 +184,14 @@ test.describe('Property type conversion (phase 41)', () => {
     await window.getByRole('button', { name: 'Property options for priority' }).click()
     await window.getByRole('menuitem', { name: 'Rename property…' }).dispatchEvent('mousedown')
 
-    const dialog = window.getByRole('dialog', { name: 'Rename property priority' })
+    const dialog = window.getByRole('dialog', { name: /Rename property:\s*priority/ })
     await expect(dialog).toBeVisible()
     await dialog.getByRole('textbox', { name: 'New property name' }).fill('rank')
     await dialog.getByRole('button', { name: 'Preview' }).click()
     await expect(dialog.getByText(/3 files convert/)).toBeVisible({ timeout: 10_000 })
     await dialog.getByRole('button', { name: 'Rename 3 files' }).click()
     await expect(dialog.locator('p.totals')).toContainText(
-      /3 converted\s*·\s*0 skipped\s*·\s*0 failed/,
+      /3\s*renamed\s*·\s*0 skipped\s*·\s*0 failed/,
       { timeout: 30_000 }
     )
     await dialog.getByRole('button', { name: 'Close' }).click()

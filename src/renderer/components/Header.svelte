@@ -4,6 +4,13 @@
   import { isDirty, requestSave, requestDiscard } from '../stores/editor'
   import { isFavorited, toggleFavorite } from '../stores/favorites'
   import { requestConfirmation } from '../stores/confirmation'
+  import {
+    activeShard,
+    activeScopePath,
+    isPathInShard,
+    pathRelativeToShard
+  } from '../stores/shards'
+  import type { ShardInfo } from '../types/cli'
 
   interface HeaderProps {
     propertiesOpen?: boolean
@@ -26,16 +33,30 @@
 
   let currentIsFavorited = $state(false)
   isFavorited.subscribe((v) => (currentIsFavorited = v))
+  let currentActiveShard: ShardInfo | null = $state(null)
+  let currentActiveScopePath: string | null = $state(null)
+  activeShard.subscribe((value) => (currentActiveShard = value))
+  activeScopePath.subscribe((value) => (currentActiveScopePath = value))
 
   let collectionName = $derived(currentActiveCollection?.name ?? null)
 
   /** Parse selected file path into breadcrumb segments: [dir1, dir2, ..., filename] */
   let pathSegments = $derived.by(() => {
     if (currentSelectedFilePath) {
-      return currentSelectedFilePath.split('/').filter((s) => s.length > 0)
+      const displayPath =
+        currentActiveScopePath && isPathInShard(currentSelectedFilePath, currentActiveScopePath)
+          ? pathRelativeToShard(currentSelectedFilePath, currentActiveScopePath)
+          : currentSelectedFilePath
+      return displayPath.split('/').filter((s) => s.length > 0)
     }
     return []
   })
+
+  let selectedOutsideShard = $derived(
+    !!currentSelectedFilePath &&
+      !!currentActiveScopePath &&
+      !isPathInShard(currentSelectedFilePath, currentActiveScopePath)
+  )
 
   /** Directory segments (everything except the last segment / filename) */
   let dirSegments = $derived(pathSegments.length > 1 ? pathSegments.slice(0, -1) : [])
@@ -70,6 +91,10 @@
   {#if collectionName}
     <div class="breadcrumb">
       <span class="breadcrumb-folder">{collectionName}</span>
+      {#if currentActiveShard}
+        <span class="material-symbols-outlined breadcrumb-separator">chevron_right</span>
+        <span class="breadcrumb-shard">{currentActiveShard.name}</span>
+      {/if}
       {#if pathSegments.length > 0}
         <span class="material-symbols-outlined breadcrumb-separator">chevron_right</span>
       {/if}
@@ -88,6 +113,11 @@
         >
           <span class="material-symbols-outlined" class:filled={currentIsFavorited}>star</span>
         </button>
+        {#if selectedOutsideShard}
+          <span class="outside-shard" title="This file is outside the active Shard">
+            Outside Shard
+          </span>
+        {/if}
       {/if}
     </div>
   {:else}
@@ -144,6 +174,23 @@
     color: var(--color-text-dim, #71717a);
     cursor: pointer;
     transition: color 0.15s;
+  }
+
+  .breadcrumb-shard {
+    color: var(--color-primary, #00e5ff);
+    font-weight: 600;
+  }
+
+  .outside-shard {
+    margin-left: 4px;
+    padding: 2px 6px;
+    border: 1px solid var(--color-warning, #f59e0b);
+    border-radius: 999px;
+    color: var(--color-warning, #f59e0b);
+    font-family: var(--font-sans, sans-serif);
+    font-size: 10px;
+    font-weight: 600;
+    white-space: nowrap;
   }
 
   .breadcrumb-folder:hover {

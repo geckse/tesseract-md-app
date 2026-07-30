@@ -91,6 +91,33 @@ describe('FileTreeNode folder interactions', () => {
 
     expect(screen.queryByRole('button', { name: /as table/ })).toBeNull()
   })
+
+  it('marks an exact configured Shard folder with the primary Shard indicator', () => {
+    const { container } = render(FileTreeNode, {
+      props: { node: dirNode, shardPaths: new Set(['docs']) }
+    })
+
+    const indicator = screen.getByTitle('Shard')
+    const icon = indicator.querySelector('[data-shard-icon="faceted-gem-outline"]')
+    expect(icon).toBeTruthy()
+    expect(icon?.getAttribute('fill')).toBe('none')
+    expect(icon?.getAttribute('stroke')).toBe('currentColor')
+    expect(indicator.classList.contains('shard-indicator')).toBe(true)
+    expect(container.querySelector('.tree-node.shard-folder')).toBeTruthy()
+  })
+
+  it('does not mark an unconfigured descendant folder as a Shard', () => {
+    const descendantNode: UnifiedTreeNode = {
+      ...dirNode,
+      name: 'notes',
+      path: 'docs/notes'
+    }
+    render(FileTreeNode, {
+      props: { node: descendantNode, shardPaths: new Set(['docs']) }
+    })
+
+    expect(screen.queryByTitle('Shard')).toBeNull()
+  })
 })
 
 describe('FileTreeNode inline rename (phase 43)', () => {

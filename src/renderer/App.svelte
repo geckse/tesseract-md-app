@@ -60,7 +60,12 @@
     applyDiskContentToTab
   } from './stores/file-sync'
   import DiffView from './components/DiffView.svelte'
-  import { graphViewActive, openGraphView, resetGraphForCollectionSwitch } from './stores/graph'
+  import {
+    graphViewActive,
+    openGraphView,
+    resetGraphForCollectionSwitch,
+    setupGraphShardContextSync
+  } from './stores/graph'
   import {
     goBack,
     goForward,
@@ -110,11 +115,20 @@
   import { terminalStore } from './stores/terminal.svelte'
   import { clearCollectionSkillsNotice, refreshCollectionSkills } from './stores/collection-skills'
   import type { SearchResult } from './types/cli'
+  import {
+    activeShardId,
+    activeScopePath,
+    refreshShards,
+    restoreShardForCollection,
+    setupShardInvalidationListener,
+    teardownShardInvalidationListener
+  } from './stores/shards'
 
   // ── Popup Mode Detection ──────────────────────────────────────────
   const popupParams = new URLSearchParams(window.location.search)
   const isPopupMode = popupParams.get('mode') === 'popup'
   const initialCollectionId = isPopupMode ? null : popupParams.get('collectionId')
+  const initialShardId = isPopupMode ? null : popupParams.get('shardId')
 
   let searchAreaEl: HTMLElement | undefined = $state(undefined)
 
@@ -136,6 +150,8 @@
     // Load collections first, then restore tab session once the active collection is known.
     // restoreSession() validates file existence via the preload API, so it needs an active collection.
     loadCollections(initialCollectionId).then(async () => {
+      const collectionId = get(activeCollectionId)
+      if (collectionId) await restoreShardForCollection(collectionId, initialShardId)
       // Load the navigation trees for the active collection. Graph data stays
       // cold until a graph tab is restored or explicitly activated.
       loadFileTree().catch(() => {})
@@ -162,6 +178,7 @@
     setupFileSyncListener()
     setupUpdateListener()
     setupObsidianImportListener()
+    setupShardInvalidationListener()
     fetchWatcherStatus()
     loadOnboardingState()
     loadEditorFontSize()
@@ -268,7 +285,10 @@
     const reportMenuContextOnFocus = (): void => {
       reportMenuContext()
       const collectionId = get(activeCollectionId)
-      if (collectionId) void refreshCollectionSkills(collectionId)
+      if (collectionId) {
+        void refreshCollectionSkills(collectionId)
+        void refreshShards(collectionId)
+      }
     }
     window.addEventListener('focus', reportMenuContextOnFocus)
 
@@ -511,7 +531,10 @@
         meta: true,
         shift: true,
         handler: () => {
-          void window.api.newWindow(get(activeCollectionId) ?? undefined)
+          void window.api.newWindow(
+            get(activeCollectionId) ?? undefined,
+            get(activeShardId) ?? undefined
+          )
         }
       }),
 
@@ -623,7 +646,7 @@
 
     // Reset all collection-dependent state when switching collections
     let firstRun = true
-    const unsub = activeCollectionId.subscribe(() => {
+    const unsub = activeCollectionId.subscribe((collectionId) => {
       // Skip the initial subscription fire — state is already clean on mount
       if (firstRun) {
         firstRun = false
@@ -650,8 +673,20 @@
       // active view, and load the newly active collection. The graph store's
       // generation guard discards results from rapid consecutive switches.
       void resetGraphForCollectionSwitch(wasGraphActive)
+      if (collectionId) void restoreShardForCollection(collectionId)
       // Restart the mdvdb watcher if the new collection had it running
       restoreWatcherForCollection().catch(() => {})
+    })
+
+    // Shard activation is a context change, not a collection switch: preserve
+    // every tab/editor/watcher and only invalidate scoped reads.
+    const unsubGraphShardScope = setupGraphShardContextSync()
+    let previousScope = get(activeScopePath)
+    const unsubShardScope = activeScopePath.subscribe((scope) => {
+      if (scope === previousScope) return
+      previousScope = scope
+      clearSearch()
+      clearSchema()
     })
 
     return () => {
@@ -665,6 +700,7 @@
       teardownVaultListener()
       teardownFileSyncListener()
       teardownUpdateListener()
+      teardownShardInvalidationListener()
       window.api.removeObsidianTopicsSyncedListener()
       window.api.removeMenuOpenRecentListener()
       window.api.removeMenuCommandListener()
@@ -674,6 +710,8 @@
       window.api.removeFileSavedExternallyListener()
       window.api.removeImageSavedExternallyListener()
       unsub()
+      unsubGraphShardScope()
+      unsubShardScope()
       unsubAccent()
       unsubCollectionColor()
       unsubTheme()

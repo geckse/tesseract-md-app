@@ -18,6 +18,7 @@
   import type { SearchResult, SearchMode, GraphContextItem } from '../types/cli'
   import { settingsCtaFor, type ClassifiedError } from '../lib/cli-errors'
   import { calculateVirtualListState, throttleScroll } from '../lib/virtual-list'
+  import { activeScopePath, isPathInShard, pathRelativeToShard } from '../stores/shards'
 
   interface SearchResultsProps {
     onresultclick?: (result: SearchResult) => void
@@ -49,6 +50,8 @@
 
   let expandEnabled = $state(false)
   const unsub8 = searchExpandEnabled.subscribe((v) => (expandEnabled = v))
+  let currentScopePath: string | null = $state(null)
+  const unsub9 = activeScopePath.subscribe((value) => (currentScopePath = value))
 
   onDestroy(() => {
     unsub1()
@@ -59,6 +62,7 @@
     unsub6()
     unsub7()
     unsub8()
+    unsub9()
     setGraphHoveredFilePath(null)
   })
 
@@ -250,7 +254,9 @@
               onmouseleave={() => setGraphHoveredFilePath(null)}
               style="transform: translateY({actualIndex * ITEM_HEIGHT}px); height: {ITEM_HEIGHT}px;"
             >
-              <div class="result-path">{result.file.path}</div>
+              <div class="result-path">
+                {pathRelativeToShard(result.file.path, currentScopePath)}
+              </div>
               {#if result.chunk.heading_hierarchy.length > 0}
                 <div class="result-heading">{result.chunk.heading_hierarchy.join(' > ')}</div>
               {/if}
@@ -277,7 +283,9 @@
             onmouseleave={() => setGraphHoveredFilePath(null)}
             transition:fade={{ duration: 150 }}
           >
-            <div class="result-path">{result.file.path}</div>
+            <div class="result-path">
+              {pathRelativeToShard(result.file.path, currentScopePath)}
+            </div>
             {#if result.chunk.heading_hierarchy.length > 0}
               <div class="result-heading">{result.chunk.heading_hierarchy.join(' > ')}</div>
             {/if}
@@ -313,6 +321,9 @@
                   >{item.hop_distance} hop{item.hop_distance > 1 ? 's' : ''}</span
                 >
                 <span class="linked-from">via {getFileName(item.linked_from)}</span>
+                {#if currentScopePath && !isPathInShard(item.file.path, currentScopePath)}
+                  <span class="outside-scope-badge">Outside Shard</span>
+                {/if}
               </div>
               {#if item.chunk.heading_hierarchy.length > 0}
                 <div class="result-heading">{item.chunk.heading_hierarchy.join(' > ')}</div>
@@ -585,6 +596,16 @@
     color: var(--color-text-dim, #71717a);
     opacity: 0.7;
     margin-left: 2px;
+  }
+
+  .outside-scope-badge {
+    display: inline-block;
+    margin-left: 4px;
+    padding: 1px 5px;
+    border: 1px solid var(--color-warning, #f59e0b);
+    border-radius: var(--radius-full, 9999px);
+    color: var(--color-warning, #f59e0b);
+    font-size: 9px;
   }
 
   /* Screen reader only - visually hidden but available to assistive tech */

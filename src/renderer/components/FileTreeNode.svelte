@@ -1,6 +1,7 @@
 <script lang="ts">
   import { slide } from 'svelte/transition'
   import Self from './FileTreeNode.svelte'
+  import ShardIcon from './ShardIcon.svelte'
   import type { FileState, UnifiedTreeNode, MimeCategory } from '../types/cli'
   import { toggleExpanded } from '../stores/files'
 
@@ -29,6 +30,8 @@
     noRecursiveRender?: boolean // If true, don't render children recursively (for virtual lists)
     currentSelectedFilePath?: string | null
     currentExpandedPaths?: Set<string>
+    /** Exact collection-root-relative folder paths configured as Shards. */
+    shardPaths?: Set<string>
     /** Path of the node currently being renamed inline (phase 43), if any. */
     renamingPath?: string | null
     /** Initial input value for the rename (name without extension for files). */
@@ -52,6 +55,7 @@
     noRecursiveRender = false,
     currentSelectedFilePath = null,
     currentExpandedPaths = new Set<string>(),
+    shardPaths = new Set<string>(),
     renamingPath = null,
     renameInitial = '',
     renameError = null,
@@ -125,6 +129,7 @@
   let isExpanded = $derived(currentExpandedPaths.has(node.path))
   let isSelected = $derived(!node.is_dir && currentSelectedFilePath === node.path)
   let isFocused = $derived(focusedPath === node.path)
+  let isShardFolder = $derived(node.is_dir && shardPaths.has(node.path))
 
   /** Check if a filename has an asset extension (image, pdf, video, audio). */
   function isAssetByExtension(name: string): MimeCategory | null {
@@ -222,6 +227,7 @@
 <div
   id={itemId}
   class="tree-node"
+  class:shard-folder={isShardFolder}
   data-tree-node={node.path}
   role="treeitem"
   aria-label={node.name}
@@ -262,6 +268,11 @@
       {#if renameError}
         <span class="material-symbols-outlined rename-error-icon" title={renameError}>error</span>
       {/if}
+      {#if isShardFolder}
+        <span class="shard-indicator" title="Shard" aria-hidden="true">
+          <ShardIcon size={16} />
+        </span>
+      {/if}
     </div>
   {:else}
     <button
@@ -299,6 +310,12 @@
       {/if}
 
       <span class="node-name">{node.name}</span>
+
+      {#if isShardFolder}
+        <span class="shard-indicator" title="Shard" aria-hidden="true">
+          <ShardIcon size={16} />
+        </span>
+      {/if}
 
       {#if !node.is_dir && !node.isAsset && node.state}
         <span
@@ -338,6 +355,7 @@
           {focusedPath}
           {currentSelectedFilePath}
           {currentExpandedPaths}
+          {shardPaths}
           {renamingPath}
           {renameInitial}
           {renameError}
@@ -376,6 +394,10 @@
 
   .tree-node:hover > .table-action {
     opacity: 1;
+  }
+
+  .tree-node.shard-folder > .table-action {
+    right: 26px;
   }
 
   .table-action:hover {
@@ -478,6 +500,16 @@
     flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .shard-indicator {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    color: var(--color-primary, #00e5ff);
   }
 
   .tree-row.renaming {

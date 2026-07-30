@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/svelte'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import type { CollectionSkillsStatus } from '../../src/preload/api'
+
+const componentSource = readFileSync(
+  resolve(__dirname, '../../src/renderer/components/CollectionSkillsNotification.svelte'),
+  'utf8'
+)
 
 const mockApi = {
   checkCollectionSkills: vi.fn(),
@@ -66,6 +73,18 @@ beforeEach(() => {
 })
 
 describe('CollectionSkillsNotification', () => {
+  it('uses readable theme tokens for the light-mode banner', () => {
+    const bannerRule = componentSource.match(/\.skills-banner\s*\{(?<declarations>[\s\S]*?)\}/)
+      ?.groups?.declarations
+
+    expect(bannerRule).toBeDefined()
+    expect(bannerRule).toMatch(/color:\s*var\(--color-text,\s*#e4e4e7\)/)
+    expect(bannerRule).not.toContain('--color-text-main')
+    expect(componentSource).toMatch(
+      /:global\(html\[data-theme='light'\]\) \.banner-btn-primary\s*\{[^}]*color:\s*var\(--color-primary-dark/
+    )
+  })
+
   it('renders nothing when the skills are current or no notice exists', () => {
     const { container } = render(CollectionSkillsNotification)
     expect(container.querySelector('.skills-banner')).toBeNull()

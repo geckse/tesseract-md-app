@@ -2,8 +2,10 @@
  * Compact graph loading, validation, and bounded main-process caching.
  *
  * Browser tabs and graph popouts share this cache through Electron main. The
- * index stat revision is part of every key, so a saved index automatically
- * bypasses stale snapshots without renderer-side invalidation messages.
+ * index + project-config stat revision is part of every key, so saved index or
+ * analysis-definition changes automatically bypass stale snapshots without
+ * renderer-side invalidation messages. Derived renderer/cache timestamps are
+ * deliberately not part of this source identity.
  */
 
 import { stat } from 'node:fs/promises'
@@ -27,7 +29,7 @@ const QUEUE_FULL_MESSAGE = 'Graph snapshot request queue is full'
 const UNSTABLE_REVISION_MESSAGE = 'Graph index kept changing while the snapshot was generated'
 
 type ExecuteGraphCommand = (args: string[], root: string, signal?: AbortSignal) => Promise<unknown>
-type ReadIndexRevision = (root: string) => Promise<string>
+type ReadSourceRevision = (root: string) => Promise<string>
 
 export interface GraphSnapshotCacheOptions {
   maxSnapshots?: number
@@ -35,7 +37,7 @@ export interface GraphSnapshotCacheOptions {
   maxQueued?: number
   maxSnapshotBytes?: number
   execute?: ExecuteGraphCommand
-  readRevision?: ReadIndexRevision
+  readRevision?: ReadSourceRevision
 }
 
 export interface GraphSnapshotCacheStats {
@@ -75,7 +77,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** Validate the versioned CLI wire boundary without copying or expanding contexts. */
-export function validateCompactGraphData(value: unknown): CompactGraphData {
+export function validateCompactGraphData(
+  value: unknown,
+  expectedShardId?: string
+): CompactGraphData {
   if (!isRecord(value)) {
     throw new CliParseError('Compact graph output must be a JSON object')
   }
@@ -111,6 +116,55 @@ export function validateCompactGraphData(value: unknown): CompactGraphData {
   if (value.custom_clusters !== undefined && !Array.isArray(value.custom_clusters)) {
     throw new CliParseError('Compact graph custom_clusters must be an array when present')
   }
+  if (value.analysis !== undefined) {
+    if (!isRecord(value.analysis)) {
+      throw new CliParseError('Compact graph analysis must be an object when present')
+    }
+    const analysis = value.analysis
+    if (analysis.context !== 'collection' && analysis.context !== 'shard') {
+      throw new CliParseError('Compact graph analysis context must be collection or shard')
+    }
+    if (
+      analysis.clusters !== 'ready' &&
+      analysis.clusters !== 'disabled' &&
+      analysis.clusters !== 'too_small' &&
+      analysis.clusters !== 'error'
+    ) {
+      throw new CliParseError('Compact graph analysis has an invalid clusters status')
+    }
+    if (
+      analysis.topics !== 'ready' &&
+      analysis.topics !== 'none' &&
+      analysis.topics !== 'needs_ingest' &&
+      analysis.topics !== 'error'
+    ) {
+      throw new CliParseError('Compact graph analysis has an invalid topics status')
+    }
+    for (const key of ['shard_id', 'shard_path', 'message'] as const) {
+      if (analysis[key] !== undefined && typeof analysis[key] !== 'string') {
+        throw new CliParseError(`Compact graph analysis ${key} must be a string when present`)
+      }
+    }
+  }
+  if (expectedShardId) {
+    if (!isRecord(value.analysis)) {
+      throw new CliParseError(
+        `Compact Shard graph '${expectedShardId}' is missing analysis metadata`
+      )
+    }
+    if (value.analysis.context !== 'shard') {
+      throw new CliParseError(
+        `Compact Shard graph '${expectedShardId}' returned Collection analysis`
+      )
+    }
+    if (value.analysis.shard_id !== expectedShardId) {
+      throw new CliParseError(
+        `Compact Shard graph identity mismatch: requested '${expectedShardId}', received '${String(
+          value.analysis.shard_id
+        )}'`
+      )
+    }
+  }
 
   for (const edge of value.edges) {
     if (!isRecord(edge) || typeof edge.source !== 'string' || typeof edge.target !== 'string') {
@@ -142,18 +196,38 @@ export function validateCompactGraphData(value: unknown): CompactGraphData {
 }
 
 /**
- * Produce a high-resolution revision for the persisted index snapshot.
+ * Produce a high-resolution revision for one persisted graph source.
  * Metadata fields are stringified because bigint values cannot enter JSON or
  * Electron structured-clone payloads consistently across supported platforms.
  */
-export async function readGraphIndexRevision(root: string): Promise<string> {
+async function readFileStatRevision(path: string): Promise<string> {
   try {
-    const metadata = await stat(join(root, '.markdownvdb', 'index'), { bigint: true })
+    const metadata = await stat(path, { bigint: true })
     return [metadata.dev, metadata.ino, metadata.size, metadata.mtimeNs, metadata.ctimeNs].join(':')
   } catch (error: unknown) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'missing'
     throw error
   }
+}
+
+/** High-resolution revision for the persisted binary index only. */
+export function readGraphIndexRevision(root: string): Promise<string> {
+  return readFileStatRevision(join(root, '.markdownvdb', 'index'))
+}
+
+/**
+ * Revision of every source that can change graph analysis output.
+ *
+ * Project config contains Shard and Topic definitions, so its revision belongs
+ * beside the index revision. Runtime caches and response timestamps are not
+ * source inputs and therefore never enter this identity.
+ */
+export async function readGraphSourceRevision(root: string): Promise<string> {
+  const [indexRevision, configRevision] = await Promise.all([
+    readGraphIndexRevision(root),
+    readFileStatRevision(join(root, '.markdownvdb', 'config.yaml'))
+  ])
+  return `index=${indexRevision}\0config=${configRevision}`
 }
 
 function normalizeLevel(level?: GraphLevel): GraphLevel {
@@ -202,6 +276,16 @@ export function estimateCompactGraphBytes(data: CompactGraphData): number {
   for (const cluster of data.edge_clusters ?? []) {
     bytes += 64 + stringBytes(cluster.label)
   }
+  if (data.analysis) {
+    bytes +=
+      96 +
+      stringBytes(data.analysis.context) +
+      stringBytes(data.analysis.shard_id) +
+      stringBytes(data.analysis.shard_path) +
+      stringBytes(data.analysis.clusters) +
+      stringBytes(data.analysis.topics) +
+      stringBytes(data.analysis.message)
+  }
   return bytes
 }
 
@@ -212,7 +296,7 @@ export class GraphSnapshotCache {
   private readonly maxQueued: number
   private readonly maxSnapshotBytes: number
   private readonly execute: ExecuteGraphCommand
-  private readonly readRevision: ReadIndexRevision
+  private readonly readRevision: ReadSourceRevision
   private readonly snapshots = new Map<string, CachedSnapshot>()
   private readonly inFlight = new Map<string, InFlightSnapshot>()
   private readonly executionQueue: QueuedExecution[] = []
@@ -229,13 +313,24 @@ export class GraphSnapshotCache {
     this.execute =
       options.execute ??
       ((args, root, signal) => execCommand<unknown>('graph', args, root, { signal }))
-    this.readRevision = options.readRevision ?? readGraphIndexRevision
+    this.readRevision = options.readRevision ?? readGraphSourceRevision
   }
 
-  get(root: string, level?: GraphLevel, path?: string): Promise<CompactGraphData> {
+  get(
+    root: string,
+    level?: GraphLevel,
+    path?: string,
+    shardId?: string
+  ): Promise<CompactGraphData> {
     const normalizedLevel = normalizeLevel(level)
     const normalizedPath = path || undefined
-    const baseKey = JSON.stringify([resolve(root), normalizedLevel, normalizedPath ?? ''])
+    const normalizedShardId = shardId || undefined
+    const baseKey = JSON.stringify([
+      resolve(root),
+      normalizedLevel,
+      normalizedPath ?? '',
+      normalizedShardId ?? ''
+    ])
     const cacheGeneration = this.cacheGeneration
     let state = this.baseRequests.get(baseKey)
     if (!state) {
@@ -249,6 +344,7 @@ export class GraphSnapshotCache {
       root,
       normalizedLevel,
       normalizedPath,
+      normalizedShardId,
       baseKey,
       state,
       requestGeneration,
@@ -267,6 +363,7 @@ export class GraphSnapshotCache {
     root: string,
     normalizedLevel: GraphLevel,
     normalizedPath: string | undefined,
+    normalizedShardId: string | undefined,
     baseKey: string,
     state: BaseRequestState,
     requestGeneration: number,
@@ -298,6 +395,7 @@ export class GraphSnapshotCache {
     if (pending) return pending.promise
 
     const args = ['--compact', '--level', normalizedLevel]
+    if (normalizedShardId) args.push('--shard', normalizedShardId)
     if (normalizedPath) args.push('--path', normalizedPath)
 
     const controller = new AbortController()
@@ -307,6 +405,7 @@ export class GraphSnapshotCache {
           root,
           args,
           normalizedLevel,
+          normalizedShardId,
           baseKey,
           revision,
           controller.signal,
@@ -398,6 +497,7 @@ export class GraphSnapshotCache {
     root: string,
     args: string[],
     expectedLevel: GraphLevel,
+    expectedShardId: string | undefined,
     baseKey: string,
     initialRevision: string,
     signal: AbortSignal,
@@ -406,7 +506,7 @@ export class GraphSnapshotCache {
     let revisionBefore = initialRevision
     for (let attempt = 0; attempt <= MAX_REVISION_RETRIES; attempt++) {
       this.assertRequestCurrent(signal, cacheGeneration)
-      const data = validateCompactGraphData(await this.execute(args, root, signal))
+      const data = validateCompactGraphData(await this.execute(args, root, signal), expectedShardId)
       this.assertRequestCurrent(signal, cacheGeneration)
       if (data.level !== expectedLevel) {
         throw new CliParseError(
@@ -487,9 +587,10 @@ const graphSnapshotCache = new GraphSnapshotCache()
 export function getGraphSnapshot(
   root: string,
   level?: GraphLevel,
-  path?: string
+  path?: string,
+  shardId?: string
 ): Promise<CompactGraphData> {
-  return graphSnapshotCache.get(root, level, path)
+  return graphSnapshotCache.get(root, level, path, shardId)
 }
 
 export function clearGraphSnapshotCache(): void {

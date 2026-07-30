@@ -40,7 +40,9 @@ import {
   getTerminalFontSize,
   setTerminalFontSize,
   getCollectionSkillsDismissed,
-  setCollectionSkillsDismissed
+  setCollectionSkillsDismissed,
+  getActiveShardId,
+  setActiveShardId
 } from './store'
 import type { PersistedWindowState } from './store'
 import type {
@@ -110,7 +112,10 @@ import type {
   CollectionOutput,
   FormulaResultType,
   FormulaValidationResult,
-  ModuleReport
+  ModuleReport,
+  ShardInfo,
+  ShardList,
+  ShardMutation
 } from '../renderer/types/cli'
 import type { SerializedError } from './errors'
 import type { GraphMenuContext } from '../preload/api'
@@ -122,6 +127,7 @@ import {
   TerminalSpawnError,
   TerminalNotFoundError
 } from './errors'
+import { broadcastShardInvalidation, configureShardManifestWatcher } from './shard-watcher'
 
 /** Ingest timeout: 5 minutes */
 const INGEST_TIMEOUT_MS = 300_000
@@ -403,6 +409,91 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
     )
   )
 
+  // Named Shards. Definitions are project-local and CLI-owned; Electron only
+  // transports the stable JSON contracts and persists the last selected id.
+  ipcMain.handle('cli:shards-list', (_event, root: string) =>
+    wrapHandler(() => execCommand<ShardList>('shards', ['list'], root))
+  )
+
+  ipcMain.handle('cli:shards-get', (_event, root: string, id: string) =>
+    wrapHandler(() => execCommand<ShardInfo>('shards', ['get', id], root))
+  )
+
+  ipcMain.handle(
+    'cli:shards-add',
+    (
+      _event,
+      root: string,
+      id: string,
+      path: string,
+      options?: { name?: string; createDir?: boolean }
+    ) =>
+      wrapHandler(async () => {
+        const args = ['add', id, '--path', path]
+        if (options?.name) args.push('--name', options.name)
+        if (options?.createDir) args.push('--create-dir')
+        const result = await execCommand<ShardMutation>('shards', args, root)
+        broadcastShardInvalidation(root)
+        return result
+      })
+  )
+
+  ipcMain.handle(
+    'cli:shards-update',
+    (
+      _event,
+      root: string,
+      id: string,
+      options: { name?: string; path?: string; createDir?: boolean }
+    ) =>
+      wrapHandler(async () => {
+        const args = ['update', id]
+        if (options.name !== undefined) args.push('--name', options.name)
+        if (options.path !== undefined) args.push('--path', options.path)
+        if (options.createDir) args.push('--create-dir')
+        const result = await execCommand<ShardMutation>('shards', args, root)
+        broadcastShardInvalidation(root)
+        return result
+      })
+  )
+
+  ipcMain.handle('cli:shards-remove', (_event, root: string, id: string) =>
+    wrapHandler(async () => {
+      const result = await execCommand<ShardMutation>('shards', ['remove', id], root)
+      broadcastShardInvalidation(root)
+      return result
+    })
+  )
+
+  ipcMain.handle(
+    'cli:shards-retarget',
+    (_event, root: string, oldPrefix: string, newPrefix: string) =>
+      wrapHandler(async () => {
+        const result = await execCommand<ShardMutation>(
+          'shards',
+          ['retarget', oldPrefix, newPrefix],
+          root
+        )
+        broadcastShardInvalidation(root)
+        return result
+      })
+  )
+
+  ipcMain.handle('store:get-active-shard-id', (_event, collectionId: string) =>
+    wrapHandler(async () => getActiveShardId(collectionId))
+  )
+
+  ipcMain.handle(
+    'store:set-active-shard-id',
+    (_event, collectionId: string, shardId: string | null) =>
+      wrapHandler(async () => {
+        if (!getCollections().some((collection) => collection.id === collectionId)) {
+          throw new Error(`Collection not found: ${collectionId}`)
+        }
+        setActiveShardId(collectionId, shardId)
+      })
+  )
+
   // Ingest
   ipcMain.handle('cli:ingest', (_event, root: string, options?: { reindex?: boolean }) => {
     const args: string[] = []
@@ -460,26 +551,37 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
     wrapHandler(() => execCommand<OrphansOutput>('orphans', [], root))
   )
 
-  // Clusters
-  ipcMain.handle('cli:clusters', (_event, root: string) =>
-    wrapHandler(() => execCommand<ClusterSummary[]>('clusters', [], root))
+  // Clusters. An optional Shard selects its project-local analysis scope;
+  // omitting it preserves the collection-wide CLI contract byte-for-byte.
+  ipcMain.handle('cli:clusters', (_event, root: string, shardId?: string) =>
+    wrapHandler(() =>
+      execCommand<ClusterSummary[]>('clusters', shardId ? ['--shard', shardId] : [], root)
+    )
   )
 
   // Custom clusters / topics (computed assignments from index)
-  ipcMain.handle('cli:custom-clusters', (_event, root: string) =>
-    wrapHandler(() => execCommand<CustomClusterSummary[]>('clusters', ['--custom'], root))
+  ipcMain.handle('cli:custom-clusters', (_event, root: string, shardId?: string) =>
+    wrapHandler(() =>
+      execCommand<CustomClusterSummary[]>(
+        'clusters',
+        shardId ? ['--shard', shardId, '--custom'] : ['--custom'],
+        root
+      )
+    )
   )
 
   // Topic definitions (from config, no index needed).
   // NOTE: execCommand already injects --json — do not add it again.
-  ipcMain.handle('cli:clusters-list', (_event, root: string) =>
-    wrapHandler(() => execCommand<TopicDef[]>('clusters', ['list'], root))
+  ipcMain.handle('cli:clusters-list', (_event, root: string, shardId?: string) =>
+    wrapHandler(() =>
+      execCommand<TopicDef[]>('clusters', shardId ? ['--shard', shardId, 'list'] : ['list'], root)
+    )
   )
 
   // Add a topic definition (writes .markdownvdb/config.yaml via the CLI;
   // with --json the CLI prints only to stderr, so stdout stays empty)
-  ipcMain.handle('cli:clusters-add', (_event, root: string, def: TopicDef) => {
-    const args = ['add', def.name]
+  ipcMain.handle('cli:clusters-add', (_event, root: string, def: TopicDef, shardId?: string) => {
+    const args = shardId ? ['--shard', shardId, 'add', def.name] : ['add', def.name]
     if (def.seeds.length > 0) args.push('--seeds', def.seeds.join(','))
     if (def.description) args.push('--description', def.description)
     if (def.threshold != null) args.push('--threshold', String(def.threshold))
@@ -489,24 +591,39 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
   // Update a topic definition. Always sends --description and --threshold so
   // clearing works: --description "" clears it, and a negative threshold
   // (equals-form, clap rejects a bare `-1` value) clears the threshold.
-  ipcMain.handle('cli:clusters-update', (_event, root: string, name: string, def: TopicDef) => {
-    const args = ['update', name]
-    if (def.seeds.length > 0) args.push('--seeds', def.seeds.join(','))
-    args.push('--description', def.description ?? '')
-    if (def.threshold != null) args.push('--threshold', String(def.threshold))
-    else args.push('--threshold=-1')
-    if (def.name && def.name !== name) args.push('--rename', def.name)
-    return wrapHandler(() => execCommand<void>('clusters', args, root))
-  })
+  ipcMain.handle(
+    'cli:clusters-update',
+    (_event, root: string, name: string, def: TopicDef, shardId?: string) => {
+      const args = shardId ? ['--shard', shardId, 'update', name] : ['update', name]
+      if (def.seeds.length > 0) args.push('--seeds', def.seeds.join(','))
+      args.push('--description', def.description ?? '')
+      if (def.threshold != null) args.push('--threshold', String(def.threshold))
+      else args.push('--threshold=-1')
+      if (def.name && def.name !== name) args.push('--rename', def.name)
+      return wrapHandler(() => execCommand<void>('clusters', args, root))
+    }
+  )
 
   // Remove a topic definition
-  ipcMain.handle('cli:clusters-remove', (_event, root: string, name: string) =>
-    wrapHandler(() => execCommand<void>('clusters', ['remove', name], root))
+  ipcMain.handle('cli:clusters-remove', (_event, root: string, name: string, shardId?: string) =>
+    wrapHandler(() =>
+      execCommand<void>(
+        'clusters',
+        shardId ? ['--shard', shardId, 'remove', name] : ['remove', name],
+        root
+      )
+    )
   )
 
   // Documents matching no topic (the Unassigned bucket)
-  ipcMain.handle('cli:clusters-unassigned', (_event, root: string) =>
-    wrapHandler(() => execCommand<TopicUnassigned>('clusters', ['unassigned'], root))
+  ipcMain.handle('cli:clusters-unassigned', (_event, root: string, shardId?: string) =>
+    wrapHandler(() =>
+      execCommand<TopicUnassigned>(
+        'clusters',
+        shardId ? ['--shard', shardId, 'unassigned'] : ['unassigned'],
+        root
+      )
+    )
   )
 
   // Generic YAML config write: `mdvdb config set <dotted.key> <value>`
@@ -515,8 +632,10 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
   )
 
   // Graph data
-  ipcMain.handle('cli:graph', (_event, root: string, level?: GraphLevel, path?: string) =>
-    wrapHandler(() => getGraphSnapshot(root, level, path))
+  ipcMain.handle(
+    'cli:graph',
+    (_event, root: string, level?: GraphLevel, path?: string, shardId?: string) =>
+      wrapHandler(() => getGraphSnapshot(root, level, path, shardId))
   )
 
   // Schema
@@ -652,6 +771,9 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
       }
 
       const collection = addCollection(path)
+      if (process.env.NODE_ENV !== 'test') {
+        void configureShardManifestWatcher(getCollections(), windowManager)
+      }
       refreshAppMenu()
       // Obsidian vaults: derive topics from the user's tags/graph groups
       // (phase 44). Fire-and-forget — never blocks adding the collection.
@@ -669,6 +791,9 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
       const path = await createExampleCollection(baseDirectory)
       const existing = getCollections().find((collection) => collection.path === path)
       const collection = existing ?? addCollection(path)
+      if (process.env.NODE_ENV !== 'test') {
+        void configureShardManifestWatcher(getCollections(), windowManager)
+      }
       refreshAppMenu()
       return collection
     })
@@ -686,6 +811,10 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
       if (!confirmed) return
 
       removeCollection(id)
+      setActiveShardId(id, null)
+      if (process.env.NODE_ENV !== 'test') {
+        void configureShardManifestWatcher(getCollections(), windowManager)
+      }
 
       // Stop the vault watcher if it was watching the removed collection
       if (getVaultWatcher().getStatus().root === collection.path) {
@@ -1556,10 +1685,45 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
       // chokidar cannot pair renames (it sees unlink + add) — synthesize the
       // paired event so renderers can retarget tabs/tree nodes in one step.
       const { relative: rel } = await import('node:path')
+      const oldRelative = rel(oldCollection.path, normalizedOld).split(sep).join('/')
+      const newRelative = rel(oldCollection.path, normalizedNew).split(sep).join('/')
+      if (stat?.isDirectory()) {
+        try {
+          const shardList = await execCommand<ShardList>('shards', ['list'], oldCollection.path)
+          const affectsShard = shardList.shards.some(
+            (shard) => shard.path === oldRelative || shard.path.startsWith(`${oldRelative}/`)
+          )
+          if (affectsShard) {
+            await execCommand<ShardMutation>(
+              'shards',
+              ['retarget', oldRelative, newRelative],
+              oldCollection.path
+            )
+            broadcastShardInvalidation(oldCollection.path)
+          }
+        } catch (error) {
+          // Keep the filesystem and Shard manifest transactional for in-app
+          // directory renames. If rollback also fails, report both failures.
+          try {
+            registerOwnWrite(normalizedNew, 'rename-from')
+            registerOwnWrite(normalizedOld, 'rename-to')
+            await fs.rename(normalizedNew, normalizedOld)
+          } catch (rollbackError) {
+            throw new Error(
+              `Shard retarget failed: ${
+                error instanceof Error ? error.message : String(error)
+              }; folder rollback failed: ${
+                rollbackError instanceof Error ? rollbackError.message : String(rollbackError)
+              }`
+            )
+          }
+          throw error
+        }
+      }
       getVaultWatcher().emitAppEvent({
         kind: 'renamed',
-        path: rel(oldCollection.path, normalizedNew).split(sep).join('/'),
-        oldPath: rel(oldCollection.path, normalizedOld).split(sep).join('/'),
+        path: newRelative,
+        oldPath: oldRelative,
         isDirectory: stat?.isDirectory() ?? false
       })
     })
@@ -1952,12 +2116,12 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
   })
 
   // Multi-window management
-  ipcMain.handle('window:new', (_event, collectionId?: string) =>
+  ipcMain.handle('window:new', (_event, collectionId?: string, shardId?: string) =>
     wrapHandler(async () => {
       if (collectionId && !getCollections().some((collection) => collection.id === collectionId)) {
         throw new Error(`Collection not found: ${collectionId}`)
       }
-      windowManager.createWindow({ collectionId })
+      windowManager.createWindow({ collectionId, shardId })
     })
   )
 
@@ -1980,6 +2144,8 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
         mimeCategory: tabData.mimeCategory,
         graphLevel: tabData.graphLevel,
         graphColoringMode: tabData.graphColoringMode,
+        shardId: tabData.shardId ?? undefined,
+        graphPathFilter: tabData.graphPathFilter ?? undefined,
         isDirty: tabData.isDirty,
         content: tabData.content,
         savedContent: tabData.savedContent,

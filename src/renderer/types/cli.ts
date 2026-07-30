@@ -65,6 +65,38 @@ export interface SearchOutput {
   graph_context?: GraphContextItem[]
 }
 
+// ─── Named Shards ──────────────────────────────────────────────────
+
+/** A project-local named recursive folder lens. */
+export interface ShardDefinition {
+  /** Immutable kebab-case identifier used by CLI and app persistence. */
+  id: string
+  /** User-facing label. */
+  name: string
+  /** Collection-root-relative, slash-normalized folder path. */
+  path: string
+}
+
+/** Resolved Shard metadata returned by the CLI. */
+export interface ShardInfo extends ShardDefinition {
+  /** Nearest configured ancestor Shard, derived from path containment. */
+  parent_id: string | null
+  /** Whether the configured folder currently exists. */
+  exists: boolean
+}
+
+/** Stable JSON contract for `mdvdb shards list --json`. */
+export interface ShardList {
+  shards: ShardInfo[]
+  total_shards: number
+}
+
+/** Stable JSON contract for Shard mutations. */
+export interface ShardMutation {
+  action: 'add' | 'update' | 'remove' | 'retarget' | string
+  shards: ShardInfo[]
+}
+
 // ─── Index Status ────────────────────────────────────────────────────
 
 /** Embedding configuration snapshot. */
@@ -511,6 +543,22 @@ export interface GraphCluster {
   parent_id?: number | null
 }
 
+/** How the graph's collection- or Shard-local analysis was produced. */
+export interface GraphAnalysis {
+  /** Collection analysis is the legacy/global context; Shard analysis is selected by immutable id. */
+  context: 'collection' | 'shard'
+  /** Present for Shard analysis. Optional for compatibility with older CLI responses. */
+  shard_id?: string
+  /** Collection-root-relative Shard folder used for this analysis. */
+  shard_path?: string
+  /** Availability of automatic semantic clusters in this analysis context. */
+  clusters: 'ready' | 'disabled' | 'too_small' | 'error'
+  /** Availability of configured Topic assignments in this analysis context. */
+  topics: 'ready' | 'none' | 'needs_ingest' | 'error'
+  /** Optional diagnostic intended for a compact in-app notice. */
+  message?: string
+}
+
 /** Complete graph topology combining nodes, edges, and clusters. */
 export interface GraphData {
   nodes: GraphNode[]
@@ -523,6 +571,11 @@ export interface GraphData {
   edge_clusters?: GraphEdgeCluster[]
   /** User-defined custom clusters, if available. */
   custom_clusters?: GraphCluster[]
+  /**
+   * Analysis context/status. Additive so older CLIs and ad-hoc neighborhood
+   * graphs remain valid without synthesizing analysis claims in the app.
+   */
+  analysis?: GraphAnalysis
 }
 
 /** Versioned, wire-efficient graph contract returned by the Tesseract IPC bridge. */

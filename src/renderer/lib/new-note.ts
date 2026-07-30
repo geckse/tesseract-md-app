@@ -1,6 +1,7 @@
 import { get } from 'svelte/store'
 import { activeCollection } from '../stores/collections'
 import { editorMode } from '../stores/editor'
+import { activeScopePath } from '../stores/shards'
 
 /**
  * Open a new untitled note in a popped-out window (Cmd+N).
@@ -21,7 +22,8 @@ export function openNewNotePopup(): boolean {
     isUntitled: true,
     editorMode: get(editorMode),
     collectionId: collection.id,
-    collectionPath: collection.path
+    collectionPath: collection.path,
+    defaultDirectory: get(activeScopePath) ?? undefined
   })
   return true
 }

@@ -1,5 +1,6 @@
-import { writable } from 'svelte/store'
+import { get, writable } from 'svelte/store'
 import type { Schema } from '../types/cli'
+import { activeScopePath } from './shards'
 
 /** Schema for the active collection (fetched on demand). */
 export const schema = writable<Schema | null>(null)
@@ -13,7 +14,7 @@ export async function fetchSchema(root: string, path?: string): Promise<void> {
   // request is in flight.
   schema.set(null)
   try {
-    const result = await window.api.schema(root, path)
+    const result = await window.api.schema(root, path ?? get(activeScopePath) ?? undefined)
     if (generation !== schemaGeneration) return
     schema.set(result)
   } catch {

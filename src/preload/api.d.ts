@@ -26,7 +26,10 @@ import type {
   MimeCategory,
   FormulaResultType,
   FormulaValidationResult,
-  ModuleReport
+  ModuleReport,
+  ShardInfo,
+  ShardList,
+  ShardMutation
 } from '../renderer/types/cli'
 import type { PropertyValueColors, PropertyValueColorSelection } from '../shared/value-colors'
 import type { ExternalLinkPreview, LocalLinkPreview } from '../shared/link-preview'
@@ -208,6 +211,19 @@ export interface CollectionViewOptions {
 export interface GetFileOptions {
   /** Resolve frontmatter relations + referenced_by (phase 42). Never pass on unsupported CLIs. */
   populate?: boolean
+}
+
+/** Fields accepted when creating a project-local Shard definition. */
+export interface AddShardOptions {
+  name?: string
+  createDir?: boolean
+}
+
+/** Editable Shard fields. IDs are intentionally immutable. */
+export interface UpdateShardOptions {
+  name?: string
+  path?: string
+  createDir?: boolean
 }
 
 /** Result of CLI detection. */
@@ -473,6 +489,10 @@ export interface TabTransferData {
   imageEditDraft?: ImageEditDraft
   graphLevel?: string
   graphColoringMode?: string
+  /** Shard analysis context for graph tabs; null explicitly selects the collection root. */
+  shardId?: string | null
+  /** Optional descendant folder filter inside the graph's Shard/collection boundary. */
+  graphPathFilter?: string | null
   recursive?: boolean
   tableViewId?: string
   /** Terminal tabs: the live PTY id (session survives the move via rebind). */
@@ -490,9 +510,15 @@ export interface PopupOpenOptions {
   isUntitled?: boolean
   collectionId?: string
   collectionPath?: string
+  /** Default collection-relative directory for an untitled note's first save. */
+  defaultDirectory?: string
   mimeCategory?: string
   graphLevel?: string
   graphColoringMode?: string
+  /** Immutable Shard id selecting graph analysis context. */
+  shardId?: string
+  /** Optional descendant folder filter within the active graph boundary. */
+  graphPathFilter?: string
   isDirty?: boolean
   content?: string | null
   savedContent?: string | null
@@ -527,17 +553,22 @@ export interface MdvdbApi {
   backlinks(root: string, filePath: string): Promise<BacklinksOutput>
   neighborhood(root: string, filePath: string, depth: number): Promise<NeighborhoodResult>
   orphans(root: string): Promise<OrphansOutput>
-  clusters(root: string): Promise<ClusterSummary[]>
-  customClusters(root: string): Promise<CustomClusterSummary[]>
-  clusterDefinitions(root: string): Promise<TopicDef[]>
-  addTopic(root: string, def: TopicDef): Promise<void>
-  updateTopic(root: string, name: string, def: TopicDef): Promise<void>
-  removeTopic(root: string, name: string): Promise<void>
-  topicUnassigned(root: string): Promise<TopicUnassigned>
+  clusters(root: string, shardId?: string): Promise<ClusterSummary[]>
+  customClusters(root: string, shardId?: string): Promise<CustomClusterSummary[]>
+  clusterDefinitions(root: string, shardId?: string): Promise<TopicDef[]>
+  addTopic(root: string, def: TopicDef, shardId?: string): Promise<void>
+  updateTopic(root: string, name: string, def: TopicDef, shardId?: string): Promise<void>
+  removeTopic(root: string, name: string, shardId?: string): Promise<void>
+  topicUnassigned(root: string, shardId?: string): Promise<TopicUnassigned>
   onObsidianTopicsSynced(callback: (event: ObsidianTopicsSyncedEvent) => void): void
   removeObsidianTopicsSyncedListener(): void
   setConfigValue(root: string, key: string, value: string): Promise<void>
-  graphData(root: string, level?: GraphLevel, path?: string): Promise<CompactGraphData>
+  graphData(
+    root: string,
+    level?: GraphLevel,
+    path?: string,
+    shardId?: string
+  ): Promise<CompactGraphData>
   schema(root: string, path?: string): Promise<Schema>
   collection(
     root: string,
@@ -557,6 +588,23 @@ export interface MdvdbApi {
   ): Promise<FormulaValidationResult>
   /** Recompute and materialize formulas into Markdown for the vault or one folder scope. */
   runFormulaModule(root: string, scope?: string): Promise<ModuleReport>
+
+  // Named Shards (project-local definitions stored by the CLI)
+  listShards(root: string): Promise<ShardList>
+  getShard(root: string, id: string): Promise<ShardInfo>
+  addShard(
+    root: string,
+    id: string,
+    path: string,
+    options?: AddShardOptions
+  ): Promise<ShardMutation>
+  updateShard(root: string, id: string, options: UpdateShardOptions): Promise<ShardMutation>
+  removeShard(root: string, id: string): Promise<ShardMutation>
+  retargetShards(root: string, oldPrefix: string, newPrefix: string): Promise<ShardMutation>
+  getActiveShardId(collectionId: string): Promise<string | null>
+  setActiveShardId(collectionId: string, shardId: string | null): Promise<void>
+  onShardsInvalidated(callback: (event: { root: string }) => void): void
+  removeShardsInvalidatedListener(): void
 
   // Collection management
   listCollections(): Promise<Collection[]>
@@ -783,7 +831,7 @@ export interface MdvdbApi {
 
   // Multi-window management
   /** Open a full app window, optionally with a specific collection selected. */
-  newWindow(collectionId?: string): Promise<void>
+  newWindow(collectionId?: string, shardId?: string): Promise<void>
 
   // Dirty-close guard (data safety): main intercepts native window close and
   // asks the renderer; the renderer answers with confirmClose() once the

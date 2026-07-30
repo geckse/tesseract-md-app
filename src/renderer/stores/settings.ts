@@ -55,10 +55,32 @@ export const activeSection = writable<string>('cli')
 /** Settings target: 'global' for user-level config, or a collection ID for collection overrides. */
 export const settingsTarget = writable<string>('global')
 
+export interface TopicsSettingsScopeRequest {
+  collectionId: string
+  shardId: string | null
+  sequence: number
+}
+
+/** Explicit Topics deep-link requested by a Shard or graph context menu. */
+export const topicsSettingsScopeRequest = writable<TopicsSettingsScopeRequest | null>(null)
+let topicsSettingsScopeSequence = 0
+
 /** Open settings panel targeting a specific collection. */
 export function openCollectionSettings(collectionId: string): void {
   settingsTarget.set(collectionId)
   activeSection.set('embedding')
+}
+
+/** Open Topic management for the collection root or one configured Shard. */
+export function openTopicsSettings(collectionId: string, shardId: string | null = null): void {
+  settingsTarget.set(collectionId)
+  topicsSettingsScopeRequest.set({
+    collectionId,
+    shardId,
+    sequence: ++topicsSettingsScopeSequence
+  })
+  activeSection.set('clusters')
+  settingsOpen.set(true)
 }
 
 /**

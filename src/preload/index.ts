@@ -147,13 +147,14 @@ const api: MdvdbApi = {
   backlinks: (root, filePath) => invoke('cli:backlinks', root, filePath),
   neighborhood: (root, filePath, depth) => invoke('cli:neighborhood', root, filePath, depth),
   orphans: (root) => invoke('cli:orphans', root),
-  clusters: (root) => invoke('cli:clusters', root),
-  customClusters: (root) => invoke('cli:custom-clusters', root),
-  clusterDefinitions: (root) => invoke('cli:clusters-list', root),
-  addTopic: (root, def) => invoke('cli:clusters-add', root, def),
-  updateTopic: (root, name, def) => invoke('cli:clusters-update', root, name, def),
-  removeTopic: (root, name) => invoke('cli:clusters-remove', root, name),
-  topicUnassigned: (root) => invoke('cli:clusters-unassigned', root),
+  clusters: (root, shardId?) => invoke('cli:clusters', root, shardId),
+  customClusters: (root, shardId?) => invoke('cli:custom-clusters', root, shardId),
+  clusterDefinitions: (root, shardId?) => invoke('cli:clusters-list', root, shardId),
+  addTopic: (root, def, shardId?) => invoke('cli:clusters-add', root, def, shardId),
+  updateTopic: (root, name, def, shardId?) =>
+    invoke('cli:clusters-update', root, name, def, shardId),
+  removeTopic: (root, name, shardId?) => invoke('cli:clusters-remove', root, name, shardId),
+  topicUnassigned: (root, shardId?) => invoke('cli:clusters-unassigned', root, shardId),
   onObsidianTopicsSynced: (callback) => {
     ipcRenderer.on('topics:obsidian-synced', (_event, data) => callback(data))
   },
@@ -161,7 +162,7 @@ const api: MdvdbApi = {
     ipcRenderer.removeAllListeners('topics:obsidian-synced')
   },
   setConfigValue: (root, key, value) => invoke('cli:config-set', root, key, value),
-  graphData: (root, level?, path?) => invoke('cli:graph', root, level, path),
+  graphData: (root, level?, path?, shardId?) => invoke('cli:graph', root, level, path, shardId),
   schema: (root, path?) => invoke('cli:schema', root, path),
   collection: (root, folderPath, options?) => invoke('cli:collection', root, folderPath, options),
   config: (root) => invoke('cli:config', root),
@@ -172,6 +173,24 @@ const api: MdvdbApi = {
   validateFormula: (root, formula, resultType) =>
     invoke('cli:modules-validate-formula', root, formula, resultType),
   runFormulaModule: (root, scope?) => invoke('cli:modules-run-formula', root, scope),
+
+  // Named Shards
+  listShards: (root) => invoke('cli:shards-list', root),
+  getShard: (root, id) => invoke('cli:shards-get', root, id),
+  addShard: (root, id, path, options?) => invoke('cli:shards-add', root, id, path, options),
+  updateShard: (root, id, options) => invoke('cli:shards-update', root, id, options),
+  removeShard: (root, id) => invoke('cli:shards-remove', root, id),
+  retargetShards: (root, oldPrefix, newPrefix) =>
+    invoke('cli:shards-retarget', root, oldPrefix, newPrefix),
+  getActiveShardId: (collectionId) => invoke('store:get-active-shard-id', collectionId),
+  setActiveShardId: (collectionId, shardId) =>
+    invoke('store:set-active-shard-id', collectionId, shardId),
+  onShardsInvalidated: (callback) => {
+    ipcRenderer.on('shards:invalidated', (_event, data) => callback(data))
+  },
+  removeShardsInvalidatedListener: () => {
+    ipcRenderer.removeAllListeners('shards:invalidated')
+  },
 
   // Collection management
   listCollections: () => invoke('collections:list'),
@@ -389,7 +408,7 @@ const api: MdvdbApi = {
   getWindowSession: () => invoke('session:get'),
 
   // Multi-window management
-  newWindow: (collectionId?) => invoke('window:new', collectionId),
+  newWindow: (collectionId?, shardId?) => invoke('window:new', collectionId, shardId),
 
   // Dirty-close guard: main asks before really closing the window.
   // The ack is sent BEFORE the callback runs so main cancels its

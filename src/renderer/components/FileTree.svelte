@@ -1,11 +1,13 @@
 <script lang="ts">
   import { tick } from 'svelte'
   import FileTreeNode from './FileTreeNode.svelte'
+  import ShardIcon from './ShardIcon.svelte'
   import {
     fileTree,
     fileTreeLoading,
     fileTreeError,
     fileStateCounts,
+    scopedFileCount,
     loadFileTree,
     loadAssetTree,
     expandAll,
@@ -32,7 +34,8 @@
     FileTree as FileTreeType,
     FileState,
     UnifiedTreeNode,
-    MimeCategory
+    MimeCategory,
+    ShardInfo
   } from '../types/cli'
   import { workspace } from '../stores/workspace.svelte'
   import { syncFileStoresFromTab } from '../stores/files'
@@ -43,13 +46,22 @@
     type VirtualListState
   } from '../lib/virtual-list'
   import { requestConfirmation } from '../stores/confirmation'
+  import {
+    activeScopePath,
+    activeShard,
+    isPathInShard,
+    refreshShards,
+    setActiveShard,
+    shardsByCollection
+  } from '../stores/shards'
 
   interface FileTreeProps {
     onfileselect?: (detail: { path: string; forceNewTab?: boolean }) => void
-    onfolderopen?: (detail: { path: string }) => void
+    onfolderopen?: (detail: { path: string; recursive?: boolean }) => void
+    oncreateshard?: (detail: { path: string }) => void
   }
 
-  let { onfileselect, onfolderopen }: FileTreeProps = $props()
+  let { onfileselect, onfolderopen, oncreateshard }: FileTreeProps = $props()
 
   function handleAssetSelect(detail: {
     path: string
@@ -75,6 +87,9 @@
   let ingestMenuOpen: boolean = $state(false)
   let currentExpandedPaths: Set<string> = $state(new Set())
   let currentSelectedFilePath: string | null = $state(null)
+  let currentScopedFileCount = $state(0)
+  let currentActiveScopePath: string | null = $state(null)
+  let currentShardsByCollection = $state<Record<string, ShardInfo[]>>({})
 
   import type { FavoriteEntry } from '../../preload/api'
   let currentFavorites: FavoriteEntry[] = $state([])
@@ -90,6 +105,17 @@
   ingestRunning.subscribe((v) => (currentIngestRunning = v))
   expandedPaths.subscribe((v) => (currentExpandedPaths = v))
   selectedFilePath.subscribe((v) => (currentSelectedFilePath = v))
+  scopedFileCount.subscribe((v) => (currentScopedFileCount = v))
+  activeScopePath.subscribe((v) => (currentActiveScopePath = v))
+  shardsByCollection.subscribe((v) => (currentShardsByCollection = v))
+
+  let currentShardPaths = $derived(
+    new Set(
+      currentActiveCollectionId
+        ? (currentShardsByCollection[currentActiveCollectionId] ?? []).map((shard) => shard.path)
+        : []
+    )
+  )
 
   // Unified tree
   let currentUnifiedTree: UnifiedTreeNode | null = $state(null)
@@ -605,10 +631,19 @@
   }
 
   function handleOpenAsTable() {
+    if (!contextMenuIsDir) return
+    const path = contextMenuPath || currentActiveScopePath || ''
+    const recursive = Boolean(currentActiveScopePath && path === currentActiveScopePath)
+    closeContextMenu()
+    onfolderopen?.({ path, recursive })
+  }
+
+  function handleCreateShardFromFolder() {
     if (!contextMenuPath || !contextMenuIsDir) return
     const path = contextMenuPath
+    if (currentShardPaths.has(path)) return
     closeContextMenu()
-    onfolderopen?.({ path })
+    oncreateshard?.({ path })
   }
 
   function handleInformation() {
@@ -878,6 +913,14 @@
     try {
       await window.api.deleteFile(absolutePath)
 
+      const shard = get(activeShard)
+      if (isDir && shard && isPathInShard(shard.path, path)) {
+        await setActiveShard(null)
+      }
+      if (isDir && currentActiveCollectionId) {
+        void refreshShards(currentActiveCollectionId)
+      }
+
       // Close any open tabs for this file (or files inside a deleted directory)
       for (const [tabId, tab] of Object.entries(workspace.tabs)) {
         if (tab.kind === 'document' || tab.kind === 'asset') {
@@ -932,7 +975,7 @@
   }
 
   function totalFiles(): number {
-    return currentFileTree?.total_files ?? 0
+    return currentScopedFileCount
   }
 
   function handleIngest() {
@@ -1009,8 +1052,8 @@
       </div>
       <button
         class="icon-btn"
-        onclick={() => startNewFile()}
-        title="New File"
+        onclick={() => startNewFile(currentActiveScopePath ?? '')}
+        title={currentActiveScopePath ? `New File in ${currentActiveScopePath}` : 'New File'}
         disabled={!currentActiveCollection}
       >
         <span class="material-symbols-outlined">note_add</span>
@@ -1163,6 +1206,7 @@
               noRecursiveRender={true}
               {currentSelectedFilePath}
               {currentExpandedPaths}
+              shardPaths={currentShardPaths}
               {renamingPath}
               {renameInitial}
               {renameError}
@@ -1204,6 +1248,13 @@
         <span class="material-symbols-outlined">create_new_folder</span>
         New Folder
       </button>
+      {#if !contextMenuPath && currentActiveScopePath}
+        <div class="context-menu-separator" role="separator"></div>
+        <button role="menuitem" class="context-menu-item" onclick={handleOpenAsTable}>
+          <span class="material-symbols-outlined">table</span>
+          Open Shard as Table
+        </button>
+      {/if}
       {#if contextMenuPath}
         <div class="context-menu-separator" role="separator"></div>
         {#if !contextMenuIsDir && !contextMenuIsAsset}
@@ -1249,6 +1300,12 @@
             <span class="material-symbols-outlined">table</span>
             Open as Table
           </button>
+          {#if contextMenuPath && !currentShardPaths.has(contextMenuPath)}
+            <button role="menuitem" class="context-menu-item" onclick={handleCreateShardFromFolder}>
+              <ShardIcon size={16} />
+              Create Shard from Folder…
+            </button>
+          {/if}
           {#if !contextMenuIsAsset}
             <div class="context-menu-separator" role="separator"></div>
             <button role="menuitem" class="context-menu-item" onclick={handleShowInGraph}>

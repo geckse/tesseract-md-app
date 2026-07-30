@@ -1,7 +1,7 @@
 <script lang="ts">
   import { obsidianImportNotice, dismissObsidianImportNotice } from '../stores/obsidian-import'
   import { activeCollectionId } from '../stores/collections'
-  import { topicsNeedIngest } from '../stores/topics'
+  import { markTopicsNeedIngest } from '../stores/topics'
   import { runIngest } from '../stores/ingest'
   import type { ObsidianTopicsSyncedEvent } from '../../preload/api'
 
@@ -45,7 +45,7 @@
     try {
       await runIngest()
       // The ingest we just ran computed the imported topics' assignments.
-      topicsNeedIngest.set(false)
+      if (notice) markTopicsNeedIngest(notice.root, null, false)
       dismissObsidianImportNotice()
     } catch {
       // Ingest errors surface through the ingest store; keep the notice.

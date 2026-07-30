@@ -7,7 +7,8 @@ import type {
   AssetScanResult,
   AssetFileNode,
   MimeCategory,
-  WatchEventReport
+  WatchEventReport,
+  UnifiedTreeNode
 } from '../types/cli'
 import type { VaultFileEvent } from '../../preload/api'
 import { activeCollection } from './collections'
@@ -18,6 +19,14 @@ import { syncGraphStoresFromTab } from './graph'
 import { workspace } from './workspace.svelte'
 import { mergeTreeNodes } from '../lib/tree-merge'
 import { clearLoadedGraphStateCache } from '../lib/graph-view-loader'
+import {
+  activeScopePath,
+  activeShard,
+  isPathInShard,
+  normalizeShardPath,
+  refreshShards,
+  setActiveShard
+} from './shards'
 // Lazy import to avoid circular dependency (favorites.ts imports selectedFilePath from here)
 const lazyTrackRecent = (...args: Parameters<typeof import('./favorites').trackRecent>) =>
   import('./favorites').then((m) => m.trackRecent(...args))
@@ -57,6 +66,11 @@ export const flatFileList = derived(fileTree, ($fileTree) => {
   }
   return files
 })
+
+/** Files visible in the active Shard. The full flatFileList remains link-authoritative. */
+export const scopedFlatFileList = derived([flatFileList, activeScopePath], ([$files, $scope]) =>
+  $files.filter((file) => isPathInShard(file.path, $scope))
+)
 
 /** The asset scan result for the active collection. */
 export const assetTree = writable<AssetScanResult | null>(null)
@@ -110,15 +124,52 @@ export const collectionDirectories = derived([fileTree, assetTree], ([$fileTree,
 export const showAssets = writable<boolean>(true)
 
 /** Unified tree merging CLI markdown tree with app-scanned assets. */
-export const unifiedTree = derived(
+/** Full collection catalog retained for links, pickers, and explicit navigation. */
+export const fullUnifiedTree = derived(
   [fileTree, assetTree, showAssets],
   ([$fileTree, $assetTree, $showAssets]) => {
     return mergeTreeNodes($fileTree, $showAssets ? $assetTree : null)
   }
 )
 
-/** Count files by state in the current tree. */
-export const fileStateCounts = derived(fileTree, ($fileTree) => {
+function findUnifiedNode(root: UnifiedTreeNode, path: string): UnifiedTreeNode | null {
+  const normalized = normalizeShardPath(path)
+  if (!normalized) return root
+  let current = root
+  for (const segment of normalized.split('/')) {
+    const next = current.children.find((child) => child.is_dir && child.name === segment)
+    if (!next) return null
+    current = next
+  }
+  return current
+}
+
+/**
+ * File-tree lens for the active Shard. Node paths intentionally remain
+ * collection-root-relative even though the visible hierarchy starts at the
+ * Shard folder, preserving stable identities for tabs, links, and mutations.
+ */
+export const unifiedTree = derived(
+  [fullUnifiedTree, activeScopePath],
+  ([$tree, $scope]): UnifiedTreeNode | null => {
+    if (!$tree || !$scope) return $tree
+    const shardRoot = findUnifiedNode($tree, $scope)
+    if (!shardRoot) {
+      return {
+        name: $scope.split('/').pop() ?? $scope,
+        path: $scope,
+        is_dir: true,
+        children: [],
+        state: null,
+        isAsset: false
+      }
+    }
+    return { ...shardRoot, children: shardRoot.children }
+  }
+)
+
+/** Count Markdown files by state inside the active collection/Shard lens. */
+export const fileStateCounts = derived([fileTree, activeScopePath], ([$fileTree, $scope]) => {
   const counts: Record<FileState, number> = {
     indexed: 0,
     modified: 0,
@@ -127,7 +178,7 @@ export const fileStateCounts = derived(fileTree, ($fileTree) => {
   }
   if (!$fileTree) return counts
   function walk(node: FileTreeNode): void {
-    if (!node.is_dir && node.state) {
+    if (!node.is_dir && node.state && isPathInShard(node.path, $scope)) {
       counts[node.state]++
     }
     for (const child of node.children) {
@@ -137,6 +188,12 @@ export const fileStateCounts = derived(fileTree, ($fileTree) => {
   walk($fileTree.root)
   return counts
 })
+
+/** Markdown file total inside the active lens. */
+export const scopedFileCount = derived(
+  [flatFileList, activeScopePath],
+  ([$files, $scope]) => $files.filter((file) => isPathInShard(file.path, $scope)).length
+)
 
 // ─── Workspace-derived file stores ─────────────────────────────────────
 //
@@ -807,6 +864,8 @@ function flushVaultTreeQueue(): void {
   vaultTreeQueue = []
   if (queue.length === 0) return
 
+  applyShardFolderLifecycle(queue)
+
   // Agent rewrote the vault wholesale — one data reload beats per-node surgery.
   // (View state like expandedPaths/scroll lives separately, so no view reset.)
   if (queue.length > TREE_FULL_RELOAD_THRESHOLD) {
@@ -816,6 +875,31 @@ function flushVaultTreeQueue(): void {
 
   for (const event of queue) {
     applyVaultEventToTree(event)
+  }
+}
+
+function applyShardFolderLifecycle(events: VaultFileEvent[]): void {
+  const directoryEvents = events.filter((event) => event.isDirectory)
+  if (directoryEvents.length === 0) return
+
+  const shard = get(activeShard)
+  if (shard) {
+    const removedActiveScope = directoryEvents.some((event) => {
+      if (event.kind !== 'deleted' && !(event.kind === 'renamed' && event.origin === 'external')) {
+        return false
+      }
+      const removedPrefix = event.kind === 'renamed' ? event.oldPath : event.path
+      return Boolean(removedPrefix && isPathInShard(shard.path, removedPrefix))
+    })
+    if (removedActiveScope) void setActiveShard(null)
+  }
+
+  const collection = get(activeCollection)
+  if (collection) {
+    // One refresh per filesystem burst covers missing-folder repairs,
+    // deletions, retargeted app renames, and large batches that take the full
+    // tree-resync fast path below.
+    void refreshShards(collection.id)
   }
 }
 
@@ -953,6 +1037,7 @@ export async function createNewFile(
 ): Promise<string | null> {
   const collection = get(activeCollection)
   if (!collection) return null
+  if (!dirPath) dirPath = get(activeScopePath) ?? ''
 
   // Auto-append .md if no extension
   if (!filename.includes('.')) {
@@ -989,6 +1074,7 @@ export async function createNewFile(
 export async function createNewDirectory(dirPath: string, name: string): Promise<string | null> {
   const collection = get(activeCollection)
   if (!collection) return null
+  if (!dirPath) dirPath = get(activeScopePath) ?? ''
 
   const relativePath = dirPath ? `${dirPath}/${name}` : name
   const absolutePath = `${collection.path}/${relativePath}`

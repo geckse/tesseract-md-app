@@ -34,6 +34,7 @@ import { execCommand, findCli, getCliVersion } from './cli'
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { installLocalMediaProtocol, registerLocalMediaScheme } from './media-protocol'
+import { configureShardManifestWatcher, destroyShardManifestWatcher } from './shard-watcher'
 
 /** Singleton WindowManager for centralized multi-window lifecycle. */
 export const windowManager = new WindowManager()
@@ -115,6 +116,7 @@ app
     registerIpcHandlers(windowManager, ptyManager)
     registerTerminalHandlers(ptyManager)
     buildAppMenu(windowManager)
+    await configureShardManifestWatcher(getCollections(), windowManager)
 
     // Start the Tier-1 vault watcher for the persisted active collection so
     // background file changes reach renderers from the first frame.
@@ -176,6 +178,10 @@ app.on('will-quit', () => {
 
   // Close the Tier-1 vault watcher
   destroyVaultWatcher().catch(() => {
+    // Best-effort cleanup during shutdown
+  })
+
+  destroyShardManifestWatcher().catch(() => {
     // Best-effort cleanup during shutdown
   })
 

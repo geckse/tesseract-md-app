@@ -10,6 +10,7 @@ import {
   GraphSnapshotCache,
   estimateCompactGraphBytes,
   readGraphIndexRevision,
+  readGraphSourceRevision,
   validateCompactGraphData
 } from '../../src/main/graph-snapshot-cache'
 import { CliParseError } from '../../src/main/errors'
@@ -53,6 +54,19 @@ function compactGraph(context = 'complete context'): CompactGraphData {
   }
 }
 
+function compactShardGraph(shardId: string, shardPath = `work/${shardId}`): CompactGraphData {
+  return {
+    ...compactGraph(),
+    analysis: {
+      context: 'shard',
+      shard_id: shardId,
+      shard_path: shardPath,
+      clusters: 'ready',
+      topics: 'none'
+    }
+  }
+}
+
 afterEach(async () => {
   await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true })))
 })
@@ -90,6 +104,44 @@ describe('compact graph contract validation', () => {
       'must reference contexts instead of expanding them'
     )
   })
+
+  it('accepts additive analysis metadata and rejects invalid statuses', () => {
+    const scoped = compactGraph()
+    scoped.analysis = {
+      context: 'shard',
+      shard_id: 'research',
+      shard_path: 'work/research',
+      clusters: 'ready',
+      topics: 'needs_ingest'
+    }
+    expect(validateCompactGraphData(scoped)).toBe(scoped)
+
+    const malformed = {
+      ...compactGraph(),
+      analysis: { context: 'shard', clusters: 'fresh', topics: 'none' }
+    }
+    expect(() => validateCompactGraphData(malformed)).toThrow('clusters status')
+  })
+
+  it('requires exact Shard analysis identity when a Shard was requested', () => {
+    expect(validateCompactGraphData(compactShardGraph('research'), 'research')).toBeTruthy()
+    expect(() => validateCompactGraphData(compactGraph(), 'research')).toThrow(
+      'missing analysis metadata'
+    )
+
+    const collection = compactGraph()
+    collection.analysis = {
+      context: 'collection',
+      clusters: 'ready',
+      topics: 'none'
+    }
+    expect(() => validateCompactGraphData(collection, 'research')).toThrow(
+      'returned Collection analysis'
+    )
+    expect(() => validateCompactGraphData(compactShardGraph('archive'), 'research')).toThrow(
+      'identity mismatch'
+    )
+  })
 })
 
 describe('GraphSnapshotCache', () => {
@@ -107,6 +159,22 @@ describe('GraphSnapshotCache', () => {
     expect(result).toBe(response)
     expect(execute).toHaveBeenCalledWith(
       ['--compact', '--level', 'chunk', '--path', 'docs/'],
+      '/vault',
+      expect.any(AbortSignal)
+    )
+  })
+
+  it('passes Shard analysis identity independently from the effective descendant path', async () => {
+    const execute = vi.fn().mockResolvedValue(compactShardGraph('research', 'work/research'))
+    const cache = new GraphSnapshotCache({
+      execute,
+      readRevision: vi.fn().mockResolvedValue('revision-1')
+    })
+
+    await cache.get('/vault', 'document', 'work/research/papers', 'research')
+
+    expect(execute).toHaveBeenCalledWith(
+      ['--compact', '--level', 'document', '--shard', 'research', '--path', 'work/research/papers'],
       '/vault',
       expect.any(AbortSignal)
     )
@@ -282,13 +350,24 @@ describe('GraphSnapshotCache', () => {
     expect(cache.stats()).toMatchObject({ snapshots: 0, inFlight: 0, active: 0 })
   })
 
-  it('keys snapshots independently by root, level, and path', async () => {
+  it('keys snapshots independently by root, level, path, and Shard analysis context', async () => {
     const execute = vi.fn((args: string[]) => {
       const response = compactGraph()
       response.level = args.includes('chunk') ? 'chunk' : 'document'
+      const shardIndex = args.indexOf('--shard')
+      if (shardIndex >= 0) {
+        response.analysis = {
+          context: 'shard',
+          shard_id: args[shardIndex + 1],
+          shard_path: 'docs',
+          clusters: 'ready',
+          topics: 'none'
+        }
+      }
       return Promise.resolve(response)
     })
     const cache = new GraphSnapshotCache({
+      maxSnapshots: 8,
       execute,
       readRevision: vi.fn().mockResolvedValue('revision-1')
     })
@@ -297,9 +376,10 @@ describe('GraphSnapshotCache', () => {
     await cache.get('/two', 'document')
     await cache.get('/one', 'chunk')
     await cache.get('/one', 'document', 'docs/')
+    await cache.get('/one', 'document', 'docs/', 'docs-shard')
     await cache.get('/one', 'document')
 
-    expect(execute).toHaveBeenCalledTimes(4)
+    expect(execute).toHaveBeenCalledTimes(5)
   })
 
   it('bounds settled snapshots with LRU eviction', async () => {
@@ -452,5 +532,30 @@ describe('readGraphIndexRevision', () => {
 
     expect(first).not.toBe('missing')
     expect(second).not.toBe(first)
+  })
+
+  it('changes the graph source revision when project config changes without touching the index', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'mdvdb-graph-source-revision-'))
+    temporaryRoots.push(root)
+
+    const indexDir = join(root, '.markdownvdb')
+    await mkdir(indexDir)
+    await writeFile(join(indexDir, 'index'), 'stable-index')
+    await writeFile(join(indexDir, 'config.yaml'), 'shards: {}\n')
+    const first = await readGraphSourceRevision(root)
+
+    await appendFile(join(indexDir, 'config.yaml'), 'clustering:\n  custom: []\n')
+    const second = await readGraphSourceRevision(root)
+
+    expect(second).not.toBe(first)
+    expect(await readGraphIndexRevision(root)).not.toBe('missing')
+
+    const derivedCacheDir = join(indexDir, 'cache', 'shards')
+    await mkdir(derivedCacheDir, { recursive: true })
+    await writeFile(
+      join(derivedCacheDir, 'research.json'),
+      JSON.stringify({ generated_at: Date.now() })
+    )
+    expect(await readGraphSourceRevision(root)).toBe(second)
   })
 })
