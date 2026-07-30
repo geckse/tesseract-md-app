@@ -13,6 +13,7 @@ import {
 } from './edge-utils'
 import { paletteColor, type HarmonicPalette } from './harmonic-palette'
 import { linkKey } from './graph-delta'
+import { buildGraphFolderHierarchy, type GraphFolderHierarchy } from './graph-folder-hierarchy'
 import {
   graphGroupIdForMode,
   graphTopLevelFolder,
@@ -62,6 +63,18 @@ export interface Graph3DNode {
   val: number
   /** Hex color string for the node sphere. */
   color: string
+  /** Renderer-only node identity. Omitted values are ordinary content nodes. */
+  kind?: 'content' | 'folder'
+  /** Scope-relative branch used for folder colors, layout groups, and enclosures. */
+  folder_group?: string | null
+  /** Stable virtual parent folder ID for content and nested folder nodes. */
+  folder_parent_id?: string | null
+  /** Folder depth relative to the effective graph scope. */
+  folder_depth?: number | null
+  /** Unique visible document count represented by a folder hub. */
+  folder_document_count?: number | null
+  /** True only for the synthetic effective-scope root. */
+  is_folder_root?: boolean
   /** Optional pre-seeded X position (set by the active grouping mode). */
   x?: number
   /** Optional pre-seeded Y position (set by the active grouping mode). */
@@ -86,12 +99,16 @@ export interface Graph3DLink {
   width: number
   /** Stable compact multiset key reused by incremental refreshes. */
   content_key?: string
+  /** Renderer-only link identity. Omitted values are ordinary content links. */
+  kind?: 'content' | 'hierarchy'
 }
 
 /** Complete graph data formatted for 3d-force-graph. */
 export interface Graph3DData {
   nodes: Graph3DNode[]
   links: Graph3DLink[]
+  /** Stable membership signature for renderer-derived folder topology. */
+  hierarchy_signature?: string | null
 }
 
 // ─── Types ───────────────────────────────────────────────────────────
@@ -111,6 +128,10 @@ export interface BuildGraph3DOptions {
   customClusterPalette: HarmonicPalette
   /** Harmonic palette for edge cluster colors */
   edgePalette: HarmonicPalette
+  /** Effective Shard/folder boundary used as the hierarchy root. */
+  folderScopePath?: string | null
+  /** User-facing label for the effective hierarchy root. */
+  folderRootLabel?: string
 }
 
 // ─── Private Helpers ─────────────────────────────────────────────────
@@ -153,7 +174,11 @@ function escapeHtml(text: string): string {
  * - none: file-hash color for chunks, default for documents
  */
 export function nodeColorForMode(
-  node: Pick<GraphNode, 'path' | 'cluster_id' | 'custom_cluster_id'>,
+  node: Pick<GraphNode, 'path' | 'cluster_id' | 'custom_cluster_id'> & {
+    kind?: 'content' | 'folder'
+    folder_group?: string | null
+    is_folder_root?: boolean
+  },
   mode: ColoringMode,
   folderColorMap: Map<string, string> | null,
   isChunk: boolean,
@@ -176,7 +201,9 @@ export function nodeColorForMode(
   }
 
   if (mode === 'folder') {
-    return folderColorMap?.get(graphTopLevelFolder(node.path)) ?? defaultColor
+    if (node.is_folder_root) return defaultColor
+    const folder = node.folder_group ?? graphTopLevelFolder(node.path)
+    return folderColorMap?.get(folder) ?? defaultColor
   }
 
   // 'none' mode: per-file hash color for chunks, default for documents
@@ -228,6 +255,20 @@ export function nodeSizeValue(
   // chunk mode
   if (maxSize <= 0) return 1
   return 1 + (size / maxSize) * 8
+}
+
+/** Larger, bounded hub sizing based on unique visible documents. */
+export function folderNodeSizeValue(documentCount: number, isRoot: boolean): number {
+  const base = isRoot ? 40 : 20
+  return Math.min(216, Math.max(12, base + Math.max(0, documentCount) * 4))
+}
+
+export function isFolderGraphNode(node: Pick<Graph3DNode, 'kind'>): boolean {
+  return node.kind === 'folder'
+}
+
+export function isFolderHierarchyLink(link: Pick<Graph3DLink, 'kind'>): boolean {
+  return link.kind === 'hierarchy'
 }
 
 /**
@@ -366,6 +407,138 @@ export function seedGroupedPositions(
   )
   groupIds.sort((left, right) => left.localeCompare(right, undefined, { numeric: true }))
   seedPositionsByGroup(nodes, groupIds, (node) => graphGroupIdForMode(node, mode), spreadRadius)
+}
+
+function deterministicUnitVector(value: string): { x: number; y: number; z: number } {
+  let first = 2166136261
+  let second = 0x9e3779b9
+  for (let index = 0; index < value.length; index++) {
+    const code = value.charCodeAt(index)
+    first = Math.imul(first ^ code, 16777619)
+    second = Math.imul(second ^ code, 0x85ebca6b)
+  }
+  const longitude = ((first >>> 0) / 0xffffffff) * Math.PI * 2
+  const z = ((second >>> 0) / 0xffffffff) * 2 - 1
+  const radius = Math.sqrt(Math.max(0, 1 - z * z))
+  return { x: Math.cos(longitude) * radius, y: Math.sin(longitude) * radius, z }
+}
+
+/**
+ * Deterministic radial seed for the folder hierarchy. The force worker then
+ * relaxes this readable first frame without having to discover the tree from
+ * a random cloud.
+ */
+export function seedFolderHierarchyPositions(
+  nodes: Graph3DNode[],
+  spreadRadius: number = 200
+): void {
+  const folderNodes = nodes
+    .filter(isFolderGraphNode)
+    .sort(
+      (left, right) =>
+        (left.folder_depth ?? 0) - (right.folder_depth ?? 0) || left.path.localeCompare(right.path)
+    )
+  if (folderNodes.length === 0) {
+    seedGroupedPositions(nodes, 'folder', spreadRadius)
+    return
+  }
+
+  const nodesById = new Map(nodes.map((node) => [node.id, node]))
+  const branches = [
+    ...new Set(
+      nodes.map((node) => node.folder_group).filter((branch): branch is string => branch != null)
+    )
+  ].sort()
+  const branchCentroids = new Map<string, { x: number; y: number; z: number }>()
+  const goldenAngle = Math.PI * (1 + Math.sqrt(5))
+  for (let index = 0; index < branches.length; index++) {
+    const phi = Math.acos(1 - (2 * (index + 0.5)) / Math.max(1, branches.length))
+    const theta = goldenAngle * index
+    branchCentroids.set(branches[index], {
+      x: Math.cos(theta) * Math.sin(phi) * spreadRadius * 0.7,
+      y: Math.sin(theta) * Math.sin(phi) * spreadRadius * 0.7,
+      z: Math.cos(phi) * spreadRadius * 0.7
+    })
+  }
+
+  for (const node of folderNodes) {
+    const depth = node.folder_depth ?? 0
+    if (node.is_folder_root || depth === 0) {
+      node.x = 0
+      node.y = 0
+      node.z = 0
+      continue
+    }
+    const branch = node.folder_group
+    const centroid = branch == null ? undefined : branchCentroids.get(branch)
+    if (depth === 1 && centroid) {
+      node.x = centroid.x
+      node.y = centroid.y
+      node.z = centroid.z
+      continue
+    }
+    const parent = node.folder_parent_id ? nodesById.get(node.folder_parent_id) : undefined
+    const direction = centroid
+      ? (() => {
+          const length = Math.hypot(centroid.x, centroid.y, centroid.z) || 1
+          return { x: centroid.x / length, y: centroid.y / length, z: centroid.z / length }
+        })()
+      : deterministicUnitVector(node.id)
+    const jitter = deterministicUnitVector(`${node.id}:folder`)
+    const step = Math.max(48, spreadRadius * 0.3)
+    node.x = (parent?.x ?? 0) + direction.x * step + jitter.x * 14
+    node.y = (parent?.y ?? 0) + direction.y * step + jitter.y * 14
+    node.z = (parent?.z ?? 0) + direction.z * step + jitter.z * 14
+  }
+
+  for (const node of nodes) {
+    if (isFolderGraphNode(node)) continue
+    const parent = node.folder_parent_id ? nodesById.get(node.folder_parent_id) : undefined
+    const direction = deterministicUnitVector(`${node.id}:content`)
+    const leafDistance = Math.max(34, Math.min(62, spreadRadius * 0.24))
+    node.x = (parent?.x ?? 0) + direction.x * leafDistance
+    node.y = (parent?.y ?? 0) + direction.y * leafDistance
+    node.z = (parent?.z ?? 0) + direction.z * leafDistance
+  }
+}
+
+/**
+ * Pull virtual folder hubs close to their hierarchy parents before a
+ * topology-changing mode transition. Content positions stay untouched; the
+ * layout worker expands the collapsed branches toward their settled targets.
+ */
+export function collapseFolderHierarchyForSpawn(nodes: Graph3DNode[], radialProgress = 0.06): void {
+  const progress = Math.min(1, Math.max(0, radialProgress))
+  const nodesById = new Map(nodes.map((node) => [node.id, node]))
+  const targetPositions = new Map(
+    nodes.map((node) => [
+      node.id,
+      {
+        x: node.x ?? 0,
+        y: node.y ?? 0,
+        z: node.z ?? 0
+      }
+    ])
+  )
+  const folders = nodes
+    .filter(isFolderGraphNode)
+    .sort(
+      (left, right) =>
+        (left.folder_depth ?? 0) - (right.folder_depth ?? 0) || left.path.localeCompare(right.path)
+    )
+
+  for (const folder of folders) {
+    if (folder.is_folder_root || (folder.folder_depth ?? 0) === 0) continue
+    const parent = folder.folder_parent_id ? nodesById.get(folder.folder_parent_id) : undefined
+    const target = targetPositions.get(folder.id)
+    if (!parent || !target) continue
+    const parentX = parent.x ?? 0
+    const parentY = parent.y ?? 0
+    const parentZ = parent.z ?? 0
+    folder.x = parentX + (target.x - parentX) * progress
+    folder.y = parentY + (target.y - parentY) * progress
+    folder.z = parentZ + (target.z - parentZ) * progress
+  }
 }
 
 /** Backward-compatible automatic-cluster seeding helper used by focused unit tests. */
@@ -512,13 +685,21 @@ export function buildGraph3DData(data: GraphData, options: BuildGraph3DOptions):
   let maxSize = 1
   for (const node of data.nodes) maxSize = Math.max(maxSize, node.size ?? 0)
 
+  const hierarchy: GraphFolderHierarchy | null =
+    options.coloringMode === 'folder'
+      ? buildGraphFolderHierarchy(data.nodes, {
+          scopePath: options.folderScopePath,
+          rootLabel: options.folderRootLabel ?? 'Collection'
+        })
+      : null
+
   // 4. Build folder color map if in folder mode
   let folderColorMap: Map<string, string> | null = null
-  if (options.coloringMode === 'folder') {
+  if (hierarchy) {
     folderColorMap = new Map<string, string>()
-    const folders = new Set(data.nodes.map((n) => graphTopLevelFolder(n.path)))
+    const folders = new Set(hierarchy.contentBranchById.values())
     let i = 0
-    for (const folder of folders) {
+    for (const folder of [...folders].sort()) {
       folderColorMap.set(folder, paletteColor(options.clusterPalette, i))
       i++
     }
@@ -537,8 +718,9 @@ export function buildGraph3DData(data: GraphData, options: BuildGraph3DOptions):
   const nodes: Graph3DNode[] = data.nodes.map((node) => {
     const degree = degreeMap.get(node.id) ?? 0
     const val = nodeSizeValue(options.level, degree, node.size ?? 0, maxSize)
+    const folderGroup = hierarchy?.contentBranchById.get(node.id)
     const color = nodeColorForMode(
-      node,
+      { ...node, folder_group: folderGroup },
       options.coloringMode,
       folderColorMap,
       isChunk,
@@ -558,9 +740,37 @@ export function buildGraph3DData(data: GraphData, options: BuildGraph3DOptions):
       chunk_index: node.chunk_index,
       size: node.size ?? null,
       val,
-      color
+      color,
+      kind: 'content',
+      folder_group: folderGroup,
+      folder_parent_id: hierarchy?.contentParentById.get(node.id) ?? null,
+      folder_depth: null,
+      folder_document_count: null,
+      is_folder_root: false
     }
   })
+
+  const folderNodes: Graph3DNode[] = (hierarchy?.nodes ?? []).map((folder) => ({
+    id: folder.id,
+    path: folder.path,
+    label: folder.label,
+    cluster_id: null,
+    custom_cluster_id: null,
+    custom_cluster_ids: [],
+    custom_cluster_scores: [],
+    chunk_index: null,
+    size: null,
+    val: folderNodeSizeValue(folder.documentCount, folder.isRoot),
+    color: folder.isRoot
+      ? defaultNodeColor
+      : (folderColorMap?.get(folder.branch ?? '') ?? defaultNodeColor),
+    kind: 'folder',
+    folder_group: folder.branch,
+    folder_parent_id: folder.parentId,
+    folder_depth: folder.depth,
+    folder_document_count: folder.documentCount,
+    is_folder_root: folder.isRoot
+  }))
 
   // 6. Map edges to Graph3DLink format. Frontmatter relation edges (phase 42)
   // get a distinct hue; GraphView additionally renders them dashed.
@@ -584,8 +794,34 @@ export function buildGraph3DData(data: GraphData, options: BuildGraph3DOptions):
           options.edgePalette
         ),
     width: edgeLinkWidth(edge.strength ?? 0.5),
-    content_key: linkKey(edge, data.contexts)
+    content_key: linkKey(edge, data.contexts),
+    kind: 'content'
   }))
 
-  return { nodes, links }
+  const hierarchyLinks: Graph3DLink[] = (hierarchy?.edges ?? []).map((edge) => ({
+    source: edge.source,
+    target: edge.target,
+    relationship_type: null,
+    strength: null,
+    context_text: null,
+    edge_cluster_id: null,
+    field: null,
+    color: folderColorMap?.get(edge.branch ?? '') ?? defaultNodeColor,
+    width: edge.childKind === 'folder' ? 1.5 : 1.1,
+    content_key: `hierarchy\u0000${edge.source}\u0000${edge.target}`,
+    kind: 'hierarchy'
+  }))
+
+  if (hierarchy) {
+    return {
+      nodes: [...folderNodes, ...nodes],
+      links: [...hierarchyLinks, ...links],
+      hierarchy_signature: hierarchy.signature
+    }
+  }
+
+  return {
+    nodes,
+    links
+  }
 }

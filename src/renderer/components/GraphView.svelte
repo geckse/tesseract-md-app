@@ -182,19 +182,24 @@
   } from '../lib/graph-label-layout'
   import {
     buildGraph3DData,
+    collapseFolderHierarchyForSpawn,
     computeGraphGroupCentroids,
     seedGroupedPositions,
+    seedFolderHierarchyPositions,
     seedNearNeighbors,
     computeDegreeMap,
     findUnconnectedNodeIds,
     nodeSizeValue,
     nodeColorForMode,
     edgeArrowColor,
+    isFolderGraphNode,
+    isFolderHierarchyLink,
     type Graph3DNode,
     type Graph3DLink,
     type Graph3DData
   } from '../lib/graph-3d-bridge'
-  import { graphTopLevelFolder, type GraphGroupId } from '../lib/graph-grouping'
+  import { type GraphGroupId } from '../lib/graph-grouping'
+  import { buildGraphFolderHierarchy } from '../lib/graph-folder-hierarchy'
   import {
     activeShard,
     activeShardId,
@@ -280,6 +285,7 @@
 
   const GRAPH_LAYOUT_MODE_TRANSITION_MS = 800
   const GRAPH_LAYOUT_WORKER_BLEND_MS = 120
+  const FOLDER_HUB_SPAWN_MS = 700
 
   interface GraphLayoutModeTransition {
     revision: string
@@ -295,6 +301,8 @@
 
   let layoutModeTransition: GraphLayoutModeTransition | null = null
   let layoutModeTransitionFrameId: number | null = null
+  let folderHubSpawnStartedAt = 0
+  let folderHubSpawnProgress = 1
 
   type GraphDiagnosticsWindow = Window & {
     __tesseractGraphPerformance?: () => ReturnType<GraphPerformanceCollector['snapshot']>
@@ -614,7 +622,17 @@
   let tooltipY = $state(0)
 
   // Proximity labels: visible node labels when camera is close enough (document mode)
-  let visibleLabels: { id: string; label: string; x: number; y: number }[] = $state([])
+  interface VisibleGraphLabel {
+    id: string
+    label: string
+    x: number
+    y: number
+    kind?: 'content' | 'folder'
+    path?: string
+    documentCount?: number
+  }
+
+  let visibleLabels: VisibleGraphLabel[] = $state([])
   const proximityLabelNodes: Graph3DNode[] = []
   const proximityLabelCandidates: GraphLabelCandidate[] = []
   const graphLabelProjection = new THREE.Vector3()
@@ -652,6 +670,9 @@
 
   // Node count for performance warnings
   let nodeCount = $state(0)
+  let folderHubCount = $state(0)
+  let contentLinkCount = $state(0)
+  let hierarchyLinkCount = $state(0)
 
   // Display controls
   let graphLabelsVisible = $state(true)
@@ -1011,13 +1032,28 @@
     })
   }
 
-  function publishVisibleLabels(labels: typeof visibleLabels): void {
+  function publishVisibleLabels(labels: GraphLabelCandidate[]): void {
+    const decorated: VisibleGraphLabel[] = labels.map((label) => {
+      const node = liveNodesById.get(label.id)
+      return isFolderGraphNode(node ?? { kind: 'content' })
+        ? {
+            ...label,
+            kind: 'folder',
+            path: node?.path,
+            documentCount: node?.folder_document_count ?? 0
+          }
+        : { ...label, kind: 'content' }
+    })
     if (
-      labels.length === visibleLabels.length &&
-      labels.every((label, index) => {
+      decorated.length === visibleLabels.length &&
+      decorated.every((label, index) => {
         const previous = visibleLabels[index]
         return (
           previous?.id === label.id &&
+          previous.label === label.label &&
+          previous.kind === label.kind &&
+          previous.path === label.path &&
+          previous.documentCount === label.documentCount &&
           Math.abs(previous.x - label.x) < 0.5 &&
           Math.abs(previous.y - label.y) < 0.5
         )
@@ -1025,12 +1061,12 @@
     ) {
       return
     }
-    visibleLabels = labels
+    visibleLabels = decorated
   }
 
   /** Move only the grabbed label; a full proximity query would rebuild the O(V) picker grid. */
   function updateDraggedNodeLabel(node: ForceNode): void {
-    if (!graph || !graphLabelsVisible || isChunkMode()) return
+    if (!graph || !graphLabelsVisible || (isChunkMode() && !isFolderGraphNode(node))) return
     const index = visibleLabels.findIndex((label) => label.id === node.id)
     if (index < 0) return
     const screen = graph.graph2ScreenCoords(node.x ?? 0, node.y ?? 0, node.z ?? 0)
@@ -1043,6 +1079,11 @@
   }
 
   function graphLabelImportance(node: ForceNode, distanceSquared: number): number {
+    if (isFolderGraphNode(node)) {
+      const depth = node.folder_depth ?? 0
+      const priority = depth <= 1 ? 200_000_000 : 20_000_000
+      return priority - depth * 100_000 + (node.folder_document_count ?? 0) * 1_000
+    }
     let importance = (degreeMap.get(node.id) ?? 0) * 1_000
     importance += Math.max(0, node.val ?? 0) * 100
     importance += 100_000 / Math.max(25, Math.sqrt(distanceSquared))
@@ -1060,7 +1101,7 @@
   }
 
   function updateProximityLabels(): void {
-    if (!graph || !graphLabelsVisible || isChunkMode()) {
+    if (!graph || !graphLabelsVisible) {
       if (visibleLabels.length > 0) visibleLabels = []
       updateClusterLabelPositions()
       return
@@ -1077,6 +1118,15 @@
     } else {
       nodes = getLiveGraphData().nodes as ForceNode[]
     }
+    if (currentColoringMode === 'folder') {
+      const included = new Set(nodes.map((node) => node.id))
+      for (const node of getLiveGraphData().nodes) {
+        if (isFolderGraphNode(node) && (node.folder_depth ?? 0) <= 1 && !included.has(node.id)) {
+          nodes.push(node)
+          included.add(node.id)
+        }
+      }
+    }
 
     // Distance threshold: labels visible within this range from camera
     const maxDistSquared = 350 * 350
@@ -1090,6 +1140,7 @@
     proximityLabelCandidates.length = 0
 
     for (const node of nodes) {
+      if (isChunkMode() && !isFolderGraphNode(node)) continue
       const nx = node.x ?? 0
       const ny = node.y ?? 0
       const nz = node.z ?? 0
@@ -1098,14 +1149,23 @@
       const dy = camPos.y - ny
       const dz = camPos.z - nz
       const distanceSquared = dx * dx + dy * dy + dz * dz
-      if (distanceSquared > maxDistSquared) continue
+      if (
+        distanceSquared > maxDistSquared &&
+        !(isFolderGraphNode(node) && (node.folder_depth ?? 0) <= 1)
+      ) {
+        continue
+      }
       if (presentationActive && !presentationVisibleNodeIds.has(node.id)) continue
 
       // Extract filename from path
       let fileName = nodeLabelCache.get(node.id)
       if (!fileName) {
-        const separator = node.path?.lastIndexOf('/') ?? -1
-        fileName = separator >= 0 ? node.path.slice(separator + 1) : (node.path ?? node.id)
+        if (isFolderGraphNode(node)) {
+          fileName = node.label || graphFolderRootLabel()
+        } else {
+          const separator = node.path?.lastIndexOf('/') ?? -1
+          fileName = separator >= 0 ? node.path.slice(separator + 1) : (node.path ?? node.id)
+        }
         nodeLabelCache.set(node.id, fileName)
       }
 
@@ -1146,7 +1206,23 @@
         proximityLabelCandidates.length,
         layoutWorkerState === 'running'
       )
-      publishVisibleLabels(selectReadableGraphLabels(proximityLabelCandidates, viewport, budget))
+      const selected = selectReadableGraphLabels(proximityLabelCandidates, viewport, budget)
+      if (currentColoringMode === 'folder') {
+        const selectedIds = new Set(selected.map((label) => label.id))
+        for (const candidate of proximityLabelCandidates) {
+          const node = liveNodesById.get(candidate.id)
+          if (
+            node &&
+            isFolderGraphNode(node) &&
+            (node.folder_depth ?? 0) <= 1 &&
+            !selectedIds.has(candidate.id)
+          ) {
+            selected.push(candidate)
+            selectedIds.add(candidate.id)
+          }
+        }
+      }
+      publishVisibleLabels(selected)
     } else {
       publishVisibleLabels(labels)
     }
@@ -1181,6 +1257,33 @@
     return currentLevel === 'chunk'
   }
 
+  function effectiveFolderScopePath(): string | null {
+    const scope = get(graphEffectivePathFilter)
+    return scope.disjoint ? null : scope.path
+  }
+
+  function graphFolderRootLabel(): string {
+    const effectiveScope = effectiveFolderScopePath()?.replaceAll('\\', '/').replace(/\/+$/, '')
+    const explicitScope = currentPathFilter?.replaceAll('\\', '/').replace(/\/+$/, '')
+    if (explicitScope && explicitScope === effectiveScope) {
+      return explicitScope.split('/').pop() || 'Folder'
+    }
+    if (currentActiveShard) return currentActiveShard.name
+    return get(activeCollection)?.name ?? 'Collection'
+  }
+
+  function folderDisplayName(path: string): string {
+    if (path === '(root)') return 'Root files'
+    return path.replaceAll('\\', '/').replace(/\/+$/, '').split('/').pop() || path
+  }
+
+  function folderHierarchySignature(data: GraphData): string {
+    return buildGraphFolderHierarchy(data.nodes, {
+      scopePath: effectiveFolderScopePath(),
+      rootLabel: graphFolderRootLabel()
+    }).signature
+  }
+
   /** Current node-group selection from the legend or file tree. */
   function activeLegendHighlight(): GraphLegendHighlight | null {
     if (currentColoringMode === 'cluster' && highlightedClusterId != null) {
@@ -1211,7 +1314,20 @@
   function activeHullHighlightId(): GraphHullId | null {
     if (currentColoringMode === 'cluster') return highlightedClusterId
     if (currentColoringMode === 'custom-cluster') return highlightedTopicId
-    if (currentColoringMode === 'folder') return currentHighlightedFolder
+    if (currentColoringMode === 'folder' && currentHighlightedFolder) {
+      if (currentHighlightedFolder === '(root)') return '(root)'
+      const highlightedNode = currentGraph3DData?.nodes.find(
+        (node) => node.kind === 'folder' && node.path === currentHighlightedFolder
+      )
+      if (highlightedNode?.folder_group) return highlightedNode.folder_group
+      const descendant = currentGraph3DData?.nodes.find(
+        (node) =>
+          node.kind !== 'folder' &&
+          (node.path === currentHighlightedFolder ||
+            node.path.startsWith(`${currentHighlightedFolder}/`))
+      )
+      return descendant?.folder_group ?? null
+    }
     return null
   }
 
@@ -1247,6 +1363,17 @@
   ): string {
     const searchActive = graphSearchScores.size > 0 || graphSearchContextScores.size > 0
     if (currentUnconnectedHighlight && !searchActive) {
+      if (isFolderGraphNode(node)) {
+        return nodeColorForMode(
+          node,
+          currentColoringMode,
+          folderColorMap,
+          isChunkMode(),
+          currentClusterPalette,
+          currentCustomClusterPalette,
+          colors.default
+        )
+      }
       return unconnectedNodeIds.has(node.id) ? colors.primary : colors.muted
     }
     const legendHighlight = activeLegendHighlight()
@@ -1411,10 +1538,12 @@
   function computeBidirectionalPairs(links: Graph3DLink[]) {
     const edgeSet = new Set<string>()
     for (const link of links) {
+      if (isFolderHierarchyLink(link)) continue
       edgeSet.add(`${link.source}->${link.target}`)
     }
     const bidi = new Set<string>()
     for (const link of links) {
+      if (isFolderHierarchyLink(link)) continue
       if (edgeSet.has(`${link.target}->${link.source}`)) {
         bidi.add(`${link.source}->${link.target}`)
         bidi.add(`${link.target}->${link.source}`)
@@ -1429,6 +1558,7 @@
    * semantic edge palette. A selected node activates directional colors.
    */
   function getLinkArrowColor(link: ForceLink): string {
+    if (isFolderHierarchyLink(link)) return link.color
     const srcId = linkNodeId(link.source)
     const tgtId = linkNodeId(link.target)
     const selectedId = currentSelected?.id ?? null
@@ -1462,7 +1592,10 @@
     if (legendHighlight) {
       return graphNodeMatchesLegendHighlight(node, legendHighlight) ? 0.96 : 0.1
     }
-    if (currentUnconnectedHighlight) return unconnectedNodeIds.has(node.id) ? 1 : 0.16
+    if (currentUnconnectedHighlight) {
+      if (isFolderGraphNode(node)) return 0.34
+      return unconnectedNodeIds.has(node.id) ? 1 : 0.16
+    }
     return 0.9
   }
 
@@ -1470,8 +1603,13 @@
     const searchScore = graphSearchScoreForNode(node)
     if (graphSearchScores.size > 0 || graphSearchContextScores.size > 0) {
       const reveal = graphSearchRevealFrame
+      const orientationOpacity = node.is_folder_root ? 0.3 : 0.18
       if (reveal?.phase === 'dimming') {
-        return THREE.MathUtils.lerp(batchedNodeBaseOpacity(node), 0.05, reveal.dimProgress)
+        return THREE.MathUtils.lerp(
+          batchedNodeBaseOpacity(node),
+          isFolderGraphNode(node) ? orientationOpacity : 0.05,
+          reveal.dimProgress
+        )
       }
       if (reveal && searchScore !== undefined) {
         return THREE.MathUtils.lerp(
@@ -1480,7 +1618,10 @@
           reveal.nodeProgress.get(node.id) ?? 0
         )
       }
-      return searchScore === undefined ? 0.05 : computeSearchNodeOpacity(searchScore)
+      if (searchScore === undefined) {
+        return isFolderGraphNode(node) ? orientationOpacity : 0.05
+      }
+      return computeSearchNodeOpacity(searchScore)
     }
     return batchedNodeBaseOpacity(node)
   }
@@ -1513,6 +1654,26 @@
   function graphBatchedVisualState(): GraphBatchedVisualState {
     const searchActive = graphSearchScores.size > 0 || graphSearchContextScores.size > 0
     const normalLinkOpacity = (link: Graph3DLink): number => {
+      if (isFolderHierarchyLink(link)) {
+        const sourceId = linkNodeId(link.source)
+        const targetId = linkNodeId(link.target)
+        if (searchActive) {
+          const reveal = graphSearchRevealFrame
+          if (reveal?.phase === 'dimming') {
+            return THREE.MathUtils.lerp(0.62, 0.1, reveal.dimProgress)
+          }
+          const { sourceScore, targetScore } = graphSearchLinkScores(link)
+          return sourceScore !== undefined || targetScore !== undefined ? 0.48 : 0.16
+        }
+        if (currentSelected) {
+          return sourceId === currentSelected.id || targetId === currentSelected.id ? 0.82 : 0.13
+        }
+        const legendMatch = linkLegendMatch(link)
+        if (legendMatch === 'both') return 0.78
+        if (legendMatch === 'incident') return 0.42
+        if (legendMatch === 'none') return 0.055
+        return 0.62
+      }
       const semantic = _currentSemanticEdgesEnabled || isFrontmatterEdge(link)
       if (searchActive) {
         const reveal = graphSearchRevealFrame
@@ -1548,9 +1709,18 @@
       if (legendMatch === 'both') return Math.max(0.72, idle)
       if (legendMatch === 'incident') return 0.38
       if (legendMatch === 'none') return 0.035
-      return idle
+      const hoveredId = hoveredNode?.id
+      if (
+        hoveredEdge === link ||
+        (hoveredId &&
+          (linkNodeId(link.source) === hoveredId || linkNodeId(link.target) === hoveredId))
+      ) {
+        return Math.max(0.72, idle)
+      }
+      return currentColoringMode === 'folder' ? idle * 0.42 : idle
     }
     const normalLinkWidth = (link: Graph3DLink): number => {
+      if (isFolderHierarchyLink(link)) return link.width ?? 1.2
       if (searchActive && graphSearchRevealFrame?.phase !== 'dimming') {
         const { sourceScore, targetScore } = graphSearchLinkScores(link)
         if (sourceScore !== undefined && targetScore !== undefined) {
@@ -1565,6 +1735,7 @@
       return edgeScreenWidth(link.width ?? 0.5, semantic, incident)
     }
     const normalLinkFocused = (link: Graph3DLink): boolean => {
+      if (isFolderHierarchyLink(link)) return false
       const searchDimming = graphSearchRevealFrame?.phase === 'dimming'
       const { sourceScore, targetScore } = searchActive
         ? graphSearchLinkScores(link)
@@ -1589,6 +1760,7 @@
     return {
       nodeColor: (node) => getNodeColor(node as ForceNode, graphColors),
       nodeOpacity: batchedNodeOpacity,
+      nodeScale: (node) => (isFolderGraphNode(node) ? Math.max(0.04, folderHubSpawnProgress) : 1),
       nodeVisible: (node) => !presentationActive || presentationVisibleNodeIds.has(node.id),
       nodeHalo: (node) => {
         const revealProgress = graphSearchRevealFrame?.nodeProgress.get(node.id) ?? 0
@@ -1597,6 +1769,7 @@
         return (degreeMap.get(node.id) ?? 0) >= 5 && batchedNodeOpacity(node) > 0.2
       },
       linkColor: (link) => {
+        if (isFolderHierarchyLink(link)) return link.color
         if (searchActive) {
           if (graphSearchRevealFrame?.phase === 'dimming') {
             if (!_currentSemanticEdgesEnabled && !isFrontmatterEdge(link)) {
@@ -1620,6 +1793,7 @@
       linkFocused: normalLinkFocused,
       linkWidth: normalLinkWidth,
       linkReveal: (link) => {
+        if (isFolderHierarchyLink(link)) return 1
         const reveal = graphSearchRevealFrame
         if (!searchActive || reveal?.phase !== 'revealing') return 1
         const { sourceScore, targetScore } = graphSearchLinkScores(link)
@@ -1628,12 +1802,13 @@
         return index === undefined ? 1 : (reveal.linkProgress.get(index) ?? 0)
       },
       linkRevealDirection: (link) => {
+        if (isFolderHierarchyLink(link)) return 1
         const index = graphSearchRevealLinkIndices.get(link)
         return index === undefined ? 1 : (graphSearchRevealLinkDirections.get(index) ?? 1)
       },
       linkVisible: (link) => {
         if (!graphLinesVisible) return false
-        if (!isEdgeVisible(link, currentEdgeFilter)) return false
+        if (!isFolderHierarchyLink(link) && !isEdgeVisible(link, currentEdgeFilter)) return false
         if (!presentationActive) return true
         return (
           presentationVisibleNodeIds.has(link.source) && presentationVisibleNodeIds.has(link.target)
@@ -1646,7 +1821,14 @@
       arrowOpacity: (link) => edgeArrowOpacity(normalLinkOpacity(link), currentSelected != null),
       arrowVisible: (link) => {
         const searchHasFinishedDimming = searchActive && graphSearchRevealFrame?.phase !== 'dimming'
-        if (isChunkMode() || searchHasFinishedDimming || !graphLinesVisible) return false
+        if (
+          isFolderHierarchyLink(link) ||
+          isChunkMode() ||
+          searchHasFinishedDimming ||
+          !graphLinesVisible
+        ) {
+          return false
+        }
         if (
           presentationActive &&
           (!presentationVisibleNodeIds.has(link.source) ||
@@ -1693,6 +1875,14 @@
   function refreshBatchedLinkStyles(): void {
     if (!currentGraph3DData) return
     for (const link of currentGraph3DData.links) {
+      if (isFolderHierarchyLink(link)) {
+        const source = resolveLinkNode(link.source)
+        const target = resolveLinkNode(link.target)
+        const branch = target?.folder_group ?? source?.folder_group
+        link.color = (branch ? folderColorMap.get(branch) : undefined) ?? getDefaultNodeColor()
+        link.width = isFolderGraphNode(target ?? { kind: 'content' }) ? 1.5 : 1.1
+        continue
+      }
       link.color = isFrontmatterEdge(link)
         ? FRONTMATTER_EDGE_COLOR
         : edgeLinkColor(
@@ -2375,8 +2565,14 @@
     if (presentationActive || !graph || !currentData || currentData.nodes.length === 0) return
 
     const selectedStartId = currentSelected?.id ?? null
-    const visibleEdges = currentData.edges.filter((edge) => isEdgeVisible(edge, currentEdgeFilter))
-    const order = buildGraphPresentationOrder(currentData.nodes, visibleEdges, selectedStartId)
+    const folderPresentation = currentColoringMode === 'folder' && currentGraph3DData != null
+    const presentationNodes = folderPresentation ? currentGraph3DData.nodes : currentData.nodes
+    const visibleEdges = folderPresentation
+      ? currentGraph3DData.links.filter(
+          (link) => isFolderHierarchyLink(link) || isEdgeVisible(link, currentEdgeFilter)
+        )
+      : currentData.edges.filter((edge) => isEdgeVisible(edge, currentEdgeFilter))
+    const order = buildGraphPresentationOrder(presentationNodes, visibleEdges, selectedStartId)
     if (order.length === 0) return
 
     cancelLayoutModeTransition(true)
@@ -2449,6 +2645,12 @@
     if (layoutModeTransitionFrameId !== null) cancelAnimationFrame(layoutModeTransitionFrameId)
     layoutModeTransitionFrameId = null
     layoutModeTransition = null
+    if (folderHubSpawnProgress < 1) {
+      folderHubSpawnProgress = 1
+      batchedLayer?.syncNodePositionsById(
+        currentGraph3DData?.nodes.filter(isFolderGraphNode).map((node) => node.id) ?? []
+      )
+    }
     if (hadTransition && syncWorker && layoutClient && currentGraph3DData) {
       layoutClient.reset(packGraphNodePositions(currentGraph3DData.nodes), false)
     }
@@ -2474,6 +2676,12 @@
     if (progress < 1 && timestamp - transition.lastVisualUpdateAt < minVisualFrameMs) {
       layoutModeTransitionFrameId = requestAnimationFrame(runLayoutModeTransitionFrame)
       return
+    }
+    if (folderHubSpawnProgress < 1) {
+      folderHubSpawnProgress = graphLayoutTransitionProgress(
+        timestamp - folderHubSpawnStartedAt,
+        FOLDER_HUB_SPAWN_MS
+      )
     }
     transition.lastVisualUpdateAt = timestamp
     const applied = applyGraphLayoutTransitionInOrder(
@@ -2702,7 +2910,7 @@
     if (!layoutClient) layoutClient = new GraphLayoutWorkerClient()
     if (!unsubscribeLayout) unsubscribeLayout = layoutClient.subscribe(handleLayoutEvent)
 
-    layoutRevision = graphTopologyRevision(data, currentColoringMode)
+    layoutRevision = graphTopologyRevision(data, currentColoringMode, graph3DData)
     layoutNodeIds = graph3DData.nodes.map((node) => node.id)
     layoutNodesInVisualOrder = true
     layoutLastLabelUpdateAt = 0
@@ -2713,12 +2921,10 @@
       collectionId: collectionIdentity,
       graphLevel: currentLevel,
       revision: layoutRevision,
-      scope: currentPathFilter,
+      scope: effectiveFolderScopePath(),
       settings: {
-        // v2 restores the established force contract. Keep it in the cache key
-        // so positions produced by the contracted v1 layout are not reused as
-        // a supposedly complete layout.
-        engine: 'd3-force-3d-worker-v2',
+        // v3 adds renderer-derived folder hierarchy forces and cache members.
+        engine: 'd3-force-3d-worker-v3',
         groupingMode: currentColoringMode,
         clusterStrength: bundle.settings.clusterStrength ?? 0,
         chargeTheta: bundle.settings.chargeTheta ?? 1,
@@ -2785,11 +2991,20 @@
     startWorkerLayout(currentData, currentGraph3DData, 0.65, !reducedMotion)
   }
 
+  /** Folder mode changes visual topology, so rebuild while retaining the view. */
+  function rebuildGraphForColoringMode(): void {
+    if (!currentData || !graph) return
+    preserveViewForRebuild()
+    lastFedData = null
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+    feedData(currentData, !reducedMotion)
+  }
+
   /**
    * Convert GraphData to 3d-force-graph format and feed it to the graph.
    * Seeds the selected grouping mode before rendering for spatial separation.
    */
-  function feedData(data: GraphData) {
+  function feedData(data: GraphData, animateTopologyChange = false) {
     if (!graph) return
     if (lastFedData === data && currentGraph3DData) return
     cancelPendingAutoFit()
@@ -2812,7 +3027,9 @@
       level: currentLevel,
       clusterPalette: currentClusterPalette,
       customClusterPalette: currentCustomClusterPalette,
-      edgePalette: currentEdgePalette
+      edgePalette: currentEdgePalette,
+      folderScopePath: effectiveFolderScopePath(),
+      folderRootLabel: graphFolderRootLabel()
     }
 
     const graph3DData = graphPerformance.measureSync('graph.bridge-data', () =>
@@ -2824,7 +3041,11 @@
 
     // Seed the selected grouping mode using a Fibonacci sphere distribution.
     const spreadRadius = currentLevel === 'chunk' ? 300 : 200
-    seedGroupedPositions(graph3DData.nodes, currentColoringMode, spreadRadius)
+    if (currentColoringMode === 'folder') {
+      seedFolderHierarchyPositions(graph3DData.nodes, spreadRadius)
+    } else {
+      seedGroupedPositions(graph3DData.nodes, currentColoringMode, spreadRadius)
+    }
 
     // Override with cached node positions if available (preserves layout across remounts)
     const cachedPositions = graphTabId ? nodePositionCache.get(graphTabId) : null
@@ -2840,6 +3061,12 @@
       // Clear the cache after restoring (one-time use)
       nodePositionCache.delete(graphTabId!)
     }
+    const spawnFolderHubs = animateTopologyChange && currentColoringMode === 'folder'
+    if (spawnFolderHubs) {
+      collapseFolderHierarchyForSpawn(graph3DData.nodes)
+    } else {
+      folderHubSpawnProgress = 1
+    }
 
     // Capture active grouping centroids for incremental-node fallback placement.
     recomputeLayoutGroupCentroids(graph3DData.nodes)
@@ -2853,10 +3080,25 @@
     // Store reference
     currentGraph3DData = graph3DData
     nodeCount = graph3DData.nodes.length
+    folderHubCount = graph3DData.nodes.filter(isFolderGraphNode).length
+    contentLinkCount = graph3DData.links.filter((link) => !isFolderHierarchyLink(link)).length
+    hierarchyLinkCount = graph3DData.links.length - contentLinkCount
     rebuildLiveGraphIndices()
-    const topologyChanged = graphTopologyRevision(data, currentColoringMode) !== layoutRevision
+    const topologyChanged =
+      graphTopologyRevision(data, currentColoringMode, graph3DData) !== layoutRevision
     const completeCacheHit =
-      !layoutClient || topologyChanged ? startWorkerLayout(data, graph3DData) : false
+      !layoutClient || topologyChanged
+        ? startWorkerLayout(
+            data,
+            graph3DData,
+            animateTopologyChange ? 0.65 : 1,
+            animateTopologyChange
+          )
+        : false
+    if (spawnFolderHubs) {
+      folderHubSpawnStartedAt = performance.now()
+      folderHubSpawnProgress = 0
+    }
     replaceBatchedGraphData(graph3DData)
     nodeLabelCache.clear()
     scheduleLabelUpdate()
@@ -2893,7 +3135,9 @@
       const nodeId = selectedNodeIdCache
       selectedNodeIdCache = null
       selectedNodeContextRevisionCache = null
-      const matchingNode = graph3DData.nodes.find((n) => n.id === nodeId)
+      const matchingNode = graph3DData.nodes.find(
+        (node) => node.id === nodeId && !isFolderGraphNode(node)
+      )
       if (matchingNode) {
         suppressCameraFocus = true
         const graphNode = toGraphNode(matchingNode as unknown as ForceNode)
@@ -2943,6 +3187,7 @@
     })
 
     const gd = getLiveGraphData()
+    const hierarchySignature = currentGraph3DData?.hierarchy_signature ?? null
     const liveNodes = gd.nodes as ForceNode[]
     const liveLinks = gd.links as ForceLink[]
 
@@ -2976,6 +3221,7 @@
 
     // 3. Recompute sphere size (val) for every surviving node
     for (const node of nodes) {
+      if (isFolderGraphNode(node)) continue
       node.val = nodeSizeValue(
         currentLevel,
         degreeOfNode.get(node.id) ?? 0,
@@ -3009,7 +3255,8 @@
         chunk_index: node.chunk_index,
         size: node.size ?? null,
         val: nodeSizeValue(currentLevel, degreeOfNode.get(node.id) ?? 0, node.size ?? 0, maxSize),
-        color: '' // resolved live by the nodeColor accessor after refresh()
+        color: '', // resolved live by the nodeColor accessor after refresh()
+        kind: 'content'
       }))
       seedNearNeighbors(
         newNodes,
@@ -3055,7 +3302,8 @@
               currentEdgePalette
             ),
         width: edgeLinkWidth(edge.strength ?? 0.5),
-        content_key: linkKey(edge, next.contexts)
+        content_key: linkKey(edge, next.contexts),
+        kind: 'content'
       }))
       links = links.concat(newLinks as ForceLink[])
     }
@@ -3067,10 +3315,17 @@
     recomputeLayoutGroupCentroids(nodes)
     if (currentColoringMode === 'folder') rebuildFolderColorMap(nodes)
 
-    currentGraph3DData = { nodes, links }
+    currentGraph3DData = {
+      nodes,
+      links,
+      hierarchy_signature: gd.nodes.some(isFolderGraphNode) ? hierarchySignature : null
+    }
     nodeCount = nodes.length
+    folderHubCount = nodes.filter(isFolderGraphNode).length
+    contentLinkCount = links.filter((link) => !isFolderHierarchyLink(link)).length
+    hierarchyLinkCount = links.length - contentLinkCount
     rebuildLiveGraphIndices()
-    if (graphTopologyRevision(next, currentColoringMode) !== layoutRevision) {
+    if (graphTopologyRevision(next, currentColoringMode, currentGraph3DData) !== layoutRevision) {
       startWorkerLayout(next, currentGraph3DData, 0.25)
     }
     replaceBatchedGraphData(currentGraph3DData)
@@ -3104,7 +3359,7 @@
    * a delta is too large to patch but we still want to avoid a camera reset.
    */
   function preserveViewForRebuild() {
-    if (!graph || !graphTabId) return
+    if (!graph) return
     const cam = graph.cameraPosition()
     const controls = graph.controls() as { target?: { x: number; y: number; z: number } }
     if (cam && controls?.target) {
@@ -3119,7 +3374,7 @@
         positions.set(node.id, { x: node.x, y: node.y, z: node.z })
       }
     }
-    nodePositionCache.set(graphTabId, positions)
+    if (graphTabId) nodePositionCache.set(graphTabId, positions)
   }
 
   /** Refresh fallback anchors from the currently selected spatial grouping. */
@@ -3131,7 +3386,7 @@
   function rebuildFolderColorMap(nodes: Graph3DNode[]) {
     const folders = new Set<string>()
     for (const node of nodes) {
-      folders.add(graphTopLevelFolder(node.path))
+      if (node.folder_group) folders.add(node.folder_group)
     }
     const sorted = [...folders].sort()
     folderColorMap = new Map()
@@ -3169,7 +3424,7 @@
    */
   function hullGroupId(node: ForceNode): GraphHullId | null {
     if (currentColoringMode === 'custom-cluster') return node.custom_cluster_id ?? null
-    if (currentColoringMode === 'folder') return graphTopLevelFolder(node.path)
+    if (currentColoringMode === 'folder') return node.folder_group ?? null
     return node.cluster_id
   }
 
@@ -3182,7 +3437,7 @@
 
   /** Label for a hull group id from the current data (mode-aware). */
   function hullLabel(id: GraphHullId): string {
-    if (currentColoringMode === 'folder') return String(id)
+    if (currentColoringMode === 'folder') return folderDisplayName(String(id))
     if (currentColoringMode === 'custom-cluster') {
       return currentData?.custom_clusters?.find((c) => c.id === id)?.label ?? `Topic ${id}`
     }
@@ -3335,6 +3590,10 @@
    */
   function updateClusterLabelPositions() {
     if (!graph || !isHullMode() || !clusterHullLayer) return
+    if (currentColoringMode === 'folder') {
+      if (clusterLabels.length > 0) clusterLabels = []
+      return
+    }
 
     clusterLabels = clusterHullLayer.centroids().map((centroid) => {
       const pos = projectToScreen(centroid.x, centroid.y, centroid.z)
@@ -3445,7 +3704,11 @@
             lastFedData = d
             return
           }
+          const folderMembershipChanged =
+            currentColoringMode === 'folder' &&
+            currentGraph3DData?.hierarchy_signature !== folderHierarchySignature(d)
           if (
+            !folderMembershipChanged &&
             shouldPatch(delta, prev.nodes.length, d.nodes.length, prev.edges.length, d.edges.length)
           ) {
             applyGraphDelta(d, delta)
@@ -3463,11 +3726,8 @@
 
     // Coloring mode → refresh graph to re-evaluate nodeColor accessor + toggle cluster spheres
     unsubColoring = graphColoringMode.subscribe((v) => {
+      const previousMode = currentColoringMode
       currentColoringMode = v
-      // Ensure folder color map is current when switching to folder mode
-      if (v === 'folder' && currentGraph3DData) {
-        rebuildFolderColorMap(currentGraph3DData.nodes)
-      }
       // Group highlights only apply to their corresponding coloring mode.
       if (v !== 'cluster') {
         highlightedClusterId = null
@@ -3475,8 +3735,15 @@
       if (v !== 'custom-cluster') {
         highlightedTopicId = null
       }
-      syncBatchedVisuals()
-      restartLayoutForColoringMode()
+      const topologyModeChanged =
+        previousMode !== v && (previousMode === 'folder' || v === 'folder')
+      if (topologyModeChanged) {
+        clearClusterMeshes()
+        rebuildGraphForColoringMode()
+      } else {
+        syncBatchedVisuals()
+        restartLayoutForColoringMode()
+      }
 
       // Show enclosure hulls in every explicitly grouped view mode.
       if (isHullMode()) {
@@ -3613,6 +3880,7 @@
       currentClusterPalette = p
       if (currentColoringMode === 'folder' && currentGraph3DData) {
         rebuildFolderColorMap(currentGraph3DData.nodes)
+        refreshBatchedLinkStyles()
       }
       if (currentColoringMode === 'cluster' || currentColoringMode === 'folder') {
         updateClusterSpheres(true)
@@ -3817,7 +4085,7 @@
       if (!neighborId) continue
 
       const neighborNode = nodes.find((n) => n.id === neighborId)
-      if (!neighborNode) continue
+      if (!neighborNode || isFolderGraphNode(neighborNode)) continue
 
       const screen = toScreen(neighborNode)
       if (!screen) continue
@@ -3880,7 +4148,7 @@
   }
 
   function handleContextMenuOpen() {
-    if (!contextMenuNode) return
+    if (!contextMenuNode || isFolderGraphNode(contextMenuNode)) return
     // Popup-aware: a popped-out graph has no panes to open into — this
     // routes the document to a fresh popup window instead.
     openResolvedPathOtherPane(contextMenuNode.path)
@@ -3888,13 +4156,13 @@
   }
 
   function handleContextMenuPreview() {
-    if (!contextMenuNode) return
+    if (!contextMenuNode || isFolderGraphNode(contextMenuNode)) return
     openGraphNode(toGraphNode(contextMenuNode))
     contextMenuNode = null
   }
 
   function handleContextMenuSelect() {
-    if (!contextMenuNode) return
+    if (!contextMenuNode || isFolderGraphNode(contextMenuNode)) return
     selectGraphNode(toGraphNode(contextMenuNode))
     contextMenuNode = null
   }
@@ -3965,19 +4233,26 @@
     return currentData?.custom_clusters?.find((c) => c.id === id)?.label ?? `Topic ${id}`
   }
 
-  /** Get legend items for folder coloring mode. */
-  function getFolderLegendItems(): { folder: string; color: string; count: number }[] {
+  /** Get scope-relative top-level folder branches for the legend. */
+  function getFolderLegendItems(): { path: string; label: string; color: string; count: number }[] {
     if (!currentGraph3DData) return []
-    const counts = new Map<string, number>()
+    const documents = new Map<string, Set<string>>()
     for (const node of currentGraph3DData.nodes) {
-      const folder = graphTopLevelFolder(node.path)
-      counts.set(folder, (counts.get(folder) ?? 0) + 1)
+      if (isFolderGraphNode(node) || !node.folder_group) continue
+      const paths = documents.get(node.folder_group) ?? new Set<string>()
+      paths.add(node.path)
+      documents.set(node.folder_group, paths)
     }
-    const items: { folder: string; color: string; count: number }[] = []
-    for (const [folder, color] of folderColorMap) {
-      items.push({ folder, color, count: counts.get(folder) ?? 0 })
+    const items: { path: string; label: string; color: string; count: number }[] = []
+    for (const [path, color] of folderColorMap) {
+      items.push({
+        path,
+        label: folderDisplayName(path),
+        color,
+        count: documents.get(path)?.size ?? 0
+      })
     }
-    return items.sort((a, b) => a.folder.localeCompare(b.folder))
+    return items.sort((a, b) => a.path.localeCompare(b.path))
   }
 
   /** Get unique edge clusters present in the current edges for legend display. */
@@ -4039,10 +4314,34 @@
     return batchedLayer.pickNode(graphRaycaster) as ForceNode | null
   }
 
+  function syncFolderHoverVisuals(
+    previousNode: ForceNode | null,
+    previousEdge: ForceLink | null
+  ): void {
+    if (currentColoringMode !== 'folder' || !batchedLayer) return
+    const changedNodeIds = new Set<string>()
+    if (previousNode) changedNodeIds.add(previousNode.id)
+    if (hoveredNode) changedNodeIds.add(hoveredNode.id)
+    if (previousEdge) {
+      changedNodeIds.add(linkNodeId(previousEdge.source))
+      changedNodeIds.add(linkNodeId(previousEdge.target))
+    }
+    if (hoveredEdge) {
+      changedNodeIds.add(linkNodeId(hoveredEdge.source))
+      changedNodeIds.add(linkNodeId(hoveredEdge.target))
+    }
+    if (changedNodeIds.size === 0) return
+    batchedLayer.updateVisualsForNodes(changedNodeIds, graphBatchedVisualState())
+    requestGraphRender()
+  }
+
   function updateBatchedHover(clientX: number, clientY: number, forceLinkPick = false): void {
+    const previousNode = hoveredNode
+    const previousEdge = hoveredEdge
     if (!batchedLayer || presentationActive || draggingNode) {
       hoveredNode = null
       hoveredEdge = null
+      syncFolderHoverVisuals(previousNode, previousEdge)
       return
     }
     setGraphRay(clientX, clientY)
@@ -4071,12 +4370,16 @@
         if (graphPickTimer !== null) clearTimeout(graphPickTimer)
         graphPickTimer = null
         graphLastLinkPickAt = now
-        hoveredEdge = batchedLayer.pickLink(graphRaycaster) as ForceLink | null
+        const pickedLink = batchedLayer.pickLink(graphRaycaster) as ForceLink | null
+        hoveredEdge = pickedLink && !isFolderHierarchyLink(pickedLink) ? pickedLink : null
       }
     }
     if (node || hoveredEdge) {
       tooltipX = clientX
       tooltipY = clientY
+    }
+    if (previousNode !== hoveredNode || previousEdge !== hoveredEdge) {
+      syncFolderHoverVisuals(previousNode, previousEdge)
     }
   }
 
@@ -4100,6 +4403,15 @@
 
   function selectBatchedNode(node: ForceNode): void {
     if (presentationActive) endGraphPresentation()
+    if (isFolderGraphNode(node)) {
+      const enableHighlight = currentHighlightedFolder !== node.path
+      selectGraphNode(null)
+      setGraphHighlightedFolder(node.path)
+      if (enableHighlight) focusCameraOnNode(node)
+      contextMenuNode = null
+      backgroundContextMenuOpen = false
+      return
+    }
     const graphNode = toGraphNode(node)
     if (currentSelected?.id === node.id) {
       openResolvedPathOtherPane(node.path)
@@ -4109,6 +4421,11 @@
     }
     contextMenuNode = null
     backgroundContextMenuOpen = false
+  }
+
+  function selectFolderLabel(nodeId: string): void {
+    const node = liveNodesById.get(nodeId)
+    if (node && isFolderGraphNode(node)) selectBatchedNode(node)
   }
 
   function postGraphDragPin(node: ForceNode): void {
@@ -4225,6 +4542,11 @@
   function onBatchedContextMenu(event: MouseEvent): void {
     event.preventDefault()
     const node = pickBatchedNode(event.clientX, event.clientY)
+    if (node && isFolderGraphNode(node)) {
+      contextMenuNode = null
+      backgroundContextMenuOpen = false
+      return
+    }
     if (node) {
       if (presentationActive) endGraphPresentation()
       backgroundContextMenuOpen = false
@@ -4242,12 +4564,15 @@
 
   function onBatchedPointerLeave(): void {
     if (draggingNode) return
+    const previousNode = hoveredNode
+    const previousEdge = hoveredEdge
     pendingPickPoint = null
     graphForceNextLinkPick = false
     if (graphPickTimer !== null) clearTimeout(graphPickTimer)
     graphPickTimer = null
     hoveredNode = null
     hoveredEdge = null
+    syncFolderHoverVisuals(previousNode, previousEdge)
   }
 
   function setupBatchedInteractions(): void {
@@ -4574,8 +4899,12 @@
       bind:this={graphContainerEl}
       class="graph-3d-container"
       role="img"
+      data-content-link-count={contentLinkCount}
+      data-hierarchy-link-count={hierarchyLinkCount}
       aria-label={currentData
-        ? `Knowledge graph with ${currentData.nodes.length} node${currentData.nodes.length === 1 ? '' : 's'}`
+        ? currentColoringMode === 'folder'
+          ? `Knowledge graph with ${currentData.nodes.length} content node${currentData.nodes.length === 1 ? '' : 's'} and ${folderHubCount} folder hub${folderHubCount === 1 ? '' : 's'}`
+          : `Knowledge graph with ${currentData.nodes.length} node${currentData.nodes.length === 1 ? '' : 's'}`
         : 'Knowledge graph'}
       style:visibility={currentData &&
       currentData.nodes.length > 0 &&
@@ -4688,11 +5017,26 @@
       <div class="proximity-labels">
         {#each visibleLabels as lbl (lbl.id)}
           {#if !presentationActive || presentationVisibleNodeIds.has(lbl.id)}
-            <span
-              class="proximity-label"
-              data-graph-export-label
-              style="left: {lbl.x}px; top: {lbl.y}px">{lbl.label}</span
-            >
+            {#if lbl.kind === 'folder'}
+              <button
+                type="button"
+                class="proximity-label folder-proximity-label"
+                data-graph-export-label
+                data-folder-path={lbl.path}
+                title={`${lbl.path ?? lbl.label} · ${lbl.documentCount ?? 0} document${lbl.documentCount === 1 ? '' : 's'}`}
+                style="left: {lbl.x}px; top: {lbl.y}px"
+                onclick={() => selectFolderLabel(lbl.id)}
+              >
+                {lbl.label}
+                <span class="folder-label-count">{lbl.documentCount ?? 0}</span>
+              </button>
+            {:else}
+              <span
+                class="proximity-label"
+                data-graph-export-label
+                style="left: {lbl.x}px; top: {lbl.y}px">{lbl.label}</span
+              >
+            {/if}
           {/if}
         {/each}
       </div>
@@ -4770,7 +5114,11 @@
         active={presentationActive}
         paused={presentationPaused}
         revealed={presentationRevealedCount}
-        total={presentationActive ? presentationTotal : currentData.nodes.length}
+        total={presentationActive
+          ? presentationTotal
+          : currentColoringMode === 'folder'
+            ? nodeCount
+            : currentData.nodes.length}
         startsFromSelection={currentSelected != null}
         statusMessage={presentationStatusMessage}
         onstart={startGraphPresentation}
@@ -4887,7 +5235,11 @@
       {/if}
 
       {#if currentData.edges.length === 0 && currentLevel !== 'chunk'}
-        <div class="graph-notice">No link connections found.</div>
+        <div class="graph-notice">
+          {currentColoringMode === 'folder'
+            ? 'No document links found. The folder hierarchy is still available.'
+            : 'No link connections found.'}
+        </div>
       {/if}
 
       <GraphPerformanceWarning {nodeCount} />
@@ -4908,11 +5260,24 @@
       <!-- Node tooltip (populated by hover handler in subtask 2-2) -->
       {#if hoveredNode}
         <div class="graph-tooltip" style="left: {tooltipX + 12}px; top: {tooltipY - 30}px">
-          <div class="tooltip-path">{hoveredNode.path}</div>
-          {#if isChunkMode() && hoveredNode.label}
+          {#if isFolderGraphNode(hoveredNode)}
             <div class="tooltip-heading">{hoveredNode.label}</div>
+            <div class="tooltip-path">
+              {hoveredNode.is_folder_root ? 'Graph scope root' : hoveredNode.path}
+            </div>
+            <div class="tooltip-cluster">
+              {hoveredNode.folder_document_count ?? 0} document{hoveredNode.folder_document_count ===
+              1
+                ? ''
+                : 's'}
+            </div>
+          {:else}
+            <div class="tooltip-path">{hoveredNode.path}</div>
+            {#if isChunkMode() && hoveredNode.label}
+              <div class="tooltip-heading">{hoveredNode.label}</div>
+            {/if}
           {/if}
-          {#if currentColoringMode === 'custom-cluster'}
+          {#if !isFolderGraphNode(hoveredNode) && currentColoringMode === 'custom-cluster'}
             {#if hoveredNode.custom_cluster_ids && hoveredNode.custom_cluster_ids.length > 0}
               {#each hoveredNode.custom_cluster_ids as topicId, i}
                 <div class="tooltip-cluster">
@@ -4924,7 +5289,7 @@
             {:else if hoveredNode.chunk_index == null}
               <div class="tooltip-cluster">Unassigned</div>
             {/if}
-          {:else if hoveredNode.cluster_id != null && currentData}
+          {:else if !isFolderGraphNode(hoveredNode) && hoveredNode.cluster_id != null && currentData}
             {@const cluster = currentData.clusters.find((c) => c.id === hoveredNode!.cluster_id)}
             {#if cluster}
               <div class="tooltip-cluster">{cluster.label}</div>
@@ -4934,7 +5299,7 @@
       {/if}
 
       <!-- Edge tooltip (populated by hover handler in subtask 2-2) -->
-      {#if hoveredEdge && !hoveredNode}
+      {#if hoveredEdge && !hoveredNode && !isFolderHierarchyLink(hoveredEdge)}
         {@const edgeSrc =
           hoveredEdge.source && typeof hoveredEdge.source === 'object'
             ? (hoveredEdge.source as ForceNode)
@@ -5005,7 +5370,7 @@
       {/if}
 
       <!-- Context menu -->
-      {#if contextMenuNode}
+      {#if contextMenuNode && !isFolderGraphNode(contextMenuNode)}
         <button
           type="button"
           class="context-menu-backdrop"
@@ -5117,14 +5482,14 @@
                 {#each getFolderLegendItems() as item}
                   <button
                     class="legend-item legend-item-clickable"
-                    class:legend-item-active={currentHighlightedFolder === item.folder}
-                    onclick={() => setGraphHighlightedFolder(item.folder)}
-                    title={currentHighlightedFolder === item.folder
-                      ? `Clear ${item.folder} highlight`
-                      : `Highlight ${item.folder}`}
+                    class:legend-item-active={currentHighlightedFolder === item.path}
+                    onclick={() => setGraphHighlightedFolder(item.path)}
+                    title={currentHighlightedFolder === item.path
+                      ? `Clear ${item.label} highlight`
+                      : `Highlight ${item.label}`}
                   >
                     <span class="legend-dot" style="background: {item.color}"></span>
-                    <span class="legend-label">{item.folder}</span>
+                    <span class="legend-label">{item.label}</span>
                     <span class="legend-count">{item.count}</span>
                   </button>
                 {/each}
@@ -5224,6 +5589,21 @@
       left 60ms linear,
       top 60ms linear,
       opacity 200ms ease;
+  }
+
+  .folder-proximity-label {
+    pointer-events: auto;
+    border: 0;
+    padding: 0;
+    background: none;
+    color: var(--color-text, #e4e4e7);
+    cursor: pointer;
+  }
+
+  .folder-label-count {
+    margin-left: 0.3rem;
+    color: var(--color-text-dim, #71717a);
+    font-size: 0.8em;
   }
 
   .graph-3d-container {

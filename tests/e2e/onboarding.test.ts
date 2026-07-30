@@ -229,6 +229,32 @@ test.describe('Onboarding Flow', () => {
     await electronApp.close()
   })
 
+  test('keeps collection supporting copy readable', async () => {
+    const electronApp = await launchWithFreshStore()
+    const window = await electronApp.firstWindow()
+    await window.waitForLoadState('domcontentloaded')
+
+    await window.getByRole('button', { name: /get started/i }).click()
+    await advancePastCli(window)
+    await window.getByRole('button', { name: /^Skip for now$/ }).click()
+
+    const supportingCopy = window.getByText('Markdown files · nested folders · links · frontmatter')
+    const localPromise = window.getByText(
+      'Your original files remain readable in every editor you already use.'
+    )
+
+    for (const copy of [supportingCopy, localPromise]) {
+      const styles = await copy.evaluate((element) => {
+        const computed = getComputedStyle(element)
+        return { fontSize: Number.parseFloat(computed.fontSize), color: computed.color }
+      })
+      expect(styles.fontSize).toBeGreaterThanOrEqual(10)
+      expect(styles.color).not.toBe('rgb(82, 82, 91)')
+    }
+
+    await electronApp.close()
+  })
+
   test('should create and open the guided example collection', async () => {
     const electronApp = await launchWithFreshStore()
     const window = await electronApp.firstWindow()

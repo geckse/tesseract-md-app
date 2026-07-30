@@ -1,5 +1,6 @@
 export interface GraphLegendNode {
   path: string
+  folder_group?: string | null
   cluster_id?: number | null
   custom_cluster_ids?: readonly number[]
 }
@@ -34,6 +35,9 @@ export function graphNodeMatchesLegendHighlight(
 ): boolean {
   if (highlight.kind === 'cluster') return node.cluster_id === highlight.id
   if (highlight.kind === 'topic') return node.custom_cluster_ids?.includes(highlight.id) ?? false
+  if (highlight.path === '(root)' && node.folder_group !== undefined) {
+    return node.folder_group === '(root)'
+  }
   return graphNodeBelongsToFolder(node.path, highlight.path)
 }
 

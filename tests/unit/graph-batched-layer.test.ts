@@ -70,6 +70,57 @@ describe('GraphBatchedLayer', () => {
     layer.dispose()
   })
 
+  it('renders folder nodes as hollow shader rims and supports spawn scaling', () => {
+    const data = fixture()
+    data.nodes[0].kind = 'folder'
+    const layer = new GraphBatchedLayer()
+    layer.setData(data, {
+      nodeColor: (node) => node.color,
+      nodeOpacity: () => 1,
+      nodeScale: (node) => (node.kind === 'folder' ? 0.25 : 1),
+      nodeVisible: () => true,
+      nodeHalo: () => false,
+      linkColor: (link) => link.color,
+      linkOpacity: () => 1,
+      linkWidth: (link) => link.width,
+      linkVisible: () => true,
+      arrowColor: (link) => link.color,
+      arrowOpacity: () => 1,
+      arrowVisible: () => false
+    })
+
+    const nodes = layer.group.getObjectByName('graphNodes') as THREE.InstancedMesh<
+      THREE.SphereGeometry,
+      THREE.MeshLambertMaterial
+    >
+    const hollow = nodes.geometry.getAttribute('graphHollow') as THREE.BufferAttribute
+    expect([hollow.getX(0), hollow.getX(1)]).toEqual([1, 0])
+
+    const matrix = new THREE.Matrix4()
+    const position = new THREE.Vector3()
+    const rotation = new THREE.Quaternion()
+    const scale = new THREE.Vector3()
+    nodes.getMatrixAt(0, matrix)
+    matrix.decompose(position, rotation, scale)
+    expect(scale.x).toBeCloseTo(1)
+
+    const shader = {
+      uniforms: {},
+      vertexShader: THREE.ShaderLib.lambert.vertexShader,
+      fragmentShader: THREE.ShaderLib.lambert.fragmentShader
+    }
+    nodes.material.onBeforeCompile(shader as never, {} as never)
+    expect(shader.vertexShader).toContain('attribute float graphHollow;')
+    expect(shader.fragmentShader).toContain('if (vGraphHollow > 0.5)')
+    expect(shader.fragmentShader).toContain('float graphBorder = smoothstep')
+
+    data.nodes[0].kind = 'content'
+    data.nodes[1].kind = 'folder'
+    expect(layer.replaceData(data)).toBe(true)
+    expect([hollow.getX(0), hollow.getX(1)]).toEqual([0, 1])
+    layer.dispose()
+  })
+
   it('caps overview overlap while routing emphasized links through normal blending', () => {
     const data = fixture()
     data.links.push({ ...data.links[0], source: 'b', target: 'a' })
@@ -671,6 +722,18 @@ describe('GraphBatchedLayer', () => {
     layer.setLinesVisible(false)
     expect(layer.hasActiveParticles).toBe(false)
 
+    layer.dispose()
+  })
+
+  it('never creates selection particles for hierarchy links', () => {
+    const layer = new GraphBatchedLayer()
+    const data = fixture()
+    data.links[0].kind = 'hierarchy'
+    layer.setData(data)
+    layer.setParticleLinks('a')
+
+    expect(layer.group.getObjectByName('graphParticles')).toBeUndefined()
+    expect(layer.hasActiveParticles).toBe(false)
     layer.dispose()
   })
 

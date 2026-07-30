@@ -80,6 +80,18 @@ describe('Onboarding component', () => {
     expect(screen.getByText('CLI Setup')).toBeTruthy()
   })
 
+  it('links the CLI step to the mdvdb GitHub repository', async () => {
+    render(Onboarding, { props: { oncomplete: vi.fn() } })
+    await fireEvent.click(screen.getByText('Get Started'))
+
+    const repositoryLink = screen.getByRole('link', {
+      name: /View geckse\/markdown-vdb on GitHub/
+    })
+    expect(repositoryLink.getAttribute('href')).toBe('https://github.com/geckse/markdown-vdb')
+    expect(repositoryLink.getAttribute('target')).toBe('_blank')
+    expect(repositoryLink.getAttribute('rel')).toContain('noopener')
+  })
+
   it('CLI step shows detected CLI info when found', async () => {
     mockApi.detectCli.mockResolvedValue({
       found: true,

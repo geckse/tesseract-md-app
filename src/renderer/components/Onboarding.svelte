@@ -356,6 +356,18 @@
                 The mdvdb engine indexes your Markdown and makes fast, local-first retrieval
                 possible.
               </p>
+              <a
+                class="repo-link"
+                href="https://github.com/geckse/markdown-vdb"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <span class="material-symbols-outlined" aria-hidden="true">code</span>
+                <span>View geckse/markdown-vdb on GitHub</span>
+                <span class="material-symbols-outlined repo-link-external" aria-hidden="true"
+                  >open_in_new</span
+                >
+              </a>
             </div>
           </header>
 
@@ -849,8 +861,8 @@
   }
 
   .brand-lockup div span {
-    color: var(--color-text-dim, #71717a);
-    font-size: 11px;
+    color: var(--color-text-muted, #a1a1aa);
+    font-size: 12px;
     letter-spacing: 0.04em;
   }
 
@@ -935,8 +947,8 @@
   }
 
   .step-copy span {
-    color: var(--color-text-faint, #52525b);
-    font-size: 11px;
+    color: var(--color-text-dim, #71717a);
+    font-size: 12px;
   }
 
   .step-nav li.current .step-copy span {
@@ -965,12 +977,12 @@
 
   .privacy-note strong {
     color: var(--color-text, #e4e4e7);
-    font-size: 11px;
+    font-size: 12px;
   }
 
   .privacy-note div span {
-    color: var(--color-text-dim, #71717a);
-    font-size: 10px;
+    color: var(--color-text-muted, #a1a1aa);
+    font-size: 11px;
     line-height: 1.45;
   }
 
@@ -987,9 +999,9 @@
     display: flex;
     align-items: center;
     gap: 9px;
-    color: var(--color-text-dim, #71717a);
+    color: var(--color-text-muted, #a1a1aa);
     font-family: var(--font-mono, 'JetBrains Mono Variable', ui-monospace, monospace);
-    font-size: 9px;
+    font-size: 10px;
     letter-spacing: 0.1em;
     text-transform: uppercase;
   }
@@ -1115,7 +1127,7 @@
     margin: 0 0 10px;
     color: var(--color-primary, #00e5ff);
     font-family: var(--font-mono, 'JetBrains Mono Variable', ui-monospace, monospace);
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.12em;
     text-transform: uppercase;
@@ -1140,7 +1152,7 @@
     max-width: 510px;
     margin: 21px 0 0;
     color: var(--color-text-muted, #a1a1aa);
-    font-size: 14px;
+    font-size: 15px;
     line-height: 1.65;
   }
 
@@ -1161,7 +1173,7 @@
     border-radius: 8px;
     background: rgba(255, 255, 255, 0.025);
     color: var(--color-text-muted, #a1a1aa);
-    font-size: 10px;
+    font-size: 11px;
   }
 
   .feature-list .material-symbols-outlined {
@@ -1180,8 +1192,8 @@
   }
 
   .action-hint {
-    color: var(--color-text-faint, #52525b);
-    font-size: 10px;
+    color: var(--color-text-muted, #a1a1aa);
+    font-size: 11px;
   }
 
   .setup-step {
@@ -1224,8 +1236,41 @@
     max-width: 540px;
     margin: 10px 0 0;
     color: var(--color-text-muted, #a1a1aa);
-    font-size: 12px;
+    font-size: 14px;
     line-height: 1.55;
+  }
+
+  .repo-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    width: fit-content;
+    margin-top: 10px;
+    border-radius: 6px;
+    color: var(--color-text-muted, #a1a1aa);
+    font-size: 11px;
+    font-weight: 550;
+    text-decoration: none;
+    transition: color 150ms ease;
+  }
+
+  .repo-link:hover {
+    color: var(--color-primary, #00e5ff);
+  }
+
+  .repo-link:focus-visible {
+    outline: 2px solid var(--color-primary, #00e5ff);
+    outline-offset: 4px;
+  }
+
+  .repo-link .material-symbols-outlined {
+    color: var(--color-primary, #00e5ff);
+    font-size: 15px;
+  }
+
+  .repo-link .repo-link-external {
+    color: currentColor;
+    font-size: 12px;
   }
 
   .setup-panel {
@@ -1271,9 +1316,9 @@
 
   .terminal-bar code {
     margin-left: 7px;
-    color: var(--color-text-dim, #71717a);
+    color: var(--color-text-muted, #a1a1aa);
     font-family: var(--font-mono, 'JetBrains Mono Variable', ui-monospace, monospace);
-    font-size: 9px;
+    font-size: 10px;
   }
 
   .terminal-body {
@@ -1284,7 +1329,7 @@
     padding: 16px;
     color: var(--color-text, #e4e4e7);
     font-family: var(--font-mono, 'JetBrains Mono Variable', ui-monospace, monospace);
-    font-size: 11px;
+    font-size: 12px;
   }
 
   .prompt {
@@ -1294,7 +1339,7 @@
     grid-column: 2;
   }
   .terminal-response.muted {
-    color: var(--color-text-dim, #71717a);
+    color: var(--color-text-muted, #a1a1aa);
   }
   .terminal-response.success {
     color: var(--color-success, #34d399);
@@ -1322,9 +1367,9 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--color-text-faint, #52525b);
+    color: var(--color-text-dim, #71717a);
     font-family: var(--font-mono, 'JetBrains Mono Variable', ui-monospace, monospace);
-    font-size: 8px;
+    font-size: 10px;
     text-transform: uppercase;
   }
 
@@ -1368,12 +1413,12 @@
 
   .example-copy strong {
     color: var(--color-text, #e4e4e7);
-    font-size: 10px;
+    font-size: 12px;
   }
 
   .example-copy div span {
-    color: var(--color-text-dim, #71717a);
-    font-size: 8px;
+    color: var(--color-text-muted, #a1a1aa);
+    font-size: 11px;
     line-height: 1.4;
   }
 
@@ -1388,7 +1433,7 @@
     border-radius: 9px;
     background: rgba(129, 140, 248, 0.08);
     color: #c7d2fe;
-    font-size: 9px;
+    font-size: 11px;
     font-weight: 600;
     cursor: pointer;
     transition: 150ms ease;
@@ -1441,13 +1486,13 @@
 
   .status-card strong {
     color: var(--color-text, #e4e4e7);
-    font-size: 12px;
+    font-size: 13px;
   }
 
   .status-card p {
     margin: 0;
-    color: var(--color-text-dim, #71717a);
-    font-size: 10px;
+    color: var(--color-text-muted, #a1a1aa);
+    font-size: 11px;
     line-height: 1.45;
   }
 
@@ -1456,7 +1501,7 @@
     overflow: hidden;
     color: var(--color-text-muted, #a1a1aa);
     font-family: var(--font-mono, 'JetBrains Mono Variable', ui-monospace, monospace);
-    font-size: 9px;
+    font-size: 10px;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -1472,20 +1517,20 @@
     align-items: center;
     gap: 8px;
     color: var(--color-text, #e4e4e7);
-    font-size: 11px;
+    font-size: 12px;
   }
 
   .status-heading .progress-percent {
     margin-left: auto;
     color: var(--color-text-dim, #71717a);
     font-family: var(--font-mono, 'JetBrains Mono Variable', ui-monospace, monospace);
-    font-size: 9px;
+    font-size: 10px;
   }
 
   .status-block > p {
     margin: 5px 0 0 16px;
-    color: var(--color-text-dim, #71717a);
-    font-size: 10px;
+    color: var(--color-text-muted, #a1a1aa);
+    font-size: 11px;
   }
 
   .status-pulse {
@@ -1544,12 +1589,12 @@
   }
   .error-box strong {
     color: var(--color-text, #e4e4e7);
-    font-size: 11px;
+    font-size: 12px;
   }
   .error-box p {
     margin: 0;
     color: #fca5a5;
-    font-size: 10px;
+    font-size: 11px;
     line-height: 1.45;
   }
 
@@ -1587,7 +1632,7 @@
     gap: 7px;
     min-height: 38px;
     border-radius: 9px;
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
     cursor: pointer;
     transition:
@@ -1708,11 +1753,11 @@
   }
 
   .provider-copy strong {
-    font-size: 12px;
+    font-size: 13px;
   }
   .provider-copy span {
-    color: var(--color-text-dim, #71717a);
-    font-size: 9px;
+    color: var(--color-text-muted, #a1a1aa);
+    font-size: 11px;
     line-height: 1.45;
   }
 
@@ -1757,11 +1802,11 @@
   }
   .config-heading strong {
     color: var(--color-text, #e4e4e7);
-    font-size: 11px;
+    font-size: 12px;
   }
   .config-heading div span {
-    color: var(--color-text-dim, #71717a);
-    font-size: 9px;
+    color: var(--color-text-muted, #a1a1aa);
+    font-size: 11px;
   }
 
   .provider-placeholder {
@@ -1770,8 +1815,8 @@
     justify-content: center;
     gap: 8px;
     min-height: 72px;
-    color: var(--color-text-faint, #52525b);
-    font-size: 10px;
+    color: var(--color-text-muted, #a1a1aa);
+    font-size: 11px;
   }
 
   .provider-placeholder .material-symbols-outlined {
@@ -1784,7 +1829,7 @@
     flex-direction: column;
     gap: 6px;
     color: var(--color-text-muted, #a1a1aa);
-    font-size: 9px;
+    font-size: 11px;
     font-weight: 600;
   }
 
@@ -1797,12 +1842,12 @@
     background: var(--color-surface, #161617);
     color: var(--color-text, #e4e4e7);
     font-family: var(--font-mono, 'JetBrains Mono Variable', ui-monospace, monospace);
-    font-size: 10px;
+    font-size: 11px;
   }
 
   .provider-field small {
-    color: var(--color-text-faint, #52525b);
-    font-size: 8px;
+    color: var(--color-text-dim, #71717a);
+    font-size: 10px;
     font-weight: 400;
   }
 
@@ -1932,11 +1977,11 @@
   }
   .collection-dropzone strong {
     color: var(--color-text, #e4e4e7);
-    font-size: 12px;
+    font-size: 13px;
   }
   .collection-dropzone div span {
-    color: var(--color-text-dim, #71717a);
-    font-size: 9px;
+    color: var(--color-text-muted, #a1a1aa);
+    font-size: 11px;
     line-height: 1.45;
   }
 
@@ -1973,12 +2018,12 @@
     gap: 2px;
   }
   .local-promise strong {
-    color: var(--color-text-muted, #a1a1aa);
-    font-size: 9px;
+    color: var(--color-text, #e4e4e7);
+    font-size: 11px;
   }
   .local-promise div span {
-    color: var(--color-text-faint, #52525b);
-    font-size: 8px;
+    color: var(--color-text-muted, #a1a1aa);
+    font-size: 10px;
   }
 
   .doctor-warning {
@@ -2002,7 +2047,7 @@
   .warning-label {
     color: var(--color-warning, #f59e0b);
     font-family: var(--font-mono, 'JetBrains Mono Variable', ui-monospace, monospace);
-    font-size: 8px;
+    font-size: 10px;
     letter-spacing: 0.1em;
     text-transform: uppercase;
   }
@@ -2013,7 +2058,7 @@
   .doctor-warning p {
     margin: 2px 0 0;
     color: var(--color-text-muted, #a1a1aa);
-    font-size: 10px;
+    font-size: 11px;
     line-height: 1.5;
   }
 
@@ -2143,6 +2188,10 @@
     .status-pulse,
     .progress-bar-indeterminate {
       animation: none;
+    }
+
+    .repo-link {
+      transition: none;
     }
   }
 </style>

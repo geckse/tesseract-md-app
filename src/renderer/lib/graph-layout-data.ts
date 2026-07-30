@@ -45,26 +45,37 @@ function topologyItemHash(...parts: string[]): number {
  */
 export function graphTopologyRevision(
   data: GraphData,
-  groupingMode: GraphGroupingMode = 'cluster'
+  groupingMode: GraphGroupingMode = 'cluster',
+  visualData?: Graph3DData
 ): string {
   let nodeSum = 0
   let nodeMix = 0
-  for (const node of data.nodes) {
-    const hash = topologyItemHash(node.id, graphGroupIdForMode(node, groupingMode) ?? '')
+  const nodes = visualData?.nodes ?? data.nodes
+  for (const node of nodes) {
+    const hash = topologyItemHash(
+      node.id,
+      graphGroupIdForMode(node, groupingMode) ?? '',
+      'kind' in node ? (node.kind ?? 'content') : 'content'
+    )
     nodeSum = (nodeSum + hash) >>> 0
     nodeMix = (nodeMix ^ Math.imul(hash ^ 0x9e3779b9, 0x85ebca6b)) >>> 0
   }
   let edgeSum = 0
   let edgeMix = 0
-  for (const edge of data.edges) {
-    const hash = topologyItemHash(edge.source, edge.target)
+  const edges = visualData?.links ?? data.edges
+  for (const edge of edges) {
+    const hash = topologyItemHash(
+      String(edge.source),
+      String(edge.target),
+      'kind' in edge ? (edge.kind ?? 'content') : 'content'
+    )
     edgeSum = (edgeSum + hash) >>> 0
     edgeMix = (edgeMix ^ Math.imul(hash ^ 0xc2b2ae35, 0x27d4eb2f)) >>> 0
   }
   const digest = [nodeSum, nodeMix, edgeSum, edgeMix]
     .map((value) => value.toString(16).padStart(8, '0'))
     .join('')
-  return `${data.level}:${groupingMode}:${data.nodes.length}:${data.edges.length}:${digest}`
+  return `${data.level}:${groupingMode}:${nodes.length}:${edges.length}:${digest}`
 }
 
 export function graphLayoutSettings(level: GraphLevel): Partial<GraphLayoutSettings> {
@@ -114,6 +125,7 @@ export function buildGraphLayoutInputs(
   const documentLevel = level === 'document'
   const nodes = data.nodes.map<GraphLayoutNodeInput>((node) => {
     const degree = degreeMap.get(node.id) ?? 0
+    const folderNode = node.kind === 'folder'
     return {
       id: node.id,
       x: node.x,
@@ -122,7 +134,11 @@ export function buildGraphLayoutInputs(
       radius: Math.max(0.8, Math.cbrt(Math.max(node.val, 0.001)) * 2),
       // Preserve the original degree-sensitive hub repulsion. This is what
       // creates the recognizable radial spacing in the established graph view.
-      charge: documentLevel ? -100 - degree * 10 : -100,
+      charge: folderNode
+        ? -180 - Math.min(240, (node.folder_document_count ?? 0) * 3)
+        : documentLevel
+          ? -100 - degree * 10
+          : -100,
       clusterId: groupsById.get(node.id) ?? null
     }
   })
@@ -132,14 +148,40 @@ export function buildGraphLayoutInputs(
     const sourceGroup = source ? groupsById.get(source.id) : null
     const targetGroup = target ? groupsById.get(target.id) : null
     const sameCluster = sourceGroup != null && targetGroup != null && sourceGroup === targetGroup
+    if (link.kind === 'hierarchy') {
+      const folderToFolder = source?.kind === 'folder' && target?.kind === 'folder'
+      return {
+        source: link.source,
+        target: link.target,
+        distance: folderToFolder ? 82 : 44,
+        strength: folderToFolder ? 0.82 : 0.68
+      }
+    }
     return {
       source: link.source,
       target: link.target,
-      distance: documentLevel ? (sameCluster ? 30 : 120) : sameCluster ? 20 : 150,
-      strength: documentLevel ? 0.2 : 0.15
+      distance:
+        groupingMode === 'folder'
+          ? documentLevel
+            ? sameCluster
+              ? 90
+              : 180
+            : sameCluster
+              ? 70
+              : 190
+          : documentLevel
+            ? sameCluster
+              ? 30
+              : 120
+            : sameCluster
+              ? 20
+              : 150,
+      strength:
+        groupingMode === 'folder' ? (documentLevel ? 0.08 : 0.06) : documentLevel ? 0.2 : 0.15
     }
   })
   const settings = graphLayoutSettings(level)
+  if (groupingMode === 'folder') settings.clusterStrength = documentLevel ? 0.06 : 0.08
   settings.snapshotIntervalMs = graphLayoutSnapshotIntervalMs(nodes.length, links.length)
   return { nodes, links, settings }
 }

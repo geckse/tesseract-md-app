@@ -6,6 +6,8 @@ import { GraphSpatialPicker, graphPickNodeRadius } from './graph-spatial-picker'
 export interface GraphBatchedVisualState {
   nodeColor(node: Graph3DNode): string
   nodeOpacity(node: Graph3DNode): number
+  /** Per-node appearance scale used for short topology/reveal animations. */
+  nodeScale?(node: Graph3DNode): number
   nodeVisible(node: Graph3DNode): boolean
   nodeHalo(node: Graph3DNode): boolean
   linkColor(link: Graph3DLink): string
@@ -32,6 +34,7 @@ export interface GraphBatchedLayerStats {
 const DEFAULT_VISUAL_STATE: GraphBatchedVisualState = {
   nodeColor: (node) => node.color,
   nodeOpacity: () => 1,
+  nodeScale: () => 1,
   nodeVisible: () => true,
   nodeHalo: () => false,
   linkColor: (link) => link.color,
@@ -130,25 +133,51 @@ function parseStyleColor(style: string, opacity = 1): ParsedStyleColor {
 }
 
 /** Add a per-instance/per-vertex alpha attribute while retaining Three's material pipeline. */
-function configureGraphOpacity(material: THREE.Material, cacheKey: string): void {
+function configureGraphOpacity(
+  material: THREE.Material,
+  cacheKey: string,
+  hollowNodes = false
+): void {
   material.onBeforeCompile = (shader) => {
+    const vertexDeclarations = hollowNodes
+      ? '\nattribute float graphHollow;\nvarying float vGraphHollow;'
+      : ''
+    const vertexAssignments = hollowNodes ? '\nvGraphHollow = graphHollow;' : ''
+    const fragmentDeclarations = hollowNodes ? '\nvarying float vGraphHollow;' : ''
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <color_pars_vertex>',
-        '#include <color_pars_vertex>\nattribute float graphOpacity;\nvarying float vGraphOpacity;'
+        `#include <color_pars_vertex>\nattribute float graphOpacity;\nvarying float vGraphOpacity;${vertexDeclarations}`
       )
-      .replace('#include <color_vertex>', '#include <color_vertex>\nvGraphOpacity = graphOpacity;')
+      .replace(
+        '#include <color_vertex>',
+        `#include <color_vertex>\nvGraphOpacity = graphOpacity;${vertexAssignments}`
+      )
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <color_pars_fragment>',
-        '#include <color_pars_fragment>\nvarying float vGraphOpacity;'
+        `#include <color_pars_fragment>\nvarying float vGraphOpacity;${fragmentDeclarations}`
       )
       .replace(
         'vec4 diffuseColor = vec4( diffuse, opacity );',
         'vec4 diffuseColor = vec4( diffuse, opacity * vGraphOpacity );'
       )
+    if (hollowNodes) {
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <normal_fragment_begin>',
+        `#include <normal_fragment_begin>
+if (vGraphHollow > 0.5) {
+  float graphFacing = abs(dot(normal, normalize(vViewPosition)));
+  float graphRim = 1.0 - graphFacing;
+  float graphBorder = smoothstep(0.42, 0.72, graphRim);
+  if (graphBorder < 0.02) discard;
+  diffuseColor.a *= graphBorder;
+}`
+      )
+    }
   }
-  material.customProgramCacheKey = () => `tesseract-graph-opacity-${cacheKey}`
+  material.customProgramCacheKey = () =>
+    `tesseract-graph-opacity-${cacheKey}-${hollowNodes ? 'hollow' : 'solid'}`
 }
 
 const WIDE_LINK_VERTEX_SHADER = /* glsl */ `
@@ -373,6 +402,11 @@ export class GraphBatchedLayer {
         'graphOpacity',
         new THREE.InstancedBufferAttribute(new Float32Array(this.nodeCapacity), 1)
       )
+      const hollowNodes = new THREE.InstancedBufferAttribute(new Float32Array(this.nodeCapacity), 1)
+      for (let index = 0; index < data.nodes.length; index++) {
+        hollowNodes.setX(index, data.nodes[index].kind === 'folder' ? 1 : 0)
+      }
+      sphere.setAttribute('graphHollow', hollowNodes)
       // InstancedMesh.instanceColor activates USE_INSTANCING_COLOR on its own.
       // Enabling ordinary vertexColors here is incorrect because SphereGeometry
       // has no `color` attribute: WebGL supplies zeroes for the missing attribute
@@ -383,7 +417,7 @@ export class GraphBatchedLayer {
         opacity: 1,
         depthWrite: true
       })
-      configureGraphOpacity(material, 'nodes')
+      configureGraphOpacity(material, 'nodes', true)
       this.nodeMesh = new THREE.InstancedMesh(sphere, material, this.nodeCapacity)
       this.nodeMesh.name = 'graphNodes'
       this.nodeMesh.count = data.nodes.length
@@ -563,6 +597,15 @@ export class GraphBatchedLayer {
     if (this.haloMesh) this.haloMesh.count = data.nodes.length
     if (this.linkSegments) this.linkSegments.geometry.instanceCount = data.links.length
     if (this.arrowMesh) this.arrowMesh.count = data.links.length
+    const hollowNodes = this.nodeMesh?.geometry.getAttribute('graphHollow') as
+      | THREE.InstancedBufferAttribute
+      | undefined
+    if (hollowNodes) {
+      for (let index = 0; index < data.nodes.length; index++) {
+        hollowNodes.setX(index, data.nodes[index].kind === 'folder' ? 1 : 0)
+      }
+      markFullAttributeUpdate(hollowNodes, data.nodes.length)
+    }
     this.updateVisuals(visualState)
     return true
   }
@@ -969,6 +1012,7 @@ export class GraphBatchedLayer {
     const node = this.data.nodes[index]
     const visible = this.nodeVisibility[index] === 1
     const radius = graphPickNodeRadius(node)
+    const appearanceScale = THREE.MathUtils.clamp(this.visualState.nodeScale?.(node) ?? 1, 0, 1)
     const x = finiteCoordinate(node.x)
     const y = finiteCoordinate(node.y)
     const z = finiteCoordinate(node.z)
@@ -978,7 +1022,7 @@ export class GraphBatchedLayer {
       x,
       y,
       z,
-      visible ? radius : HIDDEN_SCALE
+      visible ? radius * appearanceScale : HIDDEN_SCALE
     )
     const haloVisible = this.haloVisibility[index] === 1
     this.writeScaleTranslationMatrix(
@@ -987,7 +1031,7 @@ export class GraphBatchedLayer {
       x,
       y,
       z,
-      haloVisible ? radius * 1.4 : HIDDEN_SCALE
+      haloVisible ? radius * 1.4 * appearanceScale : HIDDEN_SCALE
     )
   }
 
@@ -1130,6 +1174,7 @@ export class GraphBatchedLayer {
     for (let index = 0; index < this.data.links.length; index++) {
       const link = this.data.links[index]
       if (
+        link.kind !== 'hierarchy' &&
         this.linkVisibility[index] === 1 &&
         (link.source === selectedNodeId || link.target === selectedNodeId)
       ) {

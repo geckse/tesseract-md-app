@@ -1,4 +1,11 @@
-import type { GraphEdge, GraphNode } from '../types/cli'
+interface GraphPresentationNode {
+  id: string
+}
+
+interface GraphPresentationEdge {
+  source: string
+  target: string
+}
 
 export interface GraphPresentationStep {
   nodeId: string
@@ -281,8 +288,8 @@ function compareRootCandidates(a: string, b: string, degrees: Map<string, NodeDe
  * root. Disconnected components continue from their own best root.
  */
 export function buildGraphPresentationOrder(
-  nodes: GraphNode[],
-  edges: GraphEdge[],
+  nodes: GraphPresentationNode[],
+  edges: GraphPresentationEdge[],
   selectedNodeId?: string | null
 ): GraphPresentationStep[] {
   if (nodes.length === 0) return []

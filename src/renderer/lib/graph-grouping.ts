@@ -9,6 +9,8 @@ export interface GraphGroupableNode {
   path: string
   cluster_id: number | null
   custom_cluster_id?: number | null
+  /** Scope-relative top-level folder branch assigned by the visual hierarchy. */
+  folder_group?: string | null
 }
 
 /** Extract the top-level folder from a path, or the synthetic root bucket. */
@@ -33,7 +35,9 @@ export function graphGroupIdForMode(
     return node.custom_cluster_id == null ? null : `topic:${node.custom_cluster_id}`
   }
   if (mode === 'folder') {
-    return `folder:${graphTopLevelFolder(node.path)}`
+    const folder =
+      node.folder_group === undefined ? graphTopLevelFolder(node.path) : node.folder_group
+    return folder == null ? null : `folder:${folder}`
   }
   return null
 }

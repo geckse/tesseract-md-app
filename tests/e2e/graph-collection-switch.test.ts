@@ -2,7 +2,7 @@ import { expect, test, _electron as electron } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 
 const appPath = resolve(__dirname, '../../out/main/index.js')
 const whichCommand = process.platform === 'win32' ? 'where' : 'which'
@@ -30,6 +30,7 @@ function createIndexedVault(root: string, filenames: string[], cliPath: string):
     'embedding:\n  provider: mock\n  dimensions: 8\n'
   )
   for (const [index, filename] of filenames.entries()) {
+    mkdirSync(dirname(join(root, filename)), { recursive: true })
     writeFileSync(join(root, filename), `# ${filename}\n\nIndexed document ${index + 1}.\n`)
   }
   execFileSync(cliPath, ['ingest', '--root', root], { timeout: 60_000 })
@@ -42,6 +43,7 @@ function createUnindexedVault(root: string, filenames: string[]): void {
     'embedding:\n  provider: mock\n  dimensions: 8\n'
   )
   for (const [index, filename] of filenames.entries()) {
+    mkdirSync(dirname(join(root, filename)), { recursive: true })
     writeFileSync(join(root, filename), `# ${filename}\n\nFresh document ${index + 1}.\n`)
   }
 }
@@ -252,6 +254,91 @@ test.describe('Graph collection switching', () => {
       await expect(
         window.getByText('No files indexed. Run ingest to build the graph.')
       ).toHaveCount(0)
+
+      await electronApp.close()
+    } finally {
+      rmSync(profile, { recursive: true, force: true })
+      rmSync(vault, { recursive: true, force: true })
+    }
+  })
+
+  test('shows and highlights a nested folder hierarchy without hiding document links', async () => {
+    const profile = mkdtempSync(join(tmpdir(), 'tesseract-folder-graph-profile-'))
+    const vault = mkdtempSync(join(tmpdir(), 'tesseract-folder-graph-vault-'))
+
+    try {
+      createIndexedVault(
+        vault,
+        [
+          'readme.md',
+          'departments/marketing/campaign.md',
+          'departments/marketing/strategy.md',
+          'departments/sales/deals.md'
+        ],
+        cliPath
+      )
+      writeFileSync(
+        join(vault, 'departments/marketing/campaign.md'),
+        '# Campaign\n\nSee the [strategy](strategy.md).\n'
+      )
+      execFileSync(cliPath, ['ingest', '--root', vault], { timeout: 60_000 })
+
+      const now = Date.now()
+      writeFileSync(
+        join(profile, 'config.json'),
+        JSON.stringify({
+          collections: [
+            {
+              id: 'hierarchy',
+              name: 'Hierarchy Vault',
+              path: vault,
+              addedAt: now,
+              lastOpenedAt: now
+            }
+          ],
+          activeCollectionId: 'hierarchy',
+          onboardingComplete: true,
+          cliPath,
+          cliVersion: cliVersion(cliPath)
+        })
+      )
+
+      const electronApp = await electron.launch({
+        args: [`--user-data-dir=${profile}`, appPath],
+        env: { ...process.env, TESSERACT_E2E_AUTO_CREATE_EXAMPLE: '0' }
+      })
+      const window = await electronApp.firstWindow()
+      const shaderErrors: string[] = []
+      window.on('console', (message) => {
+        const text = message.text()
+        if (/Shader Error|VALIDATE_STATUS false|WebGLProgram/i.test(text)) {
+          shaderErrors.push(text)
+        }
+      })
+      await window.waitForLoadState('domcontentloaded')
+      await window.getByRole('tab', { name: 'Graph' }).click()
+      await expect(window.locator('.graph-view-mode-trigger')).toBeVisible({ timeout: 15_000 })
+
+      await window.locator('.graph-view-mode-trigger').click()
+      await window.getByRole('menuitemcheckbox', { name: /Folders/ }).click()
+
+      const graph = window.getByRole('img', {
+        name: 'Knowledge graph with 4 content nodes and 4 folder hubs'
+      })
+      await expect(graph).toBeVisible({ timeout: 15_000 })
+      await expect(graph).toHaveAttribute('data-hierarchy-link-count', '7')
+      await expect(graph).toHaveAttribute('data-content-link-count', /^[1-9]\d*$/)
+
+      const nestedFolder = window.locator(
+        '.folder-proximity-label[data-folder-path="departments/marketing"]'
+      )
+      await expect(nestedFolder).toContainText('marketing', { timeout: 15_000 })
+      await expect(nestedFolder).toContainText('2')
+      await nestedFolder.click()
+      await expect(window.locator('.folder-badge-text')).toHaveText('departments/marketing')
+      await nestedFolder.click()
+      await expect(window.locator('.folder-badge-text')).toHaveCount(0)
+      expect(shaderErrors).toEqual([])
 
       await electronApp.close()
     } finally {

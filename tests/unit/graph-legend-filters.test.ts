@@ -30,6 +30,21 @@ describe('graph legend node filters', () => {
     expect(graphNodeMatchesLegendHighlight(candidate, { kind: 'folder', path: 'docs' })).toBe(true)
   })
 
+  it('matches scoped root files through hierarchy metadata', () => {
+    expect(
+      graphNodeMatchesLegendHighlight(
+        { ...node('scope/readme.md'), folder_group: '(root)' },
+        { kind: 'folder', path: '(root)' }
+      )
+    ).toBe(true)
+    expect(
+      graphNodeMatchesLegendHighlight(
+        { ...node('scope/docs/guide.md'), folder_group: 'scope/docs' },
+        { kind: 'folder', path: '(root)' }
+      )
+    ).toBe(false)
+  })
+
   it('classifies internal, incident, and unrelated group links', () => {
     const highlight = { kind: 'cluster' as const, id: 2 }
     expect(graphLegendLinkMatch(node('a.md', 2), node('b.md', 2), highlight)).toBe('both')

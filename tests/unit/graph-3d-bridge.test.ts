@@ -1,8 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import {
   buildGraph3DData,
+  collapseFolderHierarchyForSpawn,
   computeGraphGroupCentroids,
+  folderNodeSizeValue,
+  isFolderGraphNode,
+  isFolderHierarchyLink,
   seedClusterPositions,
+  seedFolderHierarchyPositions,
   seedGroupedPositions,
   seedNearNeighbors,
   nodeSizeValue,
@@ -194,6 +199,171 @@ describe('nodeSizeValue', () => {
     expect(nodeSizeValue('document', 0, 0, 0)).toBeGreaterThanOrEqual(1)
     expect(nodeSizeValue('chunk', 0, 0, 0)).toBeGreaterThanOrEqual(1)
     expect(nodeSizeValue('chunk', 0, 0, 100)).toBeGreaterThanOrEqual(1)
+  })
+})
+
+describe('folder hierarchy visual bridge', () => {
+  it('preserves content links and adds one structural parent link per visible child', () => {
+    const data = makeGraphData({
+      nodes: [
+        makeNode({ id: 'root', path: 'scope/readme.md' }),
+        makeNode({ id: 'guide', path: 'scope/docs/guide.md' }),
+        makeNode({ id: 'deep', path: 'scope/docs/nested/deep.md' })
+      ],
+      edges: [
+        makeEdge({
+          source: 'root',
+          target: 'deep',
+          relationship_type: 'references',
+          strength: 0.8
+        })
+      ]
+    })
+
+    const visual = buildGraph3DData(
+      data,
+      defaultOptions({
+        coloringMode: 'folder',
+        folderScopePath: 'scope',
+        folderRootLabel: 'Scoped notes'
+      })
+    )
+    const folders = visual.nodes.filter(isFolderGraphNode)
+    const hierarchyLinks = visual.links.filter(isFolderHierarchyLink)
+    const contentLinks = visual.links.filter((link) => !isFolderHierarchyLink(link))
+
+    expect(folders.map((folder) => folder.path)).toEqual([
+      'scope',
+      'scope/docs',
+      'scope/docs/nested'
+    ])
+    expect(hierarchyLinks).toHaveLength(folders.length - 1 + data.nodes.length)
+    expect(contentLinks).toHaveLength(data.edges.length)
+    expect(contentLinks[0]).toMatchObject({
+      source: 'root',
+      target: 'deep',
+      relationship_type: 'references',
+      strength: 0.8,
+      kind: 'content'
+    })
+    expect(visual.hierarchy_signature).toBeTypeOf('string')
+    expect(visual.nodes.find((node) => node.id === 'deep')).toMatchObject({
+      kind: 'content',
+      folder_group: 'scope/docs'
+    })
+    expect(folders[0]).toMatchObject({
+      label: 'Scoped notes',
+      folder_depth: 0,
+      folder_document_count: 3,
+      is_folder_root: true
+    })
+    expect(folders[0].color).not.toBe(folders[1].color)
+  })
+
+  it('sizes folder hubs by bounded unique-document count in document and chunk views', () => {
+    expect(folderNodeSizeValue(0, false)).toBe(20)
+    expect(folderNodeSizeValue(10, false)).toBeGreaterThan(folderNodeSizeValue(1, false))
+    expect(folderNodeSizeValue(10_000, false)).toBe(216)
+    expect(folderNodeSizeValue(2, true)).toBeGreaterThan(folderNodeSizeValue(2, false))
+
+    const visual = buildGraph3DData(
+      makeGraphData({
+        level: 'chunk',
+        nodes: [
+          makeNode({ id: 'a#0', path: 'docs/a.md', chunk_index: 0 }),
+          makeNode({ id: 'a#1', path: 'docs/a.md', chunk_index: 1 }),
+          makeNode({ id: 'b#0', path: 'docs/b.md', chunk_index: 0 })
+        ]
+      }),
+      defaultOptions({ coloringMode: 'folder', level: 'chunk' })
+    )
+
+    expect(
+      visual.nodes.find((node) => isFolderGraphNode(node) && node.path === 'docs')
+        ?.folder_document_count
+    ).toBe(2)
+  })
+
+  it('seeds the root centrally and hierarchy branches deterministically', () => {
+    const makeVisual = () =>
+      buildGraph3DData(
+        makeGraphData({
+          nodes: [
+            makeNode({ id: 'a', path: 'scope/a/one.md' }),
+            makeNode({ id: 'b', path: 'scope/b/two.md' })
+          ]
+        }),
+        defaultOptions({
+          coloringMode: 'folder',
+          folderScopePath: 'scope',
+          folderRootLabel: 'Scope'
+        })
+      )
+
+    const first = makeVisual()
+    const second = makeVisual()
+    seedFolderHierarchyPositions(first.nodes, 200)
+    seedFolderHierarchyPositions(second.nodes, 200)
+
+    expect(first.nodes.map(({ id, x, y, z }) => ({ id, x, y, z }))).toEqual(
+      second.nodes.map(({ id, x, y, z }) => ({ id, x, y, z }))
+    )
+    expect(
+      first.nodes.find((node) => isFolderGraphNode(node) && node.is_folder_root)
+    ).toMatchObject({ x: 0, y: 0, z: 0 })
+    expect(
+      first.nodes
+        .filter((node) => isFolderGraphNode(node) && node.folder_depth === 1)
+        .every((node) => Math.hypot(node.x ?? 0, node.y ?? 0, node.z ?? 0) > 100)
+    ).toBe(true)
+  })
+
+  it('collapses folder hubs toward their parents without moving content leaves', () => {
+    const visual = buildGraph3DData(
+      makeGraphData({
+        nodes: [
+          makeNode({ id: 'a', path: 'scope/docs/a.md' }),
+          makeNode({ id: 'b', path: 'scope/docs/nested/b.md' })
+        ]
+      }),
+      defaultOptions({
+        coloringMode: 'folder',
+        folderScopePath: 'scope',
+        folderRootLabel: 'Scope'
+      })
+    )
+    seedFolderHierarchyPositions(visual.nodes, 200)
+    const before = new Map(
+      visual.nodes.map((node) => [node.id, { x: node.x ?? 0, y: node.y ?? 0, z: node.z ?? 0 }])
+    )
+
+    collapseFolderHierarchyForSpawn(visual.nodes, 0.1)
+
+    const root = visual.nodes.find((node) => isFolderGraphNode(node) && node.is_folder_root)!
+    const topFolder = visual.nodes.find(
+      (node) => isFolderGraphNode(node) && node.folder_depth === 1
+    )!
+    const nestedFolder = visual.nodes.find(
+      (node) => isFolderGraphNode(node) && node.folder_depth === 2
+    )!
+    const content = visual.nodes.find((node) => node.id === 'b')!
+
+    expect(root).toMatchObject(before.get(root.id)!)
+    expect(Math.hypot(topFolder.x ?? 0, topFolder.y ?? 0, topFolder.z ?? 0)).toBeCloseTo(
+      Math.hypot(
+        before.get(topFolder.id)!.x,
+        before.get(topFolder.id)!.y,
+        before.get(topFolder.id)!.z
+      ) * 0.1
+    )
+    expect(
+      Math.hypot(
+        (nestedFolder.x ?? 0) - (topFolder.x ?? 0),
+        (nestedFolder.y ?? 0) - (topFolder.y ?? 0),
+        (nestedFolder.z ?? 0) - (topFolder.z ?? 0)
+      )
+    ).toBeLessThan(25)
+    expect(content).toMatchObject(before.get(content.id)!)
   })
 })
 

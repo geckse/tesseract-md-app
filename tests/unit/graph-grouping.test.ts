@@ -23,4 +23,12 @@ describe('mode-aware graph grouping', () => {
     expect(graphGroupIdForMode(rootNode, 'folder')).toBe('folder:(root)')
     expect(graphTopLevelFolder(rootNode.path)).toBe('(root)')
   })
+
+  it('uses scope-relative hierarchy groups and leaves the synthetic root unenclosed', () => {
+    expect(graphGroupIdForMode({ ...node, folder_group: 'projects/alpha' }, 'folder')).toBe(
+      'folder:projects/alpha'
+    )
+    expect(graphGroupIdForMode({ ...node, folder_group: '(root)' }, 'folder')).toBe('folder:(root)')
+    expect(graphGroupIdForMode({ ...node, folder_group: null }, 'folder')).toBeNull()
+  })
 })

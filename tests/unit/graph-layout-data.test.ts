@@ -143,7 +143,8 @@ describe('graph layout data bridge', () => {
 
     const folders = buildGraphLayoutInputs(data, new Map(), 'chunk', 'folder')
     expect(folders.nodes.map((node) => node.clusterId)).toEqual(['folder:docs', 'folder:docs'])
-    expect(folders.links[0].distance).toBe(20)
+    expect(folders.links[0].distance).toBe(70)
+    expect(folders.links[0].strength).toBe(0.06)
 
     const ungrouped = buildGraphLayoutInputs(data, new Map(), 'document', 'none')
     expect(ungrouped.nodes.map((node) => node.clusterId)).toEqual([null, null])
@@ -216,5 +217,77 @@ describe('graph layout data bridge', () => {
     ).toBe(2)
     expect(nodesById.get('a')).toMatchObject({ x: 30, y: 31, z: 32 })
     expect(nodesById.get('b')).toMatchObject({ x: 200, y: 201, z: 202 })
+  })
+
+  it('gives folder hubs stronger repulsion and structural links shorter, stronger forces', () => {
+    const folderData: Graph3DData = {
+      nodes: [
+        {
+          ...graph3DData.nodes[0],
+          id: 'root',
+          path: 'scope',
+          kind: 'folder',
+          folder_group: null,
+          folder_depth: 0,
+          folder_document_count: 3,
+          is_folder_root: true,
+          val: 52
+        },
+        {
+          ...graph3DData.nodes[0],
+          id: 'folder',
+          path: 'scope/docs',
+          kind: 'folder',
+          folder_group: 'scope/docs',
+          folder_depth: 1,
+          folder_document_count: 2,
+          is_folder_root: false,
+          val: 28
+        },
+        {
+          ...graph3DData.nodes[0],
+          id: 'a',
+          path: 'scope/docs/a.md',
+          kind: 'content',
+          folder_group: 'scope/docs',
+          folder_parent_id: 'folder'
+        },
+        {
+          ...graph3DData.nodes[1],
+          id: 'b',
+          path: 'scope/docs/b.md',
+          kind: 'content',
+          folder_group: 'scope/docs',
+          folder_parent_id: 'folder'
+        }
+      ],
+      links: [
+        { ...graph3DData.links[0], source: 'root', target: 'folder', kind: 'hierarchy' },
+        { ...graph3DData.links[0], source: 'folder', target: 'a', kind: 'hierarchy' },
+        { ...graph3DData.links[0], source: 'a', target: 'b', kind: 'content' }
+      ],
+      hierarchy_signature: 'scope-signature'
+    }
+
+    const inputs = buildGraphLayoutInputs(folderData, new Map(), 'document', 'folder')
+
+    expect(inputs.nodes.map((node) => node.clusterId)).toEqual([
+      null,
+      'folder:scope/docs',
+      'folder:scope/docs',
+      'folder:scope/docs'
+    ])
+    expect(inputs.nodes[0].charge).toBe(-189)
+    expect(inputs.nodes[1].charge).toBe(-186)
+    expect(inputs.links).toMatchObject([
+      { distance: 82, strength: 0.82 },
+      { distance: 44, strength: 0.68 },
+      { distance: 90, strength: 0.08 }
+    ])
+    expect(inputs.settings.clusterStrength).toBe(0.06)
+
+    const contentOnlyRevision = graphTopologyRevision(graphData, 'folder', graph3DData)
+    const hierarchyRevision = graphTopologyRevision(graphData, 'folder', folderData)
+    expect(hierarchyRevision).not.toBe(contentOnlyRevision)
   })
 })
