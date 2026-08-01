@@ -2,6 +2,7 @@
   import { valueToString } from '../../../stores/table.svelte'
   import type { JsonValue } from '../../../types/cli'
   import { stringifyExactJson } from '../../../../shared/exact-number'
+  import JsonSyntax from '../../ui/JsonSyntax.svelte'
   import { type CellProps, isEmptyValue } from './types'
 
   let { column, value, computedError }: CellProps = $props()
@@ -64,7 +65,11 @@
     </span>
   {:else}
     <span class:mono={resultType === 'Number' || resultType === 'Json'} class="text">
-      {resultType === 'Json' ? jsonText(value) : raw}
+      {#if resultType === 'Json'}
+        <JsonSyntax text={jsonText(value)} />
+      {:else}
+        {raw}
+      {/if}
     </span>
   {/if}
 </div>

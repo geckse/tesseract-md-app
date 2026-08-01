@@ -5,6 +5,8 @@
   import LocalGraph from './LocalGraph.svelte'
   import RelationChip from './RelationChip.svelte'
   import FileTile from './FileTile.svelte'
+  import JsonSyntax from './ui/JsonSyntax.svelte'
+  import { stringifyExactJson } from '../../shared/exact-number'
   import {
     documentInfo,
     backlinksInfo,
@@ -214,6 +216,13 @@
     return Array.isArray(value)
   }
 
+  function isJsonProperty(key: string, value: JsonValue): boolean {
+    if (currentSchema?.fields?.some((field) => field.name === key && field.field_type === 'Json')) {
+      return true
+    }
+    return value !== null && typeof value === 'object' && !Array.isArray(value)
+  }
+
   function fileReferencesFor(
     key: string,
     value: JsonValue
@@ -363,6 +372,10 @@
                           />
                         {/each}
                       </div>
+                    {:else if isJsonProperty(key, value)}
+                      <span class="value-text json-value">
+                        <JsonSyntax text={stringifyExactJson(value)} />
+                      </span>
                     {:else if key.toLowerCase() === 'status' && typeof value === 'string'}
                       <Badge variant={statusVariant(value)}>{value}</Badge>
                     {:else if key.toLowerCase() === 'tags' && isArrayValue(value)}

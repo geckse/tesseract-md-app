@@ -5,6 +5,7 @@ import {
   applyGraphLayoutPositions,
   applyGraphLayoutPositionsInOrder,
   buildGraphLayoutInputs,
+  graphLayoutSeedRadius,
   graphLayoutTransitionProgress,
   graphLayoutSnapshotIntervalMs,
   graphTopologyRevision,
@@ -139,7 +140,12 @@ describe('graph layout data bridge', () => {
     data.nodes[1].custom_cluster_id = 8
     const splitTopics = buildGraphLayoutInputs(data, new Map(), 'document', 'custom-cluster')
     expect(splitTopics.nodes.map((node) => node.clusterId)).toEqual(['topic:7', 'topic:8'])
-    expect(splitTopics.links[0].distance).toBe(120)
+    expect(splitTopics.links[0]).toMatchObject({ distance: 180, strength: 0.06 })
+
+    data.nodes[1].cluster_id = 2
+    const splitClusters = buildGraphLayoutInputs(data, new Map(), 'chunk', 'cluster')
+    expect(splitClusters.nodes.map((node) => node.clusterId)).toEqual(['cluster:1', 'cluster:2'])
+    expect(splitClusters.links[0]).toMatchObject({ distance: 220, strength: 0.04 })
 
     const folders = buildGraphLayoutInputs(data, new Map(), 'chunk', 'folder')
     expect(folders.nodes.map((node) => node.clusterId)).toEqual(['folder:docs', 'folder:docs'])
@@ -148,7 +154,16 @@ describe('graph layout data bridge', () => {
 
     const ungrouped = buildGraphLayoutInputs(data, new Map(), 'document', 'none')
     expect(ungrouped.nodes.map((node) => node.clusterId)).toEqual([null, null])
-    expect(ungrouped.links[0].distance).toBe(120)
+    expect(ungrouped.links[0]).toMatchObject({ distance: 120, strength: 0.2 })
+  })
+
+  it('gives Cluster and Topic modes wider initial spacing without expanding other modes', () => {
+    expect(graphLayoutSeedRadius('document', 'cluster')).toBe(260)
+    expect(graphLayoutSeedRadius('document', 'custom-cluster')).toBe(260)
+    expect(graphLayoutSeedRadius('chunk', 'cluster')).toBe(380)
+    expect(graphLayoutSeedRadius('chunk', 'custom-cluster')).toBe(380)
+    expect(graphLayoutSeedRadius('document', 'folder')).toBe(200)
+    expect(graphLayoutSeedRadius('chunk', 'none')).toBe(300)
   })
 
   it('packs and applies transferable position triples by stable node id', () => {

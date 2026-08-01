@@ -54,12 +54,19 @@ describe('PropertyRow type-change affordances (phase 41)', () => {
     expect(screen.getByRole('listbox', { name: 'Select property type' })).toBeTruthy()
   })
 
-  it('excludes complex/JSON as a conversion target and marks the current type', async () => {
+  it('offers JSON as a conversion target and marks the current type', async () => {
     renderRow()
     await fireEvent.click(screen.getByRole('button', { name: 'Change type of status' }))
-    expect(screen.queryByText('JSON')).toBeNull()
+    expect(screen.getByRole('option', { name: /JSON/ })).toBeTruthy()
     const current = screen.getByRole('option', { name: /Text/ })
     expect(current).toBeTruthy()
+  })
+
+  it('requests JSON conversion from the property type picker', async () => {
+    const { onTypeChange } = renderRow()
+    await fireEvent.click(screen.getByRole('button', { name: 'Change type of status' }))
+    await fireEvent.mouseDown(screen.getByRole('option', { name: /JSON/ }))
+    expect(onTypeChange).toHaveBeenCalledWith('complex')
   })
 
   it('requests a conversion when a different type is picked', async () => {

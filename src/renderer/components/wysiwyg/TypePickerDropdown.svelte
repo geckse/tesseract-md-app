@@ -8,7 +8,7 @@
     onDismiss: () => void
     /** Highlight this type as the property's current type (phase 41). */
     currentType?: string | null
-    /** Hide these types from the picker (e.g. 'complex' is not a convert target). */
+    /** Hide capability-gated types from the picker. */
     excludeTypes?: string[]
     /** Offer Formula when creating a schema-backed field. Never enable for value conversions. */
     includeFormula?: boolean

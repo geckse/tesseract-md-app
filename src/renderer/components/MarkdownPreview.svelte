@@ -9,6 +9,8 @@
   import type { JsonValue } from '../types/cli'
   import { activeCollection } from '../stores/collections'
   import LinkHoverPreview from './LinkHoverPreview.svelte'
+  import JsonSyntax from './ui/JsonSyntax.svelte'
+  import { stringifyExactJson } from '../../shared/exact-number'
 
   // Store subscriptions
   let currentContent: string | null = $state(null)
@@ -189,6 +191,8 @@
                       <Badge variant="default">{formatFrontmatterValue(tag)}</Badge>
                     {/each}
                   </div>
+                {:else if value !== null && typeof value === 'object' && !Array.isArray(value)}
+                  <span class="fm-json"><JsonSyntax text={stringifyExactJson(value)} /></span>
                 {:else}
                   <span>{formatFrontmatterValue(value)}</span>
                 {/if}

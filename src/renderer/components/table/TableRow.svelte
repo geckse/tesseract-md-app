@@ -11,6 +11,7 @@
   import ListCell from './cells/ListCell.svelte'
   import DateCell from './cells/DateCell.svelte'
   import MixedCell from './cells/MixedCell.svelte'
+  import JsonCell from './cells/JsonCell.svelte'
   import RelationCell from './cells/RelationCell.svelte'
   import FileCell from './cells/FileCell.svelte'
   import FormulaCell from './cells/FormulaCell.svelte'
@@ -35,6 +36,7 @@
     List: ListCell,
     Date: DateCell,
     Mixed: MixedCell,
+    Json: JsonCell,
     // Renders regardless of CLI version (never gate rendering — phase 42):
     // without populate the chips fall back to a neutral client parse.
     Relation: RelationCell,

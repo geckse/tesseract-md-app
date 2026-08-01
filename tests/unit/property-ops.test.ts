@@ -181,6 +181,36 @@ describe('convertValue — to Date / Datetime', () => {
   })
 })
 
+describe('convertValue — to JSON', () => {
+  it('parses valid JSON text into a typed value', () => {
+    expect(convertValue(' {"myJSON": "a nice JSON"} ', 'complex')).toEqual({
+      ok: true,
+      value: { myJSON: 'a nice JSON' },
+      changed: true
+    })
+    expect(convertValue('[1, true, null]', 'complex')).toEqual({
+      ok: true,
+      value: [1, true, null],
+      changed: true
+    })
+  })
+
+  it('keeps already-typed JSON values unchanged', () => {
+    expect(convertValue({ nested: { enabled: true } }, 'complex')).toEqual({
+      ok: true,
+      value: { nested: { enabled: true } },
+      changed: false
+    })
+  })
+
+  it('rejects text that is not valid JSON', () => {
+    expect(convertValue('plain text', 'complex')).toEqual({
+      ok: false,
+      reason: 'not valid JSON'
+    })
+  })
+})
+
 describe('storageKindFor / overlayFieldTypeFor', () => {
   it('maps UI types to storage kinds', () => {
     expect(storageKindFor('text')).toBe('string')
@@ -189,13 +219,14 @@ describe('storageKindFor / overlayFieldTypeFor', () => {
     expect(storageKindFor('select')).toBe('string')
     expect(storageKindFor('tags')).toBe('list')
     expect(storageKindFor('datetime')).toBe('datetime')
-    expect(storageKindFor('complex')).toBeNull()
+    expect(storageKindFor('complex')).toBe('json')
   })
 
   it('pins datetime as date in the overlay', () => {
     expect(overlayFieldTypeFor('datetime')).toBe('date')
     expect(overlayFieldTypeFor('tags')).toBe('list')
     expect(overlayFieldTypeFor('url')).toBe('string')
+    expect(overlayFieldTypeFor('complex')).toBe('json')
   })
 })
 
@@ -400,7 +431,7 @@ describe('planPropertyOp', () => {
 
     expect(
       planPropertyOp([], req({ key: 'payload', op: { kind: 'add', target: 'complex' } })).schemaPin
-    ).toEqual({ scopeKey: 'docs', fieldType: 'mixed' })
+    ).toEqual({ scopeKey: 'docs', fieldType: 'json' })
   })
 
   it('never pins for single-file (scope null) or rename ops', () => {

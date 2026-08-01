@@ -199,15 +199,28 @@ describe('TableHeader column menu (phase 41)', () => {
     renderHeader()
     await fireEvent.click(screen.getByRole('button', { name: 'Column options for status' }))
     await fireEvent.mouseDown(screen.getByRole('menuitem', { name: /Change type/ }))
-    // Picker opens, current type (text for String) highlighted, complex hidden.
+    // Picker opens with the current String type highlighted and JSON available.
     const picker = screen.getByRole('listbox', { name: 'Select property type' })
     expect(picker).toBeTruthy()
-    expect(screen.queryByText('JSON')).toBeNull()
+    expect(screen.getByRole('option', { name: /JSON/ })).toBeTruthy()
     await fireEvent.mouseDown(screen.getByRole('option', { name: /Tags/ }))
     expect(openConvert).toHaveBeenCalledWith(
       { kind: 'table', tabId: 't1', folderPath: 'docs' },
       'status',
       'tags',
+      'text'
+    )
+  })
+
+  it('routes JSON conversion through the table property flow', async () => {
+    renderHeader()
+    await fireEvent.click(screen.getByRole('button', { name: 'Column options for status' }))
+    await fireEvent.mouseDown(screen.getByRole('menuitem', { name: /Change type/ }))
+    await fireEvent.mouseDown(screen.getByRole('option', { name: /JSON/ }))
+    expect(openConvert).toHaveBeenCalledWith(
+      { kind: 'table', tabId: 't1', folderPath: 'docs' },
+      'status',
+      'complex',
       'text'
     )
   })

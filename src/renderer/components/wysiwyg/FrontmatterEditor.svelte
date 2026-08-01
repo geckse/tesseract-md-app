@@ -2,6 +2,7 @@
   import type { JsonValue, Schema, SchemaField, FieldType } from '../../types/cli'
   import { parseFrontmatterData, serializeFrontmatter } from '../../lib/tiptap/markdown-bridge'
   import AutocompleteDropdown from './AutocompleteDropdown.svelte'
+  import JsonEditor from '../ui/JsonEditor.svelte'
 
   interface Props {
     frontmatterYaml: string | null
@@ -67,6 +68,8 @@
         return []
       case 'Date':
         return new Date().toISOString().slice(0, 10)
+      case 'Json':
+        return {}
       default:
         return ''
     }
@@ -432,18 +435,11 @@
                   />
                 </div>
               {:else if type === 'complex'}
-                <textarea
-                  class="fm-val fm-textarea"
-                  value={JSON.stringify(row.value, null, 2)}
-                  aria-label="{row.key} value"
-                  oninput={(e) => {
-                    try {
-                      updateValue(row, JSON.parse((e.target as HTMLTextAreaElement).value))
-                    } catch {
-                      // Keep raw text until valid JSON
-                    }
-                  }}
-                ></textarea>
+                <JsonEditor
+                  value={row.value}
+                  ariaLabel="{row.key} value"
+                  onValueChange={(value) => updateValue(row, value)}
+                />
               {:else}
                 {@const allowedValues = getSchemaField(row.key)?.allowed_values}
                 {#if allowedValues && allowedValues.length > 0}
@@ -752,12 +748,6 @@
   .fm-select:hover,
   .fm-select:focus {
     border-color: var(--color-border-hover, #3f3f46);
-  }
-
-  .fm-textarea {
-    min-height: 60px;
-    resize: vertical;
-    text-align: left;
   }
 
   /* Toggle switch */

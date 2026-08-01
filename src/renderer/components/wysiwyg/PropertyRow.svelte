@@ -28,6 +28,8 @@
   import RelationPicker from '../RelationPicker.svelte'
   import FilePicker from '../FilePicker.svelte'
   import FileTile from '../FileTile.svelte'
+  import JsonEditor from '../ui/JsonEditor.svelte'
+  import JsonSyntax from '../ui/JsonSyntax.svelte'
   import { assetsByPath } from '../../stores/files'
   import { formatFileReference, parseFileReference } from '../../../shared/file-reference'
   import { exactNumberText, stringifyExactJson } from '../../../shared/exact-number'
@@ -209,7 +211,6 @@
   }
 
   const excludedTypes = $derived([
-    'complex',
     ...(!cliFeatures.supportsRelations ? ['relation'] : []),
     ...(!cliFeatures.supportsFileFields ? ['file'] : [])
   ])
@@ -385,7 +386,13 @@
           >
           <span>{formulaError.code}</span>
         {:else}
-          <span class="pr-formula-value">{formulaValueText()}</span>
+          <span class="pr-formula-value">
+            {#if fieldType === 'complex'}
+              <JsonSyntax text={formulaValueText()} />
+            {:else}
+              {formulaValueText()}
+            {/if}
+          </span>
         {/if}
       </div>
     {:else if fieldType === 'boolean'}
@@ -661,18 +668,7 @@
         />
       {/if}
     {:else if fieldType === 'complex'}
-      <textarea
-        class="pr-val pr-textarea"
-        value={JSON.stringify(value, null, 2)}
-        aria-label="{rowKey} value"
-        oninput={(e) => {
-          try {
-            onValueChange(JSON.parse((e.target as HTMLTextAreaElement).value))
-          } catch {
-            /* keep raw */
-          }
-        }}
-      ></textarea>
+      <JsonEditor {value} ariaLabel="{rowKey} value" {onValueChange} />
     {:else}
       {@const statusColor = typeof value === 'string' ? getStatusColor(value) : null}
       <input
@@ -982,12 +978,6 @@
   .pr-select:hover,
   .pr-select:focus {
     border-color: color-mix(in srgb, var(--value-color) 68%, transparent);
-  }
-
-  .pr-textarea {
-    min-height: 60px;
-    resize: vertical;
-    text-align: left;
   }
 
   .pr-date-wrap {

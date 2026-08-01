@@ -52,4 +52,14 @@ describe('lossless CLI JSON numbers', () => {
       '{"amounts":[0.1,0.10000000000000000001],"nested":{"value":-9.007199254740993e15}}'
     )
   })
+
+  it('pretty-prints nested JSON without exposing exact-number markers', () => {
+    const parsed = JSON.parse(
+      preserveExactJsonNumbers('{"sequence":9007199254740993,"values":[0.10000000000000001]}')
+    )
+
+    expect(stringifyExactJson(parsed, 2)).toBe(
+      '{\n  "sequence": 9007199254740993,\n  "values": [\n    0.10000000000000001\n  ]\n}'
+    )
+  })
 })

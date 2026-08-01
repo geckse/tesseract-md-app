@@ -104,6 +104,18 @@ export function graphLayoutSettings(level: GraphLevel): Partial<GraphLayoutSetti
   }
 }
 
+/**
+ * Keep semantic groups visually distinct before the force solver starts.
+ * Cluster and Topic views need more room than ungrouped/folder layouts because
+ * their enclosure hulls otherwise merge into one dense cloud.
+ */
+export function graphLayoutSeedRadius(level: GraphLevel, groupingMode: GraphGroupingMode): number {
+  if (groupingMode === 'cluster' || groupingMode === 'custom-cluster') {
+    return level === 'document' ? 260 : 380
+  }
+  return level === 'document' ? 200 : 300
+}
+
 /** Reduce renderer upload pressure as topology grows while retaining live layout updates. */
 export function graphLayoutSnapshotIntervalMs(nodeCount: number, linkCount: number): number {
   const topologyItems = Math.max(0, nodeCount) + Math.max(0, linkCount)
@@ -148,6 +160,11 @@ export function buildGraphLayoutInputs(
     const sourceGroup = source ? groupsById.get(source.id) : null
     const targetGroup = target ? groupsById.get(target.id) : null
     const sameCluster = sourceGroup != null && targetGroup != null && sourceGroup === targetGroup
+    const crossCluster =
+      (groupingMode === 'cluster' || groupingMode === 'custom-cluster') &&
+      sourceGroup != null &&
+      targetGroup != null &&
+      sourceGroup !== targetGroup
     if (link.kind === 'hierarchy') {
       const folderToFolder = source?.kind === 'folder' && target?.kind === 'folder'
       return {
@@ -172,12 +189,26 @@ export function buildGraphLayoutInputs(
           : documentLevel
             ? sameCluster
               ? 30
-              : 120
+              : crossCluster
+                ? 180
+                : 120
             : sameCluster
               ? 20
-              : 150,
+              : crossCluster
+                ? 220
+                : 150,
       strength:
-        groupingMode === 'folder' ? (documentLevel ? 0.08 : 0.06) : documentLevel ? 0.2 : 0.15
+        groupingMode === 'folder'
+          ? documentLevel
+            ? 0.08
+            : 0.06
+          : crossCluster
+            ? documentLevel
+              ? 0.06
+              : 0.04
+            : documentLevel
+              ? 0.2
+              : 0.15
     }
   })
   const settings = graphLayoutSettings(level)

@@ -260,6 +260,7 @@ export type FieldType =
   | 'List'
   | 'Date'
   | 'Mixed'
+  | 'Json'
   | 'Relation'
   | 'File'
   | 'Formula'
@@ -359,7 +360,7 @@ export type TitleSource = 'frontmatter' | 'filename'
  */
 export interface CollectionColumn {
   name: string // == frontmatter key
-  field_type: FieldType // PascalCase: String|Number|Boolean|List|Date|Mixed|Relation
+  field_type: FieldType // PascalCase storage/presentation type, including Json/Relation/File/Formula
   description: string | null
   occurrence_count: number
   sample_values: string[]

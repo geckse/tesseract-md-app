@@ -135,18 +135,45 @@ export function compareDecimalText(left: string, right: string): number | null {
   return a.sign < 0 ? -order : order
 }
 
-/** JSON display that emits exact-number markers as number tokens. */
-export function stringifyExactJson(value: unknown): string {
+function stringifyExactJsonAt(value: unknown, indent: number, depth: number): string {
   const exact = exactNumberText(value)
   if (exact !== null) return exact
   if (value === null) return 'null'
   if (typeof value === 'string') return JSON.stringify(value)
   if (typeof value === 'number' || typeof value === 'boolean') return String(value)
-  if (Array.isArray(value)) return `[${value.map(stringifyExactJson).join(',')}]`
+  if (Array.isArray(value)) {
+    if (value.length === 0) return '[]'
+    if (indent === 0) {
+      return `[${value.map((item) => stringifyExactJsonAt(item, indent, depth + 1)).join(',')}]`
+    }
+    const childPadding = ' '.repeat(indent * (depth + 1))
+    const padding = ' '.repeat(indent * depth)
+    return `[\n${childPadding}${value
+      .map((item) => stringifyExactJsonAt(item, indent, depth + 1))
+      .join(`,\n${childPadding}`)}\n${padding}]`
+  }
   if (typeof value === 'object') {
-    return `{${Object.entries(value)
-      .map(([key, item]) => `${JSON.stringify(key)}:${stringifyExactJson(item)}`)
-      .join(',')}}`
+    const entries = Object.entries(value)
+    if (entries.length === 0) return '{}'
+    if (indent === 0) {
+      return `{${entries
+        .map(
+          ([key, item]) => `${JSON.stringify(key)}:${stringifyExactJsonAt(item, indent, depth + 1)}`
+        )
+        .join(',')}}`
+    }
+    const childPadding = ' '.repeat(indent * (depth + 1))
+    const padding = ' '.repeat(indent * depth)
+    return `{\n${childPadding}${entries
+      .map(
+        ([key, item]) => `${JSON.stringify(key)}: ${stringifyExactJsonAt(item, indent, depth + 1)}`
+      )
+      .join(`,\n${childPadding}`)}\n${padding}}`
   }
   return ''
+}
+
+/** JSON display that emits exact-number markers as number tokens. */
+export function stringifyExactJson(value: unknown, space = 0): string {
+  return stringifyExactJsonAt(value, Math.max(0, Math.floor(space)), 0)
 }

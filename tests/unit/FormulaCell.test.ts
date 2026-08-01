@@ -67,6 +67,14 @@ describe('FormulaCell', () => {
     expect(screen.getByText('review')).toBeTruthy()
   })
 
+  it('syntax-highlights JSON formula results', () => {
+    const { container } = renderCell({ total: 12, paid: false }, 'Json')
+
+    expect(container.querySelector('.key')?.textContent).toBe('"total"')
+    expect(container.querySelector('.number')?.textContent).toBe('12')
+    expect(container.querySelector('.boolean')?.textContent).toBe('false')
+  })
+
   it('surfaces a CLI diagnostic instead of a stale value', () => {
     renderCell(undefined, 'Number', {
       module: 'formula',

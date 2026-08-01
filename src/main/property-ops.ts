@@ -57,10 +57,10 @@ const TRUE_TOKENS = new Set(['true', 'yes', 'on', '1'])
 const FALSE_TOKENS = new Set(['false', 'no', 'off', '0'])
 
 /** What YAML shape a picked UI type stores. */
-type StorageKind = 'string' | 'number' | 'boolean' | 'list' | 'date' | 'datetime'
+type StorageKind = 'string' | 'number' | 'boolean' | 'list' | 'date' | 'datetime' | 'json'
 
-/** Map a UI target type to its stored YAML shape (null = not a valid target). */
-export function storageKindFor(target: PropertyTargetType): StorageKind | null {
+/** Map a UI target type to its stored YAML shape. */
+export function storageKindFor(target: PropertyTargetType): StorageKind {
   switch (target) {
     // A relation is stored as a plain string (or string[]) wiki-link value.
     case 'text':
@@ -82,7 +82,7 @@ export function storageKindFor(target: PropertyTargetType): StorageKind | null {
     case 'datetime':
       return 'datetime'
     case 'complex':
-      return null
+      return 'json'
   }
 }
 
@@ -167,10 +167,9 @@ export function convertValue(value: JsonValue, target: PropertyTargetType): Conv
   }
 
   const kind = storageKindFor(target)
-  if (kind === null) return { ok: false, reason: 'not a convertible target type' }
 
-  // Nested mappings never convert to anything.
-  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+  // Nested mappings never convert to scalar/list presentation types.
+  if (kind !== 'json' && value !== null && typeof value === 'object' && !Array.isArray(value)) {
     return { ok: false, reason: 'nested mapping cannot be converted' }
   }
 
@@ -242,6 +241,17 @@ export function convertValue(value: JsonValue, target: PropertyTargetType): Conv
       if (ISO_DATETIME.test(trimmed) || DATE_ONLY.test(trimmed))
         return { ok: true, value: trimmed, changed: trimmed !== value }
       return { ok: false, reason: 'not a date/time' }
+    }
+    case 'json': {
+      if (typeof value === 'string') {
+        const trimmed = value.trim()
+        try {
+          return { ok: true, value: JSON.parse(trimmed) as JsonValue, changed: true }
+        } catch {
+          return { ok: false, reason: 'not valid JSON' }
+        }
+      }
+      return { ok: true, value, changed: false }
     }
   }
 }

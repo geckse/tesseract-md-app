@@ -167,6 +167,7 @@
     // unambiguous File value then wins over a stale legacy Relation label so
     // the editor and read-only properties panel classify the same data alike.
     if (sf?.field_type === 'File') return 'file'
+    if (sf?.field_type === 'Json') return 'complex'
     const typeHint = rows.find((candidate) => candidate.key === key)?.typeHint
     if (typeHint === 'file' && Array.isArray(value)) return 'file'
     if (isFileReferenceValue(value)) return 'file'

@@ -136,6 +136,7 @@
     applyGraphLayoutPositions,
     applyGraphLayoutPositionsInOrder,
     buildGraphLayoutInputs,
+    graphLayoutSeedRadius,
     graphLayoutTransitionProgress,
     graphTopologyRevision,
     packGraphNodePositions
@@ -2923,8 +2924,8 @@
       revision: layoutRevision,
       scope: effectiveFolderScopePath(),
       settings: {
-        // v3 adds renderer-derived folder hierarchy forces and cache members.
-        engine: 'd3-force-3d-worker-v3',
+        // v4 adds wider semantic-group seeds and weaker cross-group springs.
+        engine: 'd3-force-3d-worker-v4',
         groupingMode: currentColoringMode,
         clusterStrength: bundle.settings.clusterStrength ?? 0,
         chargeTheta: bundle.settings.chargeTheta ?? 1,
@@ -3040,7 +3041,7 @@
     computeBidirectionalPairs(graph3DData.links)
 
     // Seed the selected grouping mode using a Fibonacci sphere distribution.
-    const spreadRadius = currentLevel === 'chunk' ? 300 : 200
+    const spreadRadius = graphLayoutSeedRadius(currentLevel, currentColoringMode)
     if (currentColoringMode === 'folder') {
       seedFolderHierarchyPositions(graph3DData.nodes, spreadRadius)
     } else {

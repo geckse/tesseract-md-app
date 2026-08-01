@@ -158,7 +158,7 @@ describe('ConvertTypeModal', () => {
           }
         ],
         totals: { add: 1, drop: 0, convert: 0, unchanged: 1, noValue: 0, skip: 0 },
-        schemaPin: { scopeKey: 'knowledge-graph', fieldType: 'mixed' }
+        schemaPin: { scopeKey: 'knowledge-graph', fieldType: 'json' }
       }
     })
 

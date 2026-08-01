@@ -24,6 +24,7 @@ describe('property types — relation (phase 42)', () => {
       'List',
       'Date',
       'Mixed',
+      'Json',
       'Relation',
       'File'
     ]
@@ -32,6 +33,8 @@ describe('property types — relation (phase 42)', () => {
     }
     expect(FIELD_TO_DETECTED.Relation).toBe('relation')
     expect(FIELD_TO_DETECTED.File).toBe('file')
+    expect(FIELD_TO_DETECTED.Json).toBe('complex')
+    expect(FIELD_TO_DETECTED.Mixed).toBe('text')
   })
 
   it('Relation wins over allowed_values in detectedTypeForField', () => {
@@ -54,7 +57,7 @@ describe('property types — relation (phase 42)', () => {
       tags: 'list',
       relation: 'relation',
       file: 'file',
-      complex: 'mixed'
+      complex: 'json'
     }
 
     for (const [target, fieldType] of Object.entries(expected)) {

@@ -17,7 +17,7 @@ export function overlayFieldTypeForPropertyTarget(target: PropertyTargetType): s
     case 'file':
       return 'file'
     case 'complex':
-      return 'mixed'
+      return 'json'
     case 'text':
     case 'url':
     case 'email':

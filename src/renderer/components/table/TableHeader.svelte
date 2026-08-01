@@ -134,6 +134,7 @@
     Date: 'calendar_today',
     List: 'sell',
     Mixed: 'data_object',
+    Json: 'data_object',
     Relation: 'account_tree',
     File: 'attach_file',
     Formula: 'function'
@@ -295,7 +296,7 @@
   <TypePickerDropdown
     anchorEl={menuAnchor}
     currentType={detectedTypeForField(menuColumn.field_type, menuColumn.allowed_values)}
-    excludeTypes={cliFeatures.supportsFileFields ? ['complex'] : ['complex', 'file']}
+    excludeTypes={cliFeatures.supportsFileFields ? [] : ['file']}
     onSelect={handleTypeSelect}
     onDismiss={() => {
       showTypePicker = false

@@ -128,10 +128,10 @@ test.describe('Property type conversion (phase 41)', () => {
     await expect(typeBtn).toBeVisible({ timeout: 10_000 })
     await typeBtn.click()
 
-    // Pick Number from the type picker (complex/JSON must be absent).
+    // Pick Number from the type picker (JSON is also a supported target).
     const picker = window.getByRole('listbox', { name: 'Select property type' })
     await expect(picker).toBeVisible()
-    await expect(picker.getByText('JSON')).toHaveCount(0)
+    await expect(picker.getByText('JSON')).toHaveCount(1)
     await picker.getByRole('option', { name: 'Number' }).dispatchEvent('mousedown')
 
     // The conversion modal previews the folder database.

@@ -111,7 +111,8 @@ describe('GraphView mode-aware layout contract', () => {
       '!isFolderHierarchyLink(link) && !isEdgeVisible(link, currentEdgeFilter)'
     )
     expect(source).toContain('isFolderHierarchyLink(link) ||')
-    expect(source).toContain("engine: 'd3-force-3d-worker-v3'")
+    expect(source).toContain("engine: 'd3-force-3d-worker-v4'")
+    expect(source).toContain('graphLayoutSeedRadius(currentLevel, currentColoringMode)')
   })
 
   it('routes folder hubs away from document actions and keeps labels interactive', () => {

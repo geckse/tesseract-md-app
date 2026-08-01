@@ -220,7 +220,7 @@ describe('applyPropertyOp — add', () => {
     expect(result.totals).toEqual({ ok: 0, skipped: 0, failed: 0 })
     expect(result.overlayWritten).toBe(true)
     const overlay = parseYaml(await readFile(join(root, OVERLAY_FILENAME), 'utf-8'))
-    expect(overlay.scopes.docs.fields.payload.field_type).toBe('mixed')
+    expect(overlay.scopes.docs.fields.payload.field_type).toBe('json')
   })
 
   it('persists Select allowed values as part of the added schema field', async () => {

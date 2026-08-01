@@ -46,6 +46,7 @@ const VALID_FIELD_TYPES = new Set([
   'array',
   'date',
   'mixed',
+  'json',
   'relation',
   'file',
   'formula'

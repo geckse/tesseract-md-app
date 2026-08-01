@@ -95,6 +95,12 @@ describe('upsertOverlayField', () => {
     expect(parsed.fields.attachments.field_type).toBe('file')
   })
 
+  it('accepts the JSON field type', async () => {
+    await upsertOverlayField(root, null, 'payload', { fieldType: 'json' })
+    const parsed = parseYaml(await readOverlay())
+    expect(parsed.fields.payload.field_type).toBe('json')
+  })
+
   it('creates the file on demand with a scoped field_type pin', async () => {
     await upsertOverlayField(root, 'knowledge-graph', 'status', { fieldType: 'number' })
     const parsed = parseYaml(await readOverlay())

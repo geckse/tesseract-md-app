@@ -42,6 +42,7 @@ export const FIELD_TO_DETECTED: Record<FieldType, PropertyTargetType> = {
   Date: 'date',
   List: 'tags',
   Mixed: 'text',
+  Json: 'complex',
   Relation: 'relation',
   File: 'file',
   // Formula fields never enter editable type conversion; DocumentHeader
