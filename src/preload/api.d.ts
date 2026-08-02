@@ -26,6 +26,8 @@ import type {
   MimeCategory,
   FormulaResultType,
   FormulaValidationResult,
+  LookupRollupDefinition,
+  ModuleDescriptor,
   ModuleReport,
   ShardInfo,
   ShardList,
@@ -39,6 +41,11 @@ import type {
   ImageReadResult,
   ImageSavedExternallyEvent
 } from '../shared/image-edit'
+import type {
+  ComputedEditorFlushRequest,
+  ComputedEditorFlushResponse,
+  ComputedSchemaAppliedEvent
+} from '../shared/computed-editor-flush'
 
 export type { PropertyValueColors, PropertyValueColorSelection } from '../shared/value-colors'
 export type { ExternalLinkPreview, LocalLinkPreview } from '../shared/link-preview'
@@ -438,6 +445,14 @@ export interface OverlayFieldPatch {
   formula?: string | null
   /** Declared formula output type; null clears it. */
   resultType?: FormulaResultType | null
+  /** Relation field traversed by Lookup/Rollup; null clears it. */
+  relationField?: string | null
+  /** Related-document field retrieved by Lookup/Rollup; null clears it. */
+  targetField?: string | null
+  /** Traversal direction; Lookup supports outgoing only. */
+  relationDirection?: 'outgoing' | 'incoming' | null
+  /** Relative collection scope containing related documents. */
+  relationScope?: string | null
 }
 
 /** A persisted slot in the legacy bottom panel (terminal) — shell + cwd only. */
@@ -588,6 +603,14 @@ export interface MdvdbApi {
   ): Promise<FormulaValidationResult>
   /** Recompute and materialize formulas into Markdown for the vault or one folder scope. */
   runFormulaModule(root: string, scope?: string): Promise<ModuleReport>
+  /** List compiled-in CLI modules for capability detection. */
+  listModules(root: string): Promise<ModuleDescriptor[]>
+  /** Validate a Rollup expression in the lookup_rollup module sandbox. */
+  validateRollup(
+    root: string,
+    formula: string,
+    resultType: FormulaResultType
+  ): Promise<FormulaValidationResult>
 
   // Named Shards (project-local definitions stored by the CLI)
   listShards(root: string): Promise<ShardList>
@@ -623,6 +646,15 @@ export interface MdvdbApi {
   // File operations
   readFile(absolutePath: string): Promise<string>
   writeFile(absolutePath: string, content: string): Promise<void>
+  /**
+   * Write only when the file still exactly matches the caller's baseline.
+   * Used by computed-schema transactions to avoid overwriting another window.
+   */
+  writeFileIfUnchanged(
+    absolutePath: string,
+    expectedContent: string,
+    content: string
+  ): Promise<void>
   /**
    * Safely update a single file's YAML frontmatter (set/unset keys), preserving
    * the body byte-for-byte. Resolves the absolute path from (collectionId,
@@ -731,6 +763,22 @@ export interface MdvdbApi {
   ): Promise<ModuleReport>
   /** Remove one database formula definition and its materialized Markdown values. */
   removeFormula(collectionId: string, scope: string | null, key: string): Promise<ModuleReport>
+  /** Persist and materialize one Lookup or Rollup definition. */
+  saveLookupRollup(
+    collectionId: string,
+    scope: string | null,
+    key: string,
+    definition: LookupRollupDefinition,
+    previousKey?: string
+  ): Promise<ModuleReport>
+  /** Remove one Lookup/Rollup definition and recompute its materialized values. */
+  removeLookupRollup(collectionId: string, scope: string | null, key: string): Promise<ModuleReport>
+  /** Receive main's collection-wide dirty-document save barrier request. */
+  onComputedEditorFlushRequest(callback: (request: ComputedEditorFlushRequest) => void): () => void
+  /** Acknowledge one inspect/flush/verify phase to the main process. */
+  respondComputedEditorFlush(response: ComputedEditorFlushResponse): void
+  /** Refresh collection-scoped views after materialization or rollback. */
+  onComputedSchemaApplied(callback: (event: ComputedSchemaAppliedEvent) => void): () => void
   /** Read theme-palette slots persisted beside fields in `.markdownvdb.schema.yml`. */
   getPropertyValueColors(collectionId: string, scope: string | null): Promise<PropertyValueColors>
   /** Set one synced value-color slot; null restores its automatic assignment. */

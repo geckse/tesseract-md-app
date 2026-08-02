@@ -18,6 +18,14 @@
   import PropertyRow, { type DetectedType } from './PropertyRow.svelte'
   import AddPropertyRow from './AddPropertyRow.svelte'
   import FormulaModal from '../table/FormulaModal.svelte'
+  import LookupRollupModal from '../table/LookupRollupModal.svelte'
+  import {
+    isComputedFieldType,
+    isLookupRollupFieldType,
+    type ComputedFieldType
+  } from '../../lib/computed-fields'
+  import { cliFeatures } from '../../lib/cli-features.svelte'
+  import { exactNumberText } from '../../../shared/exact-number'
 
   interface Props {
     frontmatterYaml: string | null
@@ -69,6 +77,10 @@
     context: DocumentSchemaMutationContext
   }
 
+  interface LookupRollupDialogState extends FormulaDialogState {
+    kind: 'lookup' | 'rollup'
+  }
+
   interface SchemaWriteRequest {
     rowId: number
     key: string
@@ -78,6 +90,7 @@
   }
 
   let formulaDialog = $state<FormulaDialogState | null>(null)
+  let lookupRollupDialog = $state<LookupRollupDialogState | null>(null)
   let schemaWritesPending = $state(0)
   let schemaWriteError = $state<(SchemaWriteRequest & { message: string }) | null>(null)
   let schemaWriteQueue: Promise<void> = Promise.resolve()
@@ -90,6 +103,10 @@
     if (!context) return
     const { message: _message, ...request } = deferred
     queueSchemaWrite({ ...request, context })
+  })
+
+  $effect(() => {
+    if (collectionPath) void cliFeatures.initModules(collectionPath)
   })
 
   // Sync rows from frontmatterYaml prop (only on external changes)
@@ -124,12 +141,26 @@
         data[row.key.trim()] = row.value
       }
     }
-    const formulaKeys =
-      schema?.fields.filter((field) => field.field_type === 'Formula').map((field) => field.name) ??
-      []
+    // The live schema is the preferred ownership source, but it can lag a
+    // just-completed module run. Persisted provenance/diagnostics keep the
+    // exact YAML pair protected during that window. Invalid/missing overlay
+    // tombstones deliberately do not claim ownership: the same key may have
+    // become an ordinary user field after its definition was removed.
+    const computedKeys = new Set(
+      schema?.fields
+        .filter((field) => isComputedFieldType(field.field_type))
+        .map((field) => field.name) ?? []
+    )
+    const indexedDocument = $documentInfo
+    for (const key of Object.keys(indexedDocument?.computed_fields ?? {})) computedKeys.add(key)
+    for (const [key, diagnostic] of Object.entries(indexedDocument?.computed_field_errors ?? {})) {
+      if (diagnostic.code !== 'invalid_schema' && diagnostic.code !== 'schema_overlay_missing') {
+        computedKeys.add(key)
+      }
+    }
     const yaml =
       Object.keys(data).length > 0
-        ? serializeFrontmatterPreservingFields(workingYaml, data, formulaKeys)
+        ? serializeFrontmatterPreservingFields(workingYaml, data, [...computedKeys])
         : null
     workingYaml = yaml
     lastEmittedYaml = yaml
@@ -144,7 +175,7 @@
   /** Detect the type of a value, with schema override. */
   function detectType(key: string, value: JsonValue): DetectedType {
     const sf = getSchemaField(key)
-    if (sf?.field_type === 'Formula') {
+    if (sf?.field_type === 'Formula' || sf?.field_type === 'Rollup') {
       switch (sf.result_type) {
         case 'Number':
           return 'number'
@@ -162,6 +193,7 @@
           return 'text'
       }
     }
+    if (sf?.field_type === 'Lookup' && exactNumberText(value) !== null) return 'number'
 
     // Explicit File schema pins support empty and extensionless values. An
     // unambiguous File value then wins over a stale legacy Relation label so
@@ -352,6 +384,36 @@
     formulaDialog = null
   }
 
+  function openNewLookupRollup(kind: 'lookup' | 'rollup', key: string): void {
+    const context = mutationContext()
+    if (!context || !cliFeatures.supportsLookupRollup) return
+    lookupRollupDialog = {
+      kind,
+      field: null,
+      initialName: key,
+      fields: [...formulaDialogFields],
+      context
+    }
+  }
+
+  function openLookupRollupEditor(field: SchemaField): void {
+    const context = mutationContext()
+    if (
+      !context ||
+      !isLookupRollupFieldType(field.field_type) ||
+      !cliFeatures.supportsLookupRollup
+    ) {
+      return
+    }
+    lookupRollupDialog = {
+      kind: field.field_type === 'Lookup' ? 'lookup' : 'rollup',
+      field,
+      initialName: '',
+      fields: [...formulaDialogFields],
+      context
+    }
+  }
+
   function handleKeyChange(id: number, newKey: string) {
     const row = rows.find((r) => r.id === id)
     if (row) {
@@ -386,10 +448,10 @@
 
   let panelScope = $derived(scopeForPanelFile(filePath))
   let existingKeys = $derived(rows.map((r) => r.key))
-  let missingFormulaFields = $derived.by(() => {
+  let missingComputedFields = $derived.by(() => {
     const materialized = new Set(rows.map((row) => row.key))
     return (schema?.fields ?? []).filter(
-      (field) => field.field_type === 'Formula' && !materialized.has(field.name)
+      (field) => isComputedFieldType(field.field_type) && !materialized.has(field.name)
     )
   })
   let formulaDialogFields = $derived.by<SchemaField[]>(() => {
@@ -416,7 +478,7 @@
 <div class="dh">
   <FileNameEditor {filePath} {collectionPath} {isUntitled} {onFileRenamed} />
 
-  {#if rows.length > 0 || missingFormulaFields.length > 0}
+  {#if rows.length > 0 || missingComputedFields.length > 0}
     <div class="dh-divider"></div>
     <div class="dh-properties">
       {#each rows as row (row.id)}
@@ -426,8 +488,10 @@
           value={row.value}
           fieldType={detectType(row.key, row.value)}
           {schemaField}
-          isFormula={schemaField?.field_type === 'Formula'}
-          formulaError={$documentInfo?.path === filePath
+          computedType={schemaField && isComputedFieldType(schemaField.field_type)
+            ? (schemaField.field_type as ComputedFieldType)
+            : null}
+          computedError={$documentInfo?.path === filePath
             ? $documentInfo.computed_field_errors?.[row.key]
             : undefined}
           onKeyChange={(k) => handleKeyChange(row.id, k)}
@@ -438,26 +502,39 @@
           onEditFormula={schemaField?.field_type === 'Formula' && collectionId
             ? () => openFormulaEditor(schemaField)
             : undefined}
+          onEditComputed={schemaField &&
+          isLookupRollupFieldType(schemaField.field_type) &&
+          collectionId &&
+          cliFeatures.supportsLookupRollup
+            ? () => openLookupRollupEditor(schemaField)
+            : undefined}
           settingsScope={panelScope}
           relationValues={relationValuesFor(row.key)}
           {collectionPath}
           {collectionId}
         />
       {/each}
-      {#each missingFormulaFields as schemaField (schemaField.name)}
+      {#each missingComputedFields as schemaField (schemaField.name)}
         <PropertyRow
           rowKey={schemaField.name}
           value={null}
           fieldType={detectType(schemaField.name, null)}
           {schemaField}
-          isFormula
-          formulaError={$documentInfo?.path === filePath
+          computedType={schemaField.field_type as ComputedFieldType}
+          computedError={$documentInfo?.path === filePath
             ? $documentInfo.computed_field_errors?.[schemaField.name]
             : undefined}
           onKeyChange={() => undefined}
           onValueChange={() => undefined}
           onRemove={() => undefined}
-          onEditFormula={collectionId ? () => openFormulaEditor(schemaField) : undefined}
+          onEditFormula={collectionId && schemaField.field_type === 'Formula'
+            ? () => openFormulaEditor(schemaField)
+            : undefined}
+          onEditComputed={collectionId &&
+          isLookupRollupFieldType(schemaField.field_type) &&
+          cliFeatures.supportsLookupRollup
+            ? () => openLookupRollupEditor(schemaField)
+            : undefined}
           settingsScope={panelScope}
           {collectionPath}
           {collectionId}
@@ -471,6 +548,9 @@
     {existingKeys}
     onAdd={handleAdd}
     onAddFormula={collectionId && !isUntitled ? openNewFormula : undefined}
+    onAddComputed={collectionId && !isUntitled && cliFeatures.supportsLookupRollup
+      ? openNewLookupRollup
+      : undefined}
   />
   {#if schemaWritesPending > 0}
     <p class="dh-schema-status" role="status">Adding field to schema…</p>
@@ -509,6 +589,21 @@
     onbeforemutate={() => onBeforeSchemaMutate?.(formulaDialog!.context)}
     onapplied={() => onSchemaApplied?.(formulaDialog!.context)}
     onclose={closeFormulaModal}
+  />
+{/if}
+
+{#if lookupRollupDialog}
+  <LookupRollupModal
+    collectionId={lookupRollupDialog.context.collectionId}
+    root={lookupRollupDialog.context.collectionPath}
+    scope={lookupRollupDialog.context.scope}
+    kind={lookupRollupDialog.kind}
+    field={lookupRollupDialog.field}
+    fields={lookupRollupDialog.fields}
+    initialName={lookupRollupDialog.initialName}
+    onbeforemutate={() => onBeforeSchemaMutate?.(lookupRollupDialog!.context)}
+    onapplied={() => onSchemaApplied?.(lookupRollupDialog!.context)}
+    onclose={() => (lookupRollupDialog = null)}
   />
 {/if}
 

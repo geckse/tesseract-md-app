@@ -72,7 +72,11 @@ function ensureSweeper(): void {
  * the OS event can only fire after the write begins, so registry-before-event
  * ordering is guaranteed within the main process.
  */
-export function registerOwnWrite(absPath: string, op: OwnWriteOp, content?: string | Buffer): void {
+export function registerOwnWrite(
+  absPath: string,
+  op: OwnWriteOp,
+  content?: string | Buffer
+): () => void {
   const key = resolve(absPath)
   const size =
     content == null
@@ -81,9 +85,21 @@ export function registerOwnWrite(absPath: string, op: OwnWriteOp, content?: stri
         ? Buffer.byteLength(content, 'utf-8')
         : content.length
   const entries = registry.get(key) ?? []
-  entries.push({ op, size, ts: Date.now() })
+  const entry = { op, size, ts: Date.now() }
+  entries.push(entry)
   registry.set(key, entries)
   ensureSweeper()
+
+  // Failed CAS/rename paths can revoke the exact pending entry so a later
+  // external event is never mislabeled as an app-origin echo.
+  return () => {
+    const current = registry.get(key)
+    if (!current) return
+    const index = current.indexOf(entry)
+    if (index === -1) return
+    current.splice(index, 1)
+    if (current.length === 0) registry.delete(key)
+  }
 }
 
 /** Which ops can legitimately produce which raw event kinds. */

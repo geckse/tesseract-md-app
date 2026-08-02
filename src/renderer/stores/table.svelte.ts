@@ -27,6 +27,7 @@ import { tableViewsStore, degradeViewConfig, TITLE_COLUMN } from './table-views.
 import { tableHistory, snapshotOf, snapshotsEqual } from './table-history.svelte'
 import { compareDecimalText, exactNumberText, stringifyExactJson } from '../../shared/exact-number'
 import { parseFrontmatterData, splitFrontmatter } from '../lib/tiptap/markdown-bridge'
+import { isComputedFieldType } from '../lib/computed-fields'
 
 /** Parse the YAML frontmatter object from a markdown file's full content. */
 function parseFrontmatterObject(content: string): Record<string, JsonValue> {
@@ -138,7 +139,8 @@ function matchesFilter(
   const raw = effectiveFieldValue(row, f.columnName)
   const numeric =
     column?.field_type === 'Number' ||
-    (column?.field_type === 'Formula' && column.result_type === 'Number')
+    ((column?.field_type === 'Formula' || column?.field_type === 'Rollup') &&
+      column.result_type === 'Number')
   switch (f.op) {
     case 'exists':
       return raw !== undefined && raw !== null
@@ -335,14 +337,26 @@ class TableStore {
       if (view) base = degradeViewConfig(view.config, validCols)
     }
     if (tab.ephemeral) base = { ...base, ...tab.ephemeral }
-    return base
+    // Before the first collection response there is no authoritative schema
+    // to degrade against. Treating that state as an empty schema would erase
+    // valid ephemeral config when saving a view during initial load.
+    if (!data) return base
+    // Ephemeral state is allowed to outlive a schema refresh. Degrade the
+    // final merged shape too, otherwise an old renamed sort/filter can be
+    // reintroduced after the saved-view base was already sanitized.
+    return degradeViewConfig(base, validCols)
   }
 
   /**
    * Load (or reload) the collection data for a tab. Deduped by the server-affecting
    * request signature so identical concurrent loads collapse into one CLI call.
    */
-  async load(tabId: string, collectionId: string, root: string): Promise<void> {
+  async load(
+    tabId: string,
+    collectionId: string,
+    root: string,
+    options: { suppressServerSort?: boolean } = {}
+  ): Promise<void> {
     const api = window.api
     const tab = this.tableTab(tabId)
     if (!api || !tab) return
@@ -353,7 +367,8 @@ class TableStore {
     // some other server input changes. Settled detection resolves instantly;
     // a manually-set version (tests) skips the await entirely.
     if (cliFeatures.version === null) await cliFeatures.init()
-    const config = this.mergedConfig(tabId)
+    const mergedConfig = this.mergedConfig(tabId)
+    const config = options.suppressServerSort ? { ...mergedConfig, sort: [] } : mergedConfig
     const sig = this.requestSignature(tab, config)
     if (this.inflight[tabId] === sig) return
     const existing = this.byTab[tabId]
@@ -424,17 +439,17 @@ class TableStore {
   }
 
   /** Force a reload regardless of signature (e.g. the refresh button). */
-  async reload(tabId: string): Promise<void> {
+  async reload(tabId: string, options: { suppressServerSort?: boolean } = {}): Promise<void> {
     const c = this.ctx[tabId]
     if (!c) return
     delete this.inflight[tabId]
     delete this.lastLoaded[tabId]
-    await this.load(tabId, c.collectionId, c.root)
+    await this.load(tabId, c.collectionId, c.root, options)
   }
 
   /** Reload every table currently owned by this renderer window. */
-  async reloadAll(): Promise<void> {
-    await Promise.all(Object.keys(this.ctx).map((tabId) => this.reload(tabId)))
+  async reloadAll(options: { suppressServerSort?: boolean } = {}): Promise<void> {
+    await Promise.all(Object.keys(this.ctx).map((tabId) => this.reload(tabId, options)))
   }
 
   /** Drop cached state for a closed tab. */
@@ -572,7 +587,9 @@ class TableStore {
     if (rowIdx < 0) return false
     const row = data.rows[rowIdx]
     if (row.state === 'deleted') return false // deleted rows are read-only
-    if (data.columns.find((column) => column.name === columnName)?.field_type === 'Formula') {
+    if (
+      isComputedFieldType(data.columns.find((column) => column.name === columnName)?.field_type)
+    ) {
       return false
     }
 
@@ -720,7 +737,7 @@ class TableStore {
 
     const seed: Record<string, JsonValue> = { title: stem }
     for (const col of data.columns) {
-      if (col.in_schema && col.name !== 'title' && col.field_type !== 'Formula') {
+      if (col.in_schema && col.name !== 'title' && !isComputedFieldType(col.field_type)) {
         seed[col.name] = defaultForType(col.field_type)
       }
     }

@@ -14,6 +14,7 @@ import { conflicts, getConflict } from '../../src/renderer/stores/conflict'
 import {
   handleVaultFileEvent,
   applyDiskContentToTab,
+  applySavedContentToOpenTabs,
   resolveConflictKeepMine,
   resolveConflictMerge,
   externalUpdateNotice,
@@ -265,6 +266,28 @@ describe('applyDiskContentToTab', () => {
     expect(get(externalUpdateNotice)).toEqual(
       expect.objectContaining({ filePath: 'a.md', previous: 'before' })
     )
+  })
+})
+
+describe('cross-window saved-content routing', () => {
+  it('keeps dirty editor content and raises a conflict', () => {
+    const tab = openTab('a.md', 'my unsaved edit', true)
+
+    applySavedContentToOpenTabs('a.md', 'saved in another window')
+
+    expect(tab.content).toBe('my unsaved edit')
+    expect(tab.isDirty).toBe(true)
+    expect(getConflict('a.md')?.diskContent).toBe('saved in another window')
+  })
+
+  it('updates a clean editor immediately', () => {
+    const tab = openTab('a.md', 'old')
+
+    applySavedContentToOpenTabs('a.md', 'saved in another window')
+
+    expect(tab.content).toBe('saved in another window')
+    expect(tab.savedContent).toBe('saved in another window')
+    expect(tab.isDirty).toBe(false)
   })
 })
 

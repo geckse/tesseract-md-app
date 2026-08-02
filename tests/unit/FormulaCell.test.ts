@@ -6,13 +6,17 @@ import type {
   CollectionColumn,
   ComputedFieldDiagnostic,
   FormulaResultType,
+  FieldType,
   JsonValue
 } from '@renderer/types/cli'
 
-function column(resultType: FormulaResultType): CollectionColumn {
+function column(
+  resultType: FormulaResultType | null,
+  fieldType: FieldType = 'Formula'
+): CollectionColumn {
   return {
     name: 'total',
-    field_type: 'Formula',
+    field_type: fieldType,
     description: null,
     occurrence_count: 1,
     sample_values: [],
@@ -28,11 +32,12 @@ function column(resultType: FormulaResultType): CollectionColumn {
 function renderCell(
   value: JsonValue | undefined,
   resultType: FormulaResultType,
-  computedError?: ComputedFieldDiagnostic
+  computedError?: ComputedFieldDiagnostic,
+  fieldType: FieldType = 'Formula'
 ) {
   return render(FormulaCell, {
     props: {
-      column: column(resultType),
+      column: column(resultType, fieldType),
       value,
       computedError,
       editing: false,
@@ -87,5 +92,19 @@ describe('FormulaCell', () => {
 
     expect(screen.getByLabelText('Formula error: Division by zero')).toBeTruthy()
     expect(screen.getByText('division_by_zero')).toBeTruthy()
+  })
+
+  it('renders shape-preserving Lookup values and Rollup markers', () => {
+    const lookup = renderCell(['example.com', 'example.org'], 'Json', undefined, 'Lookup')
+    const lookupMarker = screen.getByText('arrow_outward')
+    expect(lookupMarker.classList.contains('lookup')).toBe(true)
+    expect(lookupMarker.classList.contains('material-symbols-outlined')).toBe(true)
+    expect(screen.getByText('example.com')).toBeTruthy()
+    lookup.unmount()
+
+    renderCell(42, 'Number', undefined, 'Rollup')
+    const rollupMarker = screen.getByText('Σ')
+    expect(rollupMarker.classList.contains('lookup')).toBe(false)
+    expect(screen.getByText('42')).toBeTruthy()
   })
 })

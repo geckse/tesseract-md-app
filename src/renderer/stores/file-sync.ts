@@ -142,6 +142,19 @@ function tabsForPath(relPath: string): DocumentTab[] {
   return tabs
 }
 
+/**
+ * Re-read every open Markdown document through the same clean-apply / dirty-
+ * conflict router used by vault events. Computed runs suppress watcher echoes,
+ * so their explicit completion event calls this path instead.
+ */
+export async function refreshOpenDocumentsFromDisk(): Promise<void> {
+  const paths = new Set<string>()
+  for (const tab of Object.values(workspace.tabs)) {
+    if (tab.kind === 'document' && !tab.isUntitled) paths.add(tab.filePath)
+  }
+  await Promise.all([...paths].map((path) => routeFileChange(path)))
+}
+
 /** Whether a tab is the focused pane's active document tab. */
 function isFocusedTab(tab: DocumentTab): boolean {
   return workspace.focusedDocumentTab?.id === tab.id
@@ -169,6 +182,17 @@ async function routeFileChange(relPath: string): Promise<void> {
   // A newer event landed mid-read — that scheduled run will read fresher bytes.
   if (readGeneration.get(relPath) !== generation) return
 
+  applySavedContentToOpenTabs(relPath, disk)
+}
+
+/**
+ * Route already-read content from another app window through the same safety
+ * rules as a vault event. In particular, never replace a dirty editor: retain
+ * its content and raise the normal merge/conflict UI instead.
+ */
+export function applySavedContentToOpenTabs(relPath: string, disk: string): void {
+  const tabs = tabsForPath(relPath)
+  if (tabs.length === 0) return
   let focusedUpdated = false
   for (const tab of tabs) {
     // Initial load in flight — _autoLoadTabContent will read the fresh state.

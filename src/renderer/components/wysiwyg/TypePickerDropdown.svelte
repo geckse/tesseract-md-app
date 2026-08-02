@@ -12,6 +12,8 @@
     excludeTypes?: string[]
     /** Offer Formula when creating a schema-backed field. Never enable for value conversions. */
     includeFormula?: boolean
+    /** Offer Lookup/Rollup only in schema-definition creation flows. */
+    includeLookupRollup?: boolean
   }
 
   let {
@@ -20,7 +22,8 @@
     onDismiss,
     currentType = null,
     excludeTypes = [],
-    includeFormula = false
+    includeFormula = false,
+    includeLookupRollup = false
   }: Props = $props()
 
   const allTypeOptions = [
@@ -42,6 +45,12 @@
     ...allTypeOptions.filter((o) => !excludeTypes.includes(o.type)),
     ...(includeFormula && !excludeTypes.includes('formula')
       ? [{ type: 'formula', icon: 'function', label: 'Formula' } as const]
+      : []),
+    ...(includeLookupRollup && !excludeTypes.includes('lookup')
+      ? [{ type: 'lookup', icon: 'manage_search', label: 'Lookup' } as const]
+      : []),
+    ...(includeLookupRollup && !excludeTypes.includes('rollup')
+      ? [{ type: 'rollup', icon: 'functions', label: 'Rollup' } as const]
       : [])
   ])
 

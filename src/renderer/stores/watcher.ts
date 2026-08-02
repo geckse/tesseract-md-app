@@ -131,20 +131,21 @@ const PROPS_REFRESH_DEBOUNCE_MS = 800
 let propsRefreshTimer: ReturnType<typeof setTimeout> | null = null
 let propsChangedPaths = new Set<string>()
 
-/** Formula module results are materialized and indexed before the watcher
+/** Computed module results are materialized and indexed before the watcher
  * report arrives. Reload every open database tab once per burst so the raw
  * frontmatter values become visible (schema changes can affect any scope). */
-const FORMULA_TABLE_REFRESH_DEBOUNCE_MS = 500
-let formulaTableRefreshTimer: ReturnType<typeof setTimeout> | null = null
+const COMPUTED_TABLE_REFRESH_DEBOUNCE_MS = 500
+const MATERIALIZING_MODULES = new Set(['formula', 'lookup_rollup'])
+let computedTableRefreshTimer: ReturnType<typeof setTimeout> | null = null
 
-function scheduleFormulaTableRefresh(): void {
-  if (formulaTableRefreshTimer) clearTimeout(formulaTableRefreshTimer)
-  formulaTableRefreshTimer = setTimeout(() => {
-    formulaTableRefreshTimer = null
+function scheduleComputedTableRefresh(): void {
+  if (computedTableRefreshTimer) clearTimeout(computedTableRefreshTimer)
+  computedTableRefreshTimer = setTimeout(() => {
+    computedTableRefreshTimer = null
     for (const tab of Object.values(workspace.tabs)) {
       if (tab.kind === 'table') void tableStore.reload(tab.id)
     }
-  }, FORMULA_TABLE_REFRESH_DEBOUNCE_MS)
+  }, COMPUTED_TABLE_REFRESH_DEBOUNCE_MS)
 }
 
 /** Whether this session has seen the watcher running before (restart detection). */
@@ -176,8 +177,8 @@ export function handleWatcherEvent(event: WatcherEvent): void {
     watcherState.set('error')
   }
 
-  if (event.type === 'module-report' && event.data?.module === 'formula') {
-    scheduleFormulaTableRefresh()
+  if (event.type === 'module-report' && MATERIALIZING_MODULES.has(event.data?.module)) {
+    scheduleComputedTableRefresh()
     void refreshCollectionStatus()
   }
 
@@ -200,8 +201,12 @@ export function handleWatcherEvent(event: WatcherEvent): void {
 
       scheduleGraphRefresh()
       schedulePropertiesRefresh(report.path)
-      if (report.module_reports?.some((moduleReport) => moduleReport.module === 'formula')) {
-        scheduleFormulaTableRefresh()
+      if (
+        report.module_reports?.some((moduleReport) =>
+          MATERIALIZING_MODULES.has(moduleReport.module)
+        )
+      ) {
+        scheduleComputedTableRefresh()
       }
     }
 

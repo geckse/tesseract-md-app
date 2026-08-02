@@ -5,6 +5,7 @@
   import AutocompleteDropdown from './AutocompleteDropdown.svelte'
   import TypePickerDropdown from './TypePickerDropdown.svelte'
   import { cliFeatures } from '../../lib/cli-features.svelte'
+  import { isComputedFieldType } from '../../lib/computed-fields'
 
   interface Props {
     schema: Schema | null
@@ -12,9 +13,10 @@
     onAdd: (key: string, type: PropertyTargetType, options?: { allowedValues?: string[] }) => void
     /** Formula is a schema definition, so it follows a separate add flow. */
     onAddFormula?: (key: string) => void
+    onAddComputed?: (kind: 'lookup' | 'rollup', key: string) => void
   }
 
-  let { schema, existingKeys, onAdd, onAddFormula }: Props = $props()
+  let { schema, existingKeys, onAdd, onAddFormula, onAddComputed }: Props = $props()
 
   let mode = $state<'idle' | 'naming' | 'typing' | 'select-values'>('idle')
   let nameInput = $state('')
@@ -30,7 +32,7 @@
     const used = new Set(existingKeys.map((k) => k.trim()).filter(Boolean))
     const query = nameInput.trim().toLowerCase()
     return schema.fields
-      .filter((field) => field.field_type !== 'Formula')
+      .filter((field) => !isComputedFieldType(field.field_type))
       .map((field) => field.name)
       .filter((name) => !used.has(name))
       .filter((name) => !query || name.toLowerCase().includes(query))
@@ -40,7 +42,7 @@
   let fieldTypeLabels = $derived(
     new Map(
       schema?.fields
-        ?.filter((field) => field.field_type !== 'Formula')
+        ?.filter((field) => !isComputedFieldType(field.field_type))
         .map((field) => [field.name, field.field_type]) ?? []
     )
   )
@@ -59,7 +61,7 @@
   function handleFieldSelect(name: string) {
     nameInput = name
     // If schema field selected, auto-pick type (allowed_values → select)
-    const sf = schema?.fields?.find((f) => f.name === name && f.field_type !== 'Formula')
+    const sf = schema?.fields?.find((f) => f.name === name && !isComputedFieldType(f.field_type))
     if (sf) {
       onAdd(name, detectedTypeForField(sf.field_type, sf.allowed_values))
       mode = 'idle'
@@ -83,7 +85,7 @@
       return
     }
     // Check if it matches a schema field
-    const sf = schema?.fields?.find((f) => f.name === trimmed && f.field_type !== 'Formula')
+    const sf = schema?.fields?.find((f) => f.name === trimmed && !isComputedFieldType(f.field_type))
     if (sf) {
       handleFieldSelect(trimmed)
       return
@@ -103,6 +105,8 @@
     }
     if (type === 'formula') {
       onAddFormula?.(name)
+    } else if (type === 'lookup' || type === 'rollup') {
+      onAddComputed?.(type, name)
     } else if (type === 'select') {
       selectValues = []
       selectValueInput = ''
@@ -240,6 +244,7 @@
         anchorEl={typeAnchorEl}
         excludeTypes={cliFeatures.supportsFileFields ? [] : ['file']}
         includeFormula={!!onAddFormula}
+        includeLookupRollup={!!onAddComputed && cliFeatures.supportsLookupRollup}
         onSelect={handleTypeSelect}
         onDismiss={cancel}
       />

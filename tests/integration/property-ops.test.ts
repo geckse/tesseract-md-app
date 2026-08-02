@@ -7,10 +7,12 @@
  *  - store.getCollections → the temp collection
  *  - cli.execCommand → a canned `collection` enumeration of the temp files
  *  - ipc-handlers.withWatcherPaused → passthrough (records pause/resume)
+ *  - computed-editor-flush → clean renderers (the cross-window protocol has
+ *    dedicated coordinator coverage in the unit suite)
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtemp, writeFile, readFile, mkdir, rm, chmod } from 'node:fs/promises'
+import { mkdtemp, writeFile, readFile, mkdir, rm, chmod, symlink, link } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { parse as parseYaml } from 'yaml'
@@ -47,11 +49,17 @@ vi.mock('../../src/main/ipc-handlers', () => ({
   }
 }))
 
+vi.mock('../../src/main/computed-editor-flush', () => ({
+  assertNoDirtyDocumentsAcrossWindows: vi.fn(async () => {}),
+  verifyCleanDocumentsAcrossWindows: vi.fn(async () => {})
+}))
+
 import { previewPropertyOp, applyPropertyOp } from '../../src/main/property-ops'
 import { renamePropertyInViews } from '../../src/main/table-views'
 import { OVERLAY_FILENAME } from '../../src/main/schema-overlay'
 import { execCommand } from '../../src/main/cli'
-import type { PropertyOpRequest, PropertyOpProgress } from '../../src/preload/api'
+import { verifyCleanDocumentsAcrossWindows } from '../../src/main/computed-editor-flush'
+import type { PropertyOp, PropertyOpRequest, PropertyOpProgress } from '../../src/preload/api'
 import type { IpcMainInvokeEvent } from 'electron'
 import type { WindowManager } from '../../src/main/window-manager'
 
@@ -207,6 +215,39 @@ describe('applyPropertyOp — add', () => {
     expect(broadcasts.filter((entry) => entry.channel === 'file:saved-externally')).toHaveLength(1)
   })
 
+  it('recognizes BOM frontmatter and fails closed on mixed newlines before planning a write', async () => {
+    const bomSource = '\uFEFF---\r\npriority: 7\r\n---\r\nBody\r\n'
+    const mixedSource = '---\r\ntitle: Mixed\n---\r\nBody\r\n'
+    await seed('docs/bom.md', bomSource)
+    await seed('docs/mixed.md', mixedSource)
+    enumeratedRows = [
+      { path: 'docs/bom.md', state: 'indexed' },
+      { path: 'docs/mixed.md', state: 'indexed' }
+    ]
+    const { event, windowManager, broadcasts } = makeEventAndWindows()
+
+    const result = await applyPropertyOp(event, windowManager, 'op-add-safe-envelope', {
+      collectionId: 'c1',
+      scope: 'docs',
+      filePath: null,
+      key: 'priority',
+      op: { kind: 'add', target: 'number' }
+    })
+
+    expect(result.totals).toEqual({ ok: 0, skipped: 1, failed: 1 })
+    expect(result.entries).toContainEqual({
+      path: 'docs/bom.md',
+      status: 'skipped',
+      reason: 'property already exists'
+    })
+    expect(result.entries.find((entry) => entry.path === 'docs/mixed.md')?.reason).toMatch(
+      /invalid YAML frontmatter/
+    )
+    expect(await readFile(join(root, 'docs/bom.md'), 'utf-8')).toBe(bomSource)
+    expect(await readFile(join(root, 'docs/mixed.md'), 'utf-8')).toBe(mixedSource)
+    expect(broadcasts).toHaveLength(0)
+  })
+
   it('pins an empty scoped column even when there are no Markdown rows', async () => {
     const { event, windowManager } = makeEventAndWindows()
     const result = await applyPropertyOp(event, windowManager, 'op-empty-add', {
@@ -266,6 +307,34 @@ describe('applyPropertyOp — add', () => {
 })
 
 describe('applyPropertyOp — drop', () => {
+  it('rechecks dirty editors inside the paused batch before changing overlay or Markdown', async () => {
+    const original = '---\nstatus: draft\nkeep: yes\n---\nBody\n'
+    const overlay = 'fields:\n  status:\n    field_type: string\n  keep:\n    field_type: string\n'
+    await seed('docs/a.md', original)
+    await seed(OVERLAY_FILENAME, overlay)
+    enumeratedRows = [{ path: 'docs/a.md', state: 'indexed' }]
+    vi.mocked(verifyCleanDocumentsAcrossWindows).mockRejectedValueOnce(
+      new Error('docs/a.md has unsaved edits')
+    )
+    const { event, windowManager, progress, broadcasts } = makeEventAndWindows()
+
+    await expect(
+      applyPropertyOp(event, windowManager, 'op-drop-dirty-recheck', {
+        collectionId: 'c1',
+        scope: 'docs',
+        filePath: null,
+        key: 'status',
+        op: { kind: 'drop', confirmedPaths: ['docs/a.md'] }
+      })
+    ).rejects.toThrow(/unsaved edits/)
+
+    expect(watcherPauses).toBe(1)
+    expect(progress).toHaveLength(0)
+    expect(broadcasts).toHaveLength(0)
+    expect(await readFile(join(root, 'docs/a.md'), 'utf-8')).toBe(original)
+    expect(await readFile(join(root, OVERLAY_FILENAME), 'utf-8')).toBe(overlay)
+  })
+
   it('drops the key vault-wide, including null/empty values and every overlay definition', async () => {
     await mkdir(join(root, 'notes'), { recursive: true })
     await seed('docs/a.md', '---\nstatus: draft\nauthor: Ada\n---\nBody A\n')
@@ -451,6 +520,10 @@ describe('applyPropertyOp — drop', () => {
     const broken = '---\nstatus: [unclosed\n---\nBroken body\n'
     await seed('docs/a.md', '---\nstatus: draft\nkeep: yes\n---\nBody\n')
     await seed('docs/broken.md', broken)
+    await seed(
+      OVERLAY_FILENAME,
+      'fields:\n  status:\n    field_type: string\n  keep:\n    field_type: string\n'
+    )
     enumeratedRows = [
       { path: 'docs/a.md', state: 'indexed' },
       { path: 'docs/broken.md', state: 'modified' }
@@ -478,6 +551,9 @@ describe('applyPropertyOp — drop', () => {
       keep: 'yes'
     })
     expect(await readFile(join(root, 'docs/broken.md'), 'utf-8')).toBe(broken)
+    expect(parseYaml(await readFile(join(root, OVERLAY_FILENAME), 'utf-8'))).toEqual({
+      fields: { keep: { field_type: 'string' } }
+    })
   })
 
   it('requires a confirmed preview before any destructive mutation', async () => {
@@ -616,6 +692,141 @@ describe('applyPropertyOp — drop', () => {
     expect(await readFile(join(root, 'docs/a.md'), 'utf-8')).toBe(aBefore)
     expect(await readFile(join(root, 'docs/b.md'), 'utf-8')).toBe(bAfter)
     expect(await readFile(join(root, OVERLAY_FILENAME), 'utf-8')).toBe(overlay)
+  })
+})
+
+describe('applyPropertyOp — exact-baseline races', () => {
+  const cases: Array<{
+    name: string
+    key: string
+    op: PropertyOp
+    original: string
+    concurrent: string
+  }> = [
+    {
+      name: 'add',
+      key: 'priority',
+      op: { kind: 'add', target: 'number' },
+      original: '---\ntitle: Original\n---\nBody\n',
+      concurrent: '---\ntitle: Concurrent\npriority: 99\n---\nConcurrent body\n'
+    },
+    {
+      name: 'convert',
+      key: 'status',
+      op: { kind: 'convert', target: 'number' },
+      original: '---\nstatus: "3"\n---\nBody\n',
+      concurrent: '---\nstatus: "99"\neditor: external\n---\nConcurrent body\n'
+    },
+    {
+      name: 'rename',
+      key: 'status',
+      op: { kind: 'rename', newKey: 'state' },
+      original: '---\nstatus: draft\n---\nBody\n',
+      concurrent: '---\nstatus: revised\neditor: external\n---\nConcurrent body\n'
+    },
+    {
+      name: 'drop',
+      key: 'status',
+      op: { kind: 'drop', confirmedPaths: ['docs/a.md'] },
+      original: '---\nstatus: draft\n---\nBody\n',
+      concurrent: '---\nstatus: revised\neditor: external\n---\nConcurrent body\n'
+    }
+  ]
+
+  it.each(cases)(
+    'reports a failed $name and preserves the complete concurrent generation',
+    async ({ key, op, original, concurrent }) => {
+      await seed('docs/a.md', original)
+      enumeratedRows = [{ path: 'docs/a.md', state: 'indexed' }]
+      const { event, windowManager, broadcasts } = makeEventAndWindows()
+
+      const result = await applyPropertyOp(
+        event,
+        windowManager,
+        `op-race-${op.kind}`,
+        {
+          collectionId: 'c1',
+          scope: null,
+          filePath: 'docs/a.md',
+          key,
+          op
+        },
+        {
+          beforeQueuedWrite: async (absolutePath) => {
+            await writeFile(absolutePath, concurrent, 'utf-8')
+          }
+        }
+      )
+
+      expect(result.totals).toEqual({ ok: 0, skipped: 0, failed: 1 })
+      expect(result.entries).toEqual([
+        expect.objectContaining({
+          path: 'docs/a.md',
+          status: 'failed',
+          reason: expect.stringMatching(/changed on disk/)
+        })
+      ])
+      expect(await readFile(join(root, 'docs/a.md'), 'utf-8')).toBe(concurrent)
+      expect(broadcasts).toHaveLength(0)
+    }
+  )
+})
+
+describe.runIf(process.platform !== 'win32')('applyPropertyOp — filesystem identity', () => {
+  it('reports failure for an internal folder symlink and never writes outside the collection', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'property-ops-outside-'))
+    const outsidePath = join(outside, 'record.md')
+    const outsideSource = '---\nstatus: "3"\n---\nOutside\n'
+    await writeFile(outsidePath, outsideSource, 'utf-8')
+    await symlink(outside, join(root, 'docs', 'escape'))
+    const { event, windowManager } = makeEventAndWindows()
+
+    try {
+      const result = await applyPropertyOp(event, windowManager, 'op-symlink-ancestor', {
+        collectionId: 'c1',
+        scope: null,
+        filePath: 'docs/escape/record.md',
+        key: 'status',
+        op: { kind: 'convert', target: 'number' }
+      })
+
+      expect(result.totals).toEqual({ ok: 0, skipped: 0, failed: 1 })
+      expect(result.entries[0].reason).toMatch(/symlinked folder outside the collection/)
+      expect(await readFile(outsidePath, 'utf-8')).toBe(outsideSource)
+    } finally {
+      await rm(outside, { recursive: true, force: true })
+    }
+  })
+
+  it('reports failure for symbolic-link and hard-link document targets', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'property-ops-linked-'))
+    const outsidePath = join(outside, 'record.md')
+    const outsideSource = '---\nstatus: draft\n---\nOutside\n'
+    await writeFile(outsidePath, outsideSource, 'utf-8')
+    await symlink(outsidePath, join(root, 'docs', 'symbolic.md'))
+    await link(outsidePath, join(root, 'docs', 'hard.md'))
+    const { event, windowManager } = makeEventAndWindows()
+
+    try {
+      for (const [path, reason] of [
+        ['docs/symbolic.md', /symbolic-link target/],
+        ['docs/hard.md', /hard-linked target/]
+      ] as const) {
+        enumeratedRows = [{ path, state: 'indexed' }]
+        const result = await applyPropertyOp(event, windowManager, `op-linked-${path}`, {
+          collectionId: 'c1',
+          scope: '.',
+          filePath: null,
+          key: 'status',
+          op: { kind: 'drop', confirmedPaths: [path] }
+        })
+        expect(result.totals).toEqual({ ok: 0, skipped: 0, failed: 1 })
+        expect(result.entries[0].reason).toMatch(reason)
+        expect(await readFile(outsidePath, 'utf-8')).toBe(outsideSource)
+      }
+    } finally {
+      await rm(outside, { recursive: true, force: true })
+    }
   })
 })
 
@@ -873,6 +1084,61 @@ describe('applyPropertyOp — rename', () => {
     expect(view.config.columns[0].name).toBe('state')
     expect(view.config.groupBy).toBe('state')
   })
+
+  it('rejects malformed overlay YAML before renaming any Markdown record', async () => {
+    const original = '---\nstatus: drafted\ntitle: Keep\n---\nBody\n'
+    const malformed = 'scopes: [unclosed\n'
+    await seed('docs/a.md', original)
+    await seed(OVERLAY_FILENAME, malformed)
+    enumeratedRows = [{ path: 'docs/a.md', state: 'indexed' }]
+    const { event, windowManager, progress, broadcasts } = makeEventAndWindows()
+
+    await expect(
+      applyPropertyOp(
+        event,
+        windowManager,
+        'op-rename-malformed-overlay',
+        convertReq({ op: { kind: 'rename', newKey: 'state' } })
+      )
+    ).rejects.toThrow(/not valid YAML|refusing to overwrite/)
+
+    expect(progress).toHaveLength(0)
+    expect(broadcasts).toHaveLength(0)
+    expect(await readFile(join(root, 'docs/a.md'), 'utf-8')).toBe(original)
+    expect(await readFile(join(root, OVERLAY_FILENAME), 'utf-8')).toBe(malformed)
+  })
+
+  it.runIf(process.platform !== 'win32')(
+    'rejects a symlinked overlay publication target before renaming any Markdown record',
+    async () => {
+      const original = '---\nstatus: drafted\ntitle: Keep\n---\nBody\n'
+      const outside = join(root, '..', `outside-overlay-${Date.now()}.yml`)
+      const overlay = 'scopes:\n  docs:\n    fields:\n      status:\n        field_type: string\n'
+      await seed('docs/a.md', original)
+      await writeFile(outside, overlay, 'utf-8')
+      await symlink(outside, join(root, OVERLAY_FILENAME))
+      enumeratedRows = [{ path: 'docs/a.md', state: 'indexed' }]
+      const { event, windowManager, progress, broadcasts } = makeEventAndWindows()
+
+      try {
+        await expect(
+          applyPropertyOp(
+            event,
+            windowManager,
+            'op-rename-symlink-overlay',
+            convertReq({ op: { kind: 'rename', newKey: 'state' } })
+          )
+        ).rejects.toThrow(/symbolic-link/)
+
+        expect(progress).toHaveLength(0)
+        expect(broadcasts).toHaveLength(0)
+        expect(await readFile(join(root, 'docs/a.md'), 'utf-8')).toBe(original)
+        expect(await readFile(outside, 'utf-8')).toBe(overlay)
+      } finally {
+        await rm(outside, { force: true })
+      }
+    }
+  )
 
   it('rejects invalid new keys before touching anything', async () => {
     const { event, windowManager } = makeEventAndWindows()

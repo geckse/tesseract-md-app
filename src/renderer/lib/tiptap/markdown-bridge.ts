@@ -120,10 +120,10 @@ function documentMap(doc: Document): ReturnType<typeof parseDocument>['contents'
  * Update ordinary frontmatter fields while keeping selected top-level YAML
  * pairs byte-for-byte intact.
  *
- * Formula values may contain 28-digit decimals or nested JSON. The yaml
+ * Computed values may contain 28-digit decimals or nested JSON. The yaml
  * package correctly exposes their source ranges, but serializing an untouched
  * numeric Scalar would still route it through JavaScript Number. We therefore
- * use the AST for safe key mutation and splice the original Formula pairs back
+ * use the AST for safe key mutation and splice the original computed pairs back
  * into the serialized document by their parsed ranges.
  */
 export function serializeFrontmatterPreservingFields(
@@ -144,7 +144,7 @@ export function serializeFrontmatterPreservingFields(
     if (!requested.has(key)) continue
     const range = pairRange(pair)
     if (!range) continue
-    const placeholder = `__MDVDB_PRESERVED_FORMULA_${preserved.length}__`
+    const placeholder = `__MDVDB_PRESERVED_COMPUTED_${preserved.length}__`
     preserved.push({ key, placeholder, raw: originalYaml.slice(range[0], range[1]) })
     pair.value = doc.createNode(placeholder)
   }

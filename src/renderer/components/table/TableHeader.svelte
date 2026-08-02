@@ -10,14 +10,26 @@
   import { TITLE_COLUMN } from '../../stores/table-views.svelte'
   import type { CollectionColumn } from '../../types/cli'
   import type { TableSort } from '../../../preload/api'
+  import {
+    computedFieldIcon,
+    isComputedFieldType,
+    isLookupRollupFieldType
+  } from '../../lib/computed-fields'
 
   interface Props {
     tabId: string
     columns: CollectionColumn[]
     titleWidth: number
     oneditformula?: (column: CollectionColumn) => void
+    oneditlookuprollup?: (column: CollectionColumn) => void
   }
-  let { tabId, columns, titleWidth, oneditformula = () => {} }: Props = $props()
+  let {
+    tabId,
+    columns,
+    titleWidth,
+    oneditformula = () => {},
+    oneditlookuprollup = () => {}
+  }: Props = $props()
 
   const sort = $derived<TableSort | undefined>(tableStore.mergedConfig(tabId).sort[0])
 
@@ -44,14 +56,22 @@
         disabled: sortDir(menuColumn.name) === null
       }
     ]
-    if (menuColumn.field_type === 'Formula') {
+    if (isComputedFieldType(menuColumn.field_type)) {
+      const lookupRollup = isLookupRollupFieldType(menuColumn.field_type)
       return [
         ...sorting,
-        { id: 'edit-formula', label: 'Edit formula…', icon: 'function', separatorBefore: true },
+        {
+          id: lookupRollup ? 'edit-lookup-rollup' : 'edit-formula',
+          label: `Edit ${menuColumn.field_type.toLowerCase()}…`,
+          icon: computedFieldIcon(menuColumn.field_type),
+          disabled: lookupRollup && !cliFeatures.supportsLookupRollup,
+          separatorBefore: true
+        },
         {
           id: 'drop',
           label: 'Drop column…',
           icon: 'delete',
+          disabled: lookupRollup && !cliFeatures.supportsLookupRollup,
           danger: true,
           separatorBefore: true
         }
@@ -96,6 +116,8 @@
       workspace.setTableEphemeral(tabId, { sort: [] })
     } else if (id === 'edit-formula') {
       oneditformula(col)
+    } else if (id === 'edit-lookup-rollup') {
+      oneditlookuprollup(col)
     } else if (id === 'drop') {
       propertyOps.openDrop({ kind: 'table', tabId, folderPath }, col.name)
     } else if (id === 'change-type') {
@@ -137,7 +159,9 @@
     Json: 'data_object',
     Relation: 'account_tree',
     File: 'attach_file',
-    Formula: 'function'
+    Formula: 'function',
+    Lookup: 'manage_search',
+    Rollup: 'functions'
   }
 
   function sortDir(name: string): 'asc' | 'desc' | null {
@@ -245,7 +269,7 @@
         role="columnheader"
         aria-sort={ariaSort(col.name)}
         title={col.in_schema
-          ? `${col.name} (${col.field_type === 'Formula' ? `Formula → ${col.result_type ?? 'Json'}` : col.field_type})`
+          ? `${col.name} (${col.field_type === 'Formula' || col.field_type === 'Rollup' ? `${col.field_type} → ${col.result_type ?? 'Json'}` : col.field_type})`
           : `${col.name} (ad-hoc)`}
         onclick={() => cycleSort(col.name)}
       >
@@ -353,11 +377,17 @@
 
   /* Pinned-left Title header: sticky on both axes. Literal z-index — Chromium
      computes `z-index: calc(...)` to auto, which lets sibling columns paint over. */
-  .title-cell {
+  .header-cell.title-cell {
     position: sticky;
     left: 0;
     z-index: 2;
     background: var(--color-surface);
+  }
+
+  /* The shared hover color is translucent. Keep the pinned cell opaque while
+     hovered so horizontally scrolled column labels cannot bleed through it. */
+  .header-cell.title-cell:hover {
+    background: var(--color-surface-elevated);
   }
 
   :global(.table-inner.scrolled-x) .title-cell {

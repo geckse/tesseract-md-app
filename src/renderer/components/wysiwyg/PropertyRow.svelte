@@ -33,6 +33,11 @@
   import { assetsByPath } from '../../stores/files'
   import { formatFileReference, parseFileReference } from '../../../shared/file-reference'
   import { exactNumberText, stringifyExactJson } from '../../../shared/exact-number'
+  import {
+    computedFieldIcon,
+    computedFieldMarker,
+    type ComputedFieldType
+  } from '../../lib/computed-fields'
 
   export type DetectedType =
     | 'text'
@@ -62,6 +67,8 @@
     onRename?: () => void
     /** Open the schema-backed Formula definition editor. */
     onEditFormula?: () => void
+    /** Open a Lookup/Rollup definition editor. */
+    onEditComputed?: () => void
     /** Phase 41: overlay scope for Property settings (null = global section). */
     settingsScope?: string | null
     /** Phase 42: server-resolved relations for THIS key (from `get --populate`). */
@@ -74,6 +81,8 @@
     isFormula?: boolean
     /** Formula evaluation failure for this materialized field, when present. */
     formulaError?: ComputedFieldDiagnostic
+    computedType?: ComputedFieldType | null
+    computedError?: ComputedFieldDiagnostic
   }
 
   let {
@@ -87,13 +96,22 @@
     onTypeChange,
     onRename,
     onEditFormula,
+    onEditComputed,
     settingsScope,
     relationValues,
     collectionPath,
     collectionId = null,
     isFormula = false,
-    formulaError
+    formulaError,
+    computedType = null,
+    computedError
   }: Props = $props()
+
+  const effectiveComputedType = $derived<ComputedFieldType | null>(
+    computedType ?? (isFormula ? 'Formula' : null)
+  )
+  const isComputed = $derived(effectiveComputedType !== null)
+  const fieldError = $derived(computedError ?? formulaError)
 
   // ── Phase 41: type change / rename / settings affordances ─────────────
   let showTypePicker = $state(false)
@@ -103,8 +121,14 @@
   let showSettings = $state(false)
 
   const rowMenuItems = $derived<PopoverMenuItem[]>(
-    isFormula
-      ? [{ id: 'edit-formula', label: 'Edit formula…', icon: 'function' }]
+    isComputed && effectiveComputedType
+      ? [
+          {
+            id: 'edit-computed',
+            label: `Edit ${effectiveComputedType.toLowerCase()}…`,
+            icon: computedFieldIcon(effectiveComputedType)
+          }
+        ]
       : [
           { id: 'change-type', label: 'Change type…', icon: 'swap_horiz' },
           { id: 'rename', label: 'Rename property…', icon: 'drive_file_rename_outline' },
@@ -113,8 +137,8 @@
   )
 
   function handleRowMenuSelect(id: string): void {
-    if (id === 'edit-formula') {
-      onEditFormula?.()
+    if (id === 'edit-computed') {
+      ;(onEditComputed ?? onEditFormula)?.()
     } else if (id === 'change-type') {
       showTypePicker = true
     } else if (id === 'rename') {
@@ -328,8 +352,10 @@
 </script>
 
 <div class="pr">
-  {#if isFormula}
-    <span class="material-symbols-outlined pr-type-icon" title="Formula">function</span>
+  {#if isComputed && effectiveComputedType}
+    <span class="material-symbols-outlined pr-type-icon" title={effectiveComputedType}
+      >{computedFieldIcon(effectiveComputedType)}</span
+    >
   {:else if onTypeChange}
     <button
       class="pr-type-btn"
@@ -354,7 +380,7 @@
     {#if schemaField?.required}
       <span class="pr-required">*</span>
     {/if}
-    {#if isFormula}
+    {#if isComputed}
       <span class="pr-key pr-key-readonly" title={schemaField?.description ?? ''}>{rowKey}</span>
     {:else}
       <input
@@ -370,21 +396,26 @@
   </div>
 
   <div class="pr-value-cell">
-    {#if isFormula}
+    {#if isComputed && effectiveComputedType}
       <div
         class="pr-formula"
-        class:pr-formula-error={!!formulaError}
-        aria-label={formulaError
-          ? `Formula error for ${rowKey}: ${formulaError.message}`
-          : `Formula value for ${rowKey}`}
-        title={formulaError?.message ?? formulaValueText()}
+        class:pr-formula-error={!!fieldError}
+        aria-label={fieldError
+          ? `${effectiveComputedType} error for ${rowKey}: ${fieldError.message}`
+          : `${effectiveComputedType} value for ${rowKey}`}
+        title={fieldError?.message ?? formulaValueText()}
       >
-        <span class="pr-formula-mark" aria-hidden="true">ƒx</span>
-        {#if formulaError}
+        <span
+          class="pr-formula-mark"
+          class:lookup={effectiveComputedType === 'Lookup'}
+          class:material-symbols-outlined={effectiveComputedType === 'Lookup'}
+          aria-hidden="true">{computedFieldMarker(effectiveComputedType)}</span
+        >
+        {#if fieldError}
           <span class="material-symbols-outlined pr-formula-error-icon" aria-hidden="true"
             >error</span
           >
-          <span>{formulaError.code}</span>
+          <span>{fieldError.code}</span>
         {:else}
           <span class="pr-formula-value">
             {#if fieldType === 'complex'}
@@ -712,13 +743,13 @@
     {/if}
   </div>
 
-  {#if (isFormula && onEditFormula) || (!isFormula && onTypeChange)}
+  {#if (isComputed && (onEditComputed || onEditFormula)) || (!isComputed && onTypeChange)}
     <button
       class="pr-more"
       bind:this={rowMenuAnchor}
       onclick={() => (showRowMenu = !showRowMenu)}
-      title={isFormula ? 'Formula options' : 'Property options'}
-      aria-label="{isFormula ? 'Formula' : 'Property'} options for {rowKey}"
+      title={isComputed ? `${effectiveComputedType} options` : 'Property options'}
+      aria-label="{isComputed ? effectiveComputedType : 'Property'} options for {rowKey}"
       aria-haspopup="menu"
       aria-expanded={showRowMenu}
     >
@@ -726,7 +757,7 @@
     </button>
   {/if}
 
-  {#if !isFormula}
+  {#if !isComputed}
     <button
       class="pr-remove"
       onclick={onRemove}
@@ -737,7 +768,7 @@
     </button>
   {/if}
 
-  {#if !isFormula && showTypePicker && typeAnchor}
+  {#if !isComputed && showTypePicker && typeAnchor}
     <TypePickerDropdown
       anchorEl={typeAnchor}
       currentType={fieldType}
@@ -751,7 +782,7 @@
     <PopoverMenu
       anchorEl={rowMenuAnchor}
       items={rowMenuItems}
-      ariaLabel={isFormula ? 'Formula options' : 'Property options'}
+      ariaLabel={isComputed ? `${effectiveComputedType} options` : 'Property options'}
       onselect={handleRowMenuSelect}
       ondismiss={() => (showRowMenu = false)}
     />
@@ -822,6 +853,12 @@
     font-family: var(--font-mono, 'JetBrains Mono'), monospace;
     font-size: 9px;
     opacity: 0.7;
+  }
+
+  .pr-formula-mark.lookup {
+    font-family: 'Material Symbols Outlined';
+    font-size: 14px;
+    line-height: 1;
   }
 
   .pr-formula-value {

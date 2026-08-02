@@ -9,11 +9,13 @@ const mockFindCli = vi.fn()
 const mockGetCliVersion = vi.fn()
 const mockExecCommand = vi.fn()
 const mockExecRaw = vi.fn()
+const mockExecModuleTransaction = vi.fn()
 vi.mock('../../src/main/cli', () => ({
   findCli: (...args: unknown[]) => mockFindCli(...args),
   getCliVersion: (...args: unknown[]) => mockGetCliVersion(...args),
   execCommand: (...args: unknown[]) => mockExecCommand(...args),
-  execRaw: (...args: unknown[]) => mockExecRaw(...args)
+  execRaw: (...args: unknown[]) => mockExecRaw(...args),
+  execModuleTransaction: (...args: unknown[]) => mockExecModuleTransaction(...args)
 }))
 
 // Mock store module
@@ -78,6 +80,8 @@ vi.mock('../../src/main/config-io', () => ({
 const mockCaptureOverlaySnapshot = vi.fn()
 const mockRestoreOverlaySnapshot = vi.fn()
 const mockResolveOverlayFormulaScope = vi.fn()
+const mockResolveOverlayLookupRollupScope = vi.fn()
+const mockResolveOverlayLookupRollupDefinition = vi.fn()
 const mockUpsertOverlayField = vi.fn()
 const mockRemoveOverlayField = vi.fn()
 const mockReadOverlayValueColors = vi.fn()
@@ -87,11 +91,32 @@ vi.mock('../../src/main/schema-overlay', () => ({
   captureOverlaySnapshot: (...args: unknown[]) => mockCaptureOverlaySnapshot(...args),
   restoreOverlaySnapshot: (...args: unknown[]) => mockRestoreOverlaySnapshot(...args),
   resolveOverlayFormulaScope: (...args: unknown[]) => mockResolveOverlayFormulaScope(...args),
+  resolveOverlayLookupRollupScope: (...args: unknown[]) =>
+    mockResolveOverlayLookupRollupScope(...args),
+  resolveOverlayLookupRollupDefinition: (...args: unknown[]) =>
+    mockResolveOverlayLookupRollupDefinition(...args),
   upsertOverlayField: (...args: unknown[]) => mockUpsertOverlayField(...args),
   removeOverlayField: (...args: unknown[]) => mockRemoveOverlayField(...args),
   readOverlayValueColors: (...args: unknown[]) => mockReadOverlayValueColors(...args),
   setOverlayValueColor: (...args: unknown[]) => mockSetOverlayValueColor(...args),
   renameOverlayField: (...args: unknown[]) => mockRenameOverlayField(...args)
+}))
+
+const mockRenamePropertyInViews = vi.fn()
+vi.mock('../../src/main/table-views', () => ({
+  listTableViews: vi.fn(),
+  saveTableView: vi.fn(),
+  updateTableView: vi.fn(),
+  deleteTableView: vi.fn(),
+  setDefaultTableView: vi.fn(),
+  cleanupCollectionTableViews: vi.fn(),
+  renamePropertyInViews: (...args: unknown[]) => mockRenamePropertyInViews(...args)
+}))
+
+const mockAssertComputedOutputKeyAbsentOnDisk = vi.fn()
+vi.mock('../../src/main/computed-output-preflight', () => ({
+  assertComputedOutputKeyAbsentOnDisk: (...args: unknown[]) =>
+    mockAssertComputedOutputKeyAbsentOnDisk(...args)
 }))
 
 // Mock collections module
@@ -117,6 +142,13 @@ vi.mock('../../src/main/example-collection', () => ({
 // (rename backs the atomic temp+rename write path in atomic-write.ts)
 const mockReadFile = vi.fn()
 const mockWriteFile = vi.fn()
+const mockAtomicTempWriteFile = vi.fn()
+const mockOpen = vi.fn()
+const mockLstat = vi.fn()
+const mockRealpath = vi.fn()
+const mockHandleChmod = vi.fn()
+const mockHandleSync = vi.fn()
+const mockHandleClose = vi.fn()
 const mockRename = vi.fn().mockResolvedValue(undefined)
 const mockRm = vi.fn().mockResolvedValue(undefined)
 const mockLink = vi.fn().mockResolvedValue(undefined)
@@ -128,6 +160,9 @@ vi.mock('node:fs', () => ({
     promises: {
       readFile: (...args: unknown[]) => mockReadFile(...args),
       writeFile: (...args: unknown[]) => mockWriteFile(...args),
+      open: (...args: unknown[]) => mockOpen(...args),
+      lstat: (...args: unknown[]) => mockLstat(...args),
+      realpath: (...args: unknown[]) => mockRealpath(...args),
       rename: (...args: unknown[]) => mockRename(...args),
       rm: (...args: unknown[]) => mockRm(...args),
       link: (...args: unknown[]) => mockLink(...args),
@@ -139,6 +174,9 @@ vi.mock('node:fs', () => ({
   promises: {
     readFile: (...args: unknown[]) => mockReadFile(...args),
     writeFile: (...args: unknown[]) => mockWriteFile(...args),
+    open: (...args: unknown[]) => mockOpen(...args),
+    lstat: (...args: unknown[]) => mockLstat(...args),
+    realpath: (...args: unknown[]) => mockRealpath(...args),
     rename: (...args: unknown[]) => mockRename(...args),
     rm: (...args: unknown[]) => mockRm(...args),
     link: (...args: unknown[]) => mockLink(...args),
@@ -281,6 +319,7 @@ vi.mock('electron', () => ({
 
 import { registerIpcHandlers } from '../../src/main/ipc-handlers'
 import { clearGraphSnapshotCache } from '../../src/main/graph-snapshot-cache'
+import { clearOwnWrites, matchAndConsumeOwnWrite } from '../../src/main/own-writes'
 
 /** Create a mock WindowManager with all required methods */
 function createMockWindowManager() {
@@ -331,11 +370,28 @@ function createMockWindowManager() {
 
 beforeEach(() => {
   clearGraphSnapshotCache()
+  clearOwnWrites()
   mockHandle.mockReset()
   mockFindCli.mockReset()
   mockGetCliVersion.mockReset()
   mockExecCommand.mockReset()
   mockExecRaw.mockReset()
+  mockExecModuleTransaction
+    .mockReset()
+    .mockImplementation(
+      async (
+        root: string,
+        moduleId: string,
+        scope: string | null,
+        mutate: () => Promise<unknown>
+      ) => {
+        const value = await mutate()
+        const args = ['run', moduleId]
+        if (scope) args.push('--path', scope)
+        const response = await mockExecCommand('modules', args, root, { timeout: 300_000 })
+        return { value, response }
+      }
+    )
   mockGetCollections.mockReset()
   mockAddCollection.mockReset()
   mockRemoveCollection.mockReset()
@@ -355,6 +411,25 @@ beforeEach(() => {
   mockCreateExampleCollection.mockReset()
   mockReadFile.mockReset()
   mockWriteFile.mockReset()
+  mockAtomicTempWriteFile.mockReset().mockResolvedValue(undefined)
+  mockHandleChmod.mockReset().mockResolvedValue(undefined)
+  mockHandleSync.mockReset().mockResolvedValue(undefined)
+  mockHandleClose.mockReset().mockResolvedValue(undefined)
+  mockOpen.mockReset().mockImplementation(async (path: string) => ({
+    writeFile: (content: string | Buffer, encoding?: string) =>
+      mockAtomicTempWriteFile(path, content, encoding),
+    chmod: (...args: unknown[]) => mockHandleChmod(...args),
+    sync: (...args: unknown[]) => mockHandleSync(...args),
+    close: (...args: unknown[]) => mockHandleClose(...args)
+  }))
+  mockLstat.mockReset().mockResolvedValue({
+    isSymbolicLink: () => false,
+    nlink: 1,
+    dev: 1,
+    ino: 2,
+    mode: 0o100644
+  })
+  mockRealpath.mockReset().mockImplementation(async (path: string) => path)
   mockRename.mockReset().mockResolvedValue(undefined)
   mockRm.mockReset().mockResolvedValue(undefined)
   mockLink.mockReset().mockResolvedValue(undefined)
@@ -384,11 +459,15 @@ beforeEach(() => {
     .mockResolvedValue({ existed: true, content: '# original\n' })
   mockRestoreOverlaySnapshot.mockReset().mockResolvedValue(undefined)
   mockResolveOverlayFormulaScope.mockReset().mockResolvedValue(undefined)
+  mockResolveOverlayLookupRollupScope.mockReset().mockResolvedValue(undefined)
+  mockResolveOverlayLookupRollupDefinition.mockReset().mockResolvedValue(undefined)
   mockUpsertOverlayField.mockReset().mockResolvedValue(undefined)
   mockRemoveOverlayField.mockReset().mockResolvedValue(true)
   mockReadOverlayValueColors.mockReset().mockResolvedValue({})
   mockSetOverlayValueColor.mockReset().mockResolvedValue({})
   mockRenameOverlayField.mockReset().mockResolvedValue(false)
+  mockRenamePropertyInViews.mockReset().mockResolvedValue(undefined)
+  mockAssertComputedOutputKeyAbsentOnDisk.mockReset().mockResolvedValue(undefined)
   mockShellOpenPath.mockReset()
   mockClipboardWriteText.mockReset()
   mockFromWebContents.mockReset()
@@ -443,6 +522,7 @@ describe('registerIpcHandlers', () => {
     expect(channels).toContain('skills:set-collection-dismissed')
     expect(channels).toContain('fs:read-file')
     expect(channels).toContain('fs:write-file')
+    expect(channels).toContain('fs:write-file-if-unchanged')
     expect(channels).toContain('fs:create-binary')
     expect(channels).toContain('fs:read-image')
     expect(channels).toContain('fs:edit-image')
@@ -512,13 +592,17 @@ describe('registerIpcHandlers', () => {
     expect(channels).toContain('cli:modules-run-formula')
     expect(channels).toContain('schema:save-formula')
     expect(channels).toContain('schema:remove-formula')
+    expect(channels).toContain('cli:modules-list')
+    expect(channels).toContain('cli:modules-validate-rollup')
+    expect(channels).toContain('schema:save-lookup-rollup')
+    expect(channels).toContain('schema:remove-lookup-rollup')
     // Export via native save dialog (phase 43)
     expect(channels).toContain('export:save')
     expect(channels).toContain('export:pdf')
     // Dirty-close guard (data safety)
     expect(channels).toContain('app:confirm-close')
     expect(channels).toContain('app:cancel-close')
-    expect(channels).toHaveLength(153)
+    expect(channels).toHaveLength(158)
   })
 })
 
@@ -887,7 +971,7 @@ describe('IPC handler argument passing', () => {
       })
     })
 
-    it('restores the overlay and recomputes old formulas when save reports module_error', async () => {
+    it('restores the overlay and recomputes old formulas inside a second transaction', async () => {
       mockGetCollections.mockReturnValue([
         { id: 'vault-1', name: 'Vault', path: '/tmp/project', addedAt: 1, lastOpenedAt: 1 }
       ])
@@ -895,6 +979,9 @@ describe('IPC handler argument passing', () => {
         .mockResolvedValueOnce({ valid: true, diagnostics: [] })
         .mockResolvedValueOnce(failedReport)
         .mockResolvedValueOnce(successfulReport)
+      mockCaptureOverlaySnapshot
+        .mockResolvedValueOnce({ existed: true, content: '# original\n' })
+        .mockResolvedValueOnce({ existed: true, content: '# mutated\n' })
       const handler = getHandler('schema:save-formula')
 
       const result = await handler(
@@ -920,16 +1007,35 @@ describe('IPC handler argument passing', () => {
           fieldType: 'formula',
           formula: 'price * quantity',
           resultType: 'Number'
+        },
+        expect.objectContaining({ onPublished: expect.any(Function) })
+      )
+      expect(mockRestoreOverlaySnapshot).toHaveBeenCalledWith(
+        '/tmp/project',
+        {
+          existed: true,
+          content: '# original\n'
+        },
+        {
+          existed: true,
+          content: '# mutated\n'
         }
       )
-      expect(mockRestoreOverlaySnapshot).toHaveBeenCalledWith('/tmp/project', {
-        existed: true,
-        content: '# original\n'
-      })
+      expect(mockExecModuleTransaction).toHaveBeenCalledTimes(2)
+      expect(mockExecModuleTransaction).toHaveBeenNthCalledWith(
+        2,
+        '/tmp/project',
+        'formula',
+        null,
+        expect.any(Function)
+      )
+      expect(mockExecModuleTransaction.mock.invocationCallOrder[1]).toBeLessThan(
+        mockRestoreOverlaySnapshot.mock.invocationCallOrder[0]
+      )
       expect(mockExecCommand).toHaveBeenNthCalledWith(
         2,
         'modules',
-        ['run', 'formula', '--path', 'invoices/2026'],
+        ['run', 'formula'],
         '/tmp/project',
         { timeout: 300_000 }
       )
@@ -943,6 +1049,104 @@ describe('IPC handler argument passing', () => {
       expect(result).toMatchObject({
         error: true,
         message: 'Formula module failed: formula hook failed'
+      })
+    })
+
+    it('reports an overlay rollback failure when the transactional CAS restore fails', async () => {
+      mockGetCollections.mockReturnValue([
+        { id: 'vault-1', name: 'Vault', path: '/tmp/project', addedAt: 1, lastOpenedAt: 1 }
+      ])
+      mockExecCommand
+        .mockResolvedValueOnce({ valid: true, diagnostics: [] })
+        .mockResolvedValueOnce(failedReport)
+      mockCaptureOverlaySnapshot
+        .mockResolvedValueOnce({ existed: true, content: '# original\n' })
+        .mockResolvedValueOnce({ existed: true, content: '# mutated\n' })
+      mockRestoreOverlaySnapshot.mockRejectedValueOnce(new Error('overlay changed concurrently'))
+      const handler = getHandler('schema:save-formula')
+
+      const result = await handler(
+        fakeEvent,
+        'vault-1',
+        'invoices',
+        'total',
+        'price * quantity',
+        'Number'
+      )
+
+      expect(mockExecModuleTransaction).toHaveBeenCalledTimes(2)
+      expect(result).toMatchObject({
+        error: true,
+        message:
+          'Formula module failed: formula hook failed; overlay rollback failed: overlay changed concurrently'
+      })
+    })
+
+    it('rolls back a published overlay when post-publication durability reporting fails', async () => {
+      mockGetCollections.mockReturnValue([
+        { id: 'vault-1', name: 'Vault', path: '/tmp/project', addedAt: 1, lastOpenedAt: 1 }
+      ])
+      const published = { existed: true, content: '# published formula\n' }
+      mockExecCommand
+        .mockResolvedValueOnce({ valid: true, diagnostics: [] })
+        .mockResolvedValueOnce(successfulReport)
+      mockCaptureOverlaySnapshot.mockResolvedValueOnce({ existed: true, content: '# original\n' })
+      mockUpsertOverlayField.mockImplementationOnce(async (...args: unknown[]) => {
+        const options = args[4] as { onPublished?: (snapshot: unknown) => void }
+        options.onPublished?.(published)
+        throw new Error('directory fsync failed after rename')
+      })
+      const handler = getHandler('schema:save-formula')
+
+      const result = await handler(
+        fakeEvent,
+        'vault-1',
+        'invoices',
+        'total',
+        'price * quantity',
+        'Number'
+      )
+
+      expect(mockRestoreOverlaySnapshot).toHaveBeenCalledWith(
+        '/tmp/project',
+        { existed: true, content: '# original\n' },
+        published
+      )
+      expect(mockCaptureOverlaySnapshot).toHaveBeenCalledTimes(1)
+      expect(mockExecModuleTransaction).toHaveBeenCalledTimes(2)
+      expect(result).toMatchObject({
+        error: true,
+        message: 'directory fsync failed after rename'
+      })
+    })
+
+    it('reports rollback recompute separately after a successful transactional restore', async () => {
+      mockGetCollections.mockReturnValue([
+        { id: 'vault-1', name: 'Vault', path: '/tmp/project', addedAt: 1, lastOpenedAt: 1 }
+      ])
+      mockExecCommand
+        .mockResolvedValueOnce({ valid: true, diagnostics: [] })
+        .mockResolvedValueOnce(failedReport)
+        .mockRejectedValueOnce(new Error('recompute process failed'))
+      mockCaptureOverlaySnapshot
+        .mockResolvedValueOnce({ existed: true, content: '# original\n' })
+        .mockResolvedValueOnce({ existed: true, content: '# mutated\n' })
+      const handler = getHandler('schema:save-formula')
+
+      const result = await handler(
+        fakeEvent,
+        'vault-1',
+        'invoices',
+        'total',
+        'price * quantity',
+        'Number'
+      )
+
+      expect(mockRestoreOverlaySnapshot).toHaveBeenCalledOnce()
+      expect(result).toMatchObject({
+        error: true,
+        message:
+          'Formula module failed: formula hook failed; rollback recompute failed: recompute process failed'
       })
     })
 
@@ -961,14 +1165,46 @@ describe('IPC handler argument passing', () => {
         'invoices/2026',
         'total'
       )
-      expect(mockRemoveOverlayField).toHaveBeenCalledWith('/tmp/project', 'invoices', 'total')
-      expect(mockExecCommand).toHaveBeenCalledWith(
-        'modules',
-        ['run', 'formula', '--path', 'invoices'],
+      expect(mockRemoveOverlayField).toHaveBeenCalledWith(
         '/tmp/project',
-        { timeout: 300_000 }
+        'invoices',
+        'total',
+        expect.objectContaining({ onPublished: expect.any(Function) })
       )
+      expect(mockExecCommand).toHaveBeenCalledWith('modules', ['run', 'formula'], '/tmp/project', {
+        timeout: 300_000
+      })
       expect(result).toEqual(successfulReport)
+    })
+
+    it('accepts schema_overlay_missing when removing the final formula definition', async () => {
+      mockGetCollections.mockReturnValue([
+        { id: 'vault-1', name: 'Vault', path: '/tmp/project', addedAt: 1, lastOpenedAt: 1 }
+      ])
+      mockResolveOverlayFormulaScope.mockResolvedValue('invoices')
+      const cleanupReport = {
+        ...successfulReport,
+        fields_updated: 0,
+        diagnostics: [
+          {
+            module: 'formula',
+            path: null,
+            field: '',
+            code: 'schema_overlay_missing',
+            message: 'schema overlay is absent after cleanup',
+            span_start: null,
+            span_end: null
+          }
+        ]
+      }
+      mockExecCommand.mockResolvedValue(cleanupReport)
+      const handler = getHandler('schema:remove-formula')
+
+      const result = await handler(fakeEvent, 'vault-1', 'invoices', 'total')
+
+      expect(result).toEqual(cleanupReport)
+      expect(mockRestoreOverlaySnapshot).not.toHaveBeenCalled()
+      expect(mockExecCommand).toHaveBeenCalledTimes(1)
     })
 
     it('restores the inherited definition when remove reports module_error', async () => {
@@ -977,19 +1213,34 @@ describe('IPC handler argument passing', () => {
       ])
       mockResolveOverlayFormulaScope.mockResolvedValue('invoices')
       mockExecCommand.mockResolvedValueOnce(failedReport).mockResolvedValueOnce(successfulReport)
+      mockCaptureOverlaySnapshot
+        .mockResolvedValueOnce({ existed: true, content: '# original\n' })
+        .mockResolvedValueOnce({ existed: true, content: '# mutated\n' })
       const handler = getHandler('schema:remove-formula')
 
       const result = await handler(fakeEvent, 'vault-1', 'invoices/2026', 'total')
 
-      expect(mockRemoveOverlayField).toHaveBeenCalledWith('/tmp/project', 'invoices', 'total')
-      expect(mockRestoreOverlaySnapshot).toHaveBeenCalledWith('/tmp/project', {
-        existed: true,
-        content: '# original\n'
-      })
+      expect(mockRemoveOverlayField).toHaveBeenCalledWith(
+        '/tmp/project',
+        'invoices',
+        'total',
+        expect.objectContaining({ onPublished: expect.any(Function) })
+      )
+      expect(mockRestoreOverlaySnapshot).toHaveBeenCalledWith(
+        '/tmp/project',
+        {
+          existed: true,
+          content: '# original\n'
+        },
+        {
+          existed: true,
+          content: '# mutated\n'
+        }
+      )
       expect(mockExecCommand).toHaveBeenNthCalledWith(
         1,
         'modules',
-        ['run', 'formula', '--path', 'invoices'],
+        ['run', 'formula'],
         '/tmp/project',
         { timeout: 300_000 }
       )
@@ -1003,6 +1254,866 @@ describe('IPC handler argument passing', () => {
       expect(result).toMatchObject({
         error: true,
         message: 'Formula module failed: formula hook failed'
+      })
+    })
+  })
+
+  describe('lookup/rollup definition transactions', () => {
+    const formulaReport = {
+      module: 'formula',
+      event: 'manual_run',
+      files_evaluated: 0,
+      fields_updated: 0,
+      diagnostics: [],
+      duration_ms: 1
+    }
+    const lookupReport = {
+      module: 'lookup_rollup',
+      event: 'manual_run',
+      files_evaluated: 1,
+      fields_updated: 1,
+      diagnostics: [],
+      duration_ms: 2
+    }
+    const ownerCollection = {
+      columns: [
+        {
+          name: 'client',
+          field_type: 'Relation',
+          relation_target: 'clients',
+          in_schema: true
+        }
+      ],
+      rows: []
+    }
+    const targetCollection = {
+      columns: [
+        { name: 'domain', field_type: 'String', in_schema: false },
+        { name: 'industry', field_type: 'String', in_schema: false }
+      ],
+      rows: []
+    }
+
+    it('revalidates topology from collection keys and accepts a present-only Lookup target', async () => {
+      mockGetCollections.mockReturnValue([
+        { id: 'vault-1', name: 'Vault', path: '/tmp/project', addedAt: 1, lastOpenedAt: 1 }
+      ])
+      mockExecCommand
+        .mockResolvedValueOnce(ownerCollection)
+        .mockResolvedValueOnce(targetCollection)
+        .mockResolvedValueOnce({
+          ...lookupReport,
+          module_reports: [formulaReport, lookupReport]
+        })
+      mockCaptureOverlaySnapshot
+        .mockResolvedValueOnce({ existed: true, content: '# original\n' })
+        .mockResolvedValueOnce({ existed: true, content: '# lookup\n' })
+      const handler = getHandler('schema:save-lookup-rollup')
+
+      const result = await handler(fakeEvent, 'vault-1', 'contacts', 'client_domain', {
+        kind: 'lookup',
+        relationField: 'client',
+        targetField: 'domain',
+        relationDirection: 'outgoing'
+      })
+
+      expect(mockExecCommand).toHaveBeenNthCalledWith(
+        1,
+        'collection',
+        ['contacts', '--recursive', '--limit', '0'],
+        '/tmp/project'
+      )
+      expect(mockExecCommand).toHaveBeenNthCalledWith(
+        2,
+        'collection',
+        ['clients', '--recursive', '--limit', '0'],
+        '/tmp/project'
+      )
+      expect(mockExecModuleTransaction).toHaveBeenCalledWith(
+        '/tmp/project',
+        'lookup_rollup',
+        null,
+        expect.any(Function)
+      )
+      expect(mockUpsertOverlayField).toHaveBeenCalledWith(
+        '/tmp/project',
+        'contacts',
+        'client_domain',
+        expect.objectContaining({
+          fieldType: 'lookup',
+          relationField: 'client',
+          targetField: 'domain'
+        }),
+        expect.objectContaining({
+          requireAbsent: true,
+          onPublished: expect.any(Function)
+        })
+      )
+      expect(mockAssertComputedOutputKeyAbsentOnDisk).toHaveBeenCalledTimes(2)
+      expect(mockAssertComputedOutputKeyAbsentOnDisk).toHaveBeenNthCalledWith(
+        1,
+        '/tmp/project',
+        'contacts',
+        'client_domain'
+      )
+      expect(result).toEqual(lookupReport)
+    })
+
+    it('validates an inherited Lookup against its definition origin before updating it', async () => {
+      mockGetCollections.mockReturnValue([
+        { id: 'vault-1', name: 'Vault', path: '/tmp/project', addedAt: 1, lastOpenedAt: 1 }
+      ])
+      mockResolveOverlayLookupRollupDefinition.mockResolvedValue({
+        scope: 'contacts',
+        kind: 'lookup'
+      })
+      mockExecCommand
+        .mockResolvedValueOnce(ownerCollection)
+        .mockResolvedValueOnce(targetCollection)
+        .mockResolvedValueOnce({
+          ...lookupReport,
+          module_reports: [formulaReport, lookupReport]
+        })
+      const handler = getHandler('schema:save-lookup-rollup')
+
+      const result = await handler(
+        fakeEvent,
+        'vault-1',
+        'contacts/enterprise',
+        'client_domain',
+        {
+          kind: 'lookup',
+          relationField: 'client',
+          targetField: 'domain',
+          relationDirection: 'outgoing'
+        },
+        'client_domain'
+      )
+
+      expect(mockResolveOverlayLookupRollupDefinition).toHaveBeenCalledWith(
+        '/tmp/project',
+        'contacts/enterprise',
+        'client_domain'
+      )
+      expect(mockExecCommand).toHaveBeenNthCalledWith(
+        1,
+        'collection',
+        ['contacts', '--recursive', '--limit', '0'],
+        '/tmp/project'
+      )
+      expect(mockUpsertOverlayField).toHaveBeenCalledWith(
+        '/tmp/project',
+        'contacts',
+        'client_domain',
+        expect.objectContaining({ fieldType: 'lookup' }),
+        expect.objectContaining({
+          previousKey: 'client_domain',
+          requireAbsent: false,
+          onPublished: expect.any(Function)
+        })
+      )
+      expect(mockAssertComputedOutputKeyAbsentOnDisk).not.toHaveBeenCalled()
+      expect(result).toEqual(lookupReport)
+    })
+
+    it('renames an inherited Lookup at its true origin, updates views after success, and runs the module once', async () => {
+      mockGetCollections.mockReturnValue([
+        { id: 'vault-1', name: 'Vault', path: '/tmp/project', addedAt: 1, lastOpenedAt: 1 }
+      ])
+      mockResolveOverlayLookupRollupDefinition.mockResolvedValue({
+        scope: 'contacts',
+        kind: 'lookup'
+      })
+      mockExecCommand
+        .mockResolvedValueOnce(ownerCollection)
+        .mockResolvedValueOnce(targetCollection)
+        .mockResolvedValueOnce({
+          ...lookupReport,
+          module_reports: [formulaReport, lookupReport]
+        })
+      mockCaptureOverlaySnapshot
+        .mockResolvedValueOnce({ existed: true, content: '# original lookup\n' })
+        .mockResolvedValueOnce({ existed: true, content: '# renamed lookup\n' })
+      const { wm, mockBroadcastToAll } = createMockWindowManager()
+      registerIpcHandlers(wm)
+      const registration = mockHandle.mock.calls.find(
+        (call: unknown[]) => call[0] === 'schema:save-lookup-rollup'
+      )
+      const handler = registration?.[1] as (...args: unknown[]) => Promise<unknown>
+
+      const result = await handler(
+        fakeEvent,
+        'vault-1',
+        'contacts/enterprise',
+        'client_industry',
+        {
+          kind: 'lookup',
+          relationField: 'client',
+          targetField: 'industry',
+          relationDirection: 'outgoing'
+        },
+        'client_domain'
+      )
+
+      expect(mockResolveOverlayLookupRollupDefinition).toHaveBeenCalledWith(
+        '/tmp/project',
+        'contacts/enterprise',
+        'client_domain'
+      )
+      expect(mockExecCommand).toHaveBeenNthCalledWith(
+        1,
+        'collection',
+        ['contacts', '--recursive', '--limit', '0'],
+        '/tmp/project'
+      )
+      expect(mockUpsertOverlayField).toHaveBeenCalledWith(
+        '/tmp/project',
+        'contacts',
+        'client_industry',
+        expect.objectContaining({
+          fieldType: 'lookup',
+          relationField: 'client',
+          targetField: 'industry'
+        }),
+        expect.objectContaining({
+          previousKey: 'client_domain',
+          onPrepared: expect.any(Function),
+          onPublished: expect.any(Function)
+        })
+      )
+      expect(mockExecModuleTransaction).toHaveBeenCalledTimes(1)
+      expect(mockAssertComputedOutputKeyAbsentOnDisk).toHaveBeenCalledTimes(2)
+      expect(mockAssertComputedOutputKeyAbsentOnDisk).toHaveBeenNthCalledWith(
+        2,
+        '/tmp/project',
+        'contacts',
+        'client_industry'
+      )
+      expect(mockRenamePropertyInViews).toHaveBeenCalledWith(
+        'vault-1',
+        'contacts',
+        'client_domain',
+        'client_industry'
+      )
+      expect(mockBroadcastToAll).toHaveBeenCalledWith('computed:schema-applied', {
+        root: '/tmp/project',
+        rename: {
+          scope: 'contacts',
+          oldKey: 'client_domain',
+          newKey: 'client_industry'
+        }
+      })
+      expect(mockRenamePropertyInViews.mock.invocationCallOrder[0]).toBeGreaterThan(
+        mockExecCommand.mock.invocationCallOrder[2]
+      )
+      expect(result).toEqual(lookupReport)
+    })
+
+    it('rejects a rename when the destination exists in the effective owner schema', async () => {
+      mockGetCollections.mockReturnValue([
+        { id: 'vault-1', name: 'Vault', path: '/tmp/project', addedAt: 1, lastOpenedAt: 1 }
+      ])
+      mockResolveOverlayLookupRollupDefinition.mockResolvedValue({
+        scope: 'contacts',
+        kind: 'lookup'
+      })
+      mockExecCommand.mockResolvedValueOnce({
+        ...ownerCollection,
+        columns: [
+          ...ownerCollection.columns,
+          { name: 'client_industry', field_type: 'String', in_schema: false }
+        ]
+      })
+      const handler = getHandler('schema:save-lookup-rollup')
+
+      const result = await handler(
+        fakeEvent,
+        'vault-1',
+        'contacts/enterprise',
+        'client_industry',
+        {
+          kind: 'lookup',
+          relationField: 'client',
+          targetField: 'industry',
+          relationDirection: 'outgoing'
+        },
+        'client_domain'
+      )
+
+      expect(mockUpsertOverlayField).not.toHaveBeenCalled()
+      expect(mockRenamePropertyInViews).not.toHaveBeenCalled()
+      expect(mockExecCommand).toHaveBeenCalledTimes(1)
+      expect(result).toMatchObject({
+        error: true,
+        message: expect.stringMatching(/destination field already exists/)
+      })
+    })
+
+    it.each([
+      ['ordinary', 'String'],
+      ['Formula', 'Formula'],
+      ['Lookup', 'Lookup']
+    ])(
+      'treats an absent previousKey as create-only and cannot replace an existing %s field',
+      async (_label, fieldType) => {
+        mockGetCollections.mockReturnValue([
+          { id: 'vault-1', name: 'Vault', path: '/tmp/project', addedAt: 1, lastOpenedAt: 1 }
+        ])
+        mockExecCommand.mockResolvedValueOnce({
+          ...ownerCollection,
+          columns: [
+            ...ownerCollection.columns,
+            { name: 'client_domain', field_type: fieldType, in_schema: true }
+          ]
+        })
+        const handler = getHandler('schema:save-lookup-rollup')
+
+        const result = await handler(fakeEvent, 'vault-1', 'contacts', 'client_domain', {
+          kind: 'lookup',
+          relationField: 'client',
+          targetField: 'domain',
+          relationDirection: 'outgoing'
+        })
+
+        expect(mockResolveOverlayLookupRollupDefinition).not.toHaveBeenCalled()
+        expect(mockUpsertOverlayField).not.toHaveBeenCalled()
+        expect(mockRestoreOverlaySnapshot).not.toHaveBeenCalled()
+        expect(mockExecCommand.mock.calls.some(([command]) => command === 'modules')).toBe(false)
+        expect(result).toMatchObject({
+          error: true,
+          message: expect.stringMatching(/Cannot create.*destination field already exists/)
+        })
+      }
+    )
+
+    it.each(['create', 'rename'] as const)(
+      'blocks %s when current unindexed Markdown already owns the destination key',
+      async (intent) => {
+        mockGetCollections.mockReturnValue([
+          { id: 'vault-1', name: 'Vault', path: '/tmp/project', addedAt: 1, lastOpenedAt: 1 }
+        ])
+        if (intent === 'rename') {
+          mockResolveOverlayLookupRollupDefinition.mockResolvedValue({
+            scope: 'contacts',
+            kind: 'lookup'
+          })
+        }
+        mockExecCommand
+          .mockResolvedValueOnce(ownerCollection)
+          .mockResolvedValueOnce(targetCollection)
+        mockAssertComputedOutputKeyAbsentOnDisk.mockRejectedValueOnce(
+          new Error(
+            'Cannot claim computed field "client_industry": existing unowned frontmatter found in contacts/new.md'
+          )
+        )
+        const handler = getHandler('schema:save-lookup-rollup')
+
+        const args: unknown[] = [
+          fakeEvent,
+          'vault-1',
+          'contacts',
+          'client_industry',
+          {
+            kind: 'lookup',
+            relationField: 'client',
+            targetField: 'industry',
+            relationDirection: 'outgoing'
+          }
+        ]
+        if (intent === 'rename') args.push('client_domain')
+        const result = await handler(...args)
+
+        expect(mockAssertComputedOutputKeyAbsentOnDisk).toHaveBeenCalledWith(
+          '/tmp/project',
+          'contacts',
+          'client_industry'
+        )
+        expect(mockCaptureOverlaySnapshot).not.toHaveBeenCalled()
+        expect(mockUpsertOverlayField).not.toHaveBeenCalled()
+        expect(mockRestoreOverlaySnapshot).not.toHaveBeenCalled()
+        expect(mockRenamePropertyInViews).not.toHaveBeenCalled()
+        expect(mockExecCommand.mock.calls.some(([command]) => command === 'modules')).toBe(false)
+        expect(mockAtomicTempWriteFile).not.toHaveBeenCalled()
+        expect(result).toMatchObject({
+          error: true,
+          message: expect.stringMatching(/contacts\/new\.md/)
+        })
+      }
+    )
+
+    it('rolls the overlay back if an unowned destination appears after publication but before module execution', async () => {
+      mockGetCollections.mockReturnValue([
+        { id: 'vault-1', name: 'Vault', path: '/tmp/project', addedAt: 1, lastOpenedAt: 1 }
+      ])
+      mockResolveOverlayLookupRollupDefinition.mockResolvedValue({
+        scope: 'contacts',
+        kind: 'lookup'
+      })
+      mockExecCommand
+        .mockResolvedValueOnce(ownerCollection)
+        .mockResolvedValueOnce(targetCollection)
+        .mockResolvedValueOnce(lookupReport)
+      const original = { existed: true, content: '# original lookup\n' }
+      const published = { existed: true, content: '# renamed lookup\n' }
+      mockCaptureOverlaySnapshot.mockResolvedValue(original)
+      mockUpsertOverlayField.mockImplementationOnce(async (...args: unknown[]) => {
+        const options = args[4] as {
+          onPrepared?: (snapshot: typeof original) => void
+          onPublished?: (snapshot: typeof published) => void
+        }
+        options.onPrepared?.(original)
+        options.onPublished?.(published)
+      })
+      mockAssertComputedOutputKeyAbsentOnDisk
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(
+          new Error(
+            'Cannot claim computed field "client_industry": existing unowned frontmatter found in contacts/racing.md'
+          )
+        )
+      const handler = getHandler('schema:save-lookup-rollup')
+
+      const result = await handler(
+        fakeEvent,
+        'vault-1',
+        'contacts',
+        'client_industry',
+        {
+          kind: 'lookup',
+          relationField: 'client',
+          targetField: 'industry',
+          relationDirection: 'outgoing'
+        },
+        'client_domain'
+      )
+
+      expect(mockAssertComputedOutputKeyAbsentOnDisk).toHaveBeenCalledTimes(2)
+      expect(mockRestoreOverlaySnapshot).toHaveBeenCalledWith('/tmp/project', original, published)
+      expect(mockExecCommand.mock.calls.filter(([command]) => command === 'modules')).toHaveLength(
+        1
+      )
+      expect(mockRenamePropertyInViews).not.toHaveBeenCalled()
+      expect(result).toMatchObject({
+        error: true,
+        message: expect.stringMatching(/contacts\/racing\.md/)
+      })
+    })
+
+    it('does not publish or run the module when the atomic overlay transaction finds a downstream dependency', async () => {
+      mockGetCollections.mockReturnValue([
+        { id: 'vault-1', name: 'Vault', path: '/tmp/project', addedAt: 1, lastOpenedAt: 1 }
+      ])
+      mockResolveOverlayLookupRollupDefinition.mockResolvedValue({
+        scope: 'contacts',
+        kind: 'lookup'
+      })
+      mockExecCommand.mockResolvedValueOnce(ownerCollection).mockResolvedValueOnce(targetCollection)
+      mockUpsertOverlayField.mockRejectedValueOnce(
+        new Error(
+          'Cannot rename computed field "client_domain" because Lookup/Rollup definitions retrieve it as target_field: reports.domains'
+        )
+      )
+      const handler = getHandler('schema:save-lookup-rollup')
+
+      const result = await handler(
+        fakeEvent,
+        'vault-1',
+        'contacts',
+        'account_domain',
+        {
+          kind: 'lookup',
+          relationField: 'client',
+          targetField: 'domain',
+          relationDirection: 'outgoing'
+        },
+        'client_domain'
+      )
+
+      expect(mockUpsertOverlayField).toHaveBeenCalledOnce()
+      expect(mockRestoreOverlaySnapshot).not.toHaveBeenCalled()
+      expect(mockRenamePropertyInViews).not.toHaveBeenCalled()
+      expect(mockExecCommand.mock.calls.some(([command]) => command === 'modules')).toBe(false)
+      expect(result).toMatchObject({
+        error: true,
+        message: expect.stringMatching(/reports\.domains/)
+      })
+    })
+
+    it('does not publish or run the module when an overlapping same-key definition blocks rename', async () => {
+      mockGetCollections.mockReturnValue([
+        { id: 'vault-1', name: 'Vault', path: '/tmp/project', addedAt: 1, lastOpenedAt: 1 }
+      ])
+      mockResolveOverlayLookupRollupDefinition.mockResolvedValue({
+        scope: 'contacts',
+        kind: 'lookup'
+      })
+      mockExecCommand.mockResolvedValueOnce(ownerCollection).mockResolvedValueOnce(targetCollection)
+      mockUpsertOverlayField.mockRejectedValueOnce(
+        new Error(
+          'Cannot rename computed field "client_domain" because the same field is also defined in overlapping overlay scopes: contacts/vip'
+        )
+      )
+      const handler = getHandler('schema:save-lookup-rollup')
+
+      const result = await handler(
+        fakeEvent,
+        'vault-1',
+        'contacts',
+        'account_domain',
+        {
+          kind: 'lookup',
+          relationField: 'client',
+          targetField: 'domain',
+          relationDirection: 'outgoing'
+        },
+        'client_domain'
+      )
+
+      expect(mockRestoreOverlaySnapshot).not.toHaveBeenCalled()
+      expect(mockRenamePropertyInViews).not.toHaveBeenCalled()
+      expect(mockExecCommand.mock.calls.some(([command]) => command === 'modules')).toBe(false)
+      expect(result).toMatchObject({
+        error: true,
+        message: expect.stringMatching(/contacts\/vip/)
+      })
+    })
+
+    it('rejects a missing source definition and Lookup/Rollup kind changes before mutation', async () => {
+      mockGetCollections.mockReturnValue([
+        { id: 'vault-1', name: 'Vault', path: '/tmp/project', addedAt: 1, lastOpenedAt: 1 }
+      ])
+      const handler = getHandler('schema:save-lookup-rollup')
+      const lookup = {
+        kind: 'lookup' as const,
+        relationField: 'client',
+        targetField: 'industry',
+        relationDirection: 'outgoing' as const
+      }
+
+      const missing = await handler(
+        fakeEvent,
+        'vault-1',
+        'contacts',
+        'client_industry',
+        lookup,
+        'missing_lookup'
+      )
+      expect(missing).toMatchObject({
+        error: true,
+        message: expect.stringMatching(/not defined for this collection/)
+      })
+
+      mockResolveOverlayLookupRollupDefinition.mockResolvedValue({
+        scope: 'contacts',
+        kind: 'rollup'
+      })
+      const changedKind = await handler(
+        fakeEvent,
+        'vault-1',
+        'contacts',
+        'client_industry',
+        lookup,
+        'invoice_total'
+      )
+      expect(changedKind).toMatchObject({
+        error: true,
+        message: expect.stringMatching(/from rollup to lookup/)
+      })
+      expect(mockUpsertOverlayField).not.toHaveBeenCalled()
+      expect(mockExecCommand).not.toHaveBeenCalled()
+    })
+
+    it('rejects reserved and structurally invalid rename keys at the IPC boundary', async () => {
+      mockGetCollections.mockReturnValue([
+        { id: 'vault-1', name: 'Vault', path: '/tmp/project', addedAt: 1, lastOpenedAt: 1 }
+      ])
+      const handler = getHandler('schema:save-lookup-rollup')
+      const definition = {
+        kind: 'lookup' as const,
+        relationField: 'client',
+        targetField: 'domain',
+        relationDirection: 'outgoing' as const
+      }
+
+      const reserved = await handler(
+        fakeEvent,
+        'vault-1',
+        'contacts',
+        'title',
+        definition,
+        'client_domain'
+      )
+      const control = await handler(
+        fakeEvent,
+        'vault-1',
+        'contacts',
+        'client\ndomain',
+        definition,
+        'client_domain'
+      )
+      const invalidPrevious = await handler(
+        fakeEvent,
+        'vault-1',
+        'contacts',
+        'client_domain',
+        definition,
+        ' path'
+      )
+
+      expect(reserved).toMatchObject({ error: true, message: expect.stringMatching(/reserved/) })
+      expect(control).toMatchObject({
+        error: true,
+        message: expect.stringMatching(/control characters/)
+      })
+      expect(invalidPrevious).toMatchObject({
+        error: true,
+        message: expect.stringMatching(/cannot start or end with spaces/)
+      })
+      expect(mockResolveOverlayLookupRollupDefinition).not.toHaveBeenCalled()
+      expect(mockUpsertOverlayField).not.toHaveBeenCalled()
+      expect(mockExecModuleTransaction).not.toHaveBeenCalled()
+    })
+
+    it('CAS-restores a published rename when publication reports a trailing failure', async () => {
+      mockGetCollections.mockReturnValue([
+        { id: 'vault-1', name: 'Vault', path: '/tmp/project', addedAt: 1, lastOpenedAt: 1 }
+      ])
+      mockResolveOverlayLookupRollupDefinition.mockResolvedValue({
+        scope: 'contacts',
+        kind: 'lookup'
+      })
+      mockExecCommand
+        .mockResolvedValueOnce(ownerCollection)
+        .mockResolvedValueOnce(targetCollection)
+        .mockResolvedValueOnce(lookupReport)
+      const original = { existed: true, content: '# original lookup\n' }
+      const published = { existed: true, content: '# renamed lookup\n' }
+      mockCaptureOverlaySnapshot.mockResolvedValue(original)
+      mockUpsertOverlayField.mockImplementationOnce(async (...args: unknown[]) => {
+        const options = args[4] as {
+          onPrepared?: (snapshot: typeof original) => void
+          onPublished?: (snapshot: typeof published) => void
+        }
+        options.onPrepared?.(original)
+        options.onPublished?.(published)
+        throw new Error('directory fsync failed after publication')
+      })
+      const handler = getHandler('schema:save-lookup-rollup')
+
+      const result = await handler(
+        fakeEvent,
+        'vault-1',
+        'contacts/enterprise',
+        'client_industry',
+        {
+          kind: 'lookup',
+          relationField: 'client',
+          targetField: 'industry',
+          relationDirection: 'outgoing'
+        },
+        'client_domain'
+      )
+
+      expect(mockRestoreOverlaySnapshot).toHaveBeenCalledWith('/tmp/project', original, published)
+      expect(mockExecModuleTransaction).toHaveBeenCalledTimes(2)
+      expect(mockRenamePropertyInViews).not.toHaveBeenCalled()
+      expect(result).toMatchObject({
+        error: true,
+        message: 'directory fsync failed after publication'
+      })
+    })
+
+    it('does not roll back a successful rename when auxiliary saved-view publication fails', async () => {
+      mockGetCollections.mockReturnValue([
+        { id: 'vault-1', name: 'Vault', path: '/tmp/project', addedAt: 1, lastOpenedAt: 1 }
+      ])
+      mockResolveOverlayLookupRollupDefinition.mockResolvedValue({
+        scope: null,
+        kind: 'lookup'
+      })
+      mockExecCommand
+        .mockResolvedValueOnce(ownerCollection)
+        .mockResolvedValueOnce(targetCollection)
+        .mockResolvedValueOnce({
+          ...lookupReport,
+          module_reports: [formulaReport, lookupReport]
+        })
+      mockRenamePropertyInViews.mockRejectedValueOnce(new Error('views file locked'))
+      const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const handler = getHandler('schema:save-lookup-rollup')
+
+      const result = await handler(
+        fakeEvent,
+        'vault-1',
+        'contacts',
+        'client_industry',
+        {
+          kind: 'lookup',
+          relationField: 'client',
+          targetField: 'industry',
+          relationDirection: 'outgoing'
+        },
+        'client_domain'
+      )
+
+      expect(mockRenamePropertyInViews).toHaveBeenCalledWith(
+        'vault-1',
+        '',
+        'client_domain',
+        'client_industry'
+      )
+      expect(mockRestoreOverlaySnapshot).not.toHaveBeenCalled()
+      expect(mockExecModuleTransaction).toHaveBeenCalledTimes(1)
+      expect(result).toEqual(lookupReport)
+      warning.mockRestore()
+    })
+
+    it('CAS-restores a Lookup definition when the module reports invalid_schema', async () => {
+      mockGetCollections.mockReturnValue([
+        { id: 'vault-1', name: 'Vault', path: '/tmp/project', addedAt: 1, lastOpenedAt: 1 }
+      ])
+      const invalidReport = {
+        ...lookupReport,
+        fields_updated: 0,
+        diagnostics: [
+          {
+            module: 'lookup_rollup',
+            path: null,
+            field: 'client_domain',
+            code: 'invalid_schema',
+            message: 'relation field drifted',
+            span_start: null,
+            span_end: null
+          }
+        ]
+      }
+      mockExecCommand
+        .mockResolvedValueOnce(ownerCollection)
+        .mockResolvedValueOnce(targetCollection)
+        .mockResolvedValueOnce({
+          ...invalidReport,
+          module_reports: [formulaReport, invalidReport]
+        })
+        .mockResolvedValueOnce(lookupReport)
+      mockCaptureOverlaySnapshot
+        .mockResolvedValueOnce({ existed: true, content: '# original\n' })
+        .mockResolvedValueOnce({ existed: true, content: '# lookup\n' })
+      const handler = getHandler('schema:save-lookup-rollup')
+
+      const result = await handler(fakeEvent, 'vault-1', 'contacts', 'client_domain', {
+        kind: 'lookup',
+        relationField: 'client',
+        targetField: 'domain',
+        relationDirection: 'outgoing'
+      })
+
+      expect(mockRestoreOverlaySnapshot).toHaveBeenCalledWith(
+        '/tmp/project',
+        { existed: true, content: '# original\n' },
+        { existed: true, content: '# lookup\n' }
+      )
+      expect(result).toMatchObject({
+        error: true,
+        message: 'Lookup/Rollup module failed: relation field drifted'
+      })
+    })
+
+    it('restores an inherited Lookup definition when removal recompute fails', async () => {
+      mockGetCollections.mockReturnValue([
+        { id: 'vault-1', name: 'Vault', path: '/tmp/project', addedAt: 1, lastOpenedAt: 1 }
+      ])
+      mockResolveOverlayLookupRollupScope.mockResolvedValue('contacts')
+      const failedLookupReport = {
+        ...lookupReport,
+        fields_updated: 0,
+        diagnostics: [
+          {
+            module: 'lookup_rollup',
+            path: null,
+            field: '',
+            code: 'module_error',
+            message: 'cleanup failed safely',
+            span_start: null,
+            span_end: null
+          }
+        ]
+      }
+      mockExecCommand
+        .mockResolvedValueOnce({
+          ...failedLookupReport,
+          module_reports: [formulaReport, failedLookupReport]
+        })
+        .mockResolvedValueOnce(lookupReport)
+      mockCaptureOverlaySnapshot
+        .mockResolvedValueOnce({ existed: true, content: '# original lookup\n' })
+        .mockResolvedValueOnce({ existed: true, content: '# lookup removed\n' })
+      const handler = getHandler('schema:remove-lookup-rollup')
+
+      const result = await handler(fakeEvent, 'vault-1', 'contacts/enterprise', 'client_domain')
+
+      expect(mockResolveOverlayLookupRollupScope).toHaveBeenCalledWith(
+        '/tmp/project',
+        'contacts/enterprise',
+        'client_domain'
+      )
+      expect(mockRemoveOverlayField).toHaveBeenCalledWith(
+        '/tmp/project',
+        'contacts',
+        'client_domain',
+        expect.objectContaining({ onPublished: expect.any(Function) })
+      )
+      expect(mockRestoreOverlaySnapshot).toHaveBeenCalledWith(
+        '/tmp/project',
+        { existed: true, content: '# original lookup\n' },
+        { existed: true, content: '# lookup removed\n' }
+      )
+      expect(mockExecModuleTransaction).toHaveBeenCalledTimes(2)
+      expect(mockExecModuleTransaction).toHaveBeenNthCalledWith(
+        2,
+        '/tmp/project',
+        'lookup_rollup',
+        null,
+        expect.any(Function)
+      )
+      expect(result).toMatchObject({
+        error: true,
+        message: 'Lookup/Rollup module failed: cleanup failed safely'
+      })
+    })
+
+    it('rejects a drifted incoming Relation before changing the overlay', async () => {
+      mockGetCollections.mockReturnValue([
+        { id: 'vault-1', name: 'Vault', path: '/tmp/project', addedAt: 1, lastOpenedAt: 1 }
+      ])
+      mockExecCommand
+        .mockResolvedValueOnce({ valid: true, diagnostics: [] })
+        .mockResolvedValueOnce({ columns: [], rows: [] })
+        .mockResolvedValueOnce({
+          columns: [
+            {
+              name: 'client',
+              field_type: 'Relation',
+              relation_target: 'other-clients'
+            },
+            { name: 'total', field_type: 'Number' }
+          ]
+        })
+      const handler = getHandler('schema:save-lookup-rollup')
+
+      const result = await handler(fakeEvent, 'vault-1', 'clients', 'invoice_total', {
+        kind: 'rollup',
+        relationField: 'client',
+        targetField: 'total',
+        relationDirection: 'incoming',
+        relationScope: 'invoices',
+        formula: 'values.reduce((sum, value) => sum + value, 0)',
+        resultType: 'Number'
+      })
+
+      expect(mockUpsertOverlayField).not.toHaveBeenCalled()
+      expect(result).toMatchObject({
+        error: true,
+        message: expect.stringContaining('must target the current collection')
       })
     })
   })
@@ -1623,11 +2734,10 @@ describe('Collection IPC handlers', () => {
 
     it('writes atomically within a known collection (dotfile temp + rename)', async () => {
       mockGetCollections.mockReturnValue([{ id: '1', name: 'proj', path: '/proj' }])
-      mockWriteFile.mockResolvedValue(undefined)
       const handler = getHandler('fs:write-file')
       const result = await handler(writeEvent, '/proj/readme.md', '# Updated')
       // Content goes to a dotfile temp in the SAME directory...
-      expect(mockWriteFile).toHaveBeenCalledWith(
+      expect(mockAtomicTempWriteFile).toHaveBeenCalledWith(
         expect.stringMatching(
           /^\/proj\/\.\d+\.\d+\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.mdvdb\.tmp$/
         ),
@@ -1635,7 +2745,7 @@ describe('Collection IPC handlers', () => {
         'utf-8'
       )
       // ...then the temp is renamed over the target.
-      const tmpPath = mockWriteFile.mock.calls[0][0]
+      const tmpPath = mockAtomicTempWriteFile.mock.calls[0][0]
       expect(mockRename).toHaveBeenCalledWith(tmpPath, '/proj/readme.md')
       expect(result).toBeUndefined()
     })
@@ -1650,15 +2760,14 @@ describe('Collection IPC handlers', () => {
           message: 'Access denied: path is not within a known collection'
         })
       )
-      expect(mockWriteFile).not.toHaveBeenCalled()
+      expect(mockAtomicTempWriteFile).not.toHaveBeenCalled()
     })
 
-    it('passes utf-8 encoding to writeFile', async () => {
+    it('passes utf-8 encoding to the temporary file handle', async () => {
       mockGetCollections.mockReturnValue([{ id: '1', name: 'proj', path: '/proj' }])
-      mockWriteFile.mockResolvedValue(undefined)
       const handler = getHandler('fs:write-file')
       await handler(writeEvent, '/proj/notes.md', 'Héllo wörld 日本語')
-      expect(mockWriteFile).toHaveBeenCalledWith(
+      expect(mockAtomicTempWriteFile).toHaveBeenCalledWith(
         expect.stringMatching(/\.mdvdb\.tmp$/),
         'Héllo wörld 日本語',
         'utf-8'
@@ -1667,7 +2776,7 @@ describe('Collection IPC handlers', () => {
 
     it('returns serialized error and never touches the target when the temp write fails', async () => {
       mockGetCollections.mockReturnValue([{ id: '1', name: 'proj', path: '/proj' }])
-      mockWriteFile.mockRejectedValue(new Error('EACCES: permission denied'))
+      mockAtomicTempWriteFile.mockRejectedValue(new Error('EACCES: permission denied'))
       const handler = getHandler('fs:write-file')
       const result = await handler(writeEvent, '/proj/readme.md', 'content')
       expect(result).toEqual(
@@ -1676,6 +2785,121 @@ describe('Collection IPC handlers', () => {
       // The target file is never written directly, and the temp is cleaned up.
       expect(mockRename).not.toHaveBeenCalled()
       expect(mockRm).toHaveBeenCalledWith(expect.stringMatching(/\.mdvdb\.tmp$/), { force: true })
+    })
+
+    it('revokes watcher suppression when publication fails after registration', async () => {
+      mockGetCollections.mockReturnValue([{ id: '1', name: 'proj', path: '/proj' }])
+      mockRename.mockRejectedValue(new Error('rename failed'))
+      const handler = getHandler('fs:write-file')
+
+      const result = await handler(writeEvent, '/proj/readme.md', 'replacement')
+
+      expect(result).toEqual(expect.objectContaining({ error: true, message: 'rename failed' }))
+      expect(matchAndConsumeOwnWrite('/proj/readme.md', 'change', undefined, 'replacement')).toBe(
+        false
+      )
+    })
+  })
+
+  describe('fs:write-file-if-unchanged', () => {
+    const writeEvent = { sender: { id: 1 } }
+
+    it('atomically replaces a file only when its exact baseline still matches', async () => {
+      mockGetCollections.mockReturnValue([{ id: '1', name: 'proj', path: '/proj' }])
+      mockReadFile.mockResolvedValue('old')
+      const handler = getHandler('fs:write-file-if-unchanged')
+
+      const result = await handler(writeEvent, '/proj/readme.md', 'old', 'new')
+
+      expect(mockReadFile).toHaveBeenCalledWith('/proj/readme.md', 'utf-8')
+      expect(mockAtomicTempWriteFile).toHaveBeenCalledWith(
+        expect.stringMatching(/\.mdvdb\.tmp$/),
+        'new',
+        'utf-8'
+      )
+      expect(mockRename).toHaveBeenCalledWith(
+        expect.stringMatching(/\.mdvdb\.tmp$/),
+        '/proj/readme.md'
+      )
+      expect(result).toBeUndefined()
+    })
+
+    it('rejects a stale baseline without writing a temporary file', async () => {
+      mockGetCollections.mockReturnValue([{ id: '1', name: 'proj', path: '/proj' }])
+      mockReadFile.mockResolvedValue('changed')
+      const handler = getHandler('fs:write-file-if-unchanged')
+
+      const result = await handler(writeEvent, '/proj/readme.md', 'old', 'new')
+
+      expect(result).toEqual(
+        expect.objectContaining({ error: true, message: expect.stringMatching(/changed on disk/) })
+      )
+      expect(mockAtomicTempWriteFile).not.toHaveBeenCalled()
+      expect(mockRename).not.toHaveBeenCalled()
+    })
+
+    it('serializes concurrent app writes so only one consumer can claim a baseline', async () => {
+      mockGetCollections.mockReturnValue([{ id: '1', name: 'proj', path: '/proj' }])
+      let diskContent = 'old'
+      const temporaryContents = new Map<string, string>()
+      mockReadFile.mockImplementation(async () => diskContent)
+      mockAtomicTempWriteFile.mockImplementation(async (path: string, content: string) => {
+        temporaryContents.set(path, content)
+      })
+      mockRename.mockImplementation(async (temporaryPath: string) => {
+        diskContent = temporaryContents.get(temporaryPath) ?? diskContent
+      })
+      const handler = getHandler('fs:write-file-if-unchanged')
+
+      const [first, second] = await Promise.all([
+        handler(writeEvent, '/proj/readme.md', 'old', 'first'),
+        handler(writeEvent, '/proj/readme.md', 'old', 'second')
+      ])
+
+      expect(first).toBeUndefined()
+      expect(second).toEqual(
+        expect.objectContaining({ error: true, message: expect.stringMatching(/changed on disk/) })
+      )
+      expect(mockRename).toHaveBeenCalledOnce()
+      expect(diskContent).toBe('first')
+    })
+
+    it('rechecks the exact baseline immediately before rename and leaves no stale own-write marker', async () => {
+      mockGetCollections.mockReturnValue([{ id: '1', name: 'proj', path: '/proj' }])
+      let diskContent = 'old'
+      mockReadFile.mockImplementation(async () => diskContent)
+      mockAtomicTempWriteFile.mockImplementation(async () => {
+        diskContent = 'concurrent edit'
+      })
+      const handler = getHandler('fs:write-file-if-unchanged')
+
+      const result = await handler(writeEvent, '/proj/readme.md', 'old', 'stale replacement')
+
+      expect(result).toEqual(
+        expect.objectContaining({ error: true, message: expect.stringMatching(/changed on disk/) })
+      )
+      expect(mockRename).not.toHaveBeenCalled()
+      expect(diskContent).toBe('concurrent edit')
+      expect(
+        matchAndConsumeOwnWrite('/proj/readme.md', 'change', undefined, 'stale replacement')
+      ).toBe(false)
+    })
+
+    it('rejects a symlinked ancestor that canonically escapes the collection', async () => {
+      mockGetCollections.mockReturnValue([{ id: '1', name: 'proj', path: '/proj' }])
+      mockReadFile.mockResolvedValue('old')
+      mockRealpath.mockImplementation(async (path: string) =>
+        path === '/proj/escape' ? '/outside' : path
+      )
+      const handler = getHandler('fs:write-file-if-unchanged')
+
+      const result = await handler(writeEvent, '/proj/escape/readme.md', 'old', 'new')
+
+      expect(result).toEqual(
+        expect.objectContaining({ error: true, message: expect.stringMatching(/outside/) })
+      )
+      expect(mockAtomicTempWriteFile).not.toHaveBeenCalled()
+      expect(mockRename).not.toHaveBeenCalled()
     })
   })
 

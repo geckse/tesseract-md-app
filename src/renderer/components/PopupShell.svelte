@@ -19,7 +19,7 @@
   import {
     setupFileSyncListener,
     teardownFileSyncListener,
-    applyDiskContentToTab
+    applySavedContentToOpenTabs
   } from '../stores/file-sync'
   import DiffView from './DiffView.svelte'
   import ConvertTypeModal from './ConvertTypeModal.svelte'
@@ -257,13 +257,8 @@
     if (kind === 'document' && filePath) {
       window.api.onFileSavedExternally((data: { path: string; content: string }) => {
         const absolutePath = collectionPath ? `${collectionPath}/${filePath}` : filePath
-        if (!data.path.endsWith(filePath) && data.path !== absolutePath) return
-        const docTab = workspace.tabs[tabId]
-        if (!docTab || docTab.kind !== 'document') return
-
-        // Silently update — this is from another window in the same app
-        applyDiskContentToTab(docTab, data.content)
-        syncFileStoresFromTab()
+        if (data.path.replace(/\\/g, '/') !== absolutePath.replace(/\\/g, '/')) return
+        applySavedContentToOpenTabs(filePath, data.content)
       })
     }
     if (kind === 'asset' && mimeCategory === 'image' && filePath) {

@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/svelte'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 const setTableEphemeral = vi.fn()
 const openConvert = vi.fn()
@@ -7,6 +9,10 @@ const openRename = vi.fn()
 const openDrop = vi.fn()
 const applyOverlayFieldPatch = vi.fn()
 const editFormula = vi.fn()
+const tableHeaderSource = readFileSync(
+  resolve(__dirname, '../../src/renderer/components/table/TableHeader.svelte'),
+  'utf8'
+)
 
 vi.mock('../../src/renderer/stores/workspace.svelte', () => ({
   workspace: {
@@ -94,6 +100,18 @@ const formulaColumn: CollectionColumn = {
   result_type: 'Number'
 }
 
+const lookupColumn: CollectionColumn = {
+  ...statusColumn,
+  name: 'client_domain',
+  field_type: 'Lookup',
+  relation_field: 'client',
+  target_field: 'domain',
+  relation_direction: 'Outgoing',
+  relation_target: null,
+  formula: null,
+  result_type: null
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   cliFeatures.reset()
@@ -132,6 +150,21 @@ function renderHeader(columns: CollectionColumn[] = [statusColumn]) {
 }
 
 describe('TableHeader column menu (phase 41)', () => {
+  it('keeps the sticky Title header opaque above horizontally scrolled columns', () => {
+    renderHeader()
+
+    const titleHeader = screen.getByRole('columnheader', { name: 'Title' })
+    expect(titleHeader.classList.contains('title-cell')).toBe(true)
+
+    const pinnedRule = tableHeaderSource.match(/\.header-cell\.title-cell\s*\{([^}]*)\}/)?.[1]
+    expect(pinnedRule).toContain('position: sticky')
+    expect(pinnedRule).toContain('z-index: 2')
+    expect(pinnedRule).toContain('background: var(--color-surface)')
+
+    const hoverRule = tableHeaderSource.match(/\.header-cell\.title-cell:hover\s*\{([^}]*)\}/)?.[1]
+    expect(hoverRule).toContain('background: var(--color-surface-elevated)')
+  })
+
   it('sorts the Title column when its header is clicked', async () => {
     renderHeader()
     await fireEvent.click(screen.getByRole('columnheader', { name: 'Title' }))
@@ -173,6 +206,19 @@ describe('TableHeader column menu (phase 41)', () => {
       { kind: 'table', tabId: 't1', folderPath: 'docs' },
       'total'
     )
+  })
+
+  it('does not let an older CLI edit or remove an existing Lookup definition', async () => {
+    renderHeader([lookupColumn])
+    await fireEvent.click(screen.getByRole('button', { name: 'Column options for client_domain' }))
+
+    const edit = screen.getByRole('menuitem', { name: /Edit lookup/ }) as HTMLButtonElement
+    const drop = screen.getByRole('menuitem', { name: /Drop column/ }) as HTMLButtonElement
+    expect(edit.disabled).toBe(true)
+    expect(drop.disabled).toBe(true)
+
+    await fireEvent.mouseDown(drop)
+    expect(openDrop).not.toHaveBeenCalled()
   })
 
   it('routes ordinary columns through the same vault-wide Drop preview', async () => {

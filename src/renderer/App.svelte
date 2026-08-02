@@ -57,7 +57,7 @@
     setupFileSyncListener,
     teardownFileSyncListener,
     resetFileSyncState,
-    applyDiskContentToTab
+    applySavedContentToOpenTabs
   } from './stores/file-sync'
   import DiffView from './components/DiffView.svelte'
   import {
@@ -123,6 +123,10 @@
     setupShardInvalidationListener,
     teardownShardInvalidationListener
   } from './stores/shards'
+  import {
+    setupComputedEditorFlushListener,
+    setupComputedSchemaAppliedListener
+  } from './stores/computed-editor-flush'
 
   // ── Popup Mode Detection ──────────────────────────────────────────
   const popupParams = new URLSearchParams(window.location.search)
@@ -140,12 +144,22 @@
   // Split pane state is managed by workspace + SplitPaneContainer
 
   onMount(() => {
+    // One aggregate listener per renderer coordinates all editor pools and
+    // inactive workspace tabs before a computed-field transaction may start.
+    const teardownComputedEditorFlush = setupComputedEditorFlushListener()
+    const teardownComputedSchemaApplied = setupComputedSchemaAppliedListener()
+
     // Detect CLI capabilities (phase 42: relation UI gates on the CLI version).
     // Runs in popup windows too — popped-out tables also gate on it.
     void cliFeatures.init()
 
     // Popup windows render PopupShell — skip all heavyweight initialization
-    if (isPopupMode) return
+    if (isPopupMode) {
+      return () => {
+        teardownComputedEditorFlush()
+        teardownComputedSchemaApplied()
+      }
+    }
 
     // Load collections first, then restore tab session once the active collection is known.
     // restoreSession() validates file existence via the preload API, so it needs an active collection.
@@ -239,19 +253,15 @@
       loadCollectionTheme(id)
     })
 
-    // Listen for cross-window file saves — silently update matching open tabs
-    // (shares the same apply path as external live-updates)
+    // Cross-window saves share the external-update router: clean tabs update
+    // immediately; dirty tabs retain their edits and surface a conflict.
     window.api.onFileSavedExternally(({ path: savedPath, content }) => {
-      for (const tab of Object.values(workspace.tabs)) {
-        if (tab.kind !== 'document') continue
-        const coll = get(activeCollection)
-        if (!coll) continue
-        const absTabPath = `${coll.path}/${tab.filePath}`
-        if (savedPath !== absTabPath) continue
-
-        applyDiskContentToTab(tab, content)
-      }
-      syncFileStoresFromTab()
+      const collection = get(activeCollection)
+      if (!collection) return
+      const normalizedRoot = collection.path.replace(/\\/g, '/').replace(/\/+$/, '')
+      const normalizedSaved = savedPath.replace(/\\/g, '/')
+      if (!normalizedSaved.startsWith(`${normalizedRoot}/`)) return
+      applySavedContentToOpenTabs(normalizedSaved.slice(normalizedRoot.length + 1), content)
     })
     window.api.onImageSavedExternally(({ path: savedPath, result }) => {
       const collection = get(activeCollection)
@@ -717,6 +727,8 @@
       unsubTheme()
       unsubThemeTokens()
       cleanupSystemPref()
+      teardownComputedEditorFlush()
+      teardownComputedSchemaApplied()
     }
   })
 

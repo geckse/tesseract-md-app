@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtemp, readFile, writeFile, rm, access } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile, rm, access, symlink, link } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { parse as parseYaml } from 'yaml'
@@ -8,6 +8,8 @@ import {
   captureOverlaySnapshot,
   restoreOverlaySnapshot,
   resolveOverlayFormulaScope,
+  resolveOverlayLookupRollupDefinition,
+  resolveOverlayLookupRollupScope,
   upsertOverlayField,
   removeOverlayField,
   removeOverlayFieldEverywhere,
@@ -17,10 +19,12 @@ import {
   MalformedOverlayError,
   OVERLAY_FILENAME
 } from '../../src/main/schema-overlay'
+import { clearOwnWrites, matchAndConsumeOwnWrite } from '../../src/main/own-writes'
 
 let root: string
 
 beforeEach(async () => {
+  clearOwnWrites()
   root = await mkdtemp(join(tmpdir(), 'schema-overlay-'))
 })
 
@@ -33,6 +37,449 @@ async function readOverlay(): Promise<string> {
 }
 
 describe('upsertOverlayField', () => {
+  it('writes outgoing Lookup definitions without direction or scope', async () => {
+    await upsertOverlayField(root, 'contacts', 'client_domain', {
+      fieldType: 'lookup',
+      relationField: 'client',
+      targetField: 'domain',
+      relationDirection: null,
+      relationScope: null
+    })
+
+    expect(parseYaml(await readOverlay()).scopes.contacts.fields.client_domain).toEqual({
+      field_type: 'lookup',
+      relation_field: 'client',
+      target_field: 'domain'
+    })
+  })
+
+  it('writes incoming Rollup definitions and preserves adjacent comments', async () => {
+    await writeFile(join(root, OVERLAY_FILENAME), '# keep me\nfields: {}\n', 'utf-8')
+    await upsertOverlayField(root, 'clients', 'invoice_total', {
+      fieldType: 'rollup',
+      relationField: 'client',
+      targetField: 'total',
+      relationDirection: 'incoming',
+      relationScope: 'invoices',
+      formula: 'values.reduce((sum, value) => sum + value, 0)',
+      resultType: 'Number'
+    })
+
+    const raw = await readOverlay()
+    expect(raw).toContain('# keep me')
+    expect(parseYaml(raw).scopes.clients.fields.invoice_total).toEqual({
+      field_type: 'rollup',
+      relation_field: 'client',
+      target_field: 'total',
+      relation_direction: 'incoming',
+      relation_scope: 'invoices',
+      formula: 'values.reduce((sum, value) => sum + value, 0)',
+      result_type: 'number'
+    })
+  })
+
+  it('atomically renames and edits one Lookup pair while preserving comments and sibling bytes', async () => {
+    const source = [
+      '# schema header',
+      'scopes:',
+      '  contacts:',
+      '    fields:',
+      '      before:',
+      '        field_type: string # untouched sibling',
+      '      # keep definition comment',
+      '      client_domain:',
+      '        field_type: Lookup',
+      '        relation_field: client',
+      '        target_field: domain',
+      '      after:',
+      '        field_type: number',
+      '# schema footer',
+      ''
+    ].join('\n')
+    await writeFile(join(root, OVERLAY_FILENAME), source, 'utf-8')
+
+    await upsertOverlayField(
+      root,
+      'contacts',
+      'client_industry',
+      {
+        fieldType: 'lookup',
+        relationField: 'client',
+        targetField: 'industry',
+        relationDirection: null,
+        relationScope: null,
+        formula: null,
+        resultType: null
+      },
+      { previousKey: 'client_domain' }
+    )
+
+    const raw = await readOverlay()
+    const fields = parseYaml(raw).scopes.contacts.fields
+    expect(fields.client_domain).toBeUndefined()
+    expect(fields.client_industry).toEqual({
+      field_type: 'lookup',
+      relation_field: 'client',
+      target_field: 'industry'
+    })
+    expect(raw).toContain('# schema header')
+    expect(raw).toContain('# keep definition comment')
+    expect(raw).toContain('# schema footer')
+    expect(raw).toContain('      before:\n        field_type: string # untouched sibling\n')
+    expect(raw.indexOf('      before:')).toBeLessThan(raw.indexOf('      client_industry:'))
+    expect(raw.indexOf('      client_industry:')).toBeLessThan(raw.indexOf('      after:'))
+  })
+
+  it('rejects missing sources, kind changes, reserved names, and overlapping destination collisions without writing', async () => {
+    const source = [
+      'fields:',
+      '  global_collision:',
+      '    field_type: string',
+      'scopes:',
+      '  contacts:',
+      '    fields:',
+      '      client_domain:',
+      '        field_type: lookup',
+      '        relation_field: client',
+      '        target_field: domain',
+      '  contacts/vip:',
+      '    fields:',
+      '      child_collision:',
+      '        field_type: number',
+      '  projects:',
+      '    fields:',
+      '      sibling_only:',
+      '        field_type: string',
+      ''
+    ].join('\n')
+    await writeFile(join(root, OVERLAY_FILENAME), source, 'utf-8')
+    const lookupPatch = {
+      fieldType: 'lookup' as const,
+      relationField: 'client',
+      targetField: 'industry'
+    }
+
+    await expect(
+      upsertOverlayField(root, 'contacts', 'renamed', lookupPatch, {
+        previousKey: 'missing'
+      })
+    ).rejects.toThrow(/not defined at its resolved origin/)
+    await expect(
+      upsertOverlayField(
+        root,
+        'contacts',
+        'client_domain',
+        { ...lookupPatch, fieldType: 'rollup' },
+        { previousKey: 'client_domain' }
+      )
+    ).rejects.toThrow(/from lookup to rollup/)
+    await expect(
+      upsertOverlayField(root, 'contacts', 'global_collision', lookupPatch, {
+        previousKey: 'client_domain'
+      })
+    ).rejects.toThrow(/destination already exists.*global schema/)
+    await expect(
+      upsertOverlayField(root, 'contacts', 'child_collision', lookupPatch, {
+        previousKey: 'client_domain'
+      })
+    ).rejects.toThrow(/destination already exists.*contacts\/vip/)
+    await expect(
+      upsertOverlayField(root, 'contacts', 'title', lookupPatch, {
+        previousKey: 'client_domain'
+      })
+    ).rejects.toThrow(/reserved/)
+    await expect(
+      upsertOverlayField(root, 'contacts', 'bad\nkey', lookupPatch, {
+        previousKey: 'client_domain'
+      })
+    ).rejects.toThrow(/control characters/)
+
+    expect(await readOverlay()).toBe(source)
+  })
+
+  it('blocks a rename when other Lookup/Rollup definitions retrieve the old output key', async () => {
+    const source = [
+      '# dependency graph must stay intact',
+      'scopes:',
+      '  clients:',
+      '    fields:',
+      '      domain:',
+      '        field_type: Lookup',
+      '        relation_field: account',
+      '        target_field: hostname',
+      '  contacts:',
+      '    fields:',
+      '      client_domain:',
+      '        field_type: lookup',
+      '        relation_field: client',
+      '        target_field: domain',
+      '  reports:',
+      '    fields:',
+      '      domains:',
+      '        field_type: Rollup',
+      '        relation_field: contacts',
+      '        target_field: client_domain',
+      '        formula: values',
+      '        result_type: list',
+      ''
+    ].join('\n')
+    await writeFile(join(root, OVERLAY_FILENAME), source, 'utf-8')
+
+    await expect(
+      upsertOverlayField(
+        root,
+        'contacts',
+        'account_domain',
+        { fieldType: 'lookup', relationField: 'client', targetField: 'domain' },
+        { previousKey: 'client_domain' }
+      )
+    ).rejects.toThrow(/reports\.domains/)
+
+    expect(await readOverlay()).toBe(source)
+  })
+
+  it.each(['string', 'formula', 'lookup'])(
+    'create-only refuses to replace an existing %s overlay field',
+    async (fieldType) => {
+      const source = [
+        '# create must never become overwrite',
+        'fields:',
+        '  occupied:',
+        `    field_type: ${fieldType}`,
+        ...(fieldType === 'formula'
+          ? ['    formula: 1', '    result_type: number']
+          : fieldType === 'lookup'
+            ? ['    relation_field: client', '    target_field: domain']
+            : []),
+        ''
+      ].join('\n')
+      await writeFile(join(root, OVERLAY_FILENAME), source, 'utf-8')
+
+      await expect(
+        upsertOverlayField(
+          root,
+          'contacts',
+          'occupied',
+          { fieldType: 'lookup', relationField: 'client', targetField: 'domain' },
+          { requireAbsent: true }
+        )
+      ).rejects.toThrow(/Cannot create.*destination already exists/)
+
+      expect(await readOverlay()).toBe(source)
+    }
+  )
+
+  it('accepts an alias-authored source case-insensitively but blocks alias-authored downstream dependents', async () => {
+    const source = [
+      'scopes:',
+      '  contacts:',
+      '    fields:',
+      '      client_domain:',
+      '        type: Lookup',
+      '        relation_field: client',
+      '        target_field: domain',
+      ''
+    ].join('\n')
+    await writeFile(join(root, OVERLAY_FILENAME), source, 'utf-8')
+
+    expect(
+      await resolveOverlayLookupRollupDefinition(root, 'contacts/enterprise', 'client_domain')
+    ).toEqual({ scope: 'contacts', kind: 'lookup' })
+    await upsertOverlayField(
+      root,
+      'contacts',
+      'account_domain',
+      { fieldType: 'lookup', relationField: 'client', targetField: 'domain' },
+      { previousKey: 'client_domain' }
+    )
+    expect(parseYaml(await readOverlay()).scopes.contacts.fields.account_domain).toMatchObject({
+      type: 'Lookup',
+      field_type: 'lookup',
+      target_field: 'domain'
+    })
+
+    const withDependent = [
+      await readOverlay(),
+      '  reports:',
+      '    fields:',
+      '      copied_domain:',
+      '        type: LOOKUP',
+      '        relation_field: contact',
+      '        target_field: account_domain',
+      ''
+    ].join('\n')
+    // Append under the existing `scopes:` map; the serialized overlay ends
+    // with the contacts subtree and has no second top-level key.
+    await writeFile(join(root, OVERLAY_FILENAME), withDependent, 'utf-8')
+
+    await expect(
+      upsertOverlayField(
+        root,
+        'contacts',
+        'renamed_domain',
+        { fieldType: 'lookup', relationField: 'client', targetField: 'domain' },
+        { previousKey: 'account_domain' }
+      )
+    ).rejects.toThrow(/reports\.copied_domain/)
+    expect(await readOverlay()).toBe(withDependent)
+  })
+
+  it('fails closed on conflicting field_type/type semantics', async () => {
+    const source = [
+      'scopes:',
+      '  contacts:',
+      '    fields:',
+      '      client_domain:',
+      '        field_type: lookup',
+      '        type: rollup',
+      '        relation_field: client',
+      '        target_field: domain',
+      ''
+    ].join('\n')
+    await writeFile(join(root, OVERLAY_FILENAME), source, 'utf-8')
+
+    await expect(
+      resolveOverlayLookupRollupDefinition(root, 'contacts', 'client_domain')
+    ).rejects.toThrow(/Conflicting field_type\/type/)
+    await expect(
+      upsertOverlayField(
+        root,
+        'contacts',
+        'account_domain',
+        { fieldType: 'lookup', relationField: 'client', targetField: 'domain' },
+        { previousKey: 'client_domain' }
+      )
+    ).rejects.toThrow(/Conflicting field_type\/type/)
+    expect(await readOverlay()).toBe(source)
+  })
+
+  it('blocks ancestor and descendant same-key definitions but allows unrelated sibling scopes', async () => {
+    const base = [
+      'scopes:',
+      '  contacts:',
+      '    fields:',
+      '      client_domain: { field_type: lookup, relation_field: client, target_field: domain }',
+      '  contacts/vip:',
+      '    fields:',
+      '      client_domain: { field_type: lookup, relation_field: client, target_field: domain }',
+      '  projects:',
+      '    fields:',
+      '      client_domain: { field_type: lookup, relation_field: client, target_field: domain }',
+      ''
+    ].join('\n')
+    await writeFile(join(root, OVERLAY_FILENAME), base, 'utf-8')
+
+    await expect(
+      upsertOverlayField(
+        root,
+        'contacts',
+        'account_domain',
+        { fieldType: 'lookup', relationField: 'client', targetField: 'domain' },
+        { previousKey: 'client_domain' }
+      )
+    ).rejects.toThrow(/contacts\/vip/)
+    await expect(
+      upsertOverlayField(
+        root,
+        'contacts/vip',
+        'account_domain',
+        { fieldType: 'lookup', relationField: 'client', targetField: 'domain' },
+        { previousKey: 'client_domain' }
+      )
+    ).rejects.toThrow(/overlapping overlay scopes: contacts/)
+    expect(await readOverlay()).toBe(base)
+
+    await removeOverlayField(root, 'contacts/vip', 'client_domain')
+    await upsertOverlayField(
+      root,
+      'contacts',
+      'account_domain',
+      { fieldType: 'lookup', relationField: 'client', targetField: 'domain' },
+      { previousKey: 'client_domain' }
+    )
+    const parsed = parseYaml(await readOverlay())
+    expect(parsed.scopes.contacts.fields.account_domain.field_type).toBe('lookup')
+    expect(parsed.scopes.projects.fields.client_domain.field_type).toBe('lookup')
+  })
+
+  it('blocks a self-named target conservatively and identifies the source definition', async () => {
+    const source = [
+      'scopes:',
+      '  contacts:',
+      '    fields:',
+      '      client_domain:',
+      '        field_type: lookup',
+      '        relation_field: client',
+      '        target_field: client_domain',
+      ''
+    ].join('\n')
+    await writeFile(join(root, OVERLAY_FILENAME), source, 'utf-8')
+
+    await expect(
+      upsertOverlayField(
+        root,
+        'contacts',
+        'account_domain',
+        { fieldType: 'lookup', relationField: 'client', targetField: 'domain' },
+        { previousKey: 'client_domain' }
+      )
+    ).rejects.toThrow(/contacts\.client_domain/)
+    expect(await readOverlay()).toBe(source)
+  })
+
+  it('exposes exact prepared/published generations so a post-publication failure rolls back byte-for-byte', async () => {
+    const source = [
+      '# preserve this exact generation',
+      'scopes:',
+      '  contacts:',
+      '    fields:',
+      '      client_domain: { field_type: lookup, relation_field: client, target_field: domain }',
+      ''
+    ].join('\n')
+    await writeFile(join(root, OVERLAY_FILENAME), source, 'utf-8')
+    let prepared: Awaited<ReturnType<typeof captureOverlaySnapshot>> | undefined
+    let published: Awaited<ReturnType<typeof captureOverlaySnapshot>> | undefined
+
+    await expect(
+      upsertOverlayField(
+        root,
+        'contacts',
+        'client_industry',
+        { fieldType: 'lookup', relationField: 'client', targetField: 'industry' },
+        {
+          previousKey: 'client_domain',
+          onPrepared: (snapshot) => {
+            prepared = snapshot
+          },
+          onPublished: (snapshot) => {
+            published = snapshot
+            throw new Error('simulated failure after publication')
+          }
+        }
+      )
+    ).rejects.toThrow('simulated failure after publication')
+
+    expect(prepared).toEqual({ existed: true, content: source })
+    expect(published?.content).toContain('client_industry')
+    expect(await readOverlay()).toBe(published?.content)
+    await restoreOverlaySnapshot(root, prepared!, published!)
+    expect(await readOverlay()).toBe(source)
+  })
+
+  it('rejects blank relation fields, invalid directions, and trailing relation scopes', async () => {
+    await expect(upsertOverlayField(root, null, 'bad', { relationField: ' ' })).rejects.toThrow(
+      'Relation field'
+    )
+    await expect(
+      upsertOverlayField(root, null, 'bad', {
+        relationDirection: 'sideways' as 'incoming'
+      })
+    ).rejects.toThrow('Invalid relation direction')
+    await expect(
+      upsertOverlayField(root, null, 'bad', { relationScope: 'invoices/' })
+    ).rejects.toThrow('Relation scopes')
+  })
+
   it('writes formula source and result type without disturbing comments', async () => {
     await writeFile(
       join(root, OVERLAY_FILENAME),
@@ -214,6 +661,93 @@ describe('upsertOverlayField', () => {
 
     expect(await readOverlay()).toBe(source)
   })
+
+  it.runIf(process.platform !== 'win32')(
+    'refuses symlinked and hard-linked overlay targets without changing either source',
+    async () => {
+      const symbolicSource = join(root, 'symbolic-source.yml')
+      const hardSource = join(root, 'hard-source.yml')
+      const original = 'fields:\n  keep:\n    field_type: string\n'
+
+      await writeFile(symbolicSource, original, 'utf-8')
+      await symlink(symbolicSource, join(root, OVERLAY_FILENAME))
+      await expect(
+        upsertOverlayField(root, null, 'danger', { fieldType: 'string' })
+      ).rejects.toThrow(/symbolic-link/)
+      expect(await readFile(symbolicSource, 'utf-8')).toBe(original)
+      expect(
+        matchAndConsumeOwnWrite(join(root, OVERLAY_FILENAME), 'modified', { size: null })
+      ).toBe(false)
+
+      await rm(join(root, OVERLAY_FILENAME))
+      await writeFile(hardSource, original, 'utf-8')
+      await link(hardSource, join(root, OVERLAY_FILENAME))
+      await expect(
+        upsertOverlayField(root, null, 'danger', { fieldType: 'string' })
+      ).rejects.toThrow(/hard-linked/)
+      expect(await readFile(hardSource, 'utf-8')).toBe(original)
+      expect(
+        matchAndConsumeOwnWrite(join(root, OVERLAY_FILENAME), 'modified', { size: null })
+      ).toBe(false)
+    }
+  )
+
+  it('rechecks the exact overlay baseline immediately before publication', async () => {
+    const original = 'fields:\n  original:\n    field_type: string\n'
+    const concurrent =
+      '# concurrent editor generation\nfields: { concurrent: { field_type: number } }\n'
+    await writeFile(join(root, OVERLAY_FILENAME), original, 'utf-8')
+
+    await expect(
+      upsertOverlayField(
+        root,
+        null,
+        'danger',
+        { fieldType: 'string' },
+        {
+          beforeCommit: async () => {
+            await writeFile(join(root, OVERLAY_FILENAME), concurrent, 'utf-8')
+          }
+        }
+      )
+    ).rejects.toThrow(/changed.*refusing to overwrite/)
+
+    expect(await readOverlay()).toBe(concurrent)
+    expect(matchAndConsumeOwnWrite(join(root, OVERLAY_FILENAME), 'modified', { size: null })).toBe(
+      false
+    )
+  })
+})
+
+describe('resolveOverlayLookupRollupScope', () => {
+  it('resolves the most-specific computed origin and respects ordinary masking', async () => {
+    await upsertOverlayField(root, null, 'domain', {
+      fieldType: 'lookup',
+      relationField: 'client',
+      targetField: 'domain'
+    })
+    await upsertOverlayField(root, 'contacts/vip', 'domain', {
+      fieldType: 'rollup',
+      relationField: 'clients',
+      targetField: 'domain',
+      formula: 'values[0] ?? null',
+      resultType: 'String'
+    })
+
+    expect(await resolveOverlayLookupRollupScope(root, 'contacts', 'domain')).toBeNull()
+    expect(await resolveOverlayLookupRollupScope(root, 'contacts/vip', 'domain')).toBe(
+      'contacts/vip'
+    )
+    expect(await resolveOverlayLookupRollupDefinition(root, 'contacts/vip', 'domain')).toEqual({
+      scope: 'contacts/vip',
+      kind: 'rollup'
+    })
+
+    await upsertOverlayField(root, 'contacts/vip/private', 'domain', { fieldType: 'string' })
+    expect(
+      await resolveOverlayLookupRollupScope(root, 'contacts/vip/private', 'domain')
+    ).toBeUndefined()
+  })
 })
 
 describe('removeOverlayField', () => {
@@ -368,6 +902,59 @@ describe('formula overlay resolution and rollback', () => {
     await restoreOverlaySnapshot(root, snapshot)
 
     await expect(access(join(root, OVERLAY_FILENAME))).rejects.toThrow()
+  })
+
+  it('CAS-restores only while the mutated overlay is still current', async () => {
+    const original = 'fields: { original: { field_type: string } }\n'
+    const mutated = 'fields: { computed: { field_type: formula, formula: 1 } }\n'
+    await writeFile(join(root, OVERLAY_FILENAME), original, 'utf-8')
+    const originalSnapshot = await captureOverlaySnapshot(root)
+    await writeFile(join(root, OVERLAY_FILENAME), mutated, 'utf-8')
+    const mutatedSnapshot = await captureOverlaySnapshot(root)
+
+    await restoreOverlaySnapshot(root, originalSnapshot, mutatedSnapshot)
+
+    expect(await readOverlay()).toBe(original)
+  })
+
+  it('refuses rollback after a concurrent overlay edit', async () => {
+    const original = 'fields: { original: { field_type: string } }\n'
+    const mutated = 'fields: { computed: { field_type: formula, formula: 1 } }\n'
+    const concurrent = '# external edit\nfields: {}\n'
+    await writeFile(join(root, OVERLAY_FILENAME), original, 'utf-8')
+    const originalSnapshot = await captureOverlaySnapshot(root)
+    await writeFile(join(root, OVERLAY_FILENAME), mutated, 'utf-8')
+    const mutatedSnapshot = await captureOverlaySnapshot(root)
+    await writeFile(join(root, OVERLAY_FILENAME), concurrent, 'utf-8')
+
+    await expect(restoreOverlaySnapshot(root, originalSnapshot, mutatedSnapshot)).rejects.toThrow(
+      'refusing to overwrite'
+    )
+    expect(await readOverlay()).toBe(concurrent)
+  })
+
+  it('rechecks rollback CAS immediately before publication and preserves the racing generation', async () => {
+    const original = 'fields: { original: { field_type: string } }\n'
+    const mutated = 'fields: { computed: { field_type: formula, formula: 1 } }\n'
+    const concurrent =
+      '# external edit during rollback\nfields: { newer: { field_type: number } }\n'
+    await writeFile(join(root, OVERLAY_FILENAME), original, 'utf-8')
+    const originalSnapshot = await captureOverlaySnapshot(root)
+    await writeFile(join(root, OVERLAY_FILENAME), mutated, 'utf-8')
+    const mutatedSnapshot = await captureOverlaySnapshot(root)
+
+    await expect(
+      restoreOverlaySnapshot(root, originalSnapshot, mutatedSnapshot, {
+        beforeCommit: async () => {
+          await writeFile(join(root, OVERLAY_FILENAME), concurrent, 'utf-8')
+        }
+      })
+    ).rejects.toThrow(/changed.*refusing to overwrite/)
+
+    expect(await readOverlay()).toBe(concurrent)
+    expect(matchAndConsumeOwnWrite(join(root, OVERLAY_FILENAME), 'modified', { size: null })).toBe(
+      false
+    )
   })
 })
 

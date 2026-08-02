@@ -34,9 +34,10 @@ function column(name: string): CollectionColumn {
 function renderModal(folderPath = 'docs', columns: CollectionColumn[] = [column('status')]) {
   const tabId = workspace.openTableTab(folderPath)
   const onformula = vi.fn()
+  const oncomputed = vi.fn()
   const onclose = vi.fn()
-  render(AddColumnModal, { props: { tabId, columns, onformula, onclose } })
-  return { tabId, onformula, onclose }
+  render(AddColumnModal, { props: { tabId, columns, onformula, oncomputed, onclose } })
+  return { tabId, onformula, oncomputed, onclose }
 }
 
 async function setName(value: string): Promise<void> {
@@ -49,6 +50,15 @@ describe('AddColumnModal', () => {
     workspace.reset()
     cliFeatures.reset()
     cliFeatures.version = '0.2.0'
+    cliFeatures.modules = [
+      {
+        id: 'lookup_rollup',
+        name: 'Lookup & Rollup',
+        version: 1,
+        always_on: true,
+        hooks: []
+      }
+    ]
   })
 
   it('offers the durable database field types', () => {
@@ -64,10 +74,23 @@ describe('AddColumnModal', () => {
       'Relation',
       'File',
       'JSON',
-      'Formula'
+      'Formula',
+      'Lookup',
+      'Rollup'
     ]) {
       expect(screen.getByRole('radio', { name: new RegExp(`^${name}`) })).toBeTruthy()
     }
+  })
+
+  it('hands Lookup/Rollup names to the shared computed definition flow', async () => {
+    const { oncomputed, onclose } = renderModal()
+    await setName('client_domain')
+    await fireEvent.click(screen.getByRole('radio', { name: /^Lookup/ }))
+    await fireEvent.click(screen.getByRole('button', { name: 'Continue to lookup' }))
+
+    expect(openAdd).not.toHaveBeenCalled()
+    expect(oncomputed).toHaveBeenCalledWith('lookup', 'client_domain')
+    expect(onclose).toHaveBeenCalledOnce()
   })
 
   it('opens the recursive Add property flow for an ordinary column', async () => {
@@ -147,5 +170,15 @@ describe('AddColumnModal', () => {
     expect(screen.queryByRole('radio', { name: /^File/ })).toBeNull()
     expect(screen.getByRole('radio', { name: /^Relation/ })).toBeTruthy()
     expect(screen.getByRole('radio', { name: /^Formula/ })).toBeTruthy()
+    expect(screen.getByRole('radio', { name: /^Lookup/ })).toBeTruthy()
+    expect(screen.getByRole('radio', { name: /^Rollup/ })).toBeTruthy()
+  })
+
+  it('hides Lookup/Rollup when the module descriptor is absent', () => {
+    cliFeatures.modules = []
+    renderModal()
+
+    expect(screen.queryByRole('radio', { name: /^Lookup/ })).toBeNull()
+    expect(screen.queryByRole('radio', { name: /^Rollup/ })).toBeNull()
   })
 })

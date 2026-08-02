@@ -18,14 +18,17 @@
   let toggling = $state(false)
   watcherToggling.subscribe((v) => (toggling = v))
 
-  let formulaSummary = $state<string | null>(null)
+  let computedSummary = $state<string | null>(null)
   watcherEvents.subscribe((events) => {
     const report = events
       .filter((event) => event.type === 'watch-event')
       .flatMap((event) => event.data.module_reports ?? [])
-      .find((moduleReport) => moduleReport.module === 'formula')
-    formulaSummary = report
-      ? `Formula: ${report.fields_updated} fields updated, ${report.diagnostics.length} diagnostics`
+      .find(
+        (moduleReport) =>
+          moduleReport.module === 'formula' || moduleReport.module === 'lookup_rollup'
+      )
+    computedSummary = report
+      ? `${report.module === 'formula' ? 'Formula' : 'Lookup & Rollup'}: ${report.fields_updated} fields updated, ${report.diagnostics.length} diagnostics`
       : null
   })
 
@@ -49,7 +52,7 @@
   class:running={currentState === 'running'}
   class:error={currentState === 'error'}
   disabled={toggling || currentState === 'starting'}
-  title={currentError ?? formulaSummary ?? `Watcher: ${currentState}`}
+  title={currentError ?? computedSummary ?? `Watcher: ${currentState}`}
   onclick={handleClick}
 >
   <span
@@ -59,7 +62,9 @@
     class:dot-running={currentState === 'running'}
     class:dot-error={currentState === 'error'}
   ></span>
-  {#if formulaSummary}<span class="formula-activity" aria-hidden="true">ƒx</span>{/if}
+  {#if computedSummary}<span class="formula-activity" aria-hidden="true"
+      >{computedSummary.startsWith('Formula') ? 'ƒx' : 'Σ'}</span
+    >{/if}
   {stateLabel[currentState]}
 </button>
 

@@ -5,7 +5,7 @@
  * flags, and parses the JSON output into typed TypeScript objects.
  */
 
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
 import { access, constants as fsConstants } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -48,6 +48,13 @@ export interface ExecRawResult {
   stdout: string
   stderr: string
   exitCode: number
+}
+
+/** Result of a trusted overlay mutation performed while the CLI owns the
+ * same project lock used by ingest, watch, and module runs. */
+export interface ModuleTransactionResult<T> {
+  value: T
+  response: unknown
 }
 
 /**
@@ -306,6 +313,117 @@ export async function execCommand<T>(
 
   // Should never reach here, but TypeScript needs this
   throw lastError ?? new Error('Unexpected error in execCommand')
+}
+
+/**
+ * Hold mdvdb's cross-process module lock while `mutate` updates the schema
+ * overlay, then ask that same CLI process to run the dependency-aware module
+ * pipeline before releasing the lock. The hidden transaction subcommand uses
+ * stdin only as a one-word commit/abort signal; no user content is interpreted
+ * as shell input.
+ */
+export async function execModuleTransaction<T>(
+  root: string,
+  moduleId: 'formula' | 'lookup_rollup',
+  scope: string | null,
+  mutate: () => Promise<T>,
+  timeout = 300_000
+): Promise<ModuleTransactionResult<T>> {
+  const cliPath = await findCli()
+  const args = ['modules', '--json', '--root', root, 'transaction', moduleId]
+  if (scope) args.push('--path', scope)
+
+  const child = spawn(cliPath, args, {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: { ...process.env },
+    windowsHide: true
+  })
+  let stdout = ''
+  let stderr = ''
+  let readyOffset = -1
+  let readyResolve: (() => void) | null = null
+  let readyReject: ((error: Error) => void) | null = null
+  const ready = new Promise<void>((resolve, reject) => {
+    readyResolve = resolve
+    readyReject = reject
+  })
+  const exited = new Promise<number>((resolve, reject) => {
+    child.once('error', reject)
+    child.once('exit', (code, signal) => {
+      if (code === null) {
+        reject(
+          new CliExecutionError(`Module transaction terminated by ${signal ?? 'signal'}`, 1, stderr)
+        )
+      } else {
+        resolve(code)
+      }
+    })
+  })
+  const timer = setTimeout(() => {
+    child.kill()
+    readyReject?.(new CliTimeoutError(`Module transaction timed out after ${timeout}ms.`))
+  }, timeout)
+
+  child.stderr.setEncoding('utf8')
+  child.stderr.on('data', (chunk: string) => {
+    stderr += chunk
+  })
+  child.stdout.setEncoding('utf8')
+  child.stdout.on('data', (chunk: string) => {
+    stdout += chunk
+    if (readyOffset >= 0) return
+    let offset = 0
+    for (const line of stdout.split(/(?<=\n)/)) {
+      offset += line.length
+      if (!line.endsWith('\n')) continue
+      try {
+        const value = JSON.parse(line.trim()) as { status?: unknown }
+        if (value.status === 'locked') {
+          readyOffset = offset
+          readyResolve?.()
+          return
+        }
+      } catch {
+        // Ignore diagnostics accidentally written before the protocol line.
+      }
+    }
+  })
+
+  let committed = false
+  try {
+    await Promise.race([
+      ready,
+      exited.then((code) => {
+        throw new CliExecutionError(
+          `Module transaction exited before acquiring the lock (code ${code})`,
+          code,
+          stderr
+        )
+      })
+    ])
+    const value = await mutate()
+    committed = true
+    child.stdin.end('run\n')
+    const code = await exited
+    if (code !== 0) {
+      throw new CliExecutionError(
+        `Module transaction failed: ${executionErrorDetail(undefined, stderr)}`,
+        code,
+        stderr
+      )
+    }
+    const payload = stdout.slice(readyOffset).trim()
+    if (!payload) throw new CliParseError('Module transaction returned no module report')
+    return { value, response: parseCommandJson(payload) }
+  } catch (error) {
+    if (!committed && child.stdin.writable) {
+      child.stdin.end('abort\n')
+      await exited.catch(() => undefined)
+    }
+    throw error
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 /**

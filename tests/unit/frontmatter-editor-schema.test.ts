@@ -523,7 +523,7 @@ describe('DocumentHeader schema integration', () => {
     expect(onFrontmatterUpdate).not.toHaveBeenCalled()
   })
 
-  it('preserves exact Formula YAML nodes when an ordinary sibling is edited', async () => {
+  it('preserves exact Formula, Lookup, and Rollup YAML nodes when an ordinary sibling is edited', async () => {
     const onFrontmatterUpdate = vi.fn()
     const schema = makeSchema([
       makeSchemaField({ name: 'price', field_type: 'Number' }),
@@ -538,6 +538,22 @@ describe('DocumentHeader schema integration', () => {
         field_type: 'Formula',
         formula: '({ nested: sequence })',
         result_type: 'Json'
+      }),
+      makeSchemaField({
+        name: 'lookup_payload',
+        field_type: 'Lookup',
+        relation_field: 'client',
+        target_field: 'payload',
+        relation_direction: 'Outgoing'
+      }),
+      makeSchemaField({
+        name: 'rollup_total',
+        field_type: 'Rollup',
+        relation_field: 'invoices',
+        target_field: 'total',
+        relation_direction: 'Outgoing',
+        formula: 'values.reduce((sum, value) => sum + value, 0)',
+        result_type: 'Number'
       })
     ])
     const frontmatterYaml = [
@@ -546,7 +562,11 @@ describe('DocumentHeader schema integration', () => {
       'payload:',
       '  nested: 9007199254740993',
       '  values:',
-      '    - 0.10000000000000001'
+      '    - 0.10000000000000001',
+      'lookup_payload:',
+      '  - domain: example.com',
+      '    exact: 9007199254740993',
+      'rollup_total: 1234567890.123456789012345678 # aggregate'
     ].join('\n')
 
     render(DocumentHeader, {
@@ -558,6 +578,11 @@ describe('DocumentHeader schema integration', () => {
       }
     })
 
+    const lookupValue = screen.getByLabelText('Lookup value for lookup_payload')
+    const lookupIcon = lookupValue.querySelector('.pr-formula-mark')
+    expect(lookupIcon?.textContent).toContain('arrow_outward')
+    expect(lookupIcon?.classList.contains('material-symbols-outlined')).toBe(true)
+
     await fireEvent.input(screen.getByRole('spinbutton', { name: 'price value' }), {
       target: { value: '2' }
     })
@@ -568,6 +593,10 @@ describe('DocumentHeader schema integration', () => {
     expect(updated).toContain(
       'payload:\n  nested: 9007199254740993\n  values:\n    - 0.10000000000000001'
     )
+    expect(updated).toContain(
+      'lookup_payload:\n  - domain: example.com\n    exact: 9007199254740993'
+    )
+    expect(updated).toContain('rollup_total: 1234567890.123456789012345678 # aggregate')
   })
 
   it('sets title attribute from schema field description', () => {

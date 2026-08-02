@@ -15,9 +15,10 @@
 
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
-import { Document, isMap, parseDocument } from 'yaml'
-import { atomicWriteFile } from './atomic-write'
+import { Document, isMap, isScalar, parseDocument } from 'yaml'
+import { atomicDeleteFile, atomicWriteFile } from './atomic-write'
 import { registerOwnWrite } from './own-writes'
+import { withSerializedFileWrite } from './file-write-queue'
 import type { OverlayFieldPatch } from '../preload/api'
 import {
   PROPERTY_VALUE_ACCENT_COLOR_COUNT,
@@ -49,8 +50,12 @@ const VALID_FIELD_TYPES = new Set([
   'json',
   'relation',
   'file',
-  'formula'
+  'formula',
+  'lookup',
+  'rollup'
 ])
+
+const VALID_RELATION_DIRECTIONS = new Set(['outgoing', 'incoming'])
 
 const VALID_FORMULA_RESULT_TYPES = new Set([
   'String',
@@ -62,7 +67,60 @@ const VALID_FORMULA_RESULT_TYPES = new Set([
   'Json'
 ])
 
-async function loadOverlayDocument(root: string): Promise<{ doc: Document; existed: boolean }> {
+export interface OverlaySnapshot {
+  existed: boolean
+  content: string | null
+}
+
+export interface OverlayMutationOptions {
+  /** Exact generation this mutation was prepared from. Callers that may need
+   * to roll back must use this snapshot rather than racing a separate read. */
+  onPrepared?: (snapshot: OverlaySnapshot) => void
+  /** Final coordination hook, primarily for deterministic race tests. The
+   * exact-baseline CAS always runs after this hook. */
+  beforeCommit?: () => void | Promise<void>
+  /** Called synchronously once the new overlay generation is visible, even if
+   * the subsequent directory fsync reports an error. */
+  onPublished?: (snapshot: OverlaySnapshot) => void
+  /** Rename an existing Lookup/Rollup definition while applying `patch`.
+   * The source must exist at `scopeKey`, retain its computed kind, and the
+   * destination must not collide with any overlay field whose scope overlaps
+   * the source definition's effective subtree. */
+  previousKey?: string
+  /** Create-only guard. The destination must be absent from every overlay
+   * layer overlapping `scopeKey` in the same generation being published. */
+  requireAbsent?: boolean
+}
+
+function snapshotsEqual(left: OverlaySnapshot, right: OverlaySnapshot): boolean {
+  return left.existed === right.existed && left.content === right.content
+}
+
+function overlayChangedError(context: string): Error {
+  return new Error(
+    `${OVERLAY_FILENAME} changed ${context}; refusing to overwrite the newer overlay.`
+  )
+}
+
+function revokeOwnWrite(callback: unknown): void {
+  if (typeof callback === 'function') callback()
+}
+
+async function captureOverlaySnapshotUnlocked(root: string): Promise<OverlaySnapshot> {
+  const path = join(root, OVERLAY_FILENAME)
+  try {
+    return { existed: true, content: await fs.readFile(path, 'utf-8') }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { existed: false, content: null }
+    }
+    throw error
+  }
+}
+
+async function loadOverlayDocument(
+  root: string
+): Promise<{ doc: Document; existed: boolean; snapshot: OverlaySnapshot }> {
   const path = join(root, OVERLAY_FILENAME)
   let raw: string | null = null
   try {
@@ -71,7 +129,8 @@ async function loadOverlayDocument(root: string): Promise<{ doc: Document; exist
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
   }
   if (raw === null) {
-    return { doc: new Document({}), existed: false }
+    const snapshot = { existed: false, content: null } as const
+    return { doc: new Document({}), existed: false, snapshot }
   }
   const doc = parseDocument(raw)
   if (doc.errors.length > 0) throw new MalformedOverlayError()
@@ -83,20 +142,226 @@ async function loadOverlayDocument(root: string): Promise<{ doc: Document; exist
   } else if (!isMap(doc.contents)) {
     throw new MalformedOverlayError()
   }
-  return { doc, existed: true }
+  return { doc, existed: true, snapshot: { existed: true, content: raw } }
 }
 
-/** Atomic write of the overlay document (dotfile temp + rename + own-write). */
-async function writeOverlayDocument(root: string, doc: Document): Promise<void> {
+/**
+ * Serialize publication of one exact overlay generation. The baseline is
+ * checked after entering the per-file queue and again immediately before the
+ * atomic rename. A stale app window therefore fails closed instead of erasing
+ * another window's schema edit.
+ */
+async function writeOverlayDocument(
+  root: string,
+  doc: Document,
+  expected: OverlaySnapshot,
+  options: OverlayMutationOptions = {}
+): Promise<OverlaySnapshot> {
   const path = join(root, OVERLAY_FILENAME)
   const content = doc.toString()
-  registerOwnWrite(path, 'write', content)
-  await atomicWriteFile(path, content)
+  const publishedSnapshot: OverlaySnapshot = { existed: true, content }
+  return withSerializedFileWrite(path, async () => {
+    if (!snapshotsEqual(await captureOverlaySnapshotUnlocked(root), expected)) {
+      throw overlayChangedError('after this edit was prepared')
+    }
+
+    let cancelOwnWrite: (() => void) | null = null
+    let published = false
+    try {
+      await atomicWriteFile(path, content, {
+        allowedRoot: root,
+        beforeCommit: async () => {
+          await options.beforeCommit?.()
+          if (!snapshotsEqual(await captureOverlaySnapshotUnlocked(root), expected)) {
+            throw overlayChangedError('before this edit could be committed')
+          }
+          cancelOwnWrite = registerOwnWrite(path, 'write', content)
+        },
+        onPublished: () => {
+          published = true
+          options.onPublished?.(publishedSnapshot)
+        }
+      })
+    } catch (error) {
+      if (!published) revokeOwnWrite(cancelOwnWrite)
+      throw error
+    }
+    return publishedSnapshot
+  })
 }
 
 /** The YAML path to a field's map for a scope (`null` = global `fields:`). */
 function fieldPath(scopeKey: string | null, key: string): (string | number)[] {
   return scopeKey === null ? ['fields', key] : ['scopes', scopeKey, 'fields', key]
+}
+
+function yamlKeyValue(value: unknown): unknown {
+  if (typeof value === 'object' && value !== null && 'value' in value) {
+    return (value as { value?: unknown }).value
+  }
+  return value
+}
+
+function validateComputedFieldKey(key: string, label: string): void {
+  if (key.trim() === '') throw new Error(`${label} is required`)
+  if (key !== key.trim()) throw new Error(`${label} cannot start or end with spaces`)
+  if (
+    [...key].some((character) => {
+      const code = character.codePointAt(0) ?? 0
+      return code <= 0x1f || code === 0x7f
+    })
+  ) {
+    throw new Error(`${label} cannot contain control characters`)
+  }
+  if (key === 'title' || key === 'path') {
+    throw new Error(`"${key}" is reserved and cannot be a computed field`)
+  }
+}
+
+function normalizedOverlayFieldType(
+  fieldType: unknown,
+  typeAlias: unknown,
+  location: string
+): string | undefined {
+  const normalize = (value: unknown, key: 'field_type' | 'type'): string | undefined => {
+    if (value === undefined) return undefined
+    if (typeof value !== 'string') {
+      throw new Error(`Expected ${location}.${key} to be a string`)
+    }
+    return value.toLowerCase()
+  }
+  const primary = normalize(fieldType, 'field_type')
+  const alias = normalize(typeAlias, 'type')
+  if (primary !== undefined && alias !== undefined && primary !== alias) {
+    throw new Error(
+      `Conflicting field_type/type definitions at ${location}: "${fieldType}" vs "${typeAlias}"`
+    )
+  }
+  return primary ?? alias
+}
+
+function scopeDomainsOverlap(left: string | null, right: string | null): boolean {
+  if (left === null || right === null) return true
+  return scopeMatchesPath(left, right) || scopeMatchesPath(right, left)
+}
+
+/** Find a destination field that would overlap the renamed definition's
+ * effective scope. A global definition overlaps every folder; scoped
+ * definitions overlap ancestors and descendants but not sibling trees. */
+function findOverlayFieldCollision(
+  doc: Document,
+  sourceScope: string | null,
+  key: string
+): string | null | undefined {
+  const globalFields = doc.getIn(['fields'], true)
+  if (globalFields !== undefined && !isMap(globalFields)) {
+    throw new Error('Expected YAML collection at fields')
+  }
+  if (doc.hasIn(fieldPath(null, key))) return null
+
+  const scopes = doc.getIn(['scopes'], true)
+  if (scopes === undefined) return undefined
+  if (!isMap(scopes)) throw new Error('Expected YAML collection at scopes')
+
+  for (const item of scopes.items) {
+    const scope = yamlKeyValue(item.key)
+    if (typeof scope !== 'string') throw new Error('Overlay scope keys must be strings')
+    if (!scopeDomainsOverlap(sourceScope, scope)) continue
+    const fields = doc.getIn(['scopes', scope, 'fields'], true)
+    if (fields !== undefined && !isMap(fields)) {
+      throw new Error(`Expected YAML collection at scopes.${scope}.fields`)
+    }
+    if (doc.hasIn(fieldPath(scope, key))) return scope
+  }
+  return undefined
+}
+
+function overlappingOverlayFieldsWithKey(
+  doc: Document,
+  sourceScope: string | null,
+  key: string
+): string[] {
+  const matches: string[] = []
+  const globalFields = doc.getIn(['fields'], true)
+  if (globalFields !== undefined && !isMap(globalFields)) {
+    throw new Error('Expected YAML collection at fields')
+  }
+  if (sourceScope !== null && doc.hasIn(fieldPath(null, key))) matches.push('global')
+
+  const scopes = doc.getIn(['scopes'], true)
+  if (scopes === undefined) return matches
+  if (!isMap(scopes)) throw new Error('Expected YAML collection at scopes')
+  for (const item of scopes.items) {
+    const scope = yamlKeyValue(item.key)
+    if (typeof scope !== 'string') throw new Error('Overlay scope keys must be strings')
+    if (scope === sourceScope || !scopeDomainsOverlap(sourceScope, scope)) continue
+    const fields = doc.getIn(['scopes', scope, 'fields'], true)
+    if (fields !== undefined && !isMap(fields)) {
+      throw new Error(`Expected YAML collection at scopes.${scope}.fields`)
+    }
+    if (doc.hasIn(fieldPath(scope, key))) matches.push(scope)
+  }
+  return matches.sort()
+}
+
+function lookupRollupDependents(doc: Document, sourceKey: string): string[] {
+  const dependents: string[] = []
+  const inspectFields = (scope: string | null, fields: unknown): void => {
+    if (fields === undefined) return
+    if (!isMap(fields)) {
+      const location = scope === null ? 'fields' : `scopes.${scope}.fields`
+      throw new Error(`Expected YAML collection at ${location}`)
+    }
+    for (const item of fields.items) {
+      const field = yamlKeyValue(item.key)
+      if (typeof field !== 'string') throw new Error('Overlay field keys must be strings')
+      if (!isMap(item.value)) {
+        const location = scope === null ? field : `scopes.${scope}.fields.${field}`
+        throw new Error(`Expected YAML collection at ${location}`)
+      }
+      const location = scope === null ? `fields.${field}` : `scopes.${scope}.fields.${field}`
+      const fieldType = normalizedOverlayFieldType(
+        item.value.get('field_type'),
+        item.value.get('type'),
+        location
+      )
+      if (fieldType !== 'lookup' && fieldType !== 'rollup') continue
+      if (item.value.get('target_field') !== sourceKey) continue
+      dependents.push(scope === null ? `global.${field}` : `${scope}.${field}`)
+    }
+  }
+
+  inspectFields(null, doc.getIn(['fields'], true))
+  const scopes = doc.getIn(['scopes'], true)
+  if (scopes === undefined) return dependents
+  if (!isMap(scopes)) throw new Error('Expected YAML collection at scopes')
+  for (const item of scopes.items) {
+    const scope = yamlKeyValue(item.key)
+    if (typeof scope !== 'string') throw new Error('Overlay scope keys must be strings')
+    if (!isMap(item.value)) throw new Error(`Expected YAML collection at scopes.${scope}`)
+    inspectFields(scope, item.value.get('fields', true))
+  }
+  return dependents.sort()
+}
+
+/** Rename a key in place so Pair/value comments and field order survive. */
+function renameOverlayFieldPair(
+  doc: Document,
+  scopeKey: string | null,
+  oldKey: string,
+  newKey: string
+): void {
+  const parentPath = fieldPath(scopeKey, oldKey).slice(0, -1)
+  const fields = doc.getIn(parentPath, true)
+  if (!isMap(fields)) {
+    throw new Error(`Lookup/Rollup definition "${oldKey}" is not defined at its resolved origin`)
+  }
+  const pair = fields.items.find((item) => yamlKeyValue(item.key) === oldKey)
+  if (!pair) {
+    throw new Error(`Lookup/Rollup definition "${oldKey}" is not defined at its resolved origin`)
+  }
+  if (isScalar(pair.key)) pair.key.value = newKey
+  else pair.key = doc.createNode(newKey)
 }
 
 /**
@@ -236,7 +501,7 @@ export async function setOverlayValueColor(
     }
   }
 
-  const { doc } = await loadOverlayDocument(root)
+  const { doc, snapshot } = await loadOverlayDocument(root)
   const base = fieldPath(scopeKey, key)
   const colorsPath = [...base, 'value_colors']
   const existingColors = doc.getIn(colorsPath, true)
@@ -264,7 +529,7 @@ export async function setOverlayValueColor(
     )
   }
 
-  await writeOverlayDocument(root, doc)
+  await writeOverlayDocument(root, doc, snapshot)
   return resolvedValueColors(doc, scopeKey)
 }
 
@@ -276,7 +541,8 @@ export async function upsertOverlayField(
   root: string,
   scopeKey: string | null,
   key: string,
-  patch: OverlayFieldPatch
+  patch: OverlayFieldPatch,
+  options: OverlayMutationOptions = {}
 ): Promise<void> {
   if (scopeKey !== null && (scopeKey === '' || scopeKey.endsWith('/'))) {
     throw new Error(
@@ -300,6 +566,33 @@ export async function upsertOverlayField(
   if (patch.formula !== undefined && patch.formula !== null && patch.formula.trim() === '') {
     throw new Error('Formula expression cannot be empty')
   }
+  for (const [label, value] of [
+    ['Relation field', patch.relationField],
+    ['Target field', patch.targetField]
+  ] as const) {
+    if (value !== undefined && value !== null && (value.trim() === '' || value !== value.trim())) {
+      throw new Error(`${label} must be non-empty and have no surrounding spaces`)
+    }
+  }
+  if (
+    patch.relationDirection !== undefined &&
+    patch.relationDirection !== null &&
+    !VALID_RELATION_DIRECTIONS.has(patch.relationDirection)
+  ) {
+    throw new Error(`Invalid relation direction: "${patch.relationDirection}"`)
+  }
+  if (patch.relationScope !== undefined && patch.relationScope !== null) {
+    const relationScope = patch.relationScope
+    if (
+      relationScope.trim() === '' ||
+      relationScope !== relationScope.trim() ||
+      relationScope.endsWith('/')
+    ) {
+      throw new Error(
+        `Relation scopes must be non-empty and have no surrounding or trailing slash: "${relationScope}"`
+      )
+    }
+  }
   // Relation target folders follow the phase-41 folder-key grammar: relative
   // path, non-empty, NO trailing slash (the CLI emits `relation_target`
   // slash-less and accepts only this form from the app).
@@ -312,7 +605,79 @@ export async function upsertOverlayField(
     }
   }
 
-  const { doc } = await loadOverlayDocument(root)
+  const previousKey = options.previousKey
+  if (previousKey !== undefined && options.requireAbsent) {
+    throw new Error('Overlay mutation cannot be both create-only and an edit')
+  }
+  if (previousKey !== undefined || options.requireAbsent) {
+    validateComputedFieldKey(key, 'Computed field name')
+    if (patch.fieldType !== 'lookup' && patch.fieldType !== 'rollup') {
+      throw new Error('Lookup/Rollup mutation requires a complete Lookup or Rollup definition')
+    }
+  }
+  if (previousKey !== undefined) {
+    validateComputedFieldKey(previousKey, 'Previous computed field name')
+  }
+
+  const { doc, snapshot } = await loadOverlayDocument(root)
+  options.onPrepared?.(snapshot)
+
+  if (options.requireAbsent) {
+    const collisionScope = findOverlayFieldCollision(doc, scopeKey, key)
+    if (collisionScope !== undefined) {
+      const location = collisionScope === null ? 'the global schema' : `scope "${collisionScope}"`
+      throw new Error(
+        `Cannot create computed field "${key}": the destination already exists in ${location}`
+      )
+    }
+  }
+
+  if (previousKey !== undefined) {
+    const previousBase = fieldPath(scopeKey, previousKey)
+    const previousNode = doc.getIn(previousBase, true)
+    if (!isMap(previousNode)) {
+      throw new Error(
+        `Lookup/Rollup definition "${previousKey}" is not defined at its resolved origin`
+      )
+    }
+    const previousType = normalizedOverlayFieldType(
+      doc.getIn([...previousBase, 'field_type']),
+      doc.getIn([...previousBase, 'type']),
+      `computed field "${previousKey}"`
+    )
+    if (previousType !== 'lookup' && previousType !== 'rollup') {
+      throw new Error(`"${previousKey}" is not a Lookup or Rollup definition`)
+    }
+    if (previousType !== patch.fieldType) {
+      throw new Error(
+        `Cannot change computed field "${previousKey}" from ${previousType} to ${patch.fieldType}`
+      )
+    }
+
+    if (previousKey !== key) {
+      const overlappingDefinitions = overlappingOverlayFieldsWithKey(doc, scopeKey, previousKey)
+      if (overlappingDefinitions.length > 0) {
+        throw new Error(
+          `Cannot rename computed field "${previousKey}" because the same field is also defined in overlapping overlay scopes: ${overlappingDefinitions.join(', ')}`
+        )
+      }
+      const dependents = lookupRollupDependents(doc, previousKey)
+      if (dependents.length > 0) {
+        throw new Error(
+          `Cannot rename computed field "${previousKey}" because Lookup/Rollup definitions retrieve it as target_field: ${dependents.join(', ')}`
+        )
+      }
+      const collisionScope = findOverlayFieldCollision(doc, scopeKey, key)
+      if (collisionScope !== undefined) {
+        const location = collisionScope === null ? 'the global schema' : `scope "${collisionScope}"`
+        throw new Error(
+          `Cannot rename computed field "${previousKey}" to "${key}": the destination already exists in ${location}`
+        )
+      }
+      renameOverlayFieldPair(doc, scopeKey, previousKey, key)
+    }
+  }
+
   const base = fieldPath(scopeKey, key)
 
   if (patch.fieldType !== undefined) {
@@ -346,6 +711,24 @@ export async function upsertOverlayField(
     if (patch.resultType === null) deleteInIfPresent(doc, [...base, 'result_type'])
     else doc.setIn([...base, 'result_type'], patch.resultType.toLowerCase())
   }
+  if (patch.relationField !== undefined) {
+    if (patch.relationField === null) deleteInIfPresent(doc, [...base, 'relation_field'])
+    else doc.setIn([...base, 'relation_field'], patch.relationField)
+  }
+  if (patch.targetField !== undefined) {
+    if (patch.targetField === null) deleteInIfPresent(doc, [...base, 'target_field'])
+    else doc.setIn([...base, 'target_field'], patch.targetField)
+  }
+  if (patch.relationDirection !== undefined) {
+    if (patch.relationDirection === null || patch.relationDirection === 'outgoing') {
+      deleteInIfPresent(doc, [...base, 'relation_direction'])
+    } else doc.setIn([...base, 'relation_direction'], patch.relationDirection)
+  }
+  if (patch.relationScope !== undefined) {
+    if (patch.relationScope === null || patch.relationDirection === 'outgoing') {
+      deleteInIfPresent(doc, [...base, 'relation_scope'])
+    } else doc.setIn([...base, 'relation_scope'], patch.relationScope)
+  }
 
   // Clearing a formula definition may leave an empty field/scope shell. Prune
   // only empty maps; comments and unrelated annotations stay untouched.
@@ -357,16 +740,17 @@ export async function upsertOverlayField(
     deleteEmptyMap(doc, ['scopes'])
   }
 
-  await writeOverlayDocument(root, doc)
+  await writeOverlayDocument(root, doc, snapshot, options)
 }
 
 /** Remove one complete overlay field entry while preserving the rest of the document. */
 export async function removeOverlayField(
   root: string,
   scopeKey: string | null,
-  key: string
+  key: string,
+  options: OverlayMutationOptions = {}
 ): Promise<boolean> {
-  const { doc, existed } = await loadOverlayDocument(root)
+  const { doc, existed, snapshot } = await loadOverlayDocument(root)
   if (!existed) return false
   const base = fieldPath(scopeKey, key)
   if (!doc.hasIn(base)) return false
@@ -378,7 +762,7 @@ export async function removeOverlayField(
     deleteEmptyMap(doc, ['scopes', scopeKey])
     deleteEmptyMap(doc, ['scopes'])
   }
-  await writeOverlayDocument(root, doc)
+  await writeOverlayDocument(root, doc, snapshot, options)
   return true
 }
 
@@ -391,7 +775,7 @@ export async function removeOverlayField(
  * before the first mutation, then written once atomically.
  */
 export async function removeOverlayFieldEverywhere(root: string, key: string): Promise<boolean> {
-  const { doc, existed } = await loadOverlayDocument(root)
+  const { doc, existed, snapshot } = await loadOverlayDocument(root)
   if (!existed) return false
 
   const overlay = doc.toJS() as unknown
@@ -450,41 +834,68 @@ export async function removeOverlayFieldEverywhere(root: string, key: string): P
   }
   deleteEmptyMap(doc, ['scopes'])
 
-  await writeOverlayDocument(root, doc)
+  await writeOverlayDocument(root, doc, snapshot)
   return true
 }
 
-/** Exact on-disk state used to roll back a failed formula module run. */
-export interface OverlaySnapshot {
-  existed: boolean
-  content: string | null
-}
-
 export async function captureOverlaySnapshot(root: string): Promise<OverlaySnapshot> {
-  const path = join(root, OVERLAY_FILENAME)
-  try {
-    return { existed: true, content: await fs.readFile(path, 'utf-8') }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return { existed: false, content: null }
-    }
-    throw error
-  }
+  return captureOverlaySnapshotUnlocked(root)
 }
 
 export async function restoreOverlaySnapshot(
   root: string,
-  snapshot: OverlaySnapshot
+  snapshot: OverlaySnapshot,
+  expectedCurrent?: OverlaySnapshot,
+  options: OverlayMutationOptions = {}
 ): Promise<void> {
   const path = join(root, OVERLAY_FILENAME)
-  if (snapshot.existed) {
-    const content = snapshot.content ?? ''
-    registerOwnWrite(path, 'write', content)
-    await atomicWriteFile(path, content)
-  } else {
-    registerOwnWrite(path, 'delete')
-    await fs.rm(path, { force: true })
-  }
+  await withSerializedFileWrite(path, async () => {
+    const baseline = await captureOverlaySnapshotUnlocked(root)
+    if (expectedCurrent && !snapshotsEqual(baseline, expectedCurrent)) {
+      throw overlayChangedError('after the computed-field mutation')
+    }
+    if (snapshotsEqual(baseline, snapshot)) return
+
+    let cancelOwnWrite: (() => void) | null = null
+    let published = false
+    const assertBaseline = async (): Promise<void> => {
+      if (!snapshotsEqual(await captureOverlaySnapshotUnlocked(root), baseline)) {
+        throw overlayChangedError('before rollback could be committed')
+      }
+    }
+
+    try {
+      if (snapshot.existed) {
+        const content = snapshot.content ?? ''
+        await atomicWriteFile(path, content, {
+          allowedRoot: root,
+          beforeCommit: async () => {
+            await options.beforeCommit?.()
+            await assertBaseline()
+            cancelOwnWrite = registerOwnWrite(path, 'write', content)
+          },
+          onPublished: () => {
+            published = true
+          }
+        })
+      } else {
+        await atomicDeleteFile(path, {
+          allowedRoot: root,
+          beforeCommit: async () => {
+            await options.beforeCommit?.()
+            await assertBaseline()
+            cancelOwnWrite = registerOwnWrite(path, 'delete')
+          },
+          onPublished: () => {
+            published = true
+          }
+        })
+      }
+    } catch (error) {
+      if (!published) revokeOwnWrite(cancelOwnWrite)
+      throw error
+    }
+  })
 }
 
 /**
@@ -497,19 +908,63 @@ export async function resolveOverlayFormulaScope(
   scopeKey: string | null,
   key: string
 ): Promise<string | null | undefined> {
+  const resolved = await resolveOverlayComputedDefinition(root, scopeKey, key, ['formula'])
+  return resolved === undefined ? undefined : resolved.scope
+}
+
+/** Locate the inherited Lookup/Rollup definition that is effective for a scope. */
+export async function resolveOverlayLookupRollupScope(
+  root: string,
+  scopeKey: string | null,
+  key: string
+): Promise<string | null | undefined> {
+  const resolved = await resolveOverlayLookupRollupDefinition(root, scopeKey, key)
+  return resolved === undefined ? undefined : resolved.scope
+}
+
+export interface ResolvedOverlayLookupRollupDefinition {
+  scope: string | null
+  kind: 'lookup' | 'rollup'
+}
+
+/** Resolve both the true overlay origin and authored kind for an effective
+ * Lookup/Rollup definition. Ordinary fields at a more-specific layer mask an
+ * inherited computed definition. */
+export async function resolveOverlayLookupRollupDefinition(
+  root: string,
+  scopeKey: string | null,
+  key: string
+): Promise<ResolvedOverlayLookupRollupDefinition | undefined> {
+  const resolved = await resolveOverlayComputedDefinition(root, scopeKey, key, ['lookup', 'rollup'])
+  if (resolved === undefined) return undefined
+  return {
+    scope: resolved.scope,
+    kind: resolved.type as ResolvedOverlayLookupRollupDefinition['kind']
+  }
+}
+
+async function resolveOverlayComputedDefinition(
+  root: string,
+  scopeKey: string | null,
+  key: string,
+  acceptedTypes: string[]
+): Promise<{ scope: string | null; type: string } | undefined> {
   const { doc } = await loadOverlayDocument(root)
   const overlay = doc.toJS() as {
-    fields?: Record<string, { field_type?: unknown }>
-    scopes?: Record<string, { fields?: Record<string, { field_type?: unknown }> }>
+    fields?: Record<string, { field_type?: unknown; type?: unknown }>
+    scopes?: Record<string, { fields?: Record<string, { field_type?: unknown; type?: unknown }> }>
   } | null
   if (!overlay) return undefined
 
-  let origin: string | null | undefined
+  let resolved: { scope: string | null; type: string } | undefined
   const global = overlay.fields?.[key]
-  if (typeof global?.field_type === 'string' && global.field_type.toLowerCase() === 'formula') {
-    origin = null
+  if (global !== undefined) {
+    const fieldType = normalizedOverlayFieldType(global.field_type, global.type, `fields.${key}`)
+    if (fieldType !== undefined && acceptedTypes.includes(fieldType)) {
+      resolved = { scope: null, type: fieldType }
+    }
   }
-  if (scopeKey === null || !overlay.scopes) return origin
+  if (scopeKey === null || !overlay.scopes) return resolved
 
   const matching = Object.entries(overlay.scopes)
     .filter(([scope]) => scopeMatchesPath(scopeKey, scope))
@@ -517,12 +972,17 @@ export async function resolveOverlayFormulaScope(
   for (const [scope, value] of matching) {
     const field = value.fields?.[key]
     if (field === undefined) continue
-    origin =
-      typeof field.field_type === 'string' && field.field_type.toLowerCase() === 'formula'
-        ? scope
+    const fieldType = normalizedOverlayFieldType(
+      field.field_type,
+      field.type,
+      `scopes.${scope}.fields.${key}`
+    )
+    resolved =
+      fieldType !== undefined && acceptedTypes.includes(fieldType)
+        ? { scope, type: fieldType }
         : undefined
   }
-  return origin
+  return resolved
 }
 
 /**
@@ -535,7 +995,7 @@ export async function renameOverlayField(
   oldKey: string,
   newKey: string
 ): Promise<boolean> {
-  const { doc, existed } = await loadOverlayDocument(root)
+  const { doc, existed, snapshot } = await loadOverlayDocument(root)
   if (!existed) return false
 
   const oldPath = fieldPath(scopeKey, oldKey)
@@ -544,6 +1004,6 @@ export async function renameOverlayField(
 
   doc.setIn(fieldPath(scopeKey, newKey), node)
   doc.deleteIn(oldPath)
-  await writeOverlayDocument(root, doc)
+  await writeOverlayDocument(root, doc, snapshot)
   return true
 }

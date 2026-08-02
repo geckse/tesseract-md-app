@@ -17,6 +17,7 @@
   import FormulaCell from './cells/FormulaCell.svelte'
   import { requestConfirmation } from '../../stores/confirmation'
   import { cliFeatures } from '../../lib/cli-features.svelte'
+  import { isComputedFieldType } from '../../lib/computed-fields'
 
   interface Props {
     tabId: string
@@ -41,7 +42,9 @@
     // without populate the chips fall back to a neutral client parse.
     Relation: RelationCell,
     File: FileCell,
-    Formula: FormulaCell
+    Formula: FormulaCell,
+    Lookup: FormulaCell,
+    Rollup: FormulaCell
   }
 
   // Only one cell per row is in edit mode at a time.
@@ -76,7 +79,7 @@
 
   function startEdit(col: CollectionColumn): void {
     if (readOnly) return
-    if (col.field_type === 'Formula') return
+    if (isComputedFieldType(col.field_type)) return
     if (col.field_type === 'File' && !cliFeatures.supportsFileFields) return
     // Boolean cells toggle directly — no edit mode.
     if (col.field_type === 'Boolean') return
@@ -122,8 +125,11 @@
       class="cell data-cell"
       tabindex="-1"
       class:numeric={col.field_type === 'Number' ||
-        (col.field_type === 'Formula' && col.result_type === 'Number')}
-      class:editable={!readOnly && col.field_type !== 'Boolean' && col.field_type !== 'Formula'}
+        ((col.field_type === 'Formula' || col.field_type === 'Rollup') &&
+          col.result_type === 'Number')}
+      class:editable={!readOnly &&
+        col.field_type !== 'Boolean' &&
+        !isComputedFieldType(col.field_type)}
       class:editing={editingCol === col.name}
       class:saving={cs.saving}
       class:errored={!!cs.error}
@@ -148,8 +154,8 @@
       <Cell
         column={col}
         value={cellValue(col)}
-        editing={col.field_type !== 'Formula' && editingCol === col.name}
-        readOnly={readOnly || col.field_type === 'Formula'}
+        editing={!isComputedFieldType(col.field_type) && editingCol === col.name}
+        readOnly={readOnly || isComputedFieldType(col.field_type)}
         oncommit={(value) => handleCommit(col, value)}
         oncancel={handleCancel}
         relations={row.relations?.[col.name]}

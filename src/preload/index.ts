@@ -2,6 +2,12 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { ExportResult, ExportSaveRequest, MdvdbApi } from './api'
 import { toMessagePortBinaryPayload } from './binary-export'
+import {
+  COMPUTED_EDITOR_FLUSH_REQUEST_CHANNEL,
+  COMPUTED_EDITOR_FLUSH_RESPONSE_CHANNEL,
+  COMPUTED_SCHEMA_APPLIED_CHANNEL,
+  type ComputedEditorFlushRequest
+} from '../shared/computed-editor-flush'
 
 // Flash prevention: synchronously apply theme before any renderer CSS paints.
 // ipcRenderer.sendSync blocks until main replies, so data-theme is set before DOM renders.
@@ -173,6 +179,9 @@ const api: MdvdbApi = {
   validateFormula: (root, formula, resultType) =>
     invoke('cli:modules-validate-formula', root, formula, resultType),
   runFormulaModule: (root, scope?) => invoke('cli:modules-run-formula', root, scope),
+  listModules: (root) => invoke('cli:modules-list', root),
+  validateRollup: (root, formula, resultType) =>
+    invoke('cli:modules-validate-rollup', root, formula, resultType),
 
   // Named Shards
   listShards: (root) => invoke('cli:shards-list', root),
@@ -208,6 +217,8 @@ const api: MdvdbApi = {
   // File operations
   readFile: (absolutePath) => invoke('fs:read-file', absolutePath),
   writeFile: (absolutePath, content) => invoke('fs:write-file', absolutePath, content),
+  writeFileIfUnchanged: (absolutePath, expectedContent, content) =>
+    invoke('fs:write-file-if-unchanged', absolutePath, expectedContent, content),
   updateFrontmatter: (collectionId, relativePath, patch) =>
     invoke('fs:update-frontmatter', collectionId, relativePath, patch),
   createFile: (absolutePath, content) => invoke('fs:create-file', absolutePath, content),
@@ -279,6 +290,31 @@ const api: MdvdbApi = {
     invoke('schema:save-formula', collectionId, scope, key, formula, resultType),
   removeFormula: (collectionId, scope, key) =>
     invoke('schema:remove-formula', collectionId, scope, key),
+  saveLookupRollup: (collectionId, scope, key, definition, previousKey) =>
+    invoke('schema:save-lookup-rollup', collectionId, scope, key, definition, previousKey),
+  removeLookupRollup: (collectionId, scope, key) =>
+    invoke('schema:remove-lookup-rollup', collectionId, scope, key),
+  onComputedEditorFlushRequest: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, request: unknown): void => {
+      callback(request as ComputedEditorFlushRequest)
+    }
+    ipcRenderer.on(COMPUTED_EDITOR_FLUSH_REQUEST_CHANNEL, listener)
+    return () => {
+      ipcRenderer.removeListener(COMPUTED_EDITOR_FLUSH_REQUEST_CHANNEL, listener)
+    }
+  },
+  respondComputedEditorFlush: (response) => {
+    ipcRenderer.send(COMPUTED_EDITOR_FLUSH_RESPONSE_CHANNEL, response)
+  },
+  onComputedSchemaApplied: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, event: unknown): void => {
+      callback(event as Parameters<typeof callback>[0])
+    }
+    ipcRenderer.on(COMPUTED_SCHEMA_APPLIED_CHANNEL, listener)
+    return () => {
+      ipcRenderer.removeListener(COMPUTED_SCHEMA_APPLIED_CHANNEL, listener)
+    }
+  },
   getPropertyValueColors: (collectionId, scope) =>
     invoke('schema:get-value-colors', collectionId, scope),
   setPropertyValueColor: (collectionId, scope, field, value, selection) =>

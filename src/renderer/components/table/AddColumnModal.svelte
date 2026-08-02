@@ -7,7 +7,7 @@
   import type { CollectionColumn } from '../../types/cli'
   import Button from '../ui/Button.svelte'
 
-  type AddColumnType = PropertyTargetType | 'formula'
+  type AddColumnType = PropertyTargetType | 'formula' | 'lookup' | 'rollup'
 
   interface ColumnTypeOption {
     value: AddColumnType
@@ -20,10 +20,11 @@
     tabId: string
     columns: CollectionColumn[]
     onformula: (name: string) => void
+    oncomputed?: (kind: 'lookup' | 'rollup', name: string) => void
     onclose: () => void
   }
 
-  let { tabId, columns, onformula, onclose }: Props = $props()
+  let { tabId, columns, onformula, oncomputed = () => {}, onclose }: Props = $props()
 
   const TYPE_OPTIONS: ColumnTypeOption[] = [
     { value: 'text', label: 'Text', description: 'Plain text values', icon: 'notes' },
@@ -50,7 +51,19 @@
     },
     { value: 'file', label: 'File', description: 'One or more attachments', icon: 'attach_file' },
     { value: 'complex', label: 'JSON', description: 'Structured JSON data', icon: 'data_object' },
-    { value: 'formula', label: 'Formula', description: 'Calculated by the CLI', icon: 'function' }
+    { value: 'formula', label: 'Formula', description: 'Calculated by the CLI', icon: 'function' },
+    {
+      value: 'lookup',
+      label: 'Lookup',
+      description: 'Retrieve a field through a Relation',
+      icon: 'manage_search'
+    },
+    {
+      value: 'rollup',
+      label: 'Rollup',
+      description: 'Aggregate values from related documents',
+      icon: 'functions'
+    }
   ]
 
   const tab = $derived.by<TableTab | null>(() => {
@@ -58,7 +71,13 @@
     return candidate?.kind === 'table' ? candidate : null
   })
   const availableTypes = $derived(
-    TYPE_OPTIONS.filter((option) => option.value !== 'file' || cliFeatures.supportsFileFields)
+    TYPE_OPTIONS.filter((option) => {
+      if (option.value === 'file') return cliFeatures.supportsFileFields
+      if (option.value === 'lookup' || option.value === 'rollup') {
+        return cliFeatures.supportsLookupRollup
+      }
+      return true
+    })
   )
 
   let name = $state('')
@@ -111,6 +130,11 @@
     if (selectedType === 'formula') {
       onclose()
       onformula(field)
+      return
+    }
+    if (selectedType === 'lookup' || selectedType === 'rollup') {
+      onclose()
+      oncomputed(selectedType, field)
       return
     }
 
@@ -231,7 +255,11 @@
     <footer>
       <Button variant="secondary" size="sm" onclick={onclose}>Cancel</Button>
       <Button size="sm" onclick={submit}>
-        {selectedType === 'formula' ? 'Continue to formula' : 'Continue'}
+        {selectedType === 'formula'
+          ? 'Continue to formula'
+          : selectedType === 'lookup' || selectedType === 'rollup'
+            ? `Continue to ${selectedType}`
+            : 'Continue'}
       </Button>
     </footer>
   </div>

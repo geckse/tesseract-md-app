@@ -443,16 +443,25 @@ async function enumerateFiles(root: string, req: PropertyOpRequest): Promise<str
  */
 async function readFrontmatter(absolutePath: string): Promise<Record<string, JsonValue> | null> {
   const content = await fs.readFile(absolutePath, 'utf-8')
-  const normalized = content.replace(/\r\n/g, '\n')
+  return parseFrontmatter(content)
+}
+
+/** Parse one exact source generation without performing another filesystem read. */
+function parseFrontmatter(content: string): Record<string, JsonValue> | null {
+  const source = content.startsWith('\uFEFF') ? content.slice(1) : content
+  const withoutCrLf = source.replace(/\r\n/g, '')
+  if (withoutCrLf.includes('\r') || (source.includes('\r\n') && withoutCrLf.includes('\n'))) {
+    return null
+  }
+  const normalized = source.replace(/\r\n/g, '\n')
   const { hasFrontmatter, closed, block } = splitDocument(normalized)
   if (!hasFrontmatter) return {}
   if (!closed) return null
   const doc = parseDocument(block)
   if (doc.errors.length > 0) return null
   const obj = doc.toJS() as unknown
-  return obj !== null && typeof obj === 'object' && !Array.isArray(obj)
-    ? (obj as Record<string, JsonValue>)
-    : {}
+  if (obj === null) return {}
+  return typeof obj === 'object' && !Array.isArray(obj) ? (obj as Record<string, JsonValue>) : null
 }
 
 /** Re-read disk and return the exact set of parseable files that contain a Drop key. */
@@ -508,6 +517,11 @@ export async function previewPropertyOp(req: PropertyOpRequest): Promise<Propert
 
 /** One running op per collection — a second concurrent apply is rejected. */
 const runningOps = new Set<string>()
+
+/** Internal deterministic seam for mutation-race regression tests. */
+export interface PropertyOpExecutionHooks {
+  beforeQueuedWrite?: (absolutePath: string) => void | Promise<void>
+}
 
 /**
  * Characters we refuse in a newly-added or renamed key so it stays a plain YAML scalar.
@@ -584,7 +598,8 @@ export async function applyPropertyOp(
   event: IpcMainInvokeEvent,
   windowManager: WindowManager,
   opId: string,
-  req: PropertyOpRequest
+  req: PropertyOpRequest,
+  hooks: PropertyOpExecutionHooks = {}
 ): Promise<PropertyOpResult> {
   validateRequest(req)
   const confirmedDropPaths = requireConfirmedDropPaths(req)
@@ -594,6 +609,10 @@ export async function applyPropertyOp(
   }
   runningOps.add(req.collectionId)
   try {
+    if (req.op.kind === 'drop') {
+      const { assertNoDirtyDocumentsAcrossWindows } = await import('./computed-editor-flush')
+      await assertNoDirtyDocumentsAcrossWindows(windowManager, collection.id, collection.path)
+    }
     let paths = req.op.kind === 'drop' ? [] : await enumerateFiles(collection.path, req)
     const entries: PropertyOpResultEntry[] = []
     const broadcast = { windowManager, senderId: event.sender.id }
@@ -609,6 +628,8 @@ export async function applyPropertyOp(
     await withWatcherPaused(collection.path, async () => {
       let confirmedDropSet: Set<string> | null = null
       if (req.op.kind === 'drop') {
+        const { verifyCleanDocumentsAcrossWindows } = await import('./computed-editor-flush')
+        await verifyCleanDocumentsAcrossWindows(windowManager, collection.id, collection.path)
         paths = await enumerateFiles(collection.path, req)
         const latestDropPaths = await currentDropPaths(req.collectionId, paths, req.key)
         assertDropPreviewFresh(confirmedDropPaths ?? [], latestDropPaths)
@@ -619,6 +640,11 @@ export async function applyPropertyOp(
         if (req.op.target === 'select') patch.allowedValues = req.op.allowedValues ?? []
         await upsertOverlayField(collection.path, scopeKey, req.key, patch)
         overlayWritten = true
+      } else if (req.scope !== null && req.op.kind === 'rename') {
+        // Validate and publish the overlay move before touching any Markdown.
+        // A malformed, stale, symlinked, or otherwise unwritable overlay must
+        // never leave records renamed under a schema that still uses oldKey.
+        overlayWritten = await renameOverlayField(collection.path, scopeKey, req.key, req.op.newKey)
       }
 
       for (let i = 0; i < paths.length; i++) {
@@ -626,7 +652,7 @@ export async function applyPropertyOp(
         entries.push(
           req.op.kind === 'drop' && !confirmedDropSet?.has(path)
             ? await inspectUnconfirmedDropFile(req, path)
-            : await applyToFile(req, path, broadcast, confirmedDropSet)
+            : await applyToFile(req, path, broadcast, confirmedDropSet, collection.path, hooks)
         )
         if (!event.sender.isDestroyed()) {
           event.sender.send('schema:property-op-progress', {
@@ -647,14 +673,16 @@ export async function applyPropertyOp(
         } catch (error) {
           console.warn(`property-ops: could not clean saved views for "${req.key}":`, error)
         }
+      } else if (req.scope !== null && req.op.kind === 'rename') {
+        // Saved views are auxiliary and must not turn a successfully guarded
+        // Markdown/schema rename into a misleading top-level failure.
+        try {
+          await renamePropertyInViews(req.collectionId, scopeKey ?? '', req.key, req.op.newKey)
+        } catch (error) {
+          console.warn(`property-ops: could not rename saved-view property "${req.key}":`, error)
+        }
       }
     })
-
-    if (req.scope !== null && req.op.kind === 'rename') {
-      overlayWritten = await renameOverlayField(collection.path, scopeKey, req.key, req.op.newKey)
-      // Best-effort: keep saved table views pointing at the renamed column.
-      await renamePropertyInViews(req.collectionId, scopeKey ?? '', req.key, req.op.newKey)
-    }
 
     const totals = { ok: 0, skipped: 0, failed: 0 }
     for (const e of entries) totals[e.status]++
@@ -673,7 +701,9 @@ async function applyToFile(
   req: PropertyOpRequest,
   path: string,
   broadcast: { windowManager: WindowManager; senderId: number | null },
-  confirmedDropPaths: ReadonlySet<string> | null
+  confirmedDropPaths: ReadonlySet<string> | null,
+  collectionRoot: string,
+  hooks: PropertyOpExecutionHooks
 ): Promise<PropertyOpResultEntry> {
   // Defense in depth: even if a future caller bypasses the outer batch-loop
   // gate, an unconfirmed path can never reach the destructive write tail.
@@ -693,7 +723,12 @@ async function applyToFile(
   }
 
   try {
-    const frontmatter = await readFrontmatter(absolutePath)
+    // The plan and patch are derived from one exact source generation. The
+    // shared write tail verifies these bytes again under its per-path queue and
+    // immediately before atomic rename, so a concurrent edit is never fed a
+    // stale conversion/rename/add/drop patch.
+    const baselineContent = await fs.readFile(absolutePath, 'utf-8')
+    const frontmatter = parseFrontmatter(baselineContent)
     if (frontmatter === null) {
       // Present-but-unparseable YAML is a failure, not a skip — the user must
       // fix the file; it is never modified (PRD: never clobber).
@@ -732,7 +767,11 @@ async function applyToFile(
       patch = { set: { [req.key]: outcome.value } }
     }
 
-    await writePatchedFile(absolutePath, patch, broadcast)
+    await hooks.beforeQueuedWrite?.(absolutePath)
+    await writePatchedFile(absolutePath, patch, broadcast, {
+      expectedContent: baselineContent,
+      collectionRoot
+    })
     return { path, status: 'ok' }
   } catch (err) {
     return { path, status: 'failed', reason: err instanceof Error ? err.message : String(err) }

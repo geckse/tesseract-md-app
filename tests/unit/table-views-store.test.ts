@@ -106,4 +106,27 @@ describe('tableViewsStore (renderer)', () => {
 
     expect(tableViewsStore.getViews('c-noop', 'blog')).toBe(first)
   })
+
+  it('forced reload supersedes an older in-flight saved-view response', async () => {
+    let resolveOld!: (views: SavedTableView[]) => void
+    let resolveFresh!: (views: SavedTableView[]) => void
+    mockApi.listTableViews
+      .mockImplementationOnce(
+        () => new Promise<SavedTableView[]>((resolve) => (resolveOld = resolve))
+      )
+      .mockImplementationOnce(
+        () => new Promise<SavedTableView[]>((resolve) => (resolveFresh = resolve))
+      )
+
+    const oldLoad = tableViewsStore.load('c-race', 'contacts')
+    const freshLoad = tableViewsStore.reload('c-race', 'contacts')
+    resolveFresh([view('renamed')])
+    await freshLoad
+    resolveOld([view('stale')])
+    await oldLoad
+
+    expect(tableViewsStore.getViews('c-race', 'contacts').map((item) => item.id)).toEqual([
+      'renamed'
+    ])
+  })
 })

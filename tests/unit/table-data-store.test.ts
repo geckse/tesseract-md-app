@@ -262,6 +262,38 @@ describe('tableStore (renderer data store)', () => {
     })
   })
 
+  it('suppresses a stale server sort during a schema-changing reload', async () => {
+    const tabId = workspace.openTableTab('blog')
+    await tableStore.load(tabId, 'c1', '/root')
+    workspace.setTableEphemeral(tabId, { sort: [{ columnName: 'date', direction: 'desc' }] })
+
+    await tableStore.reload(tabId, { suppressServerSort: true })
+
+    expect(mockCollection).toHaveBeenLastCalledWith('/root', 'blog', {
+      recursive: false,
+      sort: undefined,
+      order: undefined
+    })
+  })
+
+  it('degrades stale ephemeral references after merging them over a saved view', async () => {
+    const tabId = workspace.openTableTab('blog')
+    await tableStore.load(tabId, 'c1', '/root')
+    workspace.setTableEphemeral(tabId, {
+      sort: [{ columnName: 'renamed_old', direction: 'asc' }],
+      filters: [{ columnName: 'renamed_old', op: 'exists' }],
+      columns: [{ name: 'renamed_old', hidden: false, width: 120, order: 0 }],
+      groupBy: 'renamed_old'
+    })
+
+    expect(tableStore.mergedConfig(tabId)).toMatchObject({
+      sort: [],
+      filters: [],
+      columns: [],
+      groupBy: null
+    })
+  })
+
   it('sorts the synthetic Title column naturally without refetching', async () => {
     mockCollection.mockResolvedValueOnce({
       ...fixture,

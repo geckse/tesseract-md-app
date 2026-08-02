@@ -302,7 +302,11 @@
                 {#each currentResult.module_reports as report (report.module)}
                   <div class="module-item">
                     <span class="module-name"
-                      >{report.module === 'formula' ? 'ƒx Formula' : report.module}</span
+                      >{report.module === 'formula'
+                        ? 'ƒx Formula'
+                        : report.module === 'lookup_rollup'
+                          ? 'Σ Lookup & Rollup'
+                          : report.module}</span
                     >
                     <span class="module-detail">
                       {report.fields_updated} fields updated across {report.files_evaluated} files

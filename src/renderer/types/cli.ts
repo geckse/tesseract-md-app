@@ -264,6 +264,8 @@ export type FieldType =
   | 'Relation'
   | 'File'
   | 'Formula'
+  | 'Lookup'
+  | 'Rollup'
 
 /** Declared output type for a formula field. */
 export type FormulaResultType =
@@ -300,6 +302,47 @@ export interface ModuleReport {
   duration_ms: number
 }
 
+/** Static built-in module metadata returned by `mdvdb modules list`. */
+export interface ModuleDescriptor {
+  id: string
+  name: string
+  version: number
+  always_on: boolean
+  hooks: string[]
+}
+
+/** Transitional CLI envelope accepted while module-run reporting is generalized. */
+export interface ModuleReportEnvelope {
+  reports?: ModuleReport[]
+  module_reports?: ModuleReport[]
+}
+
+export type ModuleRunResponse = ModuleReport | ModuleReportEnvelope
+
+/** Public CLI JSON direction; overlay/authored definitions use lowercase. */
+export type RelationDirection = 'Outgoing' | 'Incoming'
+export type AuthoredRelationDirection = 'outgoing' | 'incoming'
+
+export interface LookupDefinition {
+  kind: 'lookup'
+  relationField: string
+  targetField: string
+  relationDirection: 'outgoing'
+}
+
+interface RollupDefinitionBase {
+  kind: 'rollup'
+  relationField: string
+  targetField: string
+  formula: string
+  resultType: FormulaResultType
+}
+
+export type RollupDefinition = RollupDefinitionBase &
+  ({ relationDirection: 'outgoing' } | { relationDirection: 'incoming'; relationScope: string })
+
+export type LookupRollupDefinition = LookupDefinition | RollupDefinition
+
 export interface FormulaSourceSpan {
   start: number
   end: number
@@ -335,6 +378,14 @@ export interface SchemaField {
   formula: string | null
   /** Declared formula output type; null for ordinary fields. */
   result_type: FormulaResultType | null
+  /** Relation traversed by Lookup/Rollup fields. */
+  relation_field?: string | null
+  /** Field retrieved from related documents. */
+  target_field?: string | null
+  /** Outgoing traversal or reverse/incoming traversal. */
+  relation_direction?: RelationDirection | null
+  /** Relative collection scope containing the related documents. */
+  relation_scope?: string | null
 }
 
 /** The complete metadata schema. */
@@ -371,6 +422,10 @@ export interface CollectionColumn {
   relation_target: string | null
   formula: string | null
   result_type: FormulaResultType | null
+  relation_field?: string | null
+  target_field?: string | null
+  relation_direction?: RelationDirection | null
+  relation_scope?: string | null
 }
 
 /** One table row = one Markdown document. */

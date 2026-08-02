@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { JsonValue, Schema, SchemaField, FieldType } from '../../types/cli'
+  import { isComputedFieldType } from '../../lib/computed-fields'
   import { parseFrontmatterData, serializeFrontmatter } from '../../lib/tiptap/markdown-bridge'
   import AutocompleteDropdown from './AutocompleteDropdown.svelte'
   import JsonEditor from '../ui/JsonEditor.svelte'
@@ -15,7 +16,7 @@
   /** Look up schema field definition by key name. */
   function getSchemaField(key: string): SchemaField | null {
     if (!schema?.fields) return null
-    return schema.fields.find((f) => f.name === key && f.field_type !== 'Formula') ?? null
+    return schema.fields.find((f) => f.name === key && !isComputedFieldType(f.field_type)) ?? null
   }
 
   interface FrontmatterRow {
@@ -51,7 +52,7 @@
     if (!schema?.fields) return []
     const usedKeys = new Set(rows.map((r) => r.key.trim()).filter(Boolean))
     return schema.fields
-      .filter((field) => field.field_type !== 'Formula')
+      .filter((field) => !isComputedFieldType(field.field_type))
       .map((field) => field.name)
       .filter((name) => !usedKeys.has(name))
   }
@@ -79,7 +80,7 @@
   let fieldTypeLabels = $derived(
     new Map(
       schema?.fields
-        .filter((field) => field.field_type !== 'Formula')
+        .filter((field) => !isComputedFieldType(field.field_type))
         .map((f) => [
           f.name,
           f.field_type.charAt(0).toUpperCase() + f.field_type.slice(1).toLowerCase()

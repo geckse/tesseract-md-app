@@ -1,4 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
+import { promises as fs } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 // Avoid loading electron-store (and electron) via './store'; the pure
 // applyFrontmatterPatch never uses getCollections.
@@ -9,8 +12,10 @@ vi.mock('../../src/main/store', () => ({
 import {
   applyFrontmatterPatch,
   splitDocument,
-  MalformedFrontmatterError
+  MalformedFrontmatterError,
+  writePatchedFile
 } from '../../src/main/frontmatter'
+import { clearOwnWrites, matchAndConsumeOwnWrite } from '../../src/main/own-writes'
 
 describe('splitDocument', () => {
   it('detects no frontmatter', () => {
@@ -98,6 +103,105 @@ describe('applyFrontmatterPatch', () => {
     expect(content.endsWith(body)).toBe(true)
   })
 
+  it('keeps unrelated computed YAML pairs exact during a batch-style unset', () => {
+    const precise = 'Precise Total: 0.3000000000000000000000000001 # computed exact'
+    const nested = 'computed_payload: {amount: 1.2300000000000000001, tags: [one, two]}'
+    const body = '\n# Body\nNever rewrite this.\n'
+    const input = `---\nstatus: draft\n${precise}\n${nested}\n---${body}`
+
+    const { content, frontmatter } = applyFrontmatterPatch(input, { unset: ['status'] })
+
+    expect(content).not.toContain('status:')
+    expect(content).toContain(`${precise}\n`)
+    expect(content).toContain(`${nested}\n`)
+    expect(content.match(/Precise Total:/g)).toHaveLength(1)
+    expect(content.endsWith(body)).toBe(true)
+    expect(frontmatter['Precise Total']).toBe(0.3)
+  })
+
+  it('keeps untouched comments, key spacing, nesting, ordering, and footer trivia exact', () => {
+    const preserved = [
+      '# lookup value: keep this comment exactly',
+      '"Client Domain" : "example.com" # inline lookup comment',
+      'computed_payload: { amount : 1.2300000000000000001, tags: [one, two] }',
+      'nested_rollup:',
+      '  totals:',
+      '    - 0.1000000000000000001',
+      '    - 0.2000000000000000002'
+    ].join('\n')
+    const footer = '# footer belongs to the mapping\n\n'
+    const input = `---\nstatus: draft\n${preserved}\n\n${footer}---\nBody\n`
+
+    const { content } = applyFrontmatterPatch(input, { unset: ['status'] })
+
+    expect(content).toBe(`---\n${preserved}\n\n${footer}---\nBody\n`)
+    expect(content.indexOf('Client Domain')).toBeLessThan(content.indexOf('computed_payload'))
+    expect(content.indexOf('computed_payload')).toBeLessThan(content.indexOf('nested_rollup'))
+  })
+
+  it('inserts a new pair without normalizing an existing footer comment or blank lines', () => {
+    const input = '---\ntitle: Safe\n\n# exact footer\n\n---\nBody\n'
+
+    const { content } = applyFrontmatterPatch(input, { set: { priority: 0 } })
+
+    expect(content).toBe('---\ntitle: Safe\npriority: 0\n\n# exact footer\n\n---\nBody\n')
+  })
+
+  it('does not treat an indented delimiter inside a block scalar as the closing envelope', () => {
+    const description = 'description: |\n  before\n  ---\n  after'
+    const input = `---\n${description}\nstatus: draft\n---\nBody\n`
+
+    const { content } = applyFrontmatterPatch(input, { set: { status: 'published' } })
+
+    expect(content).toContain(`${description}\n`)
+    expect(content).toContain('status: published\n---\nBody\n')
+  })
+
+  it.each(['--- ', '---\t', '--- # comment'])(
+    'fails closed when the only apparent closing delimiter is %j',
+    (suffixDelimiter) => {
+      const input = `---\ntitle: Safe\n${suffixDelimiter}\nBody\n`
+
+      expect(() => applyFrontmatterPatch(input, { unset: ['title'] })).toThrow(
+        MalformedFrontmatterError
+      )
+    }
+  )
+
+  it('preserves a closing delimiter at EOF without adding a terminal newline', () => {
+    const input = '---\ntitle: A\nstatus: draft\n---'
+
+    const { content } = applyFrontmatterPatch(input, { set: { status: 'published' } })
+
+    expect(content).toBe('---\ntitle: A\nstatus: published\n---')
+    expect(content.endsWith('\n')).toBe(false)
+  })
+
+  it('preserves a UTF-8 BOM as the single first byte sequence', () => {
+    const input = '\uFEFF---\r\ntitle: A\r\nstatus: draft\r\n---\r\nBody\r\n'
+    const { content } = applyFrontmatterPatch(input, { unset: ['status'] })
+
+    expect(content.startsWith('\uFEFF---\r\n')).toBe(true)
+    expect(content.match(/\uFEFF/g)).toHaveLength(1)
+    expect(content.endsWith('---\r\nBody\r\n')).toBe(true)
+  })
+
+  it('fails closed on mixed newline styles', () => {
+    const input = '---\r\ntitle: A\nstatus: draft\r\n---\r\nBody\n'
+    expect(() => applyFrontmatterPatch(input, { unset: ['status'] })).toThrow(
+      MalformedFrontmatterError
+    )
+  })
+
+  it('keeps a frontmatter envelope when removing its final key', () => {
+    const input = '---\nonly: value\n---\nBody\n'
+    const { content, frontmatter } = applyFrontmatterPatch(input, { unset: ['only'] })
+
+    expect(content).toBe('---\n{}\n---\nBody\n')
+    expect(content.split('\n').filter((line) => line === '---')).toHaveLength(2)
+    expect(frontmatter).toEqual({})
+  })
+
   it('preserves CRLF line endings', () => {
     const input = '---\r\ntitle: A\r\n---\r\n\r\nBody\r\n'
     const { content } = applyFrontmatterPatch(input, { set: { status: 'live' } })
@@ -150,5 +254,41 @@ describe('applyFrontmatterPatch', () => {
     expect(frontmatter['título']).toBe('Café')
     expect(frontmatter['ñame']).toBe('José')
     expect(content).toContain('José')
+  })
+
+  it('rejects a non-mapping YAML root instead of replacing the whole frontmatter', () => {
+    const input = '---\n- one\n- two\n---\nBody\n'
+    expect(() => applyFrontmatterPatch(input, { set: { status: 'x' } })).toThrow(
+      MalformedFrontmatterError
+    )
+  })
+})
+
+describe('writePatchedFile CAS', () => {
+  it('leaves a concurrent source and own-write classification untouched', async () => {
+    const dir = await fs.mkdtemp(join(tmpdir(), 'frontmatter-cas-'))
+    const path = join(dir, 'note.md')
+    const baseline = '---\nstatus: draft\n---\nBaseline\n'
+    const concurrent = '---\nstatus: revised\n---\nConcurrent\n'
+    await fs.writeFile(path, concurrent, 'utf-8')
+    clearOwnWrites()
+
+    try {
+      await expect(
+        writePatchedFile(path, { unset: ['status'] }, null, {
+          expectedContent: baseline,
+          collectionRoot: dir
+        })
+      ).rejects.toThrow(/changed on disk/)
+      expect(await fs.readFile(path, 'utf-8')).toBe(concurrent)
+      expect(
+        matchAndConsumeOwnWrite(path, 'modified', {
+          size: Buffer.byteLength(concurrent, 'utf-8')
+        })
+      ).toBe(false)
+    } finally {
+      clearOwnWrites()
+      await fs.rm(dir, { recursive: true, force: true })
+    }
   })
 })

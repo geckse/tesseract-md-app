@@ -2,12 +2,28 @@
   import { valueToString } from '../../../stores/table.svelte'
   import type { JsonValue } from '../../../types/cli'
   import { stringifyExactJson } from '../../../../shared/exact-number'
+  import { isExactJsonNumber } from '../../../../shared/exact-number'
+  import { computedFieldMarker } from '../../../lib/computed-fields'
   import JsonSyntax from '../../ui/JsonSyntax.svelte'
   import { type CellProps, isEmptyValue } from './types'
 
   let { column, value, computedError }: CellProps = $props()
 
-  const resultType = $derived(column.result_type ?? 'Json')
+  const resultType = $derived.by(() => {
+    if (column.field_type !== 'Lookup') return column.result_type ?? 'Json'
+    if (isExactJsonNumber(value) || typeof value === 'number') return 'Number'
+    if (typeof value === 'boolean') return 'Boolean'
+    if (Array.isArray(value)) return 'List'
+    if (typeof value === 'object' && value !== null) return 'Json'
+    return 'String'
+  })
+  const marker = $derived(
+    computedFieldMarker(
+      column.field_type === 'Lookup' || column.field_type === 'Rollup'
+        ? column.field_type
+        : 'Formula'
+    )
+  )
   const raw = $derived(valueToString(value))
 
   function formatDate(source: string, withTime: boolean): string {
@@ -34,11 +50,16 @@
   class:failed={!!computedError}
   title={computedError?.message ?? raw}
 >
-  <span class="fx" aria-hidden="true">ƒx</span>
+  <span
+    class="fx"
+    class:lookup={column.field_type === 'Lookup'}
+    class:material-symbols-outlined={column.field_type === 'Lookup'}
+    aria-hidden="true">{marker}</span
+  >
 
   {#if computedError}
     <span class="material-symbols-outlined error-icon" aria-hidden="true">error</span>
-    <span class="error-text" aria-label={`Formula error: ${computedError.message}`}>
+    <span class="error-text" aria-label={`${column.field_type} error: ${computedError.message}`}>
       {computedError.code}
     </span>
   {:else if isEmptyValue(value)}
@@ -90,6 +111,12 @@
     font-family: var(--font-mono, 'JetBrains Mono', ui-monospace, monospace);
     font-size: 9px;
     opacity: 0.65;
+  }
+
+  .fx.lookup {
+    font-family: 'Material Symbols Outlined';
+    font-size: 14px;
+    line-height: 1;
   }
 
   .text,

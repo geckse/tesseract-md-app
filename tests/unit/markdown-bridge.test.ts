@@ -196,6 +196,22 @@ describe('serializeFrontmatterPreservingFields', () => {
       'payload:\n  nested: 9007199254740993\n  values:\n    - 0.10000000000000001'
     )
   })
+
+  it('preserves one spaced computed pair and the exact Markdown body suffix', () => {
+    const original =
+      '---\ntitle: Alice\nClient Detail: "Acme Corp" # computed\nstatus: draft\n---\n\n# Alice\nBody stays intact.\n'
+    const { frontmatter, body } = splitFrontmatter(original)
+    const parsed = parseFrontmatterData(frontmatter ?? '')
+    parsed.status = 'paid'
+
+    const yaml = serializeFrontmatterPreservingFields(frontmatter, parsed, ['Client Detail'])
+    const output = joinFrontmatter(yaml, body)
+
+    expect(output.match(/^Client Detail:/gm)).toHaveLength(1)
+    expect(output).toBe(
+      '---\ntitle: Alice\nClient Detail: "Acme Corp" # computed\nstatus: paid\n---\n\n# Alice\nBody stays intact.\n'
+    )
+  })
 })
 
 describe('roundtrip', () => {

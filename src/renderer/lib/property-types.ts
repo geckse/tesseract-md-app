@@ -48,7 +48,9 @@ export const FIELD_TO_DETECTED: Record<FieldType, PropertyTargetType> = {
   // Formula fields never enter editable type conversion; DocumentHeader
   // renders their materialized values through a dedicated read-only path.
   // This fallback keeps the storage-type mapping exhaustive.
-  Formula: 'text'
+  Formula: 'text',
+  Lookup: 'text',
+  Rollup: 'text'
 }
 
 /**

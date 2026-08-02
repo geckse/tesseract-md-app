@@ -28,6 +28,16 @@ describe('own-writes registry', () => {
     expect(matchAndConsumeOwnWrite('/vault/a.md', 'modified', { size: 5 })).toBe(false)
   })
 
+  it('revokes only the exact failed write registration', () => {
+    const cancelFailed = registerOwnWrite('/vault/a.md', 'write', 'failed')
+    registerOwnWrite('/vault/a.md', 'write', 'committed')
+
+    cancelFailed()
+
+    expect(matchAndConsumeOwnWrite('/vault/a.md', 'modified', { size: 6 })).toBe(false)
+    expect(matchAndConsumeOwnWrite('/vault/a.md', 'modified', { size: 9 })).toBe(true)
+  })
+
   it('does not match a different path', () => {
     registerOwnWrite('/vault/a.md', 'write', 'hello')
     expect(matchAndConsumeOwnWrite('/vault/b.md', 'modified', { size: 5 })).toBe(false)

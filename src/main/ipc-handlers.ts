@@ -7,7 +7,7 @@
 
 import { app, ipcMain, shell, clipboard, BrowserWindow, dialog } from 'electron'
 import { promises as fs } from 'node:fs'
-import { findCli, getCliVersion, execCommand, execRaw } from './cli'
+import { findCli, getCliVersion, execCommand, execRaw, execModuleTransaction } from './cli'
 import { getGraphSnapshot } from './graph-snapshot-cache'
 import { detectCli, installCli, checkLatestVersion } from './cli-install'
 import { readConfig, writeConfigKey, deleteConfigKey } from './config-io'
@@ -112,7 +112,10 @@ import type {
   CollectionOutput,
   FormulaResultType,
   FormulaValidationResult,
+  LookupRollupDefinition,
+  ModuleDescriptor,
   ModuleReport,
+  ModuleRunResponse,
   ShardInfo,
   ShardList,
   ShardMutation
@@ -128,6 +131,14 @@ import {
   TerminalNotFoundError
 } from './errors'
 import { broadcastShardInvalidation, configureShardManifestWatcher } from './shard-watcher'
+import {
+  broadcastComputedSchemaApplied,
+  flushDirtyDocumentsAcrossWindows,
+  registerComputedEditorFlushResponseHandler,
+  verifyCleanDocumentsAcrossWindows
+} from './computed-editor-flush'
+import { withSerializedFileWrite } from './file-write-queue'
+import { assertComputedOutputKeyAbsentOnDisk } from './computed-output-preflight'
 
 /** Ingest timeout: 5 minutes */
 const INGEST_TIMEOUT_MS = 300_000
@@ -299,9 +310,171 @@ async function withWatcherPausedUnlocked<T>(root: string, fn: () => Promise<T>):
   }
 }
 
-function assertFormulaModuleReport(report: ModuleReport): void {
-  const failure = report.diagnostics.find((diagnostic) => diagnostic.code === 'module_error')
-  if (failure) throw new Error(`Formula module failed: ${failure.message}`)
+function normalizeModuleRunResponse(
+  response: ModuleRunResponse,
+  moduleId: string
+): { primary: ModuleReport; reports: ModuleReport[] } {
+  const reports =
+    'module_reports' in response && Array.isArray(response.module_reports)
+      ? response.module_reports
+      : 'reports' in response && Array.isArray(response.reports)
+        ? response.reports
+        : 'module' in response
+          ? [response]
+          : []
+  const primary = reports.find((report) => report.module === moduleId)
+  if (!primary) throw new Error(`${moduleId} module did not return a report`)
+  const moduleFailureCodes = new Set(['module_error', 'invalid_schema'])
+  const failure = reports
+    .flatMap((report) => report.diagnostics)
+    .find((diagnostic) => moduleFailureCodes.has(diagnostic.code))
+  if (failure) {
+    const label = moduleId === 'formula' ? 'Formula' : 'Lookup/Rollup'
+    throw new Error(`${label} module failed: ${failure.message}`)
+  }
+  return { primary, reports }
+}
+
+function normalizedScope(value: string | null | undefined): string | null {
+  const normalized = value?.trim().replace(/^\.\/+|^\/+|\/+$/g, '') ?? ''
+  return normalized && normalized !== '.' ? normalized : null
+}
+
+function validatedComputedFieldName(value: unknown, label = 'Computed field name'): string {
+  if (typeof value !== 'string' || value.trim() === '') throw new Error(`${label} is required`)
+  if (value !== value.trim()) throw new Error(`${label} cannot start or end with spaces`)
+  if (
+    [...value].some((character) => {
+      const code = character.codePointAt(0) ?? 0
+      return code <= 0x1f || code === 0x7f
+    })
+  ) {
+    throw new Error(`${label} cannot contain control characters`)
+  }
+  if (value === 'title' || value === 'path') {
+    throw new Error(`"${value}" is reserved and cannot be a computed field`)
+  }
+  return value
+}
+
+async function loadCollectionFieldsForScope(
+  root: string,
+  scope: string | null
+): Promise<CollectionOutput['columns']> {
+  // Topology validation must recognize exact indexed frontmatter keys omitted
+  // by a persisted scoped schema. `collection` returns schema fields unioned
+  // with keys present in every matching row, and computes columns before
+  // pagination, so limit 0 avoids transferring any document payload.
+  const result = await execCommand<CollectionOutput>(
+    'collection',
+    [scope ?? '.', '--recursive', '--limit', '0'],
+    root
+  )
+  return result.columns
+}
+
+/** Revalidate relation topology at the privileged IPC boundary. Renderer
+ * selectors are guidance only; a stale or forged request must not create a
+ * plausible-but-empty aggregate. */
+async function validateLookupRollupTopology(
+  root: string,
+  ownerScope: string | null,
+  definition: LookupRollupDefinition,
+  mutation: { previousKey?: string; key: string }
+): Promise<void> {
+  let ownerFields: CollectionOutput['columns'] | null = null
+  if (mutation.previousKey === undefined || mutation.previousKey !== mutation.key) {
+    ownerFields = await loadCollectionFieldsForScope(root, normalizedScope(ownerScope))
+    if (ownerFields.some((field) => field.name === mutation.key)) {
+      const action = mutation.previousKey === undefined ? 'create' : 'rename'
+      const source = mutation.previousKey === undefined ? '' : ` "${mutation.previousKey}" to`
+      throw new Error(
+        `Cannot ${action} computed field${source} "${mutation.key}": the destination field already exists`
+      )
+    }
+  }
+
+  if (definition.relationDirection === 'incoming') {
+    const sourceScope = normalizedScope(definition.relationScope)
+    if (!sourceScope) throw new Error('Incoming Rollup relation scope is required')
+    const sourceFields = await loadCollectionFieldsForScope(root, sourceScope)
+    const relation = sourceFields.find((field) => field.name === definition.relationField)
+    if (relation?.field_type !== 'Relation') {
+      throw new Error(`"${definition.relationField}" is not a Relation field in ${sourceScope}`)
+    }
+    const expectedTarget = normalizedScope(ownerScope)
+    if (
+      !relation.relation_target?.trim() ||
+      normalizedScope(relation.relation_target) !== expectedTarget
+    ) {
+      throw new Error(
+        `Relation "${definition.relationField}" must target the current collection (${expectedTarget ?? 'root'})`
+      )
+    }
+    if (!sourceFields.some((field) => field.name === definition.targetField)) {
+      throw new Error(`Target field "${definition.targetField}" does not exist in ${sourceScope}`)
+    }
+    return
+  }
+
+  ownerFields ??= await loadCollectionFieldsForScope(root, normalizedScope(ownerScope))
+  const relation = ownerFields.find((field) => field.name === definition.relationField)
+  if (relation?.field_type !== 'Relation' || !relation.relation_target?.trim()) {
+    throw new Error(
+      `"${definition.relationField}" must be a Relation field with a target collection`
+    )
+  }
+  const targetScope = normalizedScope(relation.relation_target)
+  const targetFields = await loadCollectionFieldsForScope(root, targetScope)
+  if (!targetFields.some((field) => field.name === definition.targetField)) {
+    throw new Error(`Target field "${definition.targetField}" does not exist in ${targetScope}`)
+  }
+}
+
+function broadcastModuleReports(windowManager: WindowManager, reports: ModuleReport[]): void {
+  for (const report of reports) {
+    windowManager.broadcastToAll('watcher:event', { type: 'module-report', data: report })
+  }
+}
+
+async function restoreComputedOverlay(
+  windowManager: WindowManager,
+  root: string,
+  previous: import('./schema-overlay').OverlaySnapshot,
+  mutated: import('./schema-overlay').OverlaySnapshot,
+  moduleId: 'formula' | 'lookup_rollup',
+  primaryError: unknown
+): Promise<never> {
+  const primaryMessage = primaryError instanceof Error ? primaryError.message : String(primaryError)
+  let overlayRestored = false
+  let transaction: Awaited<ReturnType<typeof execModuleTransaction>>
+  try {
+    transaction = await execModuleTransaction(root, moduleId, null, async () => {
+      const { restoreOverlaySnapshot } = await import('./schema-overlay')
+      await restoreOverlaySnapshot(root, previous, mutated)
+      overlayRestored = true
+    })
+  } catch (rollbackError) {
+    const phase = overlayRestored ? 'rollback recompute' : 'overlay rollback'
+    throw new Error(
+      `${primaryMessage}; ${phase} failed: ${
+        rollbackError instanceof Error ? rollbackError.message : String(rollbackError)
+      }`
+    )
+  }
+
+  try {
+    const rollback = normalizeModuleRunResponse(transaction.response as ModuleRunResponse, moduleId)
+    broadcastModuleReports(windowManager, rollback.reports)
+    broadcastComputedSchemaApplied(windowManager, root)
+  } catch (rollbackError) {
+    throw new Error(
+      `${primaryMessage}; rollback recompute failed: ${
+        rollbackError instanceof Error ? rollbackError.message : String(rollbackError)
+      }`
+    )
+  }
+  throw primaryError
 }
 
 /**
@@ -325,6 +498,7 @@ export function registerStartupIpcHandlers(): void {
 export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: PtyManager): void {
   // Export (phase 43): Save a Copy… / Export ▸ via native save dialog
   registerExportHandlers()
+  registerComputedEditorFlushResponseHandler()
 
   // Focused renderer state for contextual native Graph-menu enablement/checkmarks.
   ipcMain.handle('menu:set-context', (event, value: unknown) =>
@@ -376,6 +550,29 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
         args.push('--expand', String(options.expand))
       return wrapHandler(() => execCommand<SearchOutput>('search', args, root))
     }
+  )
+
+  ipcMain.handle('cli:modules-list', (_event, root: string) =>
+    wrapHandler(() => execCommand<ModuleDescriptor[]>('modules', ['list'], root))
+  )
+
+  ipcMain.handle(
+    'cli:modules-validate-rollup',
+    (_event, root: string, formula: string, resultType: FormulaResultType) =>
+      wrapHandler(() =>
+        execCommand<FormulaValidationResult>(
+          'modules',
+          [
+            'validate',
+            'lookup_rollup',
+            '--formula',
+            formula,
+            '--result-type',
+            resultType.toLowerCase()
+          ],
+          root
+        )
+      )
   )
 
   // Status
@@ -1114,24 +1311,94 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
       const { resolve, sep } = await import('node:path')
       const normalizedPath = resolve(absolutePath)
       const collections = getCollections()
-      const isWithinCollection = collections.some(
+      const collection = collections.find(
         (c) => normalizedPath === c.path || normalizedPath.startsWith(c.path + sep)
       )
-      if (!isWithinCollection) {
+      if (!collection) {
         throw new Error('Access denied: path is not within a known collection')
       }
-      registerOwnWrite(normalizedPath, 'write', content)
-      await atomicWriteFile(normalizedPath, content)
-
-      // Notify all OTHER windows that this file was saved, so they can
-      // silently reload it instead of showing a conflict prompt.
-      const senderId = event.sender.id
-      for (const win of windowManager.getAllWindows()) {
-        if (win.webContents.id !== senderId && !win.isDestroyed()) {
-          win.webContents.send('file:saved-externally', { path: normalizedPath, content })
+      await withSerializedFileWrite(normalizedPath, async () => {
+        let cancelOwnWrite: (() => void) | null = null
+        let published = false
+        try {
+          await atomicWriteFile(normalizedPath, content, {
+            allowedRoot: collection.path,
+            beforeCommit: () => {
+              cancelOwnWrite = registerOwnWrite(normalizedPath, 'write', content)
+            },
+            onPublished: () => {
+              published = true
+            }
+          })
+        } catch (error) {
+          if (!published) cancelOwnWrite?.()
+          throw error
         }
-      }
+
+        // Notify all OTHER windows that this file was saved, so they can
+        // silently reload it instead of showing a conflict prompt.
+        const senderId = event.sender.id
+        for (const win of windowManager.getAllWindows()) {
+          if (win.webContents.id !== senderId && !win.isDestroyed()) {
+            win.webContents.send('file:saved-externally', { path: normalizedPath, content })
+          }
+        }
+      })
     })
+  )
+
+  // Exact-baseline write used while flushing editors for a computed-schema
+  // transaction. The comparison and atomic replacement share one per-path
+  // main-process queue, closing the cross-window read-then-write race.
+  ipcMain.handle(
+    'fs:write-file-if-unchanged',
+    (event, absolutePath: string, expectedContent: string, content: string) =>
+      wrapHandler(async () => {
+        const { resolve, sep } = await import('node:path')
+        const normalizedPath = resolve(absolutePath)
+        const collections = getCollections()
+        const collection = collections.find(
+          (c) => normalizedPath === c.path || normalizedPath.startsWith(c.path + sep)
+        )
+        if (!collection) {
+          throw new Error('Access denied: path is not within a known collection')
+        }
+
+        await withSerializedFileWrite(normalizedPath, async () => {
+          const currentContent = await fs.readFile(normalizedPath, 'utf-8')
+          if (currentContent !== expectedContent) {
+            throw new Error('The file changed on disk after this editor opened it')
+          }
+
+          let cancelOwnWrite: (() => void) | null = null
+          let published = false
+          try {
+            await atomicWriteFile(normalizedPath, content, {
+              allowedRoot: collection.path,
+              beforeCommit: async () => {
+                const latestContent = await fs.readFile(normalizedPath, 'utf-8')
+                if (latestContent !== expectedContent) {
+                  throw new Error('The file changed on disk after this editor opened it')
+                }
+                cancelOwnWrite = registerOwnWrite(normalizedPath, 'write', content)
+              },
+              onPublished: () => {
+                published = true
+              }
+            })
+          } catch (error) {
+            if (!published) cancelOwnWrite?.()
+            throw error
+          }
+
+          const senderId = event.sender.id
+          for (const win of windowManager.getAllWindows()) {
+            if (win.webContents.id !== senderId && !win.isDestroyed()) {
+              win.webContents.send('file:saved-externally', { path: normalizedPath, content })
+            }
+          }
+        })
+      })
   )
 
   // Safe single-key frontmatter edit (phase-39b). The renderer passes
@@ -1211,53 +1478,65 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
         }
 
         const scopeKey = scope && scope !== '.' ? scope.replace(/\/+$/, '') : null
+        await flushDirtyDocumentsAcrossWindows(windowManager, collection.id, collection.path)
         return withWatcherPaused(collection.path, async () => {
-          const {
-            captureOverlaySnapshot,
-            restoreOverlaySnapshot,
-            resolveOverlayFormulaScope,
-            upsertOverlayField
-          } = await import('./schema-overlay')
-          const snapshot = await captureOverlaySnapshot(collection.path)
-          const existingScope = await resolveOverlayFormulaScope(collection.path, scopeKey, field)
-          const targetScope = existingScope === undefined ? scopeKey : existingScope
-          let mutated = false
+          const { captureOverlaySnapshot, resolveOverlayFormulaScope, upsertOverlayField } =
+            await import('./schema-overlay')
+          let snapshot: import('./schema-overlay').OverlaySnapshot | null = null
+          let mutatedSnapshot: import('./schema-overlay').OverlaySnapshot | null = null
           try {
-            await upsertOverlayField(collection.path, targetScope, field, {
-              fieldType: 'formula',
-              formula,
-              resultType
-            })
-            mutated = true
-            const args = ['run', 'formula']
-            if (targetScope) args.push('--path', targetScope)
-            const report = await execCommand<ModuleReport>('modules', args, collection.path, {
-              timeout: INGEST_TIMEOUT_MS
-            })
-            assertFormulaModuleReport(report)
-            windowManager.broadcastToAll('watcher:event', {
-              type: 'module-report',
-              data: report
-            })
-            return report
-          } catch (error) {
-            if (mutated) {
-              await restoreOverlaySnapshot(collection.path, snapshot)
-              try {
-                const rollback = await execCommand<ModuleReport>(
-                  'modules',
-                  ['run', 'formula'],
+            const transaction = await execModuleTransaction(
+              collection.path,
+              'formula',
+              null,
+              async () => {
+                const existingScope = await resolveOverlayFormulaScope(
                   collection.path,
-                  { timeout: INGEST_TIMEOUT_MS }
+                  scopeKey,
+                  field
                 )
-                assertFormulaModuleReport(rollback)
-              } catch (rollbackError) {
-                throw new Error(
-                  `${error instanceof Error ? error.message : String(error)}; rollback recompute failed: ${
-                    rollbackError instanceof Error ? rollbackError.message : String(rollbackError)
-                  }`
+                const targetScope = existingScope === undefined ? scopeKey : existingScope
+                await verifyCleanDocumentsAcrossWindows(
+                  windowManager,
+                  collection.id,
+                  collection.path
                 )
+                snapshot = await captureOverlaySnapshot(collection.path)
+                await upsertOverlayField(
+                  collection.path,
+                  targetScope,
+                  field,
+                  {
+                    fieldType: 'formula',
+                    formula,
+                    resultType
+                  },
+                  {
+                    onPublished: (published) => {
+                      mutatedSnapshot = published
+                    }
+                  }
+                )
+                mutatedSnapshot = await captureOverlaySnapshot(collection.path)
               }
+            )
+            const outcome = normalizeModuleRunResponse(
+              transaction.response as ModuleRunResponse,
+              'formula'
+            )
+            broadcastModuleReports(windowManager, outcome.reports)
+            broadcastComputedSchemaApplied(windowManager, collection.path)
+            return outcome.primary
+          } catch (error) {
+            if (snapshot && mutatedSnapshot) {
+              return restoreComputedOverlay(
+                windowManager,
+                collection.path,
+                snapshot,
+                mutatedSnapshot,
+                'formula',
+                error
+              )
             }
             throw error
           }
@@ -1272,52 +1551,334 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
         const collection = getCollections().find((item) => item.id === collectionId)
         if (!collection) throw new Error(`Collection not found: ${collectionId}`)
         const scopeKey = scope && scope !== '.' ? scope.replace(/\/+$/, '') : null
+        await flushDirtyDocumentsAcrossWindows(windowManager, collection.id, collection.path)
+        return withWatcherPaused(collection.path, async () => {
+          const { captureOverlaySnapshot, removeOverlayField, resolveOverlayFormulaScope } =
+            await import('./schema-overlay')
+          let snapshot: import('./schema-overlay').OverlaySnapshot | null = null
+          let mutatedSnapshot: import('./schema-overlay').OverlaySnapshot | null = null
+          try {
+            const transaction = await execModuleTransaction(
+              collection.path,
+              'formula',
+              null,
+              async () => {
+                const origin = await resolveOverlayFormulaScope(collection.path, scopeKey, key)
+                if (origin === undefined) {
+                  throw new Error(`Formula "${key}" is not defined for this collection`)
+                }
+                await verifyCleanDocumentsAcrossWindows(
+                  windowManager,
+                  collection.id,
+                  collection.path
+                )
+                snapshot = await captureOverlaySnapshot(collection.path)
+                const removed = await removeOverlayField(collection.path, origin, key, {
+                  onPublished: (published) => {
+                    mutatedSnapshot = published
+                  }
+                })
+                if (!removed) throw new Error(`Formula "${key}" could not be removed`)
+                mutatedSnapshot = await captureOverlaySnapshot(collection.path)
+              }
+            )
+            const outcome = normalizeModuleRunResponse(
+              transaction.response as ModuleRunResponse,
+              'formula'
+            )
+            broadcastModuleReports(windowManager, outcome.reports)
+            broadcastComputedSchemaApplied(windowManager, collection.path)
+            return outcome.primary
+          } catch (error) {
+            if (snapshot && mutatedSnapshot) {
+              return restoreComputedOverlay(
+                windowManager,
+                collection.path,
+                snapshot,
+                mutatedSnapshot,
+                'formula',
+                error
+              )
+            }
+            throw error
+          }
+        })
+      })
+  )
+
+  ipcMain.handle(
+    'schema:save-lookup-rollup',
+    (
+      _event,
+      collectionId: string,
+      scope: string | null,
+      key: string,
+      definition: LookupRollupDefinition,
+      previousKey?: string
+    ) =>
+      wrapHandler(async () => {
+        const collection = getCollections().find((item) => item.id === collectionId)
+        if (!collection) throw new Error(`Collection not found: ${collectionId}`)
+        const field = validatedComputedFieldName(key)
+        const previousField =
+          previousKey === undefined
+            ? undefined
+            : validatedComputedFieldName(previousKey, 'Previous computed field name')
+        if (!definition || (definition.kind !== 'lookup' && definition.kind !== 'rollup')) {
+          throw new Error('A Lookup or Rollup definition is required')
+        }
+        for (const [label, value] of [
+          ['Relation field', definition.relationField],
+          ['Target field', definition.targetField]
+        ] as const) {
+          if (!value?.trim() || value !== value.trim()) {
+            throw new Error(`${label} must be non-empty and have no surrounding spaces`)
+          }
+        }
+        if (definition.kind === 'lookup' && definition.relationDirection !== 'outgoing') {
+          throw new Error('Lookup fields support outgoing relations only')
+        }
+        if (definition.kind === 'rollup') {
+          if (!definition.formula.trim()) throw new Error('Rollup formula is required')
+          if (definition.relationDirection === 'incoming') {
+            const relationScope = definition.relationScope
+            if (
+              !relationScope?.trim() ||
+              relationScope !== relationScope.trim() ||
+              relationScope.endsWith('/')
+            ) {
+              throw new Error('Incoming Rollup relation scope is required without a trailing slash')
+            }
+          }
+          const validation = await execCommand<FormulaValidationResult>(
+            'modules',
+            [
+              'validate',
+              'lookup_rollup',
+              '--formula',
+              definition.formula,
+              '--result-type',
+              definition.resultType.toLowerCase()
+            ],
+            collection.path
+          )
+          if (!validation.valid) {
+            throw new Error(
+              validation.diagnostics.map((diagnostic) => diagnostic.message).join('\n') ||
+                'Rollup formula is not valid'
+            )
+          }
+        }
+
+        const scopeKey = scope && scope !== '.' ? scope.replace(/\/+$/, '') : null
+        await flushDirtyDocumentsAcrossWindows(windowManager, collection.id, collection.path)
         return withWatcherPaused(collection.path, async () => {
           const {
             captureOverlaySnapshot,
-            removeOverlayField,
-            resolveOverlayFormulaScope,
-            restoreOverlaySnapshot
+            resolveOverlayLookupRollupDefinition,
+            upsertOverlayField
           } = await import('./schema-overlay')
-          const origin = await resolveOverlayFormulaScope(collection.path, scopeKey, key)
-          if (origin === undefined) {
-            throw new Error(`Formula "${key}" is not defined for this collection`)
-          }
-          const snapshot = await captureOverlaySnapshot(collection.path)
-          let mutated = false
+          let snapshot: import('./schema-overlay').OverlaySnapshot | null = null
+          let mutatedSnapshot: import('./schema-overlay').OverlaySnapshot | null = null
+          let definitionOrigin: string | null = scopeKey
           try {
-            const removed = await removeOverlayField(collection.path, origin, key)
-            if (!removed) throw new Error(`Formula "${key}" could not be removed`)
-            mutated = true
-            const args = ['run', 'formula']
-            if (origin) args.push('--path', origin)
-            const report = await execCommand<ModuleReport>('modules', args, collection.path, {
-              timeout: INGEST_TIMEOUT_MS
-            })
-            assertFormulaModuleReport(report)
-            windowManager.broadcastToAll('watcher:event', {
-              type: 'module-report',
-              data: report
-            })
-            return report
-          } catch (error) {
-            if (mutated) {
-              await restoreOverlaySnapshot(collection.path, snapshot)
-              try {
-                const rollback = await execCommand<ModuleReport>(
-                  'modules',
-                  ['run', 'formula'],
-                  collection.path,
-                  { timeout: INGEST_TIMEOUT_MS }
+            const transaction = await execModuleTransaction(
+              collection.path,
+              'lookup_rollup',
+              null,
+              async () => {
+                const existingDefinition =
+                  previousField === undefined
+                    ? undefined
+                    : await resolveOverlayLookupRollupDefinition(
+                        collection.path,
+                        scopeKey,
+                        previousField
+                      )
+                if (previousField !== undefined && existingDefinition === undefined) {
+                  throw new Error(
+                    `Lookup/Rollup definition "${previousField}" is not defined for this collection`
+                  )
+                }
+                if (
+                  previousField !== undefined &&
+                  existingDefinition !== undefined &&
+                  existingDefinition.kind !== definition.kind
+                ) {
+                  throw new Error(
+                    `Cannot change computed field "${previousField}" from ${existingDefinition.kind} to ${definition.kind}`
+                  )
+                }
+                const targetScope =
+                  existingDefinition === undefined ? scopeKey : existingDefinition.scope
+                definitionOrigin = targetScope
+                // An inherited definition is mutated at its true origin. Its
+                // relation topology must therefore be valid at that origin as
+                // well; validating against the currently viewed child could
+                // otherwise let child-only fields corrupt a parent definition.
+                await validateLookupRollupTopology(collection.path, targetScope, definition, {
+                  previousKey: previousField,
+                  key: field
+                })
+                await verifyCleanDocumentsAcrossWindows(
+                  windowManager,
+                  collection.id,
+                  collection.path
                 )
-                assertFormulaModuleReport(rollback)
-              } catch (rollbackError) {
-                throw new Error(
-                  `${error instanceof Error ? error.message : String(error)}; rollback recompute failed: ${
-                    rollbackError instanceof Error ? rollbackError.message : String(rollbackError)
-                  }`
+                const mustClaimAbsentOutput = previousField === undefined || previousField !== field
+                if (mustClaimAbsentOutput) {
+                  await assertComputedOutputKeyAbsentOnDisk(collection.path, targetScope, field)
+                }
+                snapshot = await captureOverlaySnapshot(collection.path)
+                await upsertOverlayField(
+                  collection.path,
+                  targetScope,
+                  field,
+                  {
+                    fieldType: definition.kind,
+                    relationField: definition.relationField,
+                    targetField: definition.targetField,
+                    relationDirection:
+                      definition.kind === 'rollup' && definition.relationDirection === 'incoming'
+                        ? 'incoming'
+                        : null,
+                    relationScope:
+                      definition.kind === 'rollup' && definition.relationDirection === 'incoming'
+                        ? definition.relationScope
+                        : null,
+                    formula: definition.kind === 'rollup' ? definition.formula : null,
+                    resultType: definition.kind === 'rollup' ? definition.resultType : null
+                  },
+                  {
+                    previousKey: previousField,
+                    requireAbsent: previousField === undefined,
+                    onPrepared: (prepared) => {
+                      snapshot = prepared
+                    },
+                    onPublished: (published) => {
+                      mutatedSnapshot = published
+                    }
+                  }
+                )
+                // Test doubles and older mutation implementations may not
+                // expose publication callbacks. The real writer always does;
+                // this fallback preserves compatibility without weakening its
+                // exact-generation rollback snapshots.
+                if (!mutatedSnapshot) {
+                  mutatedSnapshot = await captureOverlaySnapshot(collection.path)
+                }
+                // Close the largest external-editor race window: re-read every
+                // current owner after overlay publication but before the
+                // transaction process is allowed to evaluate/write outputs.
+                if (mustClaimAbsentOutput) {
+                  await assertComputedOutputKeyAbsentOnDisk(collection.path, targetScope, field)
+                }
+              }
+            )
+            const outcome = normalizeModuleRunResponse(
+              transaction.response as ModuleRunResponse,
+              'lookup_rollup'
+            )
+            if (previousField !== undefined && previousField !== field) {
+              // Saved views are auxiliary. Update them only after the module
+              // accepted the renamed definition; a views-file failure must
+              // never roll back valid Markdown or overlay state.
+              try {
+                const { renamePropertyInViews } = await import('./table-views')
+                await renamePropertyInViews(
+                  collection.id,
+                  definitionOrigin ?? '',
+                  previousField,
+                  field
+                )
+              } catch (error) {
+                console.warn(
+                  `lookup-rollup: could not rename saved-view property "${previousField}":`,
+                  error
                 )
               }
+            }
+            broadcastModuleReports(windowManager, outcome.reports)
+            broadcastComputedSchemaApplied(
+              windowManager,
+              collection.path,
+              previousField !== undefined && previousField !== field
+                ? { scope: definitionOrigin, oldKey: previousField, newKey: field }
+                : undefined
+            )
+            return outcome.primary
+          } catch (error) {
+            if (snapshot && mutatedSnapshot) {
+              return restoreComputedOverlay(
+                windowManager,
+                collection.path,
+                snapshot,
+                mutatedSnapshot,
+                'lookup_rollup',
+                error
+              )
+            }
+            throw error
+          }
+        })
+      })
+  )
+
+  ipcMain.handle(
+    'schema:remove-lookup-rollup',
+    (_event, collectionId: string, scope: string | null, key: string) =>
+      wrapHandler(async () => {
+        const collection = getCollections().find((item) => item.id === collectionId)
+        if (!collection) throw new Error(`Collection not found: ${collectionId}`)
+        const scopeKey = scope && scope !== '.' ? scope.replace(/\/+$/, '') : null
+        await flushDirtyDocumentsAcrossWindows(windowManager, collection.id, collection.path)
+        return withWatcherPaused(collection.path, async () => {
+          const { captureOverlaySnapshot, removeOverlayField, resolveOverlayLookupRollupScope } =
+            await import('./schema-overlay')
+          let snapshot: import('./schema-overlay').OverlaySnapshot | null = null
+          let mutatedSnapshot: import('./schema-overlay').OverlaySnapshot | null = null
+          try {
+            const transaction = await execModuleTransaction(
+              collection.path,
+              'lookup_rollup',
+              null,
+              async () => {
+                const origin = await resolveOverlayLookupRollupScope(collection.path, scopeKey, key)
+                if (origin === undefined) {
+                  throw new Error(`Lookup/Rollup "${key}" is not defined for this collection`)
+                }
+                await verifyCleanDocumentsAcrossWindows(
+                  windowManager,
+                  collection.id,
+                  collection.path
+                )
+                snapshot = await captureOverlaySnapshot(collection.path)
+                const removed = await removeOverlayField(collection.path, origin, key, {
+                  onPublished: (published) => {
+                    mutatedSnapshot = published
+                  }
+                })
+                if (!removed) throw new Error(`Lookup/Rollup "${key}" could not be removed`)
+                mutatedSnapshot = await captureOverlaySnapshot(collection.path)
+              }
+            )
+            const outcome = normalizeModuleRunResponse(
+              transaction.response as ModuleRunResponse,
+              'lookup_rollup'
+            )
+            broadcastModuleReports(windowManager, outcome.reports)
+            broadcastComputedSchemaApplied(windowManager, collection.path)
+            return outcome.primary
+          } catch (error) {
+            if (snapshot && mutatedSnapshot) {
+              return restoreComputedOverlay(
+                windowManager,
+                collection.path,
+                snapshot,
+                mutatedSnapshot,
+                'lookup_rollup',
+                error
+              )
             }
             throw error
           }

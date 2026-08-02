@@ -58,6 +58,7 @@
     type ClipboardImageData,
     type ClipboardImageDestination
   } from '../lib/clipboard-image'
+  import { registerComputedEditorAdapter } from '../stores/computed-editor-flush'
 
   // ── Props ─────────────────────────────────────────────────────────────
   interface WysiwygEditorProps {
@@ -105,6 +106,20 @@
   const serializedPool = new Map<string, SerializedEntry>()
   /** LRU access order — most recently accessed tab ID is last. */
   const accessOrder: string[] = []
+  const unregisterComputedEditorAdapter = registerComputedEditorAdapter({
+    snapshot(id) {
+      const entry = pool.get(id)
+      if (!entry) return undefined
+      const content = getFullContentForEntry(entry)
+      return { content, isDirty: content !== entry.lastSavedContent }
+    },
+    markSaved(id, content) {
+      const entry = pool.get(id)
+      if (entry) entry.lastSavedContent = content
+      const serialized = serializedPool.get(id)
+      if (serialized) serialized.lastSavedContent = content
+    }
+  })
 
   // ── Component State ───────────────────────────────────────────────────
   let editorHost: HTMLDivElement | undefined = $state(undefined)
@@ -967,6 +982,7 @@
   })
 
   onDestroy(() => {
+    unregisterComputedEditorAdapter()
     if (debounceTimer) clearTimeout(debounceTimer)
     if (composingRetryTimer) clearTimeout(composingRetryTimer)
 

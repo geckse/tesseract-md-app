@@ -12,6 +12,10 @@
  * Svelte 5 runes singleton (MUST remain a .svelte.ts file).
  */
 
+import type { ModuleDescriptor } from '../types/cli'
+
+export const LOOKUP_ROLLUP_MODULE_ID = 'lookup_rollup'
+
 /** The mdvdb version that ships phase-31 frontmatter relations. */
 export const MDVDB_RELATIONS_MIN_VERSION = '0.2.0'
 
@@ -42,6 +46,9 @@ class CliFeatures {
   version = $state<string | null>(null)
 
   private initPromise: Promise<void> | null = null
+  private modulesPromise: Promise<void> | null = null
+  private modulesRoot: string | null = null
+  modules = $state<ModuleDescriptor[]>([])
 
   /** Whether the detected CLI supports phase-31 relations (`--populate` etc.). */
   get supportsRelations(): boolean {
@@ -55,6 +62,11 @@ class CliFeatures {
     if (this.version === null) return false
     const cmp = compareSemver(this.version, MDVDB_FILE_FIELDS_MIN_VERSION)
     return cmp !== null && cmp >= 0
+  }
+
+  /** Lookup/Rollup authoring is capability-detected from the compiled-in module, never semver. */
+  get supportsLookupRollup(): boolean {
+    return this.modules.some((module) => module.id === LOOKUP_ROLLUP_MODULE_ID)
   }
 
   /** Whether the detected CLI is valid semver but too old for this app. */
@@ -82,10 +94,34 @@ class CliFeatures {
     return this.initPromise
   }
 
+  /** Detect compiled-in modules for one collection root. Fail closed and single-flight. */
+  initModules(root: string): Promise<void> {
+    if (!root) return Promise.resolve()
+    if (this.modulesRoot !== root) {
+      this.modulesRoot = root
+      this.modulesPromise = null
+      this.modules = []
+    }
+    const requestedRoot = root
+    this.modulesPromise ??= (async () => {
+      await this.init()
+      try {
+        const modules = await window.api.listModules(requestedRoot)
+        if (this.modulesRoot === requestedRoot) this.modules = modules
+      } catch {
+        if (this.modulesRoot === requestedRoot) this.modules = []
+      }
+    })()
+    return this.modulesPromise
+  }
+
   /** Test hook: reset detection state. */
   reset(): void {
     this.initPromise = null
+    this.modulesPromise = null
+    this.modulesRoot = null
     this.version = null
+    this.modules = []
   }
 }
 

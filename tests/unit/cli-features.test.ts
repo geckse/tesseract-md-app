@@ -6,6 +6,7 @@ import {
   MDVDB_MIN_SUPPORTED_VERSION,
   MDVDB_RELATIONS_MIN_VERSION
 } from '@renderer/lib/cli-features.svelte'
+import type { ModuleDescriptor } from '@renderer/types/cli'
 
 describe('compareSemver', () => {
   it('orders plain numeric semvers', () => {
@@ -119,5 +120,81 @@ describe('cliFeatures', () => {
     await Promise.all([first, second])
     expect(getCliVersion).toHaveBeenCalledTimes(1)
     expect(cliFeatures.supportsRelations).toBe(true)
+  })
+
+  it('enables Lookup/Rollup from the module descriptor without a semver gate', async () => {
+    const getCliVersion = vi.fn().mockResolvedValue('0.2.0')
+    const listModules = vi.fn().mockResolvedValue([
+      { id: 'formula', name: 'Formula', version: 1, always_on: true, hooks: [] },
+      {
+        id: 'lookup_rollup',
+        name: 'Lookup & Rollup',
+        version: 1,
+        always_on: true,
+        hooks: ['schema_changed']
+      }
+    ])
+    Object.defineProperty(globalThis, 'window', {
+      value: { api: { getCliVersion, listModules } },
+      configurable: true
+    })
+
+    await Promise.all([cliFeatures.initModules('/vault'), cliFeatures.initModules('/vault')])
+    expect(listModules).toHaveBeenCalledTimes(1)
+    expect(cliFeatures.supportsLookupRollup).toBe(true)
+
+    cliFeatures.version = '0.1.0'
+    expect(cliFeatures.supportsLookupRollup).toBe(true)
+  })
+
+  it('ignores a stale module response after the active collection root changes', async () => {
+    let resolveFirst!: (value: ModuleDescriptor[]) => void
+    const first = new Promise<ModuleDescriptor[]>((resolve) => {
+      resolveFirst = resolve
+    })
+    const listModules = vi
+      .fn()
+      .mockReturnValueOnce(first)
+      .mockResolvedValueOnce([
+        {
+          id: 'lookup_rollup',
+          name: 'Lookup & Rollup',
+          version: 1,
+          always_on: true,
+          hooks: []
+        }
+      ])
+    Object.defineProperty(globalThis, 'window', {
+      value: {
+        api: {
+          getCliVersion: vi.fn().mockResolvedValue('0.2.0'),
+          listModules
+        }
+      },
+      configurable: true
+    })
+
+    const stale = cliFeatures.initModules('/old-vault')
+    await cliFeatures.initModules('/active-vault')
+    resolveFirst([])
+    await stale
+
+    expect(cliFeatures.supportsLookupRollup).toBe(true)
+  })
+
+  it('fails Lookup/Rollup capability detection closed', async () => {
+    Object.defineProperty(globalThis, 'window', {
+      value: {
+        api: {
+          getCliVersion: vi.fn().mockResolvedValue('0.2.0'),
+          listModules: vi.fn().mockRejectedValue(new Error('old cli'))
+        }
+      },
+      configurable: true
+    })
+
+    await cliFeatures.initModules('/vault')
+    expect(cliFeatures.modules).toEqual([])
+    expect(cliFeatures.supportsLookupRollup).toBe(false)
   })
 })
