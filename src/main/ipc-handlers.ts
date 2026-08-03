@@ -7,6 +7,7 @@
 
 import { app, ipcMain, shell, clipboard, BrowserWindow, dialog } from 'electron'
 import { promises as fs } from 'node:fs'
+import { resolve as resolvePath } from 'node:path'
 import {
   findCli,
   getCliVersion,
@@ -149,6 +150,8 @@ import {
 } from './computed-editor-flush'
 import { withSerializedFileWrite } from './file-write-queue'
 import { assertComputedOutputKeyAbsentOnDisk } from './computed-output-preflight'
+import { IngestProcessManager } from './ingest-manager'
+import { ActivityLogStore } from './activity-log'
 
 /** Ingest timeout: 5 minutes */
 const INGEST_TIMEOUT_MS = 300_000
@@ -249,6 +252,12 @@ export function wrapHandler<T>(fn: () => Promise<T>): Promise<T | SerializedErro
 
 /** Singleton watcher manager instance */
 let watcherManager: WatcherManager | null = null
+let ingestProcessManager: IngestProcessManager | null = null
+let activityLogStore: ActivityLogStore | null = null
+
+function recordActivity(operation: Promise<void> | undefined): void {
+  void operation?.catch(() => {})
+}
 
 /**
  * Get or create the WatcherManager singleton.
@@ -268,10 +277,15 @@ export { getAppUpdater, destroyAppUpdater } from './updater'
  * Destroy the watcher manager (call on app quit).
  */
 export async function destroyWatcherManager(): Promise<void> {
+  if (ingestProcessManager) {
+    await ingestProcessManager.destroy()
+    ingestProcessManager = null
+  }
   if (watcherManager) {
     await watcherManager.destroy()
     watcherManager = null
   }
+  activityLogStore = null
 }
 
 /**
@@ -315,7 +329,23 @@ async function withWatcherPausedUnlocked<T>(root: string, fn: () => Promise<T>):
     return await fn()
   } finally {
     if (wasActive && watcher) {
-      await watcher.start(restartRoot)
+      try {
+        const status = await execCommand<IndexStatus>('status', [], restartRoot)
+        if (status?.reindex_required) {
+          watcher.block(restartRoot)
+          recordActivity(
+            activityLogStore?.recordWatcherState(
+              restartRoot,
+              'blocked',
+              status.embedding_compatibility_error ?? 'Reindex required'
+            )
+          )
+        } else await watcher.start(restartRoot)
+      } catch {
+        // The original operation result/error is authoritative. A failed
+        // watcher restore is surfaced by the next explicit start/status check.
+        watcher.block(restartRoot)
+      }
     }
   }
 }
@@ -510,6 +540,14 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
   registerExportHandlers()
   registerComputedEditorFlushResponseHandler()
 
+  activityLogStore = new ActivityLogStore(getCollections, (event) => {
+    windowManager.broadcastToAll('activity-log:changed', event)
+  })
+  ingestProcessManager = new IngestProcessManager(async (event) => {
+    windowManager.broadcastToAll('cli:ingest-event', event)
+    await activityLogStore?.recordIngest(event)
+  })
+
   // Focused renderer state for contextual native Graph-menu enablement/checkmarks.
   ipcMain.handle('menu:set-context', (event, value: unknown) =>
     wrapHandler(async () => {
@@ -703,18 +741,62 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
 
   // Ingest
   ipcMain.handle('cli:ingest', (_event, root: string, options?: { reindex?: boolean }) => {
-    const args: string[] = []
-    if (options?.reindex) args.push('--reindex')
-    return wrapHandler(() =>
-      withWatcherPaused(root, () =>
-        execCommand<IngestResult>('ingest', args, root, { timeout: INGEST_TIMEOUT_MS })
-      )
-    )
+    return wrapHandler(async () => {
+      const manager = ingestProcessManager
+      if (!manager) throw new Error('Ingest process manager is not initialized')
+      const reindex = Boolean(options?.reindex)
+      const result = await withWatcherPaused(root, () => manager.run(root, reindex))
+      if (reindex && !result.cancelled) {
+        const normalizedRoot = resolvePath(root)
+        const collection = getCollections().find(
+          (item) => resolvePath(item.path) === normalizedRoot
+        )
+        const watcher = getWatcherManager()
+        if (
+          collection &&
+          getWatcherEnabled(collection.id) &&
+          watcher.getRoot() !== null &&
+          resolvePath(watcher.getRoot()!) === normalizedRoot &&
+          !watcher.isRunning()
+        ) {
+          await watcher.start(root)
+        }
+      }
+      return result
+    })
   })
 
+  ipcMain.handle('cli:cancel-ingest', (_event, root: string) =>
+    wrapHandler(async () => {
+      const manager = ingestProcessManager
+      if (!manager) return false
+      return manager.cancel(root)
+    })
+  )
+
   // Ingest preview
-  ipcMain.handle('cli:ingest-preview', (_event, root: string) =>
-    wrapHandler(() => execCommand<IngestPreview>('ingest', ['--preview'], root))
+  ipcMain.handle('cli:ingest-preview', (_event, root: string, options?: { reindex?: boolean }) =>
+    wrapHandler(() =>
+      execCommand<IngestPreview>(
+        'ingest',
+        options?.reindex ? ['--preview', '--reindex'] : ['--preview'],
+        root
+      )
+    )
+  )
+
+  ipcMain.handle('activity-log:open-today', (_event, collectionId: string) =>
+    wrapHandler(async () => {
+      if (!activityLogStore) throw new Error('Activity log is not initialized')
+      return activityLogStore.openToday(collectionId)
+    })
+  )
+
+  ipcMain.handle('activity-log:read', (_event, collectionId: string, date: string) =>
+    wrapHandler(async () => {
+      if (!activityLogStore) throw new Error('Activity log is not initialized')
+      return activityLogStore.read(collectionId, date)
+    })
   )
 
   // File tree
@@ -2613,6 +2695,9 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
 
       watcher.onEvent((watchEvent) => {
         windowManager.broadcastToAll('watcher:event', { type: 'watch-event', data: watchEvent })
+        if ('event_type' in watchEvent) {
+          recordActivity(activityLogStore?.recordWatchEvent(root, watchEvent as WatchEventReport))
+        }
       })
 
       watcher.onError((error) => {
@@ -2620,11 +2705,33 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
           type: 'error',
           data: { message: error.message }
         })
+        recordActivity(activityLogStore?.recordWatcherState(root, 'error', error.message))
       })
 
+      let previousWatcherState = watcher.getState()
       watcher.onStateChange((state: WatcherState) => {
         windowManager.broadcastToAll('watcher:event', { type: 'state-change', data: state })
+        if (state !== 'error' && state !== 'blocked') {
+          const activityState =
+            state === 'starting' && previousWatcherState === 'running' ? 'restarting' : state
+          recordActivity(activityLogStore?.recordWatcherState(root, activityState))
+        }
+        previousWatcherState = state
       })
+
+      const status = await execCommand<IndexStatus>('status', [], root)
+      if (status?.reindex_required) {
+        const reason =
+          status.embedding_compatibility_error ??
+          'Embedding settings changed; a full reindex is required before watching.'
+        watcher.block(root)
+        windowManager.broadcastToAll('watcher:event', {
+          type: 'blocked',
+          data: { message: reason, action: 'reindex' }
+        })
+        recordActivity(activityLogStore?.recordWatcherState(root, 'blocked', reason))
+        return
+      }
 
       await watcher.start(root)
     })

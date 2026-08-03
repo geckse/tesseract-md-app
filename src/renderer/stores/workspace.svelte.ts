@@ -104,6 +104,9 @@ export interface TabNavigation {
 export interface DocumentTab {
   id: string
   kind: 'document'
+  origin: 'collection' | 'activity-log'
+  readOnly: boolean
+  activityLog: { collectionId: string; date: string; revision: number } | null
   filePath: string
   title: string
   isDirty: boolean
@@ -232,6 +235,9 @@ function createDocumentTab(filePath: string, isUntitled = false): DocumentTab {
   return {
     id: crypto.randomUUID(),
     kind: 'document',
+    origin: 'collection',
+    readOnly: false,
+    activityLog: null,
     filePath,
     title: fileNameFromPath(filePath),
     isDirty: false,
@@ -454,7 +460,8 @@ class WorkspaceStore {
 
   /** The selected file path from the focused pane's active document tab. */
   get selectedFilePath(): string | null {
-    return this.focusedDocumentTab?.filePath ?? null
+    const tab = this.focusedDocumentTab
+    return tab?.origin === 'collection' ? tab.filePath : null
   }
 
   /** The bottom pane, or undefined (popup windows have none). */
@@ -559,6 +566,51 @@ class WorkspaceStore {
     return tab.id
   }
 
+  /** Open a managed, real Markdown activity file outside the collection. */
+  openActivityLog(
+    descriptor: import('../../preload/api').ActivityLogDescriptor,
+    paneId?: string
+  ): string {
+    const targetPaneId = paneId ?? this.defaultEditorPaneId
+    const pane = this.panes[targetPaneId]
+    if (!pane) return ''
+    const filePath = `activity-log://${descriptor.collection_id}/${descriptor.date}.md`
+    const existingTabId = this._findTabByFilePath(filePath, targetPaneId)
+    if (existingTabId) {
+      const existing = this.tabs[existingTabId]
+      if (existing?.kind === 'document') {
+        existing.content = descriptor.content
+        existing.savedContent = descriptor.content
+        existing.isDirty = false
+        existing.activityLog = {
+          collectionId: descriptor.collection_id,
+          date: descriptor.date,
+          revision: descriptor.revision
+        }
+      }
+      this.switchTab(existingTabId, targetPaneId)
+      return existingTabId
+    }
+
+    const tab = createDocumentTab(filePath)
+    tab.title = descriptor.title
+    tab.origin = 'activity-log'
+    tab.readOnly = true
+    tab.activityLog = {
+      collectionId: descriptor.collection_id,
+      date: descriptor.date,
+      revision: descriptor.revision
+    }
+    tab.content = descriptor.content
+    tab.savedContent = descriptor.content
+    this.tabs[tab.id] = tab
+    this._insertTabBeforeGraph(pane, tab.id)
+    pane.activeTabId = tab.id
+    this.panes[targetPaneId] = { ...pane }
+    this._scheduleSave()
+    return tab.id
+  }
+
   /**
    * Replace the current active document tab's file without creating a new tab.
    * Preserves navigation history within the tab. Resets content so it reloads.
@@ -585,6 +637,9 @@ class WorkspaceStore {
     // Replace the tab's file — keep same tab ID, same position in tab bar
     activeTab.filePath = filePath
     activeTab.title = fileNameFromPath(filePath)
+    activeTab.origin = 'collection'
+    activeTab.readOnly = false
+    activeTab.activityLog = null
     activeTab.isDirty = false
     activeTab.content = null
     activeTab.savedContent = null
@@ -632,7 +687,12 @@ class WorkspaceStore {
 
     // Check if current tab can be replaced (not dirty, is a document tab)
     const activeTab = pane.activeTabId ? this.tabs[pane.activeTabId] : null
-    if (activeTab && activeTab.kind === 'document' && !activeTab.isDirty) {
+    if (
+      activeTab &&
+      activeTab.kind === 'document' &&
+      activeTab.origin === 'collection' &&
+      !activeTab.isDirty
+    ) {
       return this.replaceTab(filePath, targetPaneId)
     }
 
@@ -1399,10 +1459,14 @@ class WorkspaceStore {
     if (!tab) return null
 
     if (tab.kind === 'document') {
-      const includeContent = tab.isDirty || tab.isUntitled
+      const includeContent = tab.isDirty || tab.isUntitled || tab.origin === 'activity-log'
       return {
         kind: 'document',
         filePath: tab.filePath,
+        documentOrigin: tab.origin,
+        activityCollectionId: tab.activityLog?.collectionId,
+        activityDate: tab.activityLog?.date,
+        activityRevision: tab.activityLog?.revision,
         editorMode: tab.editorMode,
         isDirty: tab.isDirty,
         isUntitled: tab.isUntitled || undefined,
@@ -1479,6 +1543,20 @@ class WorkspaceStore {
       }
 
       const tab = createDocumentTab(data.filePath, data.isUntitled)
+      if (
+        data.documentOrigin === 'activity-log' &&
+        data.activityCollectionId &&
+        data.activityDate
+      ) {
+        tab.origin = 'activity-log'
+        tab.readOnly = true
+        tab.activityLog = {
+          collectionId: data.activityCollectionId,
+          date: data.activityDate,
+          revision: data.activityRevision ?? 0
+        }
+        tab.title = `Activity ${data.activityDate}.md`
+      }
       if (data.editorMode) {
         tab.editorMode = data.editorMode as EditorMode
       }
@@ -1589,6 +1667,10 @@ class WorkspaceStore {
    * Returns the serialized tab data, or null if the tab cannot be detached.
    */
   async detachTab(tabId: string, paneId?: string): Promise<TabTransferData | null> {
+    const sourceTab = this.tabs[tabId]
+    if (sourceTab?.kind === 'document' && sourceTab.origin === 'activity-log') {
+      return null
+    }
     const data = this.serializeTab(tabId)
     if (!data) return null
 
@@ -1677,7 +1759,17 @@ class WorkspaceStore {
       if (tab.kind === 'document') {
         // Don't persist untitled tabs — they can't be restored from disk
         if (tab.isUntitled) continue
-        tabs.push({ kind: 'document', filePath: tab.filePath })
+        if (tab.origin === 'activity-log' && tab.activityLog) {
+          tabs.push({
+            kind: 'document',
+            filePath: tab.filePath,
+            documentOrigin: 'activity-log',
+            activityCollectionId: tab.activityLog.collectionId,
+            activityDate: tab.activityLog.date
+          })
+        } else {
+          tabs.push({ kind: 'document', filePath: tab.filePath })
+        }
       } else if (tab.kind === 'graph') {
         tabs.push({ kind: 'graph', graphLevel: tab.graphLevel })
       } else if (tab.kind === 'asset') {
@@ -1932,6 +2024,36 @@ class WorkspaceStore {
       }
 
       if (persistedTab.kind !== 'document' || !persistedTab.filePath) continue
+
+      if (
+        persistedTab.documentOrigin === 'activity-log' &&
+        persistedTab.activityCollectionId &&
+        persistedTab.activityDate
+      ) {
+        try {
+          const descriptor = await api.readActivityLog(
+            persistedTab.activityCollectionId,
+            persistedTab.activityDate
+          )
+          const tab = createDocumentTab(persistedTab.filePath)
+          tab.title = descriptor.title
+          tab.origin = 'activity-log'
+          tab.readOnly = true
+          tab.activityLog = {
+            collectionId: descriptor.collection_id,
+            date: descriptor.date,
+            revision: descriptor.revision
+          }
+          tab.content = descriptor.content
+          tab.savedContent = descriptor.content
+          this.tabs[tab.id] = tab
+          this._insertTabBeforeGraph(pane, tab.id)
+          if (i === persistedPane.activeTabIndex) activeTabId = tab.id
+        } catch {
+          // Temporary activity logs are intentionally skipped after expiry.
+        }
+        continue
+      }
 
       // Validate file still exists by attempting to read it.
       // Silently skip if the file is gone or no collection is active.

@@ -29,6 +29,11 @@ import { compareDecimalText, exactNumberText, stringifyExactJson } from '../../s
 import { parseFrontmatterData, splitFrontmatter } from '../lib/tiptap/markdown-bridge'
 import { isComputedFieldType } from '../lib/computed-fields'
 
+/** `row.title` already backs the pinned synthetic Title column. */
+function isDataColumn(column: CollectionColumn): boolean {
+  return column.name !== 'title'
+}
+
 /** Parse the YAML frontmatter object from a markdown file's full content. */
 function parseFrontmatterObject(content: string): Record<string, JsonValue> {
   const { frontmatter } = splitFrontmatter(content.replace(/\r\n/g, '\n'))
@@ -336,7 +341,7 @@ class TableStore {
     if (!tab) return emptyConfig()
     const collectionId = this.ctx[tabId]?.collectionId
     const data = this.byTab[tabId]?.data
-    const validCols = new Set((data?.columns ?? []).map((c) => c.name))
+    const validCols = new Set((data?.columns ?? []).filter(isDataColumn).map((c) => c.name))
 
     let base = emptyConfig()
     if (collectionId) {
@@ -492,7 +497,7 @@ class TableStore {
     const layout = this.mergedConfig(tabId).columns
     const layoutByName = new Map(layout.map((l) => [l.name, l]))
     return data.columns
-      .filter((c) => !layoutByName.get(c.name)?.hidden)
+      .filter((c) => isDataColumn(c) && !layoutByName.get(c.name)?.hidden)
       .slice()
       .sort((a, b) => {
         const oa = layoutByName.get(a.name)?.order ?? Number.MAX_SAFE_INTEGER

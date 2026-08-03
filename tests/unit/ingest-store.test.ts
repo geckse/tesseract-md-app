@@ -276,13 +276,14 @@ describe('ingest store', () => {
       expect(get(ingestPreviewResult)).toBeNull()
     })
 
-    it('does not close when running', () => {
+    it('closes the modal while allowing the ingest to continue in background', () => {
       ingestRunning.set(true)
       ingestModalOpen.set(true)
 
       closeIngestModal()
 
-      expect(get(ingestModalOpen)).toBe(true)
+      expect(get(ingestModalOpen)).toBe(false)
+      expect(get(ingestRunning)).toBe(true)
     })
   })
 })

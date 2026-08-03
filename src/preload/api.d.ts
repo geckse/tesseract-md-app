@@ -3,6 +3,7 @@ import type {
   IndexStatus,
   IngestResult,
   IngestPreview,
+  IngestActivityEvent,
   FileTree,
   DocumentInfo,
   LinksOutput,
@@ -255,10 +256,38 @@ export interface CliInstallResult {
   error?: string
 }
 
+export interface ActivityLogDescriptor {
+  collection_id: string
+  date: string
+  title: string
+  content: string
+  revision: number
+  read_only: true
+  latest_event: string
+  summary: {
+    events: number
+    watcher_events: number
+    reindex_runs: number
+    estimated_input_tokens: number
+    api_calls: number
+    errors: number
+    watcher_state: string
+  }
+}
+
+export interface ActivityLogChanged {
+  collection_id: string
+  date: string
+  revision: number
+}
+
 /** A persisted tab — only file paths and layout, never file content. */
 export interface PersistedTab {
   kind: 'document' | 'graph' | 'asset' | 'terminal' | 'table'
   filePath?: string
+  documentOrigin?: 'collection' | 'activity-log'
+  activityCollectionId?: string
+  activityDate?: string
   graphLevel?: string
   mimeCategory?: string
   terminalShell?: string
@@ -495,6 +524,10 @@ export interface TabTransferData {
   kind: 'document' | 'asset' | 'graph' | 'table' | 'terminal'
   /** For 'table' tabs this carries the folder path ('' = collection root). */
   filePath?: string
+  documentOrigin?: 'collection' | 'activity-log'
+  activityCollectionId?: string
+  activityDate?: string
+  activityRevision?: number
   editorMode?: string
   isDirty?: boolean
   isUntitled?: boolean
@@ -561,7 +594,8 @@ export interface MdvdbApi {
   search(root: string, query: string, options?: SearchOptions): Promise<SearchOutput>
   status(root: string): Promise<IndexStatus>
   ingest(root: string, options?: IngestOptions): Promise<IngestResult>
-  ingestPreview(root: string): Promise<IngestPreview>
+  ingestPreview(root: string, options?: IngestOptions): Promise<IngestPreview>
+  onIngestEvent(callback: (event: IngestActivityEvent) => void): () => void
   tree(root: string, path?: string): Promise<FileTree>
   getFile(root: string, filePath: string, options?: GetFileOptions): Promise<DocumentInfo>
   links(root: string, filePath: string): Promise<LinksOutput>
@@ -808,7 +842,12 @@ export interface MdvdbApi {
   getMetadataPanelWidth(): Promise<number>
 
   // Ingest cancellation
-  cancelIngest(): Promise<void>
+  cancelIngest(root: string): Promise<boolean>
+
+  // Temporary Markdown activity logs outside collection roots
+  openTodayActivityLog(collectionId: string): Promise<ActivityLogDescriptor>
+  readActivityLog(collectionId: string, date: string): Promise<ActivityLogDescriptor>
+  onActivityLogChanged(callback: (event: ActivityLogChanged) => void): () => void
 
   // Watcher management
   startWatcher(root: string): Promise<void>
@@ -994,7 +1033,7 @@ export interface UpdateEvent {
 
 /** Watcher status returned by getWatcherStatus. */
 export interface WatcherStatus {
-  state: 'stopped' | 'starting' | 'running' | 'stopping' | 'error'
+  state: 'stopped' | 'starting' | 'running' | 'stopping' | 'blocked' | 'error'
   running: boolean
   root: string | null
 }
@@ -1049,6 +1088,7 @@ export type WatcherEvent =
   | { type: 'watch-event'; data: WatchEventReport }
   | { type: 'module-report'; data: ModuleReport }
   | { type: 'state-change'; data: WatcherStatus['state'] }
+  | { type: 'blocked'; data: { message: string; action: 'reindex' } }
   | { type: 'error'; data: { message: string } }
 
 /** Kind of raw filesystem change observed by the vault watcher. */

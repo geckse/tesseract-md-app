@@ -45,10 +45,10 @@ export async function startWatcher(remember = true): Promise<void> {
 
   watcherToggling.set(true)
   watcherError.set(null)
+  watcherState.set('starting')
 
   try {
     await window.api.startWatcher(collection.path)
-    watcherState.set('starting')
     if (remember) window.api.setWatcherEnabled(collection.id, true).catch(() => {})
   } catch (err) {
     watcherError.set(err instanceof Error ? err.message : String(err))
@@ -161,6 +161,9 @@ export function handleWatcherEvent(event: WatcherEvent): void {
     if (state === 'error') {
       watcherError.set('Watcher encountered an error')
     }
+    if (state === 'blocked') {
+      watcherError.set('Embedding settings changed. Reindex required.')
+    }
     if (state === 'running') {
       if (watcherHadRun) {
         // The watcher was down (crash restart, ingest pause) — events were
@@ -175,6 +178,11 @@ export function handleWatcherEvent(event: WatcherEvent): void {
   if (event.type === 'error') {
     watcherError.set(event.data?.message ?? 'Unknown watcher error')
     watcherState.set('error')
+  }
+
+  if (event.type === 'blocked') {
+    watcherError.set(event.data.message)
+    watcherState.set('blocked')
   }
 
   if (event.type === 'module-report' && MATERIALIZING_MODULES.has(event.data?.module)) {

@@ -135,7 +135,12 @@ function cancelPending(relPath: string): void {
 function tabsForPath(relPath: string): DocumentTab[] {
   const tabs: DocumentTab[] = []
   for (const tab of Object.values(workspace.tabs)) {
-    if (tab.kind === 'document' && !tab.isUntitled && tab.filePath === relPath) {
+    if (
+      tab.kind === 'document' &&
+      tab.origin === 'collection' &&
+      !tab.isUntitled &&
+      tab.filePath === relPath
+    ) {
       tabs.push(tab)
     }
   }
@@ -150,7 +155,9 @@ function tabsForPath(relPath: string): DocumentTab[] {
 export async function refreshOpenDocumentsFromDisk(): Promise<void> {
   const paths = new Set<string>()
   for (const tab of Object.values(workspace.tabs)) {
-    if (tab.kind === 'document' && !tab.isUntitled) paths.add(tab.filePath)
+    if (tab.kind === 'document' && tab.origin === 'collection' && !tab.isUntitled) {
+      paths.add(tab.filePath)
+    }
   }
   await Promise.all([...paths].map((path) => routeFileChange(path)))
 }
@@ -502,7 +509,15 @@ export function closeDeletedFileTabs(filePath: string): void {
  */
 export async function verifyOpenTabsAgainstDisk(): Promise<void> {
   const tab = workspace.focusedDocumentTab
-  if (!tab || tab.isUntitled || tab.contentLoading || tab.content === null) return
+  if (
+    !tab ||
+    tab.origin !== 'collection' ||
+    tab.isUntitled ||
+    tab.contentLoading ||
+    tab.content === null
+  ) {
+    return
+  }
   await routeFileChange(tab.filePath)
 }
 

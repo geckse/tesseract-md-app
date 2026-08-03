@@ -103,6 +103,33 @@ describe('TableView', () => {
     expect(screen.getByRole('radio', { name: /^Formula/ })).toBeTruthy()
   })
 
+  it('renders a schema-backed title only through the pinned Title column', async () => {
+    const titledFixture: CollectionOutput = {
+      ...fixture,
+      columns: [{ ...fixture.columns[0], name: 'title' }, ...fixture.columns],
+      rows: fixture.rows.map((entry, index) => ({
+        ...entry,
+        title: `Guide ${index + 1}`,
+        title_source: 'frontmatter' as const,
+        frontmatter: { ...entry.frontmatter, title: `Guide ${index + 1}` }
+      }))
+    }
+    const tabId = workspace.openTableTab('docs')
+    mockApi.collection.mockResolvedValue(titledFixture)
+    await tableStore.load(tabId, 'c1', '/root')
+
+    const { container } = render(TableView, { props: { tabId } })
+
+    expect(
+      Array.from(container.querySelectorAll('.header-label'), (label) => label.textContent)
+    ).toEqual(['Title', 'status'])
+    expect(container.querySelectorAll('.virtual-row:first-child .title-text')).toHaveLength(1)
+    expect(container.querySelector('.virtual-row:first-child .title-text')?.textContent).toBe(
+      'Guide 1'
+    )
+    expect(container.querySelectorAll('.virtual-row:first-child .data-cell')).toHaveLength(1)
+  })
+
   it('hands a named Formula column to the explicit-context formula editor', async () => {
     collections.set([{ id: 'c1', name: 'Root', path: '/root', addedAt: 1, lastOpenedAt: 1 }])
     activeCollectionId.set('c1')

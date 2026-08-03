@@ -854,6 +854,64 @@ describe('DocumentHeader schema integration', () => {
     expect(tags.length).toBe(2)
   })
 
+  it('renders shape-preserving Lookup values by type instead of serializing them as text', () => {
+    const schema = makeSchema([
+      makeSchemaField({ name: 'domains', field_type: 'Lookup' }),
+      makeSchemaField({ name: 'active', field_type: 'Lookup' }),
+      makeSchemaField({ name: 'score', field_type: 'Lookup' }),
+      makeSchemaField({ name: 'reviewed', field_type: 'Lookup' }),
+      makeSchemaField({ name: 'details', field_type: 'Lookup' })
+    ])
+
+    const { container } = render(DocumentHeader, {
+      props: {
+        frontmatterYaml: [
+          'domains:',
+          '  - acme.example',
+          '  - globex.example',
+          'active: true',
+          'score: 42',
+          'reviewed: 2026-08-03',
+          'details:',
+          '  owner: platform',
+          '  tier: 2'
+        ].join('\n'),
+        onFrontmatterUpdate: vi.fn(),
+        schema,
+        ...defaultProps
+      }
+    })
+
+    expect(container.querySelectorAll('.pr-computed-chip')).toHaveLength(2)
+    expect(screen.getByText('acme.example')).toBeTruthy()
+    expect(screen.getByText('globex.example')).toBeTruthy()
+    expect(screen.queryByText('["acme.example","globex.example"]')).toBeNull()
+    expect(screen.getByLabelText('True')).toBeTruthy()
+    expect(container.querySelector('.pr-computed-mono')?.textContent).toBe('42')
+    expect(container.querySelector('.pr-computed-value-icon')?.textContent).toContain(
+      'calendar_today'
+    )
+    expect(container.querySelector('.pr-formula-value .key')?.textContent).toBe('"owner"')
+    expect(container.querySelector('.pr-formula-value .number')?.textContent).toBe('2')
+  })
+
+  it('keeps link-shaped Lookup output in computed list presentation', () => {
+    const schema = makeSchema([makeSchemaField({ name: 'documents', field_type: 'Lookup' })])
+
+    const { container } = render(DocumentHeader, {
+      props: {
+        frontmatterYaml: 'documents:\n  - guides/one.md\n  - guides/two.md',
+        onFrontmatterUpdate: vi.fn(),
+        schema,
+        ...defaultProps
+      }
+    })
+
+    expect(container.querySelectorAll('.pr-computed-chip')).toHaveLength(2)
+    expect(container.querySelector('.relation-chip')).toBeNull()
+    expect(container.querySelector('.pr-file-tiles')).toBeNull()
+  })
+
   it('renders unambiguous file links as files despite a stale Relation schema', () => {
     const schema = makeSchema([
       makeSchemaField({

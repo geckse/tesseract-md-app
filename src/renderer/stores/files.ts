@@ -230,15 +230,23 @@ export function syncFileStoresFromTab(): void {
   // Keep propertiesFileContent in sync with the focused tab's content
   const tab = workspace.focusedDocumentTab
   const collection = get(activeCollection)
-  propertiesFileContent.set(tab?.content ?? null)
+  propertiesFileContent.set(tab?.origin === 'collection' ? (tab.content ?? null) : null)
 
   const propertiesContextKey =
-    tab && collection ? `${collection.id}\0${tab.id}\0${tab.filePath}` : null
+    tab && tab.origin === 'collection' && collection
+      ? `${collection.id}\0${tab.id}\0${tab.filePath}`
+      : null
   if (propertiesContextKey !== lastPropertiesContextKey) {
     lastPropertiesContextKey = propertiesContextKey
-    if (tab && collection && tab.content !== null && !tab.contentError) {
+    if (
+      tab &&
+      tab.origin === 'collection' &&
+      collection &&
+      tab.content !== null &&
+      !tab.contentError
+    ) {
       void loadProperties(tab.filePath)
-    } else if (!tab) {
+    } else {
       clearProperties()
     }
   }
@@ -246,7 +254,13 @@ export function syncFileStoresFromTab(): void {
   // Auto-load content for newly focused tabs that have no content yet.
   // The contentLoading guard prevents re-entrant loading when syncFileStoresFromTab
   // is called again from within _autoLoadTabContent's finally block.
-  if (tab && tab.content === null && !tab.contentLoading && !tab.contentError) {
+  if (
+    tab &&
+    tab.origin === 'collection' &&
+    tab.content === null &&
+    !tab.contentLoading &&
+    !tab.contentError
+  ) {
     _autoLoadTabContent(tab.id, tab.filePath)
   }
 }

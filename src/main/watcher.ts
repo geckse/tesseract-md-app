@@ -21,7 +21,7 @@ async function canonicalize(p: string): Promise<string> {
 }
 
 /** Watcher lifecycle states */
-export type WatcherState = 'stopped' | 'starting' | 'running' | 'stopping' | 'error'
+export type WatcherState = 'stopped' | 'starting' | 'running' | 'stopping' | 'blocked' | 'error'
 
 /** A parsed NDJSON event emitted by `mdvdb watch --json` */
 export interface WatcherEvent {
@@ -142,6 +142,14 @@ export class WatcherManager {
   /** Root the watcher was last started for (null before first start). */
   getRoot(): string | null {
     return this.root
+  }
+
+  /** Keep the persisted watcher preference but do not spawn while reindex is required. */
+  block(root: string): void {
+    this.clearRetryTimer()
+    this.root = root
+    this.watchRoot = root
+    this.setState('blocked')
   }
 
   /** Register callback for NDJSON events from the watcher. */

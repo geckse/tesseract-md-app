@@ -139,6 +139,35 @@ describe('tableStore (renderer data store)', () => {
     expect(tableStore.visibleColumns(tabId).map((c) => c.name)).toEqual(['date', 'extra', 'status'])
   })
 
+  it('keeps schema title in the pinned Title column instead of duplicating it as data', async () => {
+    mockCollection.mockResolvedValueOnce({
+      ...fixture,
+      columns: [col('title', 'String'), ...fixture.columns],
+      rows: fixture.rows.map((entry) => ({
+        ...entry,
+        title: `Resolved ${entry.title}`,
+        title_source: 'frontmatter' as const,
+        frontmatter: { ...entry.frontmatter, title: `Resolved ${entry.title}` }
+      }))
+    })
+    const tabId = workspace.openTableTab('blog')
+    await tableStore.load(tabId, 'c1', '/root')
+    workspace.setTableEphemeral(tabId, {
+      columns: [
+        { name: 'title', hidden: false, width: 180, order: 0 },
+        { name: 'status', hidden: false, width: 180, order: 1 }
+      ]
+    })
+
+    expect(tableStore.visibleColumns(tabId).map((column) => column.name)).toEqual([
+      'status',
+      'date',
+      'extra'
+    ])
+    expect(tableStore.mergedConfig(tabId).columns.map((column) => column.name)).toEqual(['status'])
+    expect(tableStore.filteredRows(tabId)[0].title).toBe('Resolved a')
+  })
+
   it('resizing a column changes its width but never its position', async () => {
     const tabId = workspace.openTableTab('blog')
     await tableStore.load(tabId, 'c1', '/root')

@@ -6,8 +6,9 @@
     watcherEvents,
     toggleWatcher
   } from '../stores/watcher'
+  import { runPreview } from '../stores/ingest'
 
-  type WatcherStateValue = 'stopped' | 'starting' | 'running' | 'error'
+  type WatcherStateValue = 'stopped' | 'starting' | 'running' | 'stopping' | 'blocked' | 'error'
 
   let currentState: WatcherStateValue = $state('stopped')
   watcherState.subscribe((v) => (currentState = v as WatcherStateValue))
@@ -36,11 +37,17 @@
     stopped: 'Watch',
     starting: 'Starting...',
     running: 'Watching',
+    stopping: 'Stopping...',
+    blocked: 'Reindex required',
     error: 'Watch Error'
   }
 
   function handleClick(): void {
     if (toggling) return
+    if (currentState === 'blocked') {
+      void runPreview(true)
+      return
+    }
     toggleWatcher()
   }
 </script>
@@ -50,8 +57,9 @@
   class:stopped={currentState === 'stopped'}
   class:starting={currentState === 'starting'}
   class:running={currentState === 'running'}
+  class:blocked={currentState === 'blocked'}
   class:error={currentState === 'error'}
-  disabled={toggling || currentState === 'starting'}
+  disabled={toggling || currentState === 'starting' || currentState === 'stopping'}
   title={currentError ?? computedSummary ?? `Watcher: ${currentState}`}
   onclick={handleClick}
 >
@@ -60,6 +68,7 @@
     class:dot-stopped={currentState === 'stopped'}
     class:dot-starting={currentState === 'starting'}
     class:dot-running={currentState === 'running'}
+    class:dot-blocked={currentState === 'blocked'}
     class:dot-error={currentState === 'error'}
   ></span>
   {#if computedSummary}<span class="formula-activity" aria-hidden="true"
@@ -123,6 +132,14 @@
 
   .dot-error {
     background: #ef4444;
+  }
+
+  .blocked {
+    color: #f59e0b;
+  }
+
+  .dot-blocked {
+    background: #f59e0b;
   }
 
   @keyframes pulse {

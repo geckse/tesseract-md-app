@@ -295,7 +295,7 @@
   /** Guard flag: true while an editor is being created, to suppress spurious dirty marking. */
   let initializing = false
 
-  function createExtensions(useBasicMode: boolean) {
+  function createExtensions(useBasicMode: boolean, readOnly = false) {
     const baseExtensions = [
       markdown({ base: markdownLanguage }),
       history(),
@@ -304,6 +304,8 @@
       search({ top: true }),
       keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
       EditorView.updateListener.of(handleUpdate),
+      ...(EditorState.readOnly ? [EditorState.readOnly.of(readOnly)] : []),
+      ...(EditorView.editable ? [EditorView.editable.of(!readOnly)] : []),
       EditorView.domEventHandlers({
         scroll() {
           updateActiveHeading()
@@ -349,6 +351,8 @@
     const useBasicMode = isLargeFile
 
     let view: EditorView
+    const sourceTab = workspace.tabs[id]
+    const readOnly = sourceTab?.kind === 'document' && sourceTab.readOnly
     let scrollTop = 0
     let lastSavedContent = content
 
@@ -364,7 +368,7 @@
 
         const state = EditorState.fromJSON(
           serialized.stateJSON,
-          { extensions: createExtensions(serialized.useBasicMode) },
+          { extensions: createExtensions(serialized.useBasicMode, readOnly) },
           { history: historyField }
         )
         view = new EditorView({ state, parent: container })
@@ -373,7 +377,7 @@
         view = new EditorView({
           state: EditorState.create({
             doc: content,
-            extensions: createExtensions(useBasicMode)
+            extensions: createExtensions(useBasicMode, readOnly)
           }),
           parent: container
         })
@@ -596,6 +600,7 @@
 
     const tab = activeDocTab
     if (!tab) return true
+    if (tab.readOnly) return true
 
     // Skip save if already clean (e.g., SaveAsModal already handled it)
     if (!tab.isDirty && !tab.isUntitled) return true
@@ -939,11 +944,13 @@
   }
 
   function handleCmDragOver(e: DragEvent) {
+    if (activeDocTab?.readOnly) return
     e.preventDefault()
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'link'
   }
 
   async function handleCmDrop(e: DragEvent) {
+    if (activeDocTab?.readOnly) return
     e.preventDefault()
     if (!e.dataTransfer) return
 
@@ -1045,7 +1052,9 @@
 
 {#if activeDocTab}
   <div class="editor-container">
-    <ConflictNotification filePath={activeDocTab.filePath} />
+    {#if activeDocTab.origin === 'collection'}
+      <ConflictNotification filePath={activeDocTab.filePath} />
+    {/if}
     {#if largeFileWarning}
       <div class="large-file-warning">
         <span class="material-symbols-outlined warning-icon">warning</span>

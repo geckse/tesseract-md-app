@@ -28,6 +28,7 @@ const mockGetActiveCollection = vi.fn()
 const mockReadFile = vi.fn()
 const mockSaveWindowSession = vi.fn()
 const mockSaveWindowSessionSync = vi.fn()
+const mockReadActivityLog = vi.fn()
 
 beforeEach(() => {
   // Set up window.api mock before each test
@@ -38,6 +39,7 @@ beforeEach(() => {
         readFile: mockReadFile,
         saveWindowSession: mockSaveWindowSession,
         saveWindowSessionSync: mockSaveWindowSessionSync,
+        readActivityLog: mockReadActivityLog,
         detachTab: vi.fn()
       }
     },
@@ -49,6 +51,7 @@ beforeEach(() => {
   mockReadFile.mockReset()
   mockSaveWindowSession.mockReset()
   mockSaveWindowSessionSync.mockReset()
+  mockReadActivityLog.mockReset()
 })
 
 // ── Tests ────────────────────────────────────────────────────────────────
@@ -301,6 +304,77 @@ describe('Tab Persistence', () => {
       // deleted.md should not be present
       const deletedTab = workspace.findTabByFilePath('deleted.md')
       expect(deletedTab).toBeNull()
+    })
+
+    it('restores a live activity log as a read-only tab', async () => {
+      mockReadActivityLog.mockResolvedValue({
+        collection_id: 'vault-id',
+        date: '2026-08-03',
+        title: 'Activity 2026-08-03.md',
+        content: '# Activity\n',
+        revision: 2,
+        read_only: true,
+        latest_event: 'No activity yet',
+        summary: {
+          events: 0,
+          watcher_events: 0,
+          reindex_runs: 0,
+          estimated_input_tokens: 0,
+          api_calls: 0,
+          errors: 0,
+          watcher_state: 'stopped'
+        }
+      })
+      const session: PersistedWindowState = {
+        panes: [
+          {
+            tabs: [
+              {
+                kind: 'document',
+                filePath: 'activity-log://vault-id/2026-08-03.md',
+                documentOrigin: 'activity-log',
+                activityCollectionId: 'vault-id',
+                activityDate: '2026-08-03'
+              }
+            ],
+            activeTabIndex: 0
+          }
+        ],
+        splitEnabled: false,
+        splitRatio: 0.5
+      }
+
+      await workspace.restoreSession(session)
+
+      const tab = workspace.focusedDocumentTab!
+      expect(tab.origin).toBe('activity-log')
+      expect(tab.readOnly).toBe(true)
+      expect(tab.content).toBe('# Activity\n')
+      expect(mockReadFile).not.toHaveBeenCalled()
+    })
+
+    it('skips an activity tab after its temporary file expires', async () => {
+      mockReadActivityLog.mockRejectedValue(new Error('expired'))
+      await workspace.restoreSession({
+        panes: [
+          {
+            tabs: [
+              {
+                kind: 'document',
+                filePath: 'activity-log://vault-id/2020-01-01.md',
+                documentOrigin: 'activity-log',
+                activityCollectionId: 'vault-id',
+                activityDate: '2020-01-01'
+              }
+            ],
+            activeTabIndex: 0
+          }
+        ],
+        splitEnabled: false,
+        splitRatio: 0.5
+      })
+
+      expect(workspace.getDocumentTabs(workspace.paneOrder[0])).toHaveLength(0)
     })
 
     it('skips all document tabs when no active collection', async () => {

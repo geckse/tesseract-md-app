@@ -32,8 +32,11 @@ import {
   ingestError,
   ingestModalOpen,
   ingestPreviewResult,
-  ingestPreviewLoading
+  ingestPreviewLoading,
+  ingestProgress,
+  ingestProgressErrors
 } from '../../src/renderer/stores/ingest'
+import { collections, activeCollectionId } from '../../src/renderer/stores/collections'
 import { activeSection } from '../../src/renderer/stores/settings'
 import { settingsOpen } from '../../src/renderer/stores/ui'
 import { classifyCliError } from '../../src/renderer/lib/cli-errors'
@@ -49,6 +52,10 @@ function resetStores() {
   ingestModalOpen.set(false)
   ingestPreviewResult.set(null)
   ingestPreviewLoading.set(false)
+  ingestProgress.set(null)
+  ingestProgressErrors.set([])
+  collections.set([])
+  activeCollectionId.set(null)
   settingsOpen.set(false)
   activeSection.set('cli')
 }
@@ -162,5 +169,59 @@ describe('IngestModal error states', () => {
     expect(get(ingestModalOpen)).toBe(false)
     expect(get(settingsOpen)).toBe(true)
     expect(get(activeSection)).toBe('embedding')
+  })
+})
+
+describe('IngestModal progress and preview', () => {
+  it('renders determinate embedding counters and live file errors', () => {
+    ingestRunning.set(true)
+    ingestIsReindex.set(true)
+    ingestModalOpen.set(true)
+    ingestProgress.set({
+      phase: 'embedding',
+      completed_batches: 2,
+      total_batches: 4,
+      completed_chunks: 6,
+      total_chunks: 12,
+      estimated_input_tokens: 80,
+      total_estimated_input_tokens: 160,
+      api_calls: 2,
+      elapsed_ms: 1000
+    })
+    ingestProgressErrors.set([{ path: 'bad.md', message: 'Could not parse file' }])
+
+    const { container } = render(IngestModal)
+
+    expect(screen.getByText('Reindexing Collection')).toBeTruthy()
+    expect(screen.getByText('Embedding')).toBeTruthy()
+    expect(screen.getByText('50%')).toBeTruthy()
+    expect(screen.getByText('2 / 4')).toBeTruthy()
+    expect(screen.getByText('6 / 12')).toBeTruthy()
+    expect(screen.getByText('80 / 160')).toBeTruthy()
+    expect(screen.getByText('bad.md')).toBeTruthy()
+    expect(container.querySelector('.progress-bar-determinate')).toBeTruthy()
+    expect(screen.getByText('Run in background')).toBeTruthy()
+  })
+
+  it('starts the confirmed full reindex from its preview', async () => {
+    collections.set([{ id: 'test', name: 'Test', path: '/test', addedAt: 1, lastOpenedAt: 1 }])
+    activeCollectionId.set('test')
+    ingestIsReindex.set(true)
+    ingestModalOpen.set(true)
+    ingestPreviewResult.set({
+      files: [],
+      total_files: 2,
+      files_to_process: 2,
+      files_unchanged: 0,
+      total_chunks: 3,
+      estimated_tokens: 100,
+      estimated_api_calls: 1
+    })
+    mockApi.ingest.mockReturnValue(new Promise(() => {}))
+
+    render(IngestModal)
+    await fireEvent.click(screen.getByText('Start full reindex'))
+
+    expect(mockApi.ingest).toHaveBeenCalledWith('/test', { reindex: true })
   })
 })

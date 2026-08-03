@@ -8,12 +8,15 @@
     ingestModalOpen,
     ingestPreviewResult,
     ingestPreviewLoading,
+    ingestProgress,
+    ingestProgressErrors,
     closeIngestModal,
     cancelIngest,
-    rebuildIndex
+    rebuildIndex,
+    runIngest
   } from '../stores/ingest'
   import { openSettingsSection } from '../stores/settings'
-  import type { IngestResult, IngestPreview } from '../types/cli'
+  import type { IngestError, IngestProgress, IngestResult, IngestPreview } from '../types/cli'
   import { settingsCtaFor, type ClassifiedError } from '../lib/cli-errors'
 
   let currentRunning = $state(false)
@@ -24,6 +27,8 @@
   let currentOpen = $state(false)
   let currentPreview: IngestPreview | null = $state(null)
   let currentPreviewLoading = $state(false)
+  let currentProgress: IngestProgress | null = $state(null)
+  let currentProgressErrors: IngestError[] = $state([])
 
   ingestRunning.subscribe((v) => (currentRunning = v))
   ingestIsReindex.subscribe((v) => (currentIsReindex = v))
@@ -33,6 +38,8 @@
   ingestModalOpen.subscribe((v) => (currentOpen = v))
   ingestPreviewResult.subscribe((v) => (currentPreview = v))
   ingestPreviewLoading.subscribe((v) => (currentPreviewLoading = v))
+  ingestProgress.subscribe((v) => (currentProgress = v))
+  ingestProgressErrors.subscribe((v) => (currentProgressErrors = v))
 
   let hasErrors = $derived(currentResult !== null && currentResult.errors.length > 0)
 
@@ -41,6 +48,8 @@
   )
 
   let errorCta = $derived(currentError ? settingsCtaFor(currentError) : null)
+  let progressPercent = $derived(calculateProgressPercent(currentProgress))
+  let progressPhase = $derived(formatPhase(currentProgress?.phase ?? 'preparing'))
 
   function handleRebuild() {
     rebuildIndex()
@@ -60,19 +69,45 @@
   }
 
   function handleBackdropClick(e: MouseEvent) {
-    if (e.target === e.currentTarget && !currentRunning && !currentPreviewLoading) {
+    if (e.target === e.currentTarget && !currentPreviewLoading) {
       closeIngestModal()
     }
   }
 
   function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape' && !currentRunning && !currentPreviewLoading && currentOpen) {
+    if (e.key === 'Escape' && !currentPreviewLoading && currentOpen) {
       closeIngestModal()
     }
   }
 
   function handleCancel() {
     cancelIngest()
+  }
+
+  function handleStartPreviewedIngest() {
+    void runIngest(currentIsReindex)
+  }
+
+  function formatPhase(phase: string): string {
+    return phase.replace(/_/g, ' ').replace(/\b\w/g, (character) => character.toUpperCase())
+  }
+
+  function calculateProgressPercent(progress: IngestProgress | null): number | null {
+    if (!progress) return null
+    if (
+      progress.phase === 'parsing' ||
+      progress.phase === 'skipped' ||
+      progress.phase === 'file_error'
+    ) {
+      return progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0
+    }
+    if (progress.phase === 'embedding') {
+      return progress.total_chunks > 0
+        ? Math.round((progress.completed_chunks / progress.total_chunks) * 100)
+        : 0
+    }
+    if (progress.phase === 'done') return 100
+    return null
   }
 
   function statusBadgeClass(status: string): string {
@@ -110,7 +145,9 @@
       {:else if currentPreview && !currentRunning && !currentResult && !currentError}
         <div class="modal-header">
           <span class="material-symbols-outlined modal-icon preview-icon">preview</span>
-          <h2 class="modal-title">Ingest Preview</h2>
+          <h2 class="modal-title">
+            {currentIsReindex ? 'Full Reindex Preview' : 'Ingest Preview'}
+          </h2>
         </div>
         <div class="modal-body">
           <div class="preview-summary">
@@ -170,24 +207,96 @@
           {/if}
         </div>
         <div class="modal-footer">
-          <button class="modal-btn modal-btn-primary" onclick={closeIngestModal}>Close</button>
+          <button class="modal-btn modal-btn-secondary" onclick={closeIngestModal}>Close</button>
+          <button class="modal-btn modal-btn-primary" onclick={handleStartPreviewedIngest}
+            >{currentIsReindex ? 'Start full reindex' : 'Start indexing'}</button
+          >
         </div>
       {:else if currentRunning}
         <div class="modal-header">
           <span class="material-symbols-outlined modal-icon spinning">sync</span>
-          <h2 class="modal-title">Indexing Collection</h2>
+          <div class="running-title">
+            <h2 class="modal-title">
+              {currentIsReindex ? 'Reindexing Collection' : 'Indexing Collection'}
+            </h2>
+            <span class="phase-badge">{progressPhase}</span>
+          </div>
         </div>
         <div class="modal-body">
           <p class="modal-subtitle">
-            {currentIsReindex ? 'Running full reindex...' : 'Indexing new & changed files...'}
+            {currentIsReindex ? 'Building a replacement index' : 'Indexing new & changed files'}
             <span class="elapsed">{formatElapsed(currentElapsed)}</span>
           </p>
           <div class="progress-bar-track">
-            <div class="progress-bar-indeterminate"></div>
+            {#if progressPercent === null}
+              <div class="progress-bar-indeterminate"></div>
+            {:else}
+              <div class="progress-bar-determinate" style:width={`${progressPercent}%`}></div>
+            {/if}
           </div>
-          <p class="modal-hint">This may take a few minutes for large collections.</p>
+          {#if progressPercent !== null}
+            <div class="progress-percent">{progressPercent}%</div>
+          {/if}
+
+          {#if currentProgress}
+            <div class="live-stats">
+              {#if currentProgress.phase === 'parsing' || currentProgress.phase === 'skipped' || currentProgress.phase === 'file_error'}
+                <div class="stat-row">
+                  <span class="stat-label">Files</span>
+                  <span class="stat-value">{currentProgress.current} / {currentProgress.total}</span
+                  >
+                </div>
+                <div class="stat-row current-file-row">
+                  <span class="stat-label">Current file</span>
+                  <span class="stat-value current-file" title={currentProgress.path}
+                    >{currentProgress.path}</span
+                  >
+                </div>
+              {:else if currentProgress.phase === 'embedding'}
+                <div class="stat-row">
+                  <span class="stat-label">Embedding batches</span>
+                  <span class="stat-value"
+                    >{currentProgress.completed_batches} / {currentProgress.total_batches}</span
+                  >
+                </div>
+                <div class="stat-row">
+                  <span class="stat-label">Chunks</span>
+                  <span class="stat-value"
+                    >{currentProgress.completed_chunks} / {currentProgress.total_chunks}</span
+                  >
+                </div>
+                <div class="stat-row">
+                  <span class="stat-label">Estimated input tokens</span>
+                  <span class="stat-value"
+                    >{currentProgress.estimated_input_tokens.toLocaleString()} / {currentProgress.total_estimated_input_tokens.toLocaleString()}</span
+                  >
+                </div>
+                <div class="stat-row">
+                  <span class="stat-label">API calls</span>
+                  <span class="stat-value">{currentProgress.api_calls.toLocaleString()}</span>
+                </div>
+              {/if}
+            </div>
+          {/if}
+
+          {#if currentProgressErrors.length > 0}
+            <div class="errors-section live-errors">
+              <h3 class="errors-title">Errors so far ({currentProgressErrors.length})</h3>
+              <div class="errors-list">
+                {#each currentProgressErrors as err}
+                  <div class="error-item">
+                    <span class="error-path">{err.path}</span>
+                    <span class="error-detail">{err.message}</span>
+                  </div>
+                {/each}
+              </div>
+            </div>
+          {/if}
         </div>
         <div class="modal-footer">
+          <button class="modal-btn modal-btn-secondary" onclick={closeIngestModal}
+            >Run in background</button
+          >
           <button class="modal-btn modal-btn-cancel" onclick={handleCancel}>Cancel</button>
         </div>
       {:else if currentError && isCorrupted}
@@ -268,6 +377,12 @@
             <div class="stat-row">
               <span class="stat-label">API calls</span>
               <span class="stat-value">{currentResult.api_calls}</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Estimated input tokens</span>
+              <span class="stat-value"
+                >{(currentResult.estimated_input_tokens ?? 0).toLocaleString()}</span
+              >
             </div>
             <div class="stat-row">
               <span class="stat-label">Duration</span>
@@ -389,6 +504,25 @@
     margin: 0;
   }
 
+  .running-title {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .phase-badge {
+    padding: 2px 7px;
+    border: 1px solid color-mix(in srgb, var(--color-primary, #00e5ff) 30%, transparent);
+    border-radius: 10px;
+    color: var(--color-primary, #00e5ff);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    white-space: nowrap;
+  }
+
   .modal-body {
     padding: 16px 24px;
   }
@@ -423,6 +557,42 @@
     background: var(--color-primary, #00e5ff);
     border-radius: 2px;
     animation: indeterminate 1.5s ease-in-out infinite;
+  }
+
+  .progress-bar-determinate {
+    height: 100%;
+    min-width: 2px;
+    border-radius: 2px;
+    background: var(--color-primary, #00e5ff);
+    transition: width 0.2s ease;
+  }
+
+  .progress-percent {
+    margin-top: 5px;
+    color: var(--color-primary, #00e5ff);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-align: right;
+  }
+
+  .live-stats {
+    margin-top: 12px;
+  }
+
+  .current-file-row {
+    gap: 16px;
+  }
+
+  .current-file {
+    max-width: 330px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .live-errors {
+    max-height: 190px;
+    overflow: hidden;
   }
 
   @keyframes indeterminate {
@@ -614,6 +784,17 @@
 
   .modal-btn-primary:hover {
     background: var(--color-primary-dark, #00b8cc);
+  }
+
+  .modal-btn-secondary {
+    border: 1px solid var(--color-border, #27272a);
+    background: var(--color-surface-elevated, #1e1e20);
+    color: var(--color-text-muted, #a1a1aa);
+  }
+
+  .modal-btn-secondary:hover {
+    background: var(--overlay-active, rgba(255, 255, 255, 0.08));
+    color: var(--color-text, #e4e4e7);
   }
 
   .modal-btn-cancel {

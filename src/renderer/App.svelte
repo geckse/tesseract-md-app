@@ -53,6 +53,8 @@
     restoreWatcherForCollection
   } from './stores/watcher'
   import { setupVaultListener, teardownVaultListener } from './stores/vault-events'
+  import { setupIngestListener, teardownIngestListener } from './stores/ingest'
+  import { setupActivityLogListener, teardownActivityLogListener } from './stores/activity-log'
   import {
     setupFileSyncListener,
     teardownFileSyncListener,
@@ -188,6 +190,8 @@
     })
     loadFavorites()
     setupWatcherListener()
+    setupIngestListener()
+    setupActivityLogListener()
     setupVaultListener()
     setupFileSyncListener()
     setupUpdateListener()
@@ -707,6 +711,8 @@
       window.api.removeCloseRequestListener()
       document.removeEventListener('mousedown', handleClickAway)
       teardownWatcherListener()
+      teardownIngestListener()
+      teardownActivityLogListener()
       teardownVaultListener()
       teardownFileSyncListener()
       teardownUpdateListener()

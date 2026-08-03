@@ -339,6 +339,7 @@
   let contextMenuY = $state(0)
 
   function handleEditorContextMenu(e: Event) {
+    if (activeDocTab?.readOnly) return
     const detail = (e as CustomEvent).detail
     contextMenuX = detail.x
     contextMenuY = detail.y
@@ -480,7 +481,8 @@
           onPaste: handleEditorPaste,
           collectionPath: currentActiveCollection?.path ?? '',
           collectionId: currentActiveCollection?.id ?? '',
-          currentFilePath: activeDocTab?.filePath ?? ''
+          currentFilePath: activeDocTab?.filePath ?? '',
+          editable: !activeDocTab?.readOnly
         })
         editor.editor.commands.setContent(serialized.editorJSON)
       } else {
@@ -493,7 +495,8 @@
           onPaste: handleEditorPaste,
           collectionPath: currentActiveCollection?.path ?? '',
           collectionId: currentActiveCollection?.id ?? '',
-          currentFilePath: activeDocTab?.filePath ?? ''
+          currentFilePath: activeDocTab?.filePath ?? '',
+          editable: !activeDocTab?.readOnly
         })
       }
     } finally {
@@ -734,6 +737,7 @@
 
     const tab = activeDocTab
     if (!tab) return true
+    if (tab.readOnly) return true
 
     // Skip save if already clean (e.g., SaveAsModal already handled it)
     if (!tab.isDirty && !tab.isUntitled) return true
@@ -1061,6 +1065,7 @@
   }
 
   function handleEditorDragOver(e: DragEvent) {
+    if (activeDocTab?.readOnly) return
     e.preventDefault()
     if (e.dataTransfer) {
       e.dataTransfer.dropEffect = 'link'
@@ -1068,6 +1073,7 @@
   }
 
   async function handleEditorDrop(e: DragEvent) {
+    if (activeDocTab?.readOnly) return
     e.preventDefault()
     if (!e.dataTransfer) return
 
@@ -1171,6 +1177,7 @@
   // ── Clipboard paste (images) ─────────────────────────────────────────
 
   function handleEditorPaste(e: ClipboardEvent): boolean {
+    if (activeDocTab?.readOnly) return false
     if (!e.clipboardData) return false
 
     const clipboardImage = firstClipboardImageItem(e.clipboardData.items)
@@ -1244,7 +1251,9 @@
 
 {#if activeDocTab}
   <div class="wysiwyg-editor-container">
-    <ConflictNotification filePath={activeDocTab?.filePath ?? null} />
+    {#if activeDocTab.origin === 'collection'}
+      <ConflictNotification filePath={activeDocTab.filePath} />
+    {/if}
     {#if largeFileWarning}
       <div class="large-file-warning">
         <span class="material-symbols-outlined warning-icon">warning</span>
@@ -1266,22 +1275,30 @@
     {/if}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="wysiwyg-scroll" ondragover={handleEditorDragOver} ondrop={handleEditorDrop}>
-      <DocumentHeader
-        frontmatterYaml={currentFrontmatter}
-        onFrontmatterUpdate={handleFrontmatterUpdate}
-        schema={currentSchema}
-        filePath={activeDocTab.filePath}
-        collectionPath={currentActiveCollection?.path ?? ''}
-        collectionId={currentActiveCollection?.id ?? null}
-        documentTabId={activeTabId}
-        isUntitled={activeDocTab.isUntitled}
-        onFileRenamed={handleFileRenamed}
-        onBeforeSchemaMutate={flushBeforeSchemaMutation}
-        onSchemaApplied={reconcileAfterSchemaMutation}
-      />
+      {#if activeDocTab.readOnly}
+        <div class="readonly-document-header">
+          <span class="material-symbols-outlined">lock</span>
+          <span>{activeDocTab.title}</span>
+          <span class="readonly-label">Read only</span>
+        </div>
+      {:else}
+        <DocumentHeader
+          frontmatterYaml={currentFrontmatter}
+          onFrontmatterUpdate={handleFrontmatterUpdate}
+          schema={currentSchema}
+          filePath={activeDocTab.filePath}
+          collectionPath={currentActiveCollection?.path ?? ''}
+          collectionId={currentActiveCollection?.id ?? null}
+          documentTabId={activeTabId}
+          isUntitled={activeDocTab.isUntitled}
+          onFileRenamed={handleFileRenamed}
+          onBeforeSchemaMutate={flushBeforeSchemaMutation}
+          onSchemaApplied={reconcileAfterSchemaMutation}
+        />
+      {/if}
       <div class="wysiwyg-content" bind:this={editorHost}></div>
     </div>
-    {#if activeEditor}
+    {#if activeEditor && !activeDocTab.readOnly}
       <BubbleMenu editor={activeEditor} />
       <MediaBubbleMenu
         editor={activeEditor}
@@ -1290,14 +1307,19 @@
         onopenexternal={openMediaExternal}
       />
     {/if}
-    <LinkHoverPreview container={editorHost} collectionPath={currentActiveCollection?.path ?? ''} />
-    <InsertAssetDialog
-      bind:visible={mediaDialogOpen}
-      currentFilePath={activeDocTab.filePath}
-      initialMedia={mediaDialogInitial}
-      onselect={changeSelectedMedia}
-      onclose={() => (mediaDialogInitial = null)}
-    />
+    {#if !activeDocTab.readOnly}
+      <LinkHoverPreview
+        container={editorHost}
+        collectionPath={currentActiveCollection?.path ?? ''}
+      />
+      <InsertAssetDialog
+        bind:visible={mediaDialogOpen}
+        currentFilePath={activeDocTab.filePath}
+        initialMedia={mediaDialogInitial}
+        onselect={changeSelectedMedia}
+        onclose={() => (mediaDialogInitial = null)}
+      />
+    {/if}
     {#if pendingClipboardImage && !pendingClipboardImage.awaitingSaveAs && pendingClipboardTab}
       <ClipboardImageSaveModal
         baseStem={pendingClipboardBaseStem}
@@ -1350,6 +1372,32 @@
     position: relative;
     scrollbar-width: thin;
     scrollbar-color: var(--overlay-active, rgba(255, 255, 255, 0.1)) transparent;
+  }
+
+  .readonly-document-header {
+    display: flex;
+    width: min(860px, calc(100% - 48px));
+    align-items: center;
+    gap: 8px;
+    margin: 18px auto 0;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--color-border, #27272a);
+    color: var(--color-text-muted, #a1a1aa);
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-size: 11px;
+  }
+
+  .readonly-document-header .material-symbols-outlined {
+    color: var(--color-primary, #00e5ff);
+    font-size: 14px;
+  }
+
+  .readonly-label {
+    margin-left: auto;
+    color: var(--color-text-dim, #71717a);
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
   }
 
   .wysiwyg-scroll::-webkit-scrollbar {

@@ -341,13 +341,29 @@
 
   let booleanIcon = $derived(value === true ? 'check_box' : 'check_box_outline_blank')
 
-  function formulaValueText(): string {
-    if (value === null) return '—'
-    const exact = exactNumberText(value)
+  function displayValueText(source: JsonValue): string {
+    if (source === null) return '—'
+    const exact = exactNumberText(source)
     if (exact !== null) return exact
-    if (typeof value === 'string') return value
-    if (typeof value === 'number' || typeof value === 'boolean') return String(value)
-    return stringifyExactJson(value)
+    if (typeof source === 'string') return source
+    if (typeof source === 'number' || typeof source === 'boolean') return String(source)
+    return stringifyExactJson(source)
+  }
+
+  function formulaValueText(): string {
+    return displayValueText(value)
+  }
+
+  function formatComputedDate(source: string, withTime: boolean): string {
+    const parsed = new Date(withTime ? source : `${source}T00:00:00`)
+    if (Number.isNaN(parsed.getTime())) return source
+    return withTime
+      ? parsed.toLocaleString()
+      : parsed.toLocaleDateString(undefined, {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric'
+        })
   }
 </script>
 
@@ -416,8 +432,40 @@
             >error</span
           >
           <span>{fieldError.code}</span>
+        {:else if value === null}
+          <span class="pr-computed-empty">—</span>
+        {:else if fieldType === 'boolean'}
+          <span
+            class="material-symbols-outlined pr-computed-boolean"
+            class:true={value === true}
+            aria-label={value === true ? 'True' : 'False'}
+          >
+            {value === true ? 'check_box' : 'check_box_outline_blank'}
+          </span>
+        {:else if fieldType === 'date' && typeof value === 'string'}
+          <span class="material-symbols-outlined pr-computed-value-icon" aria-hidden="true"
+            >calendar_today</span
+          >
+          <span class="pr-formula-value">{formatComputedDate(value, false)}</span>
+        {:else if fieldType === 'datetime' && typeof value === 'string'}
+          <span class="material-symbols-outlined pr-computed-value-icon" aria-hidden="true"
+            >schedule</span
+          >
+          <span class="pr-formula-value">{formatComputedDate(value, true)}</span>
+        {:else if fieldType === 'tags' && Array.isArray(value)}
+          <span
+            class="pr-computed-list"
+            aria-label={value.map((item) => displayValueText(item)).join(', ')}
+          >
+            {#each value as item, index (`${index}:${displayValueText(item)}`)}
+              <span class="pr-computed-chip">{displayValueText(item)}</span>
+            {/each}
+          </span>
         {:else}
-          <span class="pr-formula-value">
+          <span
+            class="pr-formula-value"
+            class:pr-computed-mono={fieldType === 'number' || fieldType === 'complex'}
+          >
             {#if fieldType === 'complex'}
               <JsonSyntax text={formulaValueText()} />
             {:else}
@@ -865,6 +913,50 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .pr-computed-empty,
+  .pr-computed-boolean,
+  .pr-computed-value-icon {
+    color: var(--color-text-faint, #52525b);
+  }
+
+  .pr-computed-boolean {
+    flex-shrink: 0;
+    font-size: 16px;
+  }
+
+  .pr-computed-boolean.true {
+    color: var(--color-primary, #00e5ff);
+  }
+
+  .pr-computed-value-icon {
+    flex-shrink: 0;
+    font-size: 13px;
+  }
+
+  .pr-computed-mono {
+    font-family: var(--font-mono, 'JetBrains Mono'), monospace;
+  }
+
+  .pr-computed-list {
+    display: flex;
+    gap: 3px;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .pr-computed-chip {
+    flex-shrink: 0;
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 1px 5px;
+    border-radius: 999px;
+    background: var(--color-primary-dim, rgba(0, 229, 255, 0.12));
+    color: var(--color-text, #e4e4e7);
+    font-size: var(--text-xs, 0.625rem);
   }
 
   .pr-formula-error,

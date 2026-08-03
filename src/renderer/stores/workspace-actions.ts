@@ -33,7 +33,7 @@ export async function closeFocusedTabWithConfirm(): Promise<void> {
     }
     const paneId = workspace.activePaneId
     const closed = workspace.closeTab(tab.id)
-    if (closed && closed.kind === 'document') {
+    if (closed && closed.kind === 'document' && closed.origin === 'collection') {
       closedTabs.push(closed, paneId)
     }
   } else {

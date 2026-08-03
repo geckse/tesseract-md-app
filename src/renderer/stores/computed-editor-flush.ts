@@ -62,7 +62,7 @@ function inspectDirtyDocuments(): DirtyInspection {
   const blockers: ComputedEditorFlushBlocker[] = []
 
   for (const candidate of Object.values(workspace.tabs)) {
-    if (candidate.kind !== 'document') continue
+    if (candidate.kind !== 'document' || candidate.origin !== 'collection') continue
     const tab = candidate as DocumentTab
     const snapshots = snapshotsForTab(tab.id)
     const liveDirty = snapshots.some((snapshot) => snapshot.isDirty)

@@ -170,6 +170,27 @@ describe('findCli resolution order', () => {
     })
   }
 
+  it('prefers the matching workspace binary during development', async () => {
+    const originalNodeEnv = process.env.NODE_ENV
+    process.env.NODE_ENV = 'development'
+    mockGetCliInfo.mockReturnValue({ path: '/stored/bin/mdvdb', version: '0.1.0' })
+    mockAccess.mockImplementation(async (path: string) => {
+      if (!path.endsWith(join('target', 'debug', 'mdvdb'))) throw new Error('ENOENT')
+    })
+
+    try {
+      const path = await findCli()
+      expect(path).toMatch(/target[/\\]debug[/\\]mdvdb$/)
+      expect(mockExecFile).not.toHaveBeenCalled()
+    } finally {
+      if (originalNodeEnv === undefined) {
+        delete process.env.NODE_ENV
+      } else {
+        process.env.NODE_ENV = originalNodeEnv
+      }
+    }
+  })
+
   it('uses the persisted store path when it is executable, without spawning which', async () => {
     mockGetCliInfo.mockReturnValue({ path: '/stored/bin/mdvdb', version: '0.2.0' })
     onlyUsable('/stored/bin/mdvdb')

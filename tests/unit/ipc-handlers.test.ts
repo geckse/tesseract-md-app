@@ -199,6 +199,7 @@ const mockWatcherOnEvent = vi.fn()
 const mockWatcherOnError = vi.fn()
 const mockWatcherOnStateChange = vi.fn()
 const mockWatcherRemoveAllListeners = vi.fn()
+const mockWatcherBlock = vi.fn()
 vi.mock('../../src/main/watcher', () => ({
   WatcherManager: vi.fn().mockImplementation(() => ({
     start: (...args: unknown[]) => mockWatcherStart(...args),
@@ -210,7 +211,19 @@ vi.mock('../../src/main/watcher', () => ({
     onEvent: (...args: unknown[]) => mockWatcherOnEvent(...args),
     onError: (...args: unknown[]) => mockWatcherOnError(...args),
     onStateChange: (...args: unknown[]) => mockWatcherOnStateChange(...args),
-    removeAllListeners: (...args: unknown[]) => mockWatcherRemoveAllListeners(...args)
+    removeAllListeners: (...args: unknown[]) => mockWatcherRemoveAllListeners(...args),
+    block: (...args: unknown[]) => mockWatcherBlock(...args)
+  }))
+}))
+
+const mockIngestRun = vi.fn()
+const mockIngestCancel = vi.fn()
+const mockIngestDestroy = vi.fn()
+vi.mock('../../src/main/ingest-manager', () => ({
+  IngestProcessManager: vi.fn().mockImplementation(() => ({
+    run: (...args: unknown[]) => mockIngestRun(...args),
+    cancel: (...args: unknown[]) => mockIngestCancel(...args),
+    destroy: (...args: unknown[]) => mockIngestDestroy(...args)
   }))
 }))
 
@@ -394,7 +407,22 @@ beforeEach(() => {
         return { value, response }
       }
     )
-  mockGetCollections.mockReset()
+  mockIngestRun.mockReset().mockResolvedValue({
+    files_indexed: 3,
+    files_skipped: 0,
+    files_removed: 0,
+    chunks_created: 3,
+    api_calls: 1,
+    estimated_input_tokens: 12,
+    files_failed: 0,
+    errors: [],
+    duration_secs: 0.1,
+    cancelled: false,
+    module_reports: []
+  })
+  mockIngestCancel.mockReset().mockResolvedValue(true)
+  mockIngestDestroy.mockReset().mockResolvedValue(undefined)
+  mockGetCollections.mockReset().mockReturnValue([])
   mockAddCollection.mockReset()
   mockRemoveCollection.mockReset()
   mockSetActiveCollection.mockReset()
@@ -608,7 +636,10 @@ describe('registerIpcHandlers', () => {
     expect(channels).toContain('app:cancel-close')
     expect(channels).toContain('cli:embedding-models')
     expect(channels).toContain('cli:embedding-probe')
-    expect(channels).toHaveLength(162)
+    expect(channels).toContain('cli:cancel-ingest')
+    expect(channels).toContain('activity-log:open-today')
+    expect(channels).toContain('activity-log:read')
+    expect(channels).toHaveLength(165)
   })
 })
 
@@ -2125,33 +2156,25 @@ describe('IPC handler argument passing', () => {
   })
 
   describe('cli:ingest', () => {
-    it('calls execCommand with 5 minute timeout', async () => {
-      mockExecCommand.mockResolvedValue({ files_indexed: 3 })
+    it('runs through the streaming ingest manager', async () => {
       const handler = getHandler('cli:ingest')
       await handler(fakeEvent, '/tmp/project')
 
-      expect(mockExecCommand).toHaveBeenCalledWith('ingest', [], '/tmp/project', {
-        timeout: 300_000
-      })
+      expect(mockIngestRun).toHaveBeenCalledWith('/tmp/project', false)
     })
 
-    it('passes --reindex flag when requested', async () => {
-      mockExecCommand.mockResolvedValue({ files_indexed: 3 })
+    it('passes the reindex mode to the streaming manager', async () => {
       const handler = getHandler('cli:ingest')
       await handler(fakeEvent, '/tmp/project', { reindex: true })
 
-      expect(mockExecCommand).toHaveBeenCalledWith('ingest', ['--reindex'], '/tmp/project', {
-        timeout: 300_000
-      })
+      expect(mockIngestRun).toHaveBeenCalledWith('/tmp/project', true)
     })
 
-    it('omits --reindex flag when not requested', async () => {
-      mockExecCommand.mockResolvedValue({ files_indexed: 3 })
+    it('uses incremental mode when reindex is false', async () => {
       const handler = getHandler('cli:ingest')
       await handler(fakeEvent, '/tmp/project', { reindex: false })
 
-      const args = mockExecCommand.mock.calls[0][1] as string[]
-      expect(args).not.toContain('--reindex')
+      expect(mockIngestRun).toHaveBeenCalledWith('/tmp/project', false)
     })
   })
 
@@ -3212,7 +3235,7 @@ describe('IPC error serialization', () => {
 
   it('serializes CliTimeoutError for IPC transport', async () => {
     const { CliTimeoutError } = await import('../../src/main/errors')
-    mockExecCommand.mockRejectedValue(new CliTimeoutError())
+    mockIngestRun.mockRejectedValue(new CliTimeoutError())
     const handler = getHandler('cli:ingest')
 
     const result = await handler({}, '/tmp/project')
@@ -3279,6 +3302,27 @@ describe('Watcher IPC handlers', () => {
       expect(mockWatcherOnEvent).toHaveBeenCalled()
       expect(mockWatcherOnError).toHaveBeenCalled()
       expect(mockWatcherOnStateChange).toHaveBeenCalled()
+    })
+
+    it('blocks startup and requests reindex when embedding status is incompatible', async () => {
+      mockExecCommand.mockResolvedValue({
+        embedding_compatible: false,
+        reindex_required: true,
+        embedding_compatibility_error: 'Embedding model changed'
+      })
+      const { wm, mockBroadcastToAll } = createMockWindowManager()
+      registerIpcHandlers(wm)
+      const call = mockHandle.mock.calls.find((entry: unknown[]) => entry[0] === 'watcher:start')
+      const handler = call![1] as (...args: unknown[]) => Promise<unknown>
+
+      await handler(fakeEvent, '/tmp/project')
+
+      expect(mockWatcherBlock).toHaveBeenCalledWith('/tmp/project')
+      expect(mockWatcherStart).not.toHaveBeenCalled()
+      expect(mockBroadcastToAll).toHaveBeenCalledWith('watcher:event', {
+        type: 'blocked',
+        data: { message: 'Embedding model changed', action: 'reindex' }
+      })
     })
   })
 
@@ -3368,15 +3412,15 @@ describe('Watcher pause during ingest', () => {
     // Now the watcher is "running"
     mockWatcherGetState.mockReturnValue('running')
     mockWatcherStop.mockResolvedValue(undefined)
-    mockExecCommand.mockResolvedValue({ files_indexed: 3 })
+    mockIngestRun.mockResolvedValue({ files_indexed: 3, cancelled: false })
 
     const ingestHandler = getHandler('cli:ingest')
     await ingestHandler(fakeEvent, '/tmp/project')
 
     // Watcher should have been stopped before ingest
     expect(mockWatcherStop).toHaveBeenCalled()
-    // Ingest should have run
-    expect(mockExecCommand).toHaveBeenCalledWith('ingest', [], '/tmp/project', { timeout: 300_000 })
+    // Ingest should have run through the streaming manager
+    expect(mockIngestRun).toHaveBeenCalledWith('/tmp/project', false)
     // Watcher should have been restarted after ingest
     expect(mockWatcherStart).toHaveBeenCalledWith('/tmp/project')
   })
@@ -3389,15 +3433,13 @@ describe('Watcher pause during ingest', () => {
     mockWatcherIsRunning.mockReturnValue(false)
     mockWatcherGetState.mockReturnValue('starting')
     mockWatcherStop.mockResolvedValue(undefined)
-    mockExecCommand.mockResolvedValue({ files_indexed: 0 })
+    mockIngestRun.mockResolvedValue({ files_indexed: 0, cancelled: false })
 
     const ingestHandler = getHandler('cli:ingest')
     await ingestHandler(fakeEvent, '/tmp/project')
 
     expect(mockWatcherStop).toHaveBeenCalled()
-    expect(mockExecCommand).toHaveBeenCalledWith('ingest', [], '/tmp/project', {
-      timeout: 300_000
-    })
+    expect(mockIngestRun).toHaveBeenCalledWith('/tmp/project', false)
     expect(mockWatcherStart).toHaveBeenCalledWith('/tmp/project')
   })
 
@@ -3420,13 +3462,13 @@ describe('Watcher pause during ingest', () => {
 
   it('does not stop or restart watcher when it is not running', async () => {
     mockWatcherIsRunning.mockReturnValue(false)
-    mockExecCommand.mockResolvedValue({ files_indexed: 3 })
+    mockIngestRun.mockResolvedValue({ files_indexed: 3, cancelled: false })
 
     const handler = getHandler('cli:ingest')
     await handler(fakeEvent, '/tmp/project')
 
     expect(mockWatcherStop).not.toHaveBeenCalled()
-    expect(mockExecCommand).toHaveBeenCalled()
+    expect(mockIngestRun).toHaveBeenCalled()
     // watcher.start should not be called for restart
     // (it may have been called during registerIpcHandlers, so check call count)
     const startCallsAfterIngest = mockWatcherStart.mock.calls.filter(
@@ -3442,7 +3484,7 @@ describe('Watcher pause during ingest', () => {
 
     mockWatcherIsRunning.mockReturnValue(true)
     mockWatcherStop.mockResolvedValue(undefined)
-    mockExecCommand.mockRejectedValue(new Error('Tantivy lock error'))
+    mockIngestRun.mockRejectedValue(new Error('Tantivy lock error'))
 
     const handler = getHandler('cli:ingest')
     const result = await handler(fakeEvent, '/tmp/project')

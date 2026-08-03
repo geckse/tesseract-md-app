@@ -83,6 +83,20 @@ describe('WatcherToggle component', () => {
     expect(screen.getByText('Watch Error')).toBeTruthy()
   })
 
+  it('opens a full-reindex preview when the watcher is blocked', async () => {
+    setActiveCollection({ id: 'test', name: 'test', path: '/test' })
+    watcherState.set('blocked')
+    watcherError.set('Embedding settings changed')
+    mockApi.ingestPreview.mockResolvedValue({ files: [], total_files: 0 })
+    render(WatcherToggle)
+
+    await fireEvent.click(screen.getByRole('button'))
+
+    expect(screen.getByText('Reindex required')).toBeTruthy()
+    expect(mockApi.startWatcher).not.toHaveBeenCalled()
+    expect(mockApi.ingestPreview).toHaveBeenCalledWith('/test', { reindex: true })
+  })
+
   it('button is disabled when toggling', () => {
     watcherToggling.set(true)
     render(WatcherToggle)

@@ -198,6 +198,56 @@ describe('WorkspaceStore', () => {
     })
   })
 
+  describe('activity-log tabs', () => {
+    const descriptor = {
+      collection_id: 'vault-id',
+      date: '2026-08-03',
+      title: 'Activity 2026-08-03.md',
+      content: '# Activity\n',
+      revision: 4,
+      read_only: true as const,
+      latest_event: 'No activity yet',
+      summary: {
+        events: 0,
+        watcher_events: 0,
+        reindex_runs: 0,
+        estimated_input_tokens: 0,
+        api_calls: 0,
+        errors: 0,
+        watcher_state: 'stopped'
+      }
+    }
+
+    it('opens outside collection navigation as a clean read-only document', () => {
+      const tabId = workspace.openActivityLog(descriptor)
+      const tab = asDocTab(workspace.tabs[tabId])
+
+      expect(tab.origin).toBe('activity-log')
+      expect(tab.readOnly).toBe(true)
+      expect(tab.content).toBe('# Activity\n')
+      expect(tab.savedContent).toBe('# Activity\n')
+      expect(tab.isDirty).toBe(false)
+      expect(workspace.selectedFilePath).toBeNull()
+    })
+
+    it('is not recycled when an ordinary collection file opens', () => {
+      const activityId = workspace.openActivityLog(descriptor)
+      const documentId = workspace.openFile('notes/new.md')
+
+      expect(documentId).not.toBe(activityId)
+      expect(workspace.tabs[activityId]).toBeDefined()
+      expect(asDocTab(workspace.tabs[activityId]).origin).toBe('activity-log')
+      expect(asDocTab(workspace.tabs[documentId]).origin).toBe('collection')
+    })
+
+    it('cannot be detached into an unconstrained popup editor', async () => {
+      const activityId = workspace.openActivityLog(descriptor)
+
+      await expect(workspace.detachTab(activityId)).resolves.toBeNull()
+      expect(workspace.tabs[activityId]).toBeDefined()
+    })
+  })
+
   describe('closeTab', () => {
     it('removes the tab from the pane', () => {
       const tabId = workspace.openTab('file.md')

@@ -7,6 +7,7 @@
   } from '../stores/editor'
   import { workspace, type AssetTab } from '../stores/workspace.svelte'
   import WatcherToggle from './WatcherToggle.svelte'
+  import BackgroundActivity from './BackgroundActivity.svelte'
   import { terminalStore } from '../stores/terminal.svelte'
   import { collectionDoctorResult, openDoctorModal } from '../stores/collections'
   import type { DoctorResult } from '../types/cli'
@@ -170,6 +171,7 @@
       {/if}
     </button>
     <WatcherToggle />
+    <BackgroundActivity />
     {#if hasDoctorFailures}
       <button
         type="button"

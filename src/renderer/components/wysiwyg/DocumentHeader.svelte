@@ -176,6 +176,20 @@
     return schema.fields.find((f) => f.name === key) ?? null
   }
 
+  /** Lookup has no declared result_type: it preserves the target value's shape. */
+  function detectLookupType(value: JsonValue): DetectedType {
+    if (exactNumberText(value) !== null || typeof value === 'number') return 'number'
+    if (typeof value === 'boolean') return 'boolean'
+    if (Array.isArray(value)) return 'tags'
+    if (value !== null && typeof value === 'object') return 'complex'
+    if (typeof value !== 'string') return 'text'
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)) return 'datetime'
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return 'date'
+    if (/^https?:\/\//.test(value)) return 'url'
+    if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value)) return 'email'
+    return 'text'
+  }
+
   /** Detect the type of a value, with schema override. */
   function detectType(key: string, value: JsonValue): DetectedType {
     const sf = getSchemaField(key)
@@ -197,7 +211,9 @@
           return 'text'
       }
     }
-    if (sf?.field_type === 'Lookup' && exactNumberText(value) !== null) return 'number'
+    // Computed values that happen to look like links remain computed output;
+    // classify Lookup by JSON shape before File/Relation heuristics run.
+    if (sf?.field_type === 'Lookup') return detectLookupType(value)
 
     // Explicit File schema pins support empty and extensionless values. An
     // unambiguous File value then wins over a stale legacy Relation label so

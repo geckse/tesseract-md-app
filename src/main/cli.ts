@@ -20,6 +20,14 @@ const execFileAsync = promisify(execFile)
 /** Binary name constant — single place to change if renamed */
 const CLI_BINARY_NAME = 'mdvdb'
 
+/** Matching workspace binary used by electron-vite development builds. */
+function workspaceDevelopmentCliPath(): string {
+  const binaryName = process.platform === 'win32' ? `${CLI_BINARY_NAME}.exe` : CLI_BINARY_NAME
+  // Both app/src/main (Vitest/source) and app/out/main (electron-vite output)
+  // are three levels below the repository root.
+  return join(__dirname, '..', '..', '..', 'target', 'debug', binaryName)
+}
+
 /** Default timeout for CLI commands (30 seconds) */
 const DEFAULT_TIMEOUT_MS = 30_000
 
@@ -141,10 +149,11 @@ async function findCliOnPath(): Promise<string | null> {
 /**
  * Find the mdvdb CLI binary. Resolution order:
  *
- * 1. Persisted store path (from a previous detection/install), if still usable
- * 2. App-managed install path (getInstallPath()), if usable
- * 3. System PATH lookup via which/where
- * 4. Well-known bin directories (GUI apps often inherit a minimal PATH)
+ * 1. Matching workspace debug binary for development builds, if usable
+ * 2. Persisted store path (from a previous detection/install), if still usable
+ * 3. App-managed install path (getInstallPath()), if usable
+ * 4. System PATH lookup via which/where
+ * 5. Well-known bin directories (GUI apps often inherit a minimal PATH)
  *
  * The resolved path is cached module-locally; use resetCliPathCache() to
  * force re-resolution (done automatically after a successful install).
@@ -155,7 +164,17 @@ export async function findCli(): Promise<string> {
     return cachedCliPath
   }
 
-  // 1. Persisted store path from a previous detection/install
+  // The app and core evolve together in this workspace. Never let a stale
+  // persisted/system installation override the freshly built development CLI.
+  if (process.env.NODE_ENV !== 'production') {
+    const workspacePath = workspaceDevelopmentCliPath()
+    if (await isUsableBinary(workspacePath)) {
+      cachedCliPath = workspacePath
+      return workspacePath
+    }
+  }
+
+  // 2. Persisted store path from a previous detection/install
   let storedPath: string | null = null
   try {
     storedPath = getCliInfo().path
@@ -167,21 +186,21 @@ export async function findCli(): Promise<string> {
     return storedPath
   }
 
-  // 2. App-managed install location
+  // 3. App-managed install location
   const installPath = getInstallPath()
   if (await isUsableBinary(installPath)) {
     cachedCliPath = installPath
     return installPath
   }
 
-  // 3. System PATH lookup
+  // 4. System PATH lookup
   const pathLookup = await findCliOnPath()
   if (pathLookup) {
     cachedCliPath = pathLookup
     return pathLookup
   }
 
-  // 4. Well-known bin directories
+  // 5. Well-known bin directories
   const binaryName = process.platform === 'win32' ? `${CLI_BINARY_NAME}.exe` : CLI_BINARY_NAME
   for (const dir of getWellKnownBinDirs()) {
     const candidate = join(dir, binaryName)

@@ -30,6 +30,7 @@
   const isAsset = $derived(tab.kind === 'asset')
   const isTerminal = $derived(tab.kind === 'terminal')
   const isTable = $derived(tab.kind === 'table')
+  const isActivityLog = $derived(tab.kind === 'document' && tab.origin === 'activity-log')
   const isDirty = $derived(
     (tab.kind === 'document' && tab.isDirty) ||
       (tab.kind === 'asset' && tab.mimeCategory === 'image' && tab.isDirty)
@@ -51,10 +52,12 @@
                   : tab.mimeCategory === 'audio'
                     ? 'audiotrack'
                     : 'attach_file'
-            : 'description'
+            : isActivityLog
+              ? 'receipt_long'
+              : 'description'
   )
   const canClose = $derived(!isGraph)
-  const canDrag = $derived(draggable)
+  const canDrag = $derived(draggable && !isActivityLog)
 
   let isDragging = $state(false)
 

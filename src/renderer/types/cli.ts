@@ -116,6 +116,9 @@ export interface IndexStatus {
   last_updated: number
   file_size: number
   embedding_config: EmbeddingConfig
+  embedding_compatible: boolean
+  reindex_required: boolean
+  embedding_compatibility_error?: string
 }
 
 /** Sync state of on-disk Markdown files compared with the index. */
@@ -157,6 +160,7 @@ export interface IngestResult {
   files_removed: number
   chunks_created: number
   api_calls: number
+  estimated_input_tokens: number
   files_failed: number
   errors: IngestError[]
   duration_secs: number
@@ -195,14 +199,69 @@ export interface IngestPreview {
 
 /** Phase of the ingestion pipeline, reported via progress callbacks. */
 export type IngestPhase =
-  | { phase: 'Discovering' }
-  | { phase: 'Parsing'; current: number; total: number; path: string }
-  | { phase: 'Skipped'; current: number; total: number; path: string }
-  | { phase: 'Embedding'; batch: number; total_batches: number }
-  | { phase: 'Saving' }
-  | { phase: 'Clustering' }
-  | { phase: 'Cleaning' }
-  | { phase: 'Done' }
+  | { phase: 'preparing'; reindex: boolean }
+  | { phase: 'probing' }
+  | { phase: 'discovering' }
+  | { phase: 'parsing'; current: number; total: number; path: string }
+  | { phase: 'skipped'; current: number; total: number; path: string }
+  | {
+      phase: 'file_error'
+      current: number
+      total: number
+      path: string
+      message: string
+      error_count: number
+    }
+  | {
+      phase: 'embedding'
+      completed_batches: number
+      total_batches: number
+      completed_chunks: number
+      total_chunks: number
+      estimated_input_tokens: number
+      total_estimated_input_tokens: number
+      api_calls: number
+    }
+  | { phase: 'saving' }
+  | { phase: 'clustering' }
+  | { phase: 'cleaning' }
+  | { phase: 'cancelled' }
+  | { phase: 'done' }
+
+export type IngestProgress = IngestPhase & { elapsed_ms: number; accumulated_errors?: number }
+
+export type IngestActivityEvent =
+  | {
+      type: 'started'
+      run_id: string
+      root: string
+      reindex: boolean
+      timestamp: number
+    }
+  | {
+      type: 'progress'
+      run_id: string
+      root: string
+      reindex: boolean
+      timestamp: number
+      progress: IngestProgress
+    }
+  | {
+      type: 'completed' | 'cancelled'
+      run_id: string
+      root: string
+      reindex: boolean
+      timestamp: number
+      result: IngestResult
+    }
+  | {
+      type: 'failed'
+      run_id: string
+      root: string
+      reindex: boolean
+      timestamp: number
+      message: string
+    }
 
 // ─── Document ────────────────────────────────────────────────────────
 
@@ -875,8 +934,11 @@ export type WatchEventType = 'Created' | 'Modified' | 'Deleted' | 'Renamed'
 export interface WatchEventReport {
   event_type: WatchEventType
   path: string
+  previous_path?: string
   success: boolean
   chunks_processed: number
+  estimated_input_tokens: number
+  api_calls: number
   duration_ms: number
   error: string | null
   module_reports: ModuleReport[]

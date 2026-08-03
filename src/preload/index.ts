@@ -146,7 +146,14 @@ const api: MdvdbApi = {
   search: (root, query, options?) => invoke('cli:search', root, query, options),
   status: (root) => invoke('cli:status', root),
   ingest: (root, options?) => invoke('cli:ingest', root, options),
-  ingestPreview: (root) => invoke('cli:ingest-preview', root),
+  ingestPreview: (root, options?) => invoke('cli:ingest-preview', root, options),
+  onIngestEvent: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: unknown): void => {
+      callback(data as Parameters<typeof callback>[0])
+    }
+    ipcRenderer.on('cli:ingest-event', listener)
+    return () => ipcRenderer.removeListener('cli:ingest-event', listener)
+  },
   tree: (root, path?) => invoke('cli:tree', root, path),
   getFile: (root, filePath, options?) => invoke('cli:get', root, filePath, options),
   links: (root, filePath) => invoke('cli:links', root, filePath),
@@ -340,7 +347,18 @@ const api: MdvdbApi = {
   getMetadataPanelWidth: () => invoke('store:get-metadata-panel-width'),
 
   // Ingest cancellation
-  cancelIngest: () => invoke('cli:cancel-ingest'),
+  cancelIngest: (root) => invoke('cli:cancel-ingest', root),
+
+  // Temporary activity Markdown documents
+  openTodayActivityLog: (collectionId) => invoke('activity-log:open-today', collectionId),
+  readActivityLog: (collectionId, date) => invoke('activity-log:read', collectionId, date),
+  onActivityLogChanged: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: unknown): void => {
+      callback(data as Parameters<typeof callback>[0])
+    }
+    ipcRenderer.on('activity-log:changed', listener)
+    return () => ipcRenderer.removeListener('activity-log:changed', listener)
+  },
 
   // Watcher management
   startWatcher: (root) => invoke('watcher:start', root),
