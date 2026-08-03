@@ -47,7 +47,10 @@ describe('degradeViewConfig', () => {
 describe('tableViewsStore (renderer)', () => {
   let mockApi: {
     listTableViews: ReturnType<typeof vi.fn>
+    getDefaultTableColumns: ReturnType<typeof vi.fn>
+    saveDefaultTableColumns: ReturnType<typeof vi.fn>
     saveTableView: ReturnType<typeof vi.fn>
+    updateTableView: ReturnType<typeof vi.fn>
     deleteTableView: ReturnType<typeof vi.fn>
     setDefaultTableView: ReturnType<typeof vi.fn>
   }
@@ -68,7 +71,14 @@ describe('tableViewsStore (renderer)', () => {
   beforeEach(() => {
     mockApi = {
       listTableViews: vi.fn().mockResolvedValue([view('v1'), view('v2', true)]),
+      getDefaultTableColumns: vi.fn().mockResolvedValue(null),
+      saveDefaultTableColumns: vi
+        .fn()
+        .mockImplementation((_collection, _folder, columns) => Promise.resolve(columns)),
       saveTableView: vi.fn().mockResolvedValue([view('v1')]),
+      updateTableView: vi
+        .fn()
+        .mockImplementation((_collection, _folder, updated) => Promise.resolve([updated])),
       deleteTableView: vi.fn().mockResolvedValue([]),
       setDefaultTableView: vi.fn().mockResolvedValue([view('v1', true)])
     }
@@ -87,6 +97,38 @@ describe('tableViewsStore (renderer)', () => {
     await tableViewsStore.save('c1', 'blog', view('v1'))
     expect(mockApi.saveTableView).toHaveBeenCalled()
     expect(tableViewsStore.getViews('c1', 'blog').map((v) => v.id)).toEqual(['v1'])
+  })
+
+  it('loads and saves the built-in All fields column layout separately from named views', async () => {
+    const columns = [{ name: 'status', hidden: true, width: 160, order: 0 }]
+    mockApi.getDefaultTableColumns.mockResolvedValueOnce(columns)
+
+    await tableViewsStore.load('c-layout', 'blog')
+    expect(tableViewsStore.getDefaultColumns('c-layout', 'blog')).toEqual(columns)
+
+    const reordered = [{ name: 'status', hidden: false, width: 160, order: 0 }]
+    await tableViewsStore.saveColumnLayout('c-layout', 'blog', null, reordered)
+    expect(mockApi.saveDefaultTableColumns).toHaveBeenCalledWith('c-layout', 'blog', reordered)
+    expect(tableViewsStore.getDefaultColumns('c-layout', 'blog')).toEqual(reordered)
+  })
+
+  it('writes column layout changes back into the active named view', async () => {
+    await tableViewsStore.load('c-named-layout', 'blog')
+    const columns = [{ name: 'status', hidden: true, width: 160, order: 0 }]
+    mockApi.updateTableView.mockImplementationOnce((_collection, _folder, updated) =>
+      Promise.resolve([structuredClone(updated)])
+    )
+
+    await tableViewsStore.saveColumnLayout('c-named-layout', 'blog', 'v1', columns)
+
+    expect(mockApi.updateTableView).toHaveBeenCalledWith(
+      'c-named-layout',
+      'blog',
+      expect.objectContaining({
+        id: 'v1',
+        config: expect.objectContaining({ columns })
+      })
+    )
   })
 
   it('remove() clears the cache for the folder', async () => {

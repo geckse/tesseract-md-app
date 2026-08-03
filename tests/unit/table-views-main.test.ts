@@ -26,6 +26,8 @@ vi.mock('../../src/main/store', () => ({
 
 import {
   listTableViews,
+  getDefaultTableColumns,
+  saveDefaultTableColumns,
   saveTableView,
   updateTableView,
   deleteTableView,
@@ -107,6 +109,21 @@ describe('table-views (main process, file-backed)', () => {
     expect(parsed.version).toBe(CURRENT_VIEW_VERSION)
     expect(parsed.folders.blog).toHaveLength(1)
     expect(parsed.folders.blog[0].name).toBe('Shared')
+    expect(parsed.defaultColumns).toEqual({})
+  })
+
+  it('persists the built-in All fields column layout per folder', async () => {
+    const layout = [
+      { name: 'author', hidden: false, width: 180, order: 0 },
+      { name: 'status', hidden: true, width: 140, order: 1 }
+    ]
+
+    await saveDefaultTableColumns('col1', 'blog', layout)
+
+    expect(await getDefaultTableColumns('col1', 'blog')).toEqual(layout)
+    expect(await getDefaultTableColumns('col1', 'docs')).toBeNull()
+    const persisted = JSON.parse(await fs.readFile(viewsFile(col1Dir), 'utf-8'))
+    expect(persisted.defaultColumns.blog).toEqual(layout)
   })
 
   it('upserts by id (save replaces an existing view)', async () => {
@@ -174,6 +191,7 @@ describe('table-views (main process, file-backed)', () => {
     await saveTableView('col1', 'docs', referenced)
     await saveTableView('col1', 'notes/archive', referenced)
     await saveTableView('col1', 'other', unaffected)
+    await saveDefaultTableColumns('col1', 'docs', referenced.config.columns)
     const unaffectedUpdatedAt = (await listTableViews('col1', 'other'))[0].updatedAt
 
     await removePropertyFromViews('col1', 'status')
@@ -193,6 +211,9 @@ describe('table-views (main process, file-backed)', () => {
     const [kept] = await listTableViews('col1', 'other')
     expect(kept.config).toEqual(unaffected.config)
     expect(kept.updatedAt).toBe(unaffectedUpdatedAt)
+    expect(await getDefaultTableColumns('col1', 'docs')).toEqual([
+      { name: 'author', hidden: false, width: 180, order: 1 }
+    ])
   })
 
   it('renames every saved-view reference in scope and in recursive ancestor views', async () => {
@@ -201,6 +222,9 @@ describe('table-views (main process, file-backed)', () => {
     await saveTableView('col1', 'contacts', makeColumnView('exact', 'client_domain'))
     await saveTableView('col1', 'contacts/vip', makeColumnView('descendant', 'client_domain'))
     await saveTableView('col1', 'projects', makeColumnView('sibling', 'client_domain'))
+    await saveDefaultTableColumns('col1', 'contacts', [
+      { name: 'client_domain', hidden: false, width: 160, order: 0 }
+    ])
 
     await renamePropertyInViews('col1', 'contacts', 'client_domain', 'client_industry')
 
@@ -222,6 +246,9 @@ describe('table-views (main process, file-backed)', () => {
     const sibling = (await listTableViews('col1', 'projects'))[0]
     expect(rootFlat.config.sort[0].columnName).toBe('client_domain')
     expect(sibling.config.sort[0].columnName).toBe('client_domain')
+    expect(await getDefaultTableColumns('col1', 'contacts')).toEqual([
+      { name: 'client_industry', hidden: false, width: 160, order: 0 }
+    ])
   })
 
   it('serializes a delayed save before a racing rename so neither generation is lost', async () => {

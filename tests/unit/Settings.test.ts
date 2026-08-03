@@ -420,15 +420,18 @@ describe('Settings component', () => {
     expect(screen.getByText('Update CLI')).toBeTruthy()
   })
 
-  it('warns when an API key is edited at collection scope', () => {
+  it('explains collection-scoped credential storage', () => {
     collections.set([{ id: 'c1', name: 'My Notes', path: '/tmp/notes' }])
     settingsTarget.set('c1')
     activeSection.set('embedding')
     render(Settings, { props: { onclose: vi.fn() } })
 
-    expect(screen.getByText(/Collection API keys are stored in plaintext/)).toBeTruthy()
-    expect(screen.getByText(/Collection API keys/).textContent).toContain('.markdownvdb/.config')
-    expect(screen.getByText(/Collection API keys/).textContent).toContain('~/.mdvdb/config')
+    const warning = screen.getByText(
+      /Collection credentials are stored with owner-only permissions/
+    )
+    expect(warning).toBeTruthy()
+    expect(warning.textContent).toContain('.markdownvdb/.env')
+    expect(warning.textContent).toContain('Global Settings')
   })
 
   it('shows app and CLI versions separately in About', async () => {

@@ -501,3 +501,43 @@ export async function execRaw(
   // Should never reach here, but TypeScript needs this
   throw lastError ?? new Error('Unexpected error in execRaw')
 }
+
+/** Execute a CLI mutation with a value supplied on stdin rather than argv. */
+export async function execWithInput(
+  command: string,
+  args: string[],
+  root: string,
+  input: string,
+  timeout = DEFAULT_TIMEOUT_MS
+): Promise<void> {
+  const cliPath = await findCli()
+  const child = spawn(cliPath, [command, '--json', '--root', root, ...args], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: { ...process.env },
+    windowsHide: true
+  })
+  let stderr = ''
+  child.stderr.setEncoding('utf8')
+  child.stderr.on('data', (chunk: string) => (stderr += chunk))
+  const exited = new Promise<void>((resolve, reject) => {
+    child.once('error', reject)
+    child.once('exit', (code) => {
+      if (code === 0) resolve()
+      else
+        reject(
+          new CliExecutionError(
+            `CLI command '${command}' failed: ${stderr.trim()}`,
+            code ?? 1,
+            stderr
+          )
+        )
+    })
+  })
+  const timer = setTimeout(() => child.kill(), timeout)
+  child.stdin.end(input)
+  try {
+    await exited
+  } finally {
+    clearTimeout(timer)
+  }
+}

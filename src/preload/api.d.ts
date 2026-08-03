@@ -716,6 +716,15 @@ export interface MdvdbApi {
 
   // Saved table views (per collection + folder)
   listTableViews(collectionId: string, folderPath: string): Promise<SavedTableView[]>
+  getDefaultTableColumns(
+    collectionId: string,
+    folderPath: string
+  ): Promise<TableColumnLayout[] | null>
+  saveDefaultTableColumns(
+    collectionId: string,
+    folderPath: string,
+    columns: TableColumnLayout[]
+  ): Promise<TableColumnLayout[]>
   saveTableView(
     collectionId: string,
     folderPath: string,
@@ -842,6 +851,11 @@ export interface MdvdbApi {
   getCollectionConfig(root: string): Promise<Record<string, string>>
   setCollectionConfig(root: string, key: string, value: string): Promise<void>
   deleteCollectionConfig(root: string, key: string): Promise<void>
+  embeddingModels(
+    root: string,
+    provider?: string
+  ): Promise<import('../renderer/types/cli').EmbeddingModelsResponse>
+  embeddingProbe(root: string): Promise<import('../renderer/types/cli').EmbeddingProbe>
 
   // Onboarding state
   getOnboardingComplete(): Promise<boolean>

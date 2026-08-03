@@ -165,6 +165,42 @@ describe('FileTree component', () => {
     expect(screen.getByText('Retry')).toBeTruthy()
   })
 
+  it('offers to build a missing index without exposing the raw CLI error', async () => {
+    setActiveCollection()
+    fileTreeError.set(
+      "[CliExecutionError] CLI command 'tree' failed: error: index not found: /test/.markdownvdb/index"
+    )
+
+    render(FileTree)
+
+    expect(screen.getByText('Index this collection')).toBeTruthy()
+    expect(screen.queryByText(/CliExecutionError/)).toBeNull()
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Build index' }))
+    await vi.waitFor(() => {
+      expect(mockApi.ingest).toHaveBeenCalledWith('/test', { reindex: false })
+    })
+  })
+
+  it('offers a full rebuild for an incompatible index', async () => {
+    setActiveCollection()
+    fileTreeError.set(
+      "[CliExecutionError] CLI command 'tree' failed: error: index corrupted: index format is incompatible or corrupted — run an unscoped `mdvdb ingest` to rebuild it"
+    )
+
+    render(FileTree)
+
+    expect(screen.getByText('Rebuild the collection index')).toBeTruthy()
+    expect(
+      screen.getByText('The existing index can’t be read. Rebuild it from your Markdown files.')
+    ).toBeTruthy()
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Rebuild index' }))
+    await vi.waitFor(() => {
+      expect(mockApi.ingest).toHaveBeenCalledWith('/test', { reindex: true })
+    })
+  })
+
   it('shows empty files state when tree has no children', () => {
     setActiveCollection()
     fileTree.set({

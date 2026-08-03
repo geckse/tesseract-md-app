@@ -804,13 +804,41 @@ export interface DoctorResult {
 // ─── Config ──────────────────────────────────────────────────────────
 
 /** Supported embedding provider backends. */
-export type EmbeddingProviderType = 'OpenAI' | 'Ollama' | 'Custom' | 'Mock'
+export type EmbeddingProviderType =
+  | 'OpenAI'
+  | 'OpenRouter'
+  | 'Gemini'
+  | 'AzureOpenAi'
+  | 'Bedrock'
+  | 'HuggingFace'
+  | 'Ollama'
+  | 'Custom'
+  | 'Mock'
+
+export interface EmbeddingModelInfo {
+  id: string
+  name?: string | null
+  input_token_limit?: number | null
+}
+
+export interface EmbeddingModelsResponse {
+  provider: string
+  discovery_available: boolean
+  models: EmbeddingModelInfo[]
+}
+
+export interface EmbeddingProbe {
+  provider: string
+  model: string
+  dimensions: number
+  latency_ms: number
+}
 
 /** Full configuration for mdvdb. */
 export interface Config {
   embedding_provider: EmbeddingProviderType
   embedding_model: string
-  embedding_dimensions: number
+  embedding_dimensions: number | 'auto'
   embedding_batch_size: number
   openai_api_key: string | null
   ollama_host: string

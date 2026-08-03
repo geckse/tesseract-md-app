@@ -272,6 +272,10 @@ const api: MdvdbApi = {
 
   // Saved table views
   listTableViews: (collectionId, folderPath) => invoke('tableviews:list', collectionId, folderPath),
+  getDefaultTableColumns: (collectionId, folderPath) =>
+    invoke('tableviews:get-default-columns', collectionId, folderPath),
+  saveDefaultTableColumns: (collectionId, folderPath, columns) =>
+    invoke('tableviews:save-default-columns', collectionId, folderPath, columns),
   saveTableView: (collectionId, folderPath, view) =>
     invoke('tableviews:save', collectionId, folderPath, view),
   updateTableView: (collectionId, folderPath, view) =>
@@ -404,6 +408,8 @@ const api: MdvdbApi = {
   setCollectionConfig: (root, key, value) =>
     invoke('settings:set-collection-config', root, key, value),
   deleteCollectionConfig: (root, key) => invoke('settings:delete-collection-config', root, key),
+  embeddingModels: (root, provider) => invoke('cli:embedding-models', root, provider),
+  embeddingProbe: (root) => invoke('cli:embedding-probe', root),
 
   // Onboarding state
   getOnboardingComplete: () => invoke('store:get-onboarding-complete'),

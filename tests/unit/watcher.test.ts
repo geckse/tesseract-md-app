@@ -232,6 +232,32 @@ describe('WatcherManager', () => {
   })
 
   describe('auto-restart', () => {
+    it('reports a startup failure once without retrying it', async () => {
+      const child = createMockChild()
+      mockSpawn.mockReturnValue(child)
+
+      const errors: Error[] = []
+      const states: WatcherState[] = []
+      const wm = new WatcherManager()
+      wm.onError((error) => errors.push(error))
+      wm.onStateChange((state) => states.push(state))
+
+      await wm.start('/tmp/project')
+      child.stderr.emit(
+        'data',
+        Buffer.from('error: configuration error: embedding space changed; reindex required')
+      )
+      child.emit('close', 1)
+
+      expect(wm.getState()).toBe('error')
+      expect(states.at(-1)).toBe('error')
+      expect(errors).toHaveLength(1)
+      expect(errors[0].message).toContain('embedding space changed; reindex required')
+
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(mockSpawn).toHaveBeenCalledTimes(1)
+    })
+
     it('retries with exponential backoff on unexpected exit', async () => {
       const child1 = createMockChild()
       mockSpawn.mockReturnValue(child1)

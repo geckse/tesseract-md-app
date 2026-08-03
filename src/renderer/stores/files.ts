@@ -564,11 +564,20 @@ export async function loadAssetTree(): Promise<void> {
 // These mutate the in-memory tree stores directly, avoiding a full CLI
 // round-trip + asset rescan for simple add/remove operations.
 
+/** Join a child onto a tree path without leaking the CLI's `.` root sentinel. */
+function childTreePath(parentPath: string, childName: string): string {
+  const normalizedParent = normalizeShardPath(parentPath)
+  return normalizedParent ? `${normalizedParent}/${childName}` : childName
+}
+
 /**
  * Insert a file node into the file tree at the given relative path.
  * Creates intermediate directory nodes as needed.
  */
 export function insertFileNode(relativePath: string, state: FileState | null = 'new'): void {
+  relativePath = normalizeShardPath(relativePath)
+  if (!relativePath) return
+
   fileTree.update((tree) => {
     if (!tree) return tree
     const parts = relativePath.split('/')
@@ -577,7 +586,7 @@ export function insertFileNode(relativePath: string, state: FileState | null = '
 
     // Walk / create intermediate directories
     for (const dirName of parts) {
-      const dirPath = parent.path ? `${parent.path}/${dirName}` : dirName
+      const dirPath = childTreePath(parent.path, dirName)
       let child = parent.children.find((c) => c.is_dir && c.name === dirName)
       if (!child) {
         child = { name: dirName, path: dirPath, is_dir: true, state: null, children: [] }
@@ -671,6 +680,9 @@ export function insertAssetNode(
   mimeCategory?: MimeCategory,
   fileSize?: number
 ): void {
+  relativePath = normalizeShardPath(relativePath)
+  if (!relativePath) return
+
   assetTree.update((tree) => {
     if (!tree) return tree
     const parts = relativePath.split('/')
@@ -678,7 +690,7 @@ export function insertAssetNode(
     let parent = tree.root
 
     for (const dirName of parts) {
-      const dirPath = parent.path ? `${parent.path}/${dirName}` : dirName
+      const dirPath = childTreePath(parent.path, dirName)
       let child = parent.children.find((c) => c.is_dir && c.name === dirName)
       if (!child) {
         child = { name: dirName, path: dirPath, is_dir: true, children: [] }
@@ -718,13 +730,16 @@ export function insertAssetNode(
  * Insert a directory node into the file tree at the given relative path.
  */
 export function insertDirNode(relativePath: string): void {
+  relativePath = normalizeShardPath(relativePath)
+  if (!relativePath) return
+
   fileTree.update((tree) => {
     if (!tree) return tree
     const parts = relativePath.split('/')
     let parent = tree.root
 
     for (const dirName of parts) {
-      const dirPath = parent.path ? `${parent.path}/${dirName}` : dirName
+      const dirPath = childTreePath(parent.path, dirName)
       let child = parent.children.find((c) => c.is_dir && c.name === dirName)
       if (!child) {
         child = { name: dirName, path: dirPath, is_dir: true, state: null, children: [] }
@@ -1038,6 +1053,7 @@ export async function createNewFile(
   const collection = get(activeCollection)
   if (!collection) return null
   if (!dirPath) dirPath = get(activeScopePath) ?? ''
+  dirPath = normalizeShardPath(dirPath)
 
   // Auto-append .md if no extension
   if (!filename.includes('.')) {
@@ -1075,6 +1091,7 @@ export async function createNewDirectory(dirPath: string, name: string): Promise
   const collection = get(activeCollection)
   if (!collection) return null
   if (!dirPath) dirPath = get(activeScopePath) ?? ''
+  dirPath = normalizeShardPath(dirPath)
 
   const relativePath = dirPath ? `${dirPath}/${name}` : name
   const absolutePath = `${collection.path}/${relativePath}`

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   parseLinkShaped,
   isLinkShaped,
+  isRelationValue,
   relationKey,
   coerceRelationFilterValue,
   formatRelationValue,
@@ -80,10 +81,26 @@ describe('relationKey (CLI relation_key parity)', () => {
   })
 })
 
+describe('isRelationValue', () => {
+  it('recognizes plain Markdown paths and homogeneous lists', () => {
+    expect(isRelationValue('what-is-okf.md')).toBe(true)
+    expect(isRelationValue(['what-is-okf.md', 'validation-rules.md'])).toBe(true)
+  })
+
+  it('keeps wiki-link compatibility and rejects File or mixed values', () => {
+    expect(isRelationValue('[[clients/acme]]')).toBe(true)
+    expect(isRelationValue('[[notes/readme.markdown]]')).toBe(true)
+    expect(isRelationValue('[[assets/mockup.png]]')).toBe(false)
+    expect(isRelationValue(['what-is-okf.md', 'draft'])).toBe(false)
+    expect(isRelationValue([])).toBe(false)
+  })
+})
+
 describe('formatRelationValue (the ONE commit format)', () => {
-  it('writes [[root-relative-path-sans-.md]] with no alias', () => {
-    expect(formatRelationValue('clients/acme.md')).toBe('[[clients/acme]]')
-    expect(formatRelationValue('clients/acme')).toBe('[[clients/acme]]')
+  it('writes a plain Markdown path and adds the extension when needed', () => {
+    expect(formatRelationValue('clients/acme.md')).toBe('clients/acme.md')
+    expect(formatRelationValue('clients/acme')).toBe('clients/acme.md')
+    expect(formatRelationValue('what-is-okf.md')).toBe('what-is-okf.md')
   })
 })
 

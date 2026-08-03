@@ -6,7 +6,6 @@ export interface GraphAnalysisNotice {
   message: string
   tone: GraphAnalysisNoticeTone
   canReingest: boolean
-  canManageTopics: boolean
 }
 
 export interface GraphAnalysisDisplayContext {
@@ -133,7 +132,7 @@ export function assertShardGraphAnalysis(data: GraphData, expectedShardId: strin
 
 /**
  * Turn additive analysis status into one compact, actionable graph notice.
- * Ready analysis and the expected "no configured topics" state stay quiet.
+ * Ready analysis and expected empty states stay quiet.
  */
 export function graphAnalysisNotice(
   analysis: GraphAnalysis | undefined,
@@ -144,12 +143,9 @@ export function graphAnalysisNotice(
   const messages: string[] = []
   let tone: GraphAnalysisNoticeTone = 'info'
   const canReingest = analysis.topics === 'needs_ingest'
-  const canManageTopics = analysis.context === 'shard' && analysis.topics === 'none'
 
   if (analysis.clusters === 'disabled') {
     messages.push(`Automatic clustering is disabled for ${contextName}.`)
-  } else if (analysis.clusters === 'too_small') {
-    messages.push(`${contextName} is too small for automatic clustering.`)
   } else if (analysis.clusters === 'error') {
     messages.push(`Automatic clustering failed for ${contextName}.`)
     tone = 'error'
@@ -158,8 +154,6 @@ export function graphAnalysisNotice(
   if (analysis.topics === 'needs_ingest') {
     messages.push(`${contextName} Topics need re-ingest.`)
     if (tone !== 'error') tone = 'warning'
-  } else if (analysis.context === 'shard' && analysis.topics === 'none') {
-    messages.push('No Topics configured for this Shard.')
   } else if (analysis.topics === 'error') {
     messages.push(`Topic analysis failed for ${contextName}.`)
     tone = 'error'
@@ -169,5 +163,5 @@ export function graphAnalysisNotice(
   if (diagnostic) messages.push(diagnostic)
   if (messages.length === 0) return null
 
-  return { message: messages.join(' '), tone, canReingest, canManageTopics }
+  return { message: messages.join(' '), tone, canReingest }
 }

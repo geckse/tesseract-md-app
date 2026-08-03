@@ -105,6 +105,8 @@ vi.mock('../../src/main/schema-overlay', () => ({
 const mockRenamePropertyInViews = vi.fn()
 vi.mock('../../src/main/table-views', () => ({
   listTableViews: vi.fn(),
+  getDefaultTableColumns: vi.fn(),
+  saveDefaultTableColumns: vi.fn(),
   saveTableView: vi.fn(),
   updateTableView: vi.fn(),
   deleteTableView: vi.fn(),
@@ -567,6 +569,8 @@ describe('registerIpcHandlers', () => {
     expect(channels).toContain('cli:collection')
     expect(channels).toContain('fs:update-frontmatter')
     expect(channels).toContain('tableviews:list')
+    expect(channels).toContain('tableviews:get-default-columns')
+    expect(channels).toContain('tableviews:save-default-columns')
     expect(channels).toContain('tableviews:save')
     expect(channels).toContain('tableviews:update')
     expect(channels).toContain('tableviews:delete')
@@ -602,7 +606,9 @@ describe('registerIpcHandlers', () => {
     // Dirty-close guard (data safety)
     expect(channels).toContain('app:confirm-close')
     expect(channels).toContain('app:cancel-close')
-    expect(channels).toHaveLength(158)
+    expect(channels).toContain('cli:embedding-models')
+    expect(channels).toContain('cli:embedding-probe')
+    expect(channels).toHaveLength(162)
   })
 })
 

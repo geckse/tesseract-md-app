@@ -5005,9 +5005,6 @@
                 {currentIngestRunning ? 'Re-ingesting…' : 'Re-ingest'}
               </button>
             {/if}
-            {#if notice.canManageTopics}
-              <button onclick={handleManageTopics}>Manage Topics…</button>
-            {/if}
           </div>
         {/if}
       {/if}

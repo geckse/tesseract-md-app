@@ -190,11 +190,19 @@ describe('Onboarding component', () => {
     await fireEvent.click(screen.getByText('Skip for now'))
     await fireEvent.click(screen.getByText('OpenAI'))
     await fireEvent.input(screen.getByPlaceholderText('sk-...'), { target: { value: 'sk-test' } })
+    await fireEvent.input(screen.getByPlaceholderText('Enter any provider model ID'), {
+      target: { value: 'provider/unseen-embedding-model' }
+    })
     await fireEvent.click(screen.getByText('Continue'))
 
     await waitFor(() => expect(screen.getByText('Add Your First Collection')).toBeTruthy())
     expect(mockApi.setUserConfig).toHaveBeenCalledWith('MDVDB_EMBEDDING_PROVIDER', 'openai')
     expect(mockApi.setUserConfig).toHaveBeenCalledWith('OPENAI_API_KEY', 'sk-test')
+    expect(mockApi.setUserConfig).toHaveBeenCalledWith(
+      'MDVDB_EMBEDDING_MODEL',
+      'provider/unseen-embedding-model'
+    )
+    expect(mockApi.setUserConfig).toHaveBeenCalledWith('MDVDB_EMBEDDING_DIMENSIONS', 'auto')
     expect(mockApi.setCollectionConfig).not.toHaveBeenCalled()
   })
 

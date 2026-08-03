@@ -36,7 +36,14 @@
   import { settingsOpen, shortcutsModalOpen } from '../stores/ui'
   import { collections, activeCollection } from '../stores/collections'
   import type { Collection } from '../../preload/api'
-  import type { TopicDef, CustomClusterSummary, TopicUnassigned, ShardInfo } from '../types/cli'
+  import type {
+    TopicDef,
+    CustomClusterSummary,
+    TopicUnassigned,
+    ShardInfo,
+    EmbeddingModelInfo,
+    EmbeddingProbe
+  } from '../types/cli'
   import {
     topicDefs,
     topicSummaries,
@@ -191,6 +198,11 @@
 
   // API key visibility
   let showApiKey = $state(false)
+  let embeddingModels: EmbeddingModelInfo[] = $state([])
+  let embeddingModelsLoading = $state(false)
+  let embeddingProbeLoading = $state(false)
+  let embeddingProbeResult: EmbeddingProbe | null = $state(null)
+  let embeddingProviderError = $state('')
 
   // Save feedback
   let currentSaveStatus: 'saved' | 'error' | null = $state(null)
@@ -292,6 +304,54 @@
       await saveAllSettings(targetCollection?.path)
     } finally {
       saving = false
+    }
+  }
+
+  function embeddingRoot(): string | null {
+    if (targetCollection) return targetCollection.path
+    const active = allCollections.find((collection) => collection.id === currentActiveCollectionId)
+    return active?.path ?? allCollections[0]?.path ?? null
+  }
+
+  async function loadEmbeddingModels(): Promise<void> {
+    const root = embeddingRoot()
+    if (!root) {
+      embeddingProviderError = 'Add a collection before loading a provider catalog.'
+      return
+    }
+    embeddingModelsLoading = true
+    embeddingProviderError = ''
+    try {
+      if (currentIsDirty) await handleSaveAll()
+      const response = await window.api.embeddingModels(root, embeddingProvider || undefined)
+      embeddingModels = response.models
+      if (!response.discovery_available) {
+        embeddingProviderError =
+          'This provider has no model catalog. You can still enter any model ID.'
+      }
+    } catch (error) {
+      embeddingProviderError = error instanceof Error ? error.message : String(error)
+    } finally {
+      embeddingModelsLoading = false
+    }
+  }
+
+  async function probeEmbeddingProvider(): Promise<void> {
+    const root = embeddingRoot()
+    if (!root) {
+      embeddingProviderError = 'Add a collection before testing the provider.'
+      return
+    }
+    embeddingProbeLoading = true
+    embeddingProviderError = ''
+    embeddingProbeResult = null
+    try {
+      if (currentIsDirty) await handleSaveAll()
+      embeddingProbeResult = await window.api.embeddingProbe(root)
+    } catch (error) {
+      embeddingProviderError = error instanceof Error ? error.message : String(error)
+    } finally {
+      embeddingProbeLoading = false
     }
   }
 
@@ -629,9 +689,26 @@
 
   // Embedding provider-dependent visibility
   let embeddingProvider = $derived(getConfigValue('MDVDB_EMBEDDING_PROVIDER'))
+  let embeddingProviderLower = $derived((embeddingProvider || 'openai').toLowerCase())
   let showHostUrl = $derived(
-    embeddingProvider.toLowerCase() === 'ollama' || embeddingProvider.toLowerCase() === 'custom'
+    embeddingProviderLower === 'ollama' || embeddingProviderLower === 'custom'
   )
+  let providerSecretKey = $derived(
+    embeddingProviderLower === 'openrouter'
+      ? 'OPENROUTER_API_KEY'
+      : embeddingProviderLower === 'gemini'
+        ? 'GEMINI_API_KEY'
+        : embeddingProviderLower === 'azure' || embeddingProviderLower === 'azure-openai'
+          ? getConfigValue('AZURE_OPENAI_AUTH') === 'bearer'
+            ? 'AZURE_OPENAI_ACCESS_TOKEN'
+            : 'AZURE_OPENAI_API_KEY'
+          : embeddingProviderLower === 'huggingface'
+            ? 'HF_TOKEN'
+            : embeddingProviderLower === 'bedrock'
+              ? 'AWS_BEARER_TOKEN_BEDROCK'
+              : 'OPENAI_API_KEY'
+  )
+  let showProviderSecret = $derived(!['ollama', 'custom'].includes(embeddingProviderLower))
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -753,6 +830,11 @@
                 >
                   <option value="">— Select —</option>
                   <option value="openai">OpenAI</option>
+                  <option value="openrouter">OpenRouter</option>
+                  <option value="gemini">Google Gemini</option>
+                  <option value="azure">Azure OpenAI</option>
+                  <option value="bedrock">AWS Bedrock</option>
+                  <option value="huggingface">Hugging Face</option>
                   <option value="ollama">Ollama</option>
                   <option value="custom">Custom</option>
                 </select>
@@ -777,8 +859,9 @@
                   id="setting-embedding-model"
                   class="field-input"
                   type="text"
+                  list="embedding-model-options"
                   value={getConfigValue('MDVDB_EMBEDDING_MODEL')}
-                  placeholder="text-embedding-3-small"
+                  placeholder="Provider model ID or deployment name"
                   oninput={(e) =>
                     handleChange('MDVDB_EMBEDDING_MODEL', (e.target as HTMLInputElement).value)}
                 />
@@ -792,52 +875,86 @@
                   </button>
                 {/if}
               </div>
-            </div>
-            <div class="field-group">
-              <label class="field-label" for="setting-api-key">
-                API Key
-                <span class="annotation">{getAnnotation('OPENAI_API_KEY')}</span>
-              </label>
-              <div class="field-row">
-                <input
-                  id="setting-api-key"
-                  class="field-input"
-                  type={showApiKey ? 'text' : 'password'}
-                  value={getConfigValue('OPENAI_API_KEY')}
-                  placeholder="sk-..."
-                  oninput={(e) =>
-                    handleChange('OPENAI_API_KEY', (e.target as HTMLInputElement).value)}
-                />
+              <datalist id="embedding-model-options">
+                {#each embeddingModels as model}
+                  <option value={model.id}>{model.name ?? model.id}</option>
+                {/each}
+              </datalist>
+              <div class="field-row provider-actions">
                 <button
-                  class="icon-btn"
-                  onclick={() => (showApiKey = !showApiKey)}
-                  title={showApiKey ? 'Hide' : 'Show'}
+                  class="action-btn"
+                  onclick={loadEmbeddingModels}
+                  disabled={embeddingModelsLoading || !embeddingProvider}
                 >
-                  <span class="material-symbols-outlined"
-                    >{showApiKey ? 'visibility_off' : 'visibility'}</span
-                  >
+                  {embeddingModelsLoading ? 'Loading…' : 'Refresh models'}
                 </button>
-                {#if !isGlobal && isCollectionOverride('OPENAI_API_KEY')}
-                  <button
-                    class="reset-btn"
-                    title="Reset to inherited"
-                    onclick={() => handleResetToInherited('OPENAI_API_KEY')}
-                  >
-                    <span class="material-symbols-outlined">undo</span>
-                  </button>
-                {/if}
+                <button
+                  class="action-btn"
+                  onclick={probeEmbeddingProvider}
+                  disabled={embeddingProbeLoading || !embeddingProvider}
+                >
+                  {embeddingProbeLoading ? 'Testing…' : 'Test / Probe'}
+                </button>
               </div>
-              {#if !isGlobal}
-                <div class="plaintext-warning" role="note">
-                  <span class="material-symbols-outlined">warning</span>
-                  <span>
-                    Collection API keys are stored in plaintext in
-                    <code>.markdownvdb/.config</code> inside this potentially syncable vault. Prefer
-                    Global Settings, stored in <code>~/.mdvdb/config</code>.
-                  </span>
+              {#if embeddingProbeResult}
+                <div class="field-hint success-hint">
+                  Connected to {embeddingProbeResult.provider}: {embeddingProbeResult.dimensions}
+                  dimensions in {embeddingProbeResult.latency_ms} ms.
                 </div>
               {/if}
+              {#if embeddingProviderError}
+                <div class="field-hint error-hint">{embeddingProviderError}</div>
+              {/if}
             </div>
+            {#if showProviderSecret}
+              <div class="field-group">
+                <label class="field-label" for="setting-api-key">
+                  Credential ({providerSecretKey})
+                  <span class="annotation">{getAnnotation(providerSecretKey)}</span>
+                </label>
+                <div class="field-row">
+                  <input
+                    id="setting-api-key"
+                    class="field-input"
+                    type={showApiKey ? 'text' : 'password'}
+                    value={getConfigValue(providerSecretKey)}
+                    placeholder={providerSecretKey === 'OPENAI_API_KEY'
+                      ? 'sk-...'
+                      : 'Stored locally in .env'}
+                    oninput={(e) =>
+                      handleChange(providerSecretKey, (e.target as HTMLInputElement).value)}
+                  />
+                  <button
+                    class="icon-btn"
+                    onclick={() => (showApiKey = !showApiKey)}
+                    title={showApiKey ? 'Hide' : 'Show'}
+                  >
+                    <span class="material-symbols-outlined"
+                      >{showApiKey ? 'visibility_off' : 'visibility'}</span
+                    >
+                  </button>
+                  {#if !isGlobal && isCollectionOverride(providerSecretKey)}
+                    <button
+                      class="reset-btn"
+                      title="Reset to inherited"
+                      onclick={() => handleResetToInherited(providerSecretKey)}
+                    >
+                      <span class="material-symbols-outlined">undo</span>
+                    </button>
+                  {/if}
+                </div>
+                {#if !isGlobal}
+                  <div class="plaintext-warning" role="note">
+                    <span class="material-symbols-outlined">warning</span>
+                    <span>
+                      Collection credentials are stored with owner-only permissions in
+                      <code>.markdownvdb/.env</code>. Prefer Global Settings when the vault is
+                      synced.
+                    </span>
+                  </div>
+                {/if}
+              </div>
+            {/if}
             <div class="field-group">
               <label class="field-label" for="setting-embedding-dimensions">
                 Dimensions
@@ -847,9 +964,9 @@
                 <input
                   id="setting-embedding-dimensions"
                   class="field-input field-input-sm"
-                  type="number"
+                  type="text"
                   value={getConfigValue('MDVDB_EMBEDDING_DIMENSIONS')}
-                  placeholder="1536"
+                  placeholder="auto"
                   oninput={(e) =>
                     handleChange(
                       'MDVDB_EMBEDDING_DIMENSIONS',
@@ -866,6 +983,353 @@
                   </button>
                 {/if}
               </div>
+              <div class="field-hint">
+                Use <code>auto</code> to infer dimensions from the first inference response.
+              </div>
+            </div>
+            {#if embeddingProviderLower === 'azure' || embeddingProviderLower === 'azure-openai'}
+              <div class="field-group">
+                <label class="field-label" for="setting-azure-endpoint"
+                  >Azure resource endpoint</label
+                >
+                <input
+                  id="setting-azure-endpoint"
+                  class="field-input"
+                  type="url"
+                  value={getConfigValue('MDVDB_EMBEDDING_ENDPOINT')}
+                  placeholder="https://resource.openai.azure.com"
+                  oninput={(event) =>
+                    handleChange(
+                      'MDVDB_EMBEDDING_ENDPOINT',
+                      (event.target as HTMLInputElement).value
+                    )}
+                />
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="setting-azure-auth">Authentication</label>
+                <select
+                  id="setting-azure-auth"
+                  class="field-select"
+                  value={getConfigValue('AZURE_OPENAI_AUTH') || 'api_key'}
+                  onchange={(event) =>
+                    handleChange('AZURE_OPENAI_AUTH', (event.target as HTMLSelectElement).value)}
+                >
+                  <option value="api_key">API key</option>
+                  <option value="bearer">External bearer token</option>
+                </select>
+              </div>
+            {/if}
+
+            {#if embeddingProviderLower === 'huggingface'}
+              <div class="field-group">
+                <label class="field-label" for="setting-hf-mode">Inference service</label>
+                <select
+                  id="setting-hf-mode"
+                  class="field-select"
+                  value={getConfigValue('HF_INFERENCE_MODE') || 'serverless'}
+                  onchange={(event) =>
+                    handleChange('HF_INFERENCE_MODE', (event.target as HTMLSelectElement).value)}
+                >
+                  <option value="serverless">HF Inference (serverless)</option>
+                  <option value="endpoint">Dedicated Endpoint / TEI</option>
+                </select>
+              </div>
+              {#if getConfigValue('HF_INFERENCE_MODE') === 'endpoint'}
+                <div class="field-group">
+                  <label class="field-label" for="setting-hf-endpoint">Exact invocation URL</label>
+                  <input
+                    id="setting-hf-endpoint"
+                    class="field-input"
+                    type="url"
+                    value={getConfigValue('HF_INFERENCE_ENDPOINT')}
+                    oninput={(event) =>
+                      handleChange(
+                        'HF_INFERENCE_ENDPOINT',
+                        (event.target as HTMLInputElement).value
+                      )}
+                  />
+                </div>
+              {/if}
+              <div class="field-row">
+                <label class="field-label checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={(getConfigValue('HF_NORMALIZE') || 'true') === 'true'}
+                    onchange={(event) =>
+                      handleChange(
+                        'HF_NORMALIZE',
+                        (event.target as HTMLInputElement).checked ? 'true' : 'false'
+                      )}
+                  />
+                  Normalize vectors
+                </label>
+                <label class="field-label checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={(getConfigValue('HF_TRUNCATE') || 'true') === 'true'}
+                    onchange={(event) =>
+                      handleChange(
+                        'HF_TRUNCATE',
+                        (event.target as HTMLInputElement).checked ? 'true' : 'false'
+                      )}
+                  />
+                  Truncate long inputs
+                </label>
+                <select
+                  class="field-select"
+                  aria-label="Truncation direction"
+                  value={getConfigValue('HF_TRUNCATION_DIRECTION') || 'right'}
+                  onchange={(event) =>
+                    handleChange(
+                      'HF_TRUNCATION_DIRECTION',
+                      (event.target as HTMLSelectElement).value
+                    )}
+                >
+                  <option value="right">Truncate right</option>
+                  <option value="left">Truncate left</option>
+                </select>
+              </div>
+              <div class="field-row">
+                <label class="field-label">
+                  Query prompt name
+                  <input
+                    class="field-input"
+                    value={getConfigValue('HF_QUERY_PROMPT_NAME')}
+                    placeholder="Optional"
+                    oninput={(event) =>
+                      handleChange(
+                        'HF_QUERY_PROMPT_NAME',
+                        (event.target as HTMLInputElement).value
+                      )}
+                  />
+                </label>
+                <label class="field-label">
+                  Document prompt name
+                  <input
+                    class="field-input"
+                    value={getConfigValue('HF_DOCUMENT_PROMPT_NAME')}
+                    placeholder="Optional"
+                    oninput={(event) =>
+                      handleChange(
+                        'HF_DOCUMENT_PROMPT_NAME',
+                        (event.target as HTMLInputElement).value
+                      )}
+                  />
+                </label>
+              </div>
+            {/if}
+
+            {#if embeddingProviderLower === 'bedrock'}
+              <div class="field-row">
+                <label class="field-label">
+                  AWS region
+                  <input
+                    class="field-input"
+                    value={getConfigValue('AWS_BEDROCK_REGION')}
+                    placeholder="eu-central-1"
+                    oninput={(event) =>
+                      handleChange('AWS_BEDROCK_REGION', (event.target as HTMLInputElement).value)}
+                  />
+                </label>
+                <label class="field-label">
+                  Shared profile
+                  <input
+                    class="field-input"
+                    value={getConfigValue('AWS_BEDROCK_PROFILE')}
+                    placeholder="default"
+                    oninput={(event) =>
+                      handleChange('AWS_BEDROCK_PROFILE', (event.target as HTMLInputElement).value)}
+                  />
+                </label>
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="setting-bedrock-endpoint">Custom endpoint</label>
+                <input
+                  id="setting-bedrock-endpoint"
+                  class="field-input"
+                  type="url"
+                  value={getConfigValue('AWS_BEDROCK_ENDPOINT')}
+                  placeholder="Optional VPC or compatible endpoint"
+                  oninput={(event) =>
+                    handleChange('AWS_BEDROCK_ENDPOINT', (event.target as HTMLInputElement).value)}
+                />
+              </div>
+              <div class="field-row">
+                <label class="field-label">
+                  Access key ID
+                  <input
+                    class="field-input"
+                    type={showApiKey ? 'text' : 'password'}
+                    value={getConfigValue('AWS_ACCESS_KEY_ID')}
+                    placeholder="Optional when using bearer token or profile"
+                    oninput={(event) =>
+                      handleChange('AWS_ACCESS_KEY_ID', (event.target as HTMLInputElement).value)}
+                  />
+                </label>
+                <label class="field-label">
+                  Secret access key
+                  <input
+                    class="field-input"
+                    type={showApiKey ? 'text' : 'password'}
+                    value={getConfigValue('AWS_SECRET_ACCESS_KEY')}
+                    oninput={(event) =>
+                      handleChange(
+                        'AWS_SECRET_ACCESS_KEY',
+                        (event.target as HTMLInputElement).value
+                      )}
+                  />
+                </label>
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="setting-bedrock-session-token">
+                  Session token
+                </label>
+                <input
+                  id="setting-bedrock-session-token"
+                  class="field-input"
+                  type={showApiKey ? 'text' : 'password'}
+                  value={getConfigValue('AWS_SESSION_TOKEN')}
+                  placeholder="Required for temporary credentials"
+                  oninput={(event) =>
+                    handleChange('AWS_SESSION_TOKEN', (event.target as HTMLInputElement).value)}
+                />
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="setting-bedrock-format">Payload codec</label>
+                <select
+                  id="setting-bedrock-format"
+                  class="field-select"
+                  value={getConfigValue('AWS_BEDROCK_FORMAT') || 'titan'}
+                  onchange={(event) =>
+                    handleChange('AWS_BEDROCK_FORMAT', (event.target as HTMLSelectElement).value)}
+                >
+                  <option value="titan">Titan-compatible</option>
+                  <option value="cohere">Cohere-compatible</option>
+                  <option value="custom">Custom JSON</option>
+                </select>
+              </div>
+              {#if getConfigValue('AWS_BEDROCK_FORMAT') === 'custom'}
+                <div class="field-group">
+                  <label class="field-label" for="setting-bedrock-invocation">
+                    Invocation shape
+                  </label>
+                  <select
+                    id="setting-bedrock-invocation"
+                    class="field-select"
+                    value={getConfigValue('AWS_BEDROCK_INVOCATION') || 'single'}
+                    onchange={(event) =>
+                      handleChange(
+                        'AWS_BEDROCK_INVOCATION',
+                        (event.target as HTMLSelectElement).value
+                      )}
+                  >
+                    <option value="single">One request per input</option>
+                    <option value="batch">One request per batch</option>
+                  </select>
+                  <label class="field-label" for="setting-bedrock-template">Request template</label>
+                  <textarea
+                    id="setting-bedrock-template"
+                    class="field-input config-textarea"
+                    value={getConfigValue('AWS_BEDROCK_REQUEST_TEMPLATE')}
+                    placeholder={'{"texts":"$inputs"}'}
+                    oninput={(event) =>
+                      handleChange(
+                        'AWS_BEDROCK_REQUEST_TEMPLATE',
+                        (event.target as HTMLTextAreaElement).value
+                      )}
+                  ></textarea>
+                  <label class="field-label" for="setting-bedrock-pointer">Embeddings pointer</label
+                  >
+                  <input
+                    id="setting-bedrock-pointer"
+                    class="field-input"
+                    value={getConfigValue('AWS_BEDROCK_EMBEDDINGS_POINTER') || '/embedding'}
+                    oninput={(event) =>
+                      handleChange(
+                        'AWS_BEDROCK_EMBEDDINGS_POINTER',
+                        (event.target as HTMLInputElement).value
+                      )}
+                  />
+                  <label class="field-label" for="setting-bedrock-item-pointer">
+                    Item embedding pointer
+                  </label>
+                  <input
+                    id="setting-bedrock-item-pointer"
+                    class="field-input"
+                    value={getConfigValue('AWS_BEDROCK_ITEM_EMBEDDING_POINTER')}
+                    placeholder="Optional, for arrays of response objects"
+                    oninput={(event) =>
+                      handleChange(
+                        'AWS_BEDROCK_ITEM_EMBEDDING_POINTER',
+                        (event.target as HTMLInputElement).value
+                      )}
+                  />
+                  <div class="field-row">
+                    <input
+                      class="field-input"
+                      value={getConfigValue('AWS_BEDROCK_QUERY_PURPOSE')}
+                      placeholder="Optional query purpose value"
+                      oninput={(event) =>
+                        handleChange(
+                          'AWS_BEDROCK_QUERY_PURPOSE',
+                          (event.target as HTMLInputElement).value
+                        )}
+                    />
+                    <input
+                      class="field-input"
+                      value={getConfigValue('AWS_BEDROCK_DOCUMENT_PURPOSE')}
+                      placeholder="Optional document purpose value"
+                      oninput={(event) =>
+                        handleChange(
+                          'AWS_BEDROCK_DOCUMENT_PURPOSE',
+                          (event.target as HTMLInputElement).value
+                        )}
+                    />
+                  </div>
+                </div>
+              {/if}
+            {/if}
+
+            <div class="field-group">
+              <label class="field-label" for="setting-purpose-mode">Query/document handling</label>
+              <select
+                id="setting-purpose-mode"
+                class="field-select"
+                value={getConfigValue('MDVDB_EMBEDDING_PURPOSE_MODE') || 'none'}
+                onchange={(event) =>
+                  handleChange(
+                    'MDVDB_EMBEDDING_PURPOSE_MODE',
+                    (event.target as HTMLSelectElement).value
+                  )}
+              >
+                <option value="none">None</option>
+                <option value="native">Provider-native values</option>
+                <option value="prefix">Text prefixes</option>
+              </select>
+              {#if (getConfigValue('MDVDB_EMBEDDING_PURPOSE_MODE') || 'none') !== 'none'}
+                <div class="field-row">
+                  <input
+                    class="field-input"
+                    value={getConfigValue('MDVDB_EMBEDDING_QUERY_PURPOSE')}
+                    placeholder="Query value or prefix"
+                    oninput={(event) =>
+                      handleChange(
+                        'MDVDB_EMBEDDING_QUERY_PURPOSE',
+                        (event.target as HTMLInputElement).value
+                      )}
+                  />
+                  <input
+                    class="field-input"
+                    value={getConfigValue('MDVDB_EMBEDDING_DOCUMENT_PURPOSE')}
+                    placeholder="Document value or prefix"
+                    oninput={(event) =>
+                      handleChange(
+                        'MDVDB_EMBEDDING_DOCUMENT_PURPOSE',
+                        (event.target as HTMLInputElement).value
+                      )}
+                  />
+                </div>
+              {/if}
             </div>
             {#if showHostUrl}
               <div class="field-group">
@@ -2302,6 +2766,31 @@
     font-size: var(--text-xs, 10px);
     color: var(--color-text-dim, #71717a);
     margin-top: 4px;
+  }
+
+  .provider-actions {
+    margin-top: 8px;
+  }
+
+  .success-hint {
+    color: var(--color-success, #22c55e);
+  }
+
+  .error-hint {
+    color: var(--color-danger, #ef4444);
+  }
+
+  .config-textarea {
+    min-height: 96px;
+    resize: vertical;
+  }
+
+  .checkbox-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 0;
+    white-space: nowrap;
   }
 
   .action-btn {

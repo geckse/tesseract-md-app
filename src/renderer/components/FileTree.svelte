@@ -91,6 +91,26 @@
   let currentActiveScopePath: string | null = $state(null)
   let currentShardsByCollection = $state<Record<string, ShardInfo[]>>({})
 
+  type IndexRecoveryKind = 'missing' | 'corrupted'
+
+  function indexRecoveryKind(error: string | null): IndexRecoveryKind | null {
+    if (!error) return null
+
+    const normalized = error.toLowerCase()
+    if (
+      normalized.includes('index corrupted') ||
+      normalized.includes('index format is incompatible') ||
+      normalized.includes('archived index was incompatible')
+    ) {
+      return 'corrupted'
+    }
+    if (normalized.includes('index not found')) return 'missing'
+
+    return null
+  }
+
+  let currentIndexRecoveryKind = $derived(indexRecoveryKind(currentFileTreeError))
+
   import type { FavoriteEntry } from '../../preload/api'
   let currentFavorites: FavoriteEntry[] = $state([])
   let currentActiveCollectionId: string | null = $state(null)
@@ -982,6 +1002,10 @@
     runIngest(false)
   }
 
+  function handleIndexRecovery() {
+    void runIngest(currentIndexRecoveryKind === 'corrupted')
+  }
+
   function handleReindex() {
     ingestMenuOpen = false
     runIngest(true)
@@ -1151,14 +1175,51 @@
         <span class="empty-text">Loading files...</span>
       </div>
     {:else if currentFileTreeError}
-      <div class="empty-state">
-        <span class="material-symbols-outlined empty-icon error-icon">error</span>
-        <span class="empty-text">{currentFileTreeError}</span>
-        <button class="retry-btn" onclick={handleRefresh}>
-          <span class="material-symbols-outlined">refresh</span>
-          Retry
-        </button>
-      </div>
+      {#if currentIndexRecoveryKind}
+        <div class="empty-state index-recovery" role="status" aria-live="polite">
+          <span class="material-symbols-outlined empty-icon index-recovery-icon" aria-hidden="true">
+            database
+          </span>
+          <strong class="index-recovery-title">
+            {currentIndexRecoveryKind === 'corrupted'
+              ? 'Rebuild the collection index'
+              : 'Index this collection'}
+          </strong>
+          <span class="empty-text index-recovery-copy">
+            {currentIndexRecoveryKind === 'corrupted'
+              ? 'The existing index can’t be read. Rebuild it from your Markdown files.'
+              : 'Build an index to load your Markdown files and unlock search, graph, and topics.'}
+          </span>
+          <button
+            class="index-recovery-btn"
+            onclick={handleIndexRecovery}
+            disabled={currentIngestRunning}
+          >
+            <span
+              class="material-symbols-outlined"
+              class:spinning={currentIngestRunning}
+              aria-hidden="true"
+            >
+              {currentIngestRunning ? 'sync' : 'bolt'}
+            </span>
+            {currentIngestRunning
+              ? 'Indexing…'
+              : currentIndexRecoveryKind === 'corrupted'
+                ? 'Rebuild index'
+                : 'Build index'}
+          </button>
+          <button class="retry-btn index-recovery-retry" onclick={handleRefresh}>Try again</button>
+        </div>
+      {:else}
+        <div class="empty-state">
+          <span class="material-symbols-outlined empty-icon error-icon">error</span>
+          <span class="empty-text">{currentFileTreeError}</span>
+          <button class="retry-btn" onclick={handleRefresh}>
+            <span class="material-symbols-outlined">refresh</span>
+            Retry
+          </button>
+        </div>
+      {/if}
     {:else if currentUnifiedTree && currentUnifiedTree.children.length === 0}
       <div
         class="empty-state"
@@ -1650,6 +1711,64 @@
     font-size: 14px;
   }
 
+  .index-recovery {
+    gap: 10px;
+    padding: 40px 22px;
+  }
+
+  .index-recovery-icon {
+    color: var(--color-primary, #00e5ff);
+    opacity: 0.9;
+  }
+
+  .index-recovery-title {
+    color: var(--color-text, #fafafa);
+    font-size: 14px;
+    font-weight: 600;
+    text-align: center;
+  }
+
+  .index-recovery-copy {
+    max-width: 260px;
+    line-height: 1.5;
+  }
+
+  .index-recovery-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-width: 132px;
+    margin-top: 4px;
+    padding: 7px 14px;
+    border: 1px solid var(--color-primary, #00e5ff);
+    border-radius: 5px;
+    background: color-mix(in srgb, var(--color-primary, #00e5ff) 14%, transparent);
+    color: var(--color-primary, #00e5ff);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .index-recovery-btn:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--color-primary, #00e5ff) 22%, transparent);
+  }
+
+  .index-recovery-btn:disabled {
+    cursor: default;
+    opacity: 0.6;
+  }
+
+  .index-recovery-btn .material-symbols-outlined {
+    font-size: 16px;
+  }
+
+  .index-recovery-retry {
+    margin-top: 0;
+    border-color: transparent;
+  }
+
   /* --- File context menu --- */
   .context-menu-overlay {
     position: fixed;
@@ -1800,6 +1919,10 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
+    .spinning {
+      animation: none;
+    }
+
     .context-menu-item {
       transition: none;
     }

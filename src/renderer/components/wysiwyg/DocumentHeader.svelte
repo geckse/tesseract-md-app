@@ -6,7 +6,7 @@
     parseFrontmatterData,
     serializeFrontmatterPreservingFields
   } from '../../lib/tiptap/markdown-bridge'
-  import { isLinkShaped } from '../../lib/relation-format'
+  import { isRelationValue } from '../../lib/relation-format'
   import { isFileReferenceValue } from '../../../shared/file-reference'
   import { propertyOps, scopeForPanelFile } from '../../stores/property-ops.svelte'
   import {
@@ -26,6 +26,10 @@
   } from '../../lib/computed-fields'
   import { cliFeatures } from '../../lib/cli-features.svelte'
   import { exactNumberText } from '../../../shared/exact-number'
+  import { workspace } from '../../stores/workspace.svelte'
+  import { tableStore } from '../../stores/table.svelte'
+  import { tableViewsStore } from '../../stores/table-views.svelte'
+  import type { TableColumnLayout } from '../../../preload/api'
 
   interface Props {
     frontmatterYaml: string | null
@@ -204,6 +208,9 @@
     if (typeHint === 'file' && Array.isArray(value)) return 'file'
     if (isFileReferenceValue(value)) return 'file'
     if (sf?.field_type === 'Relation') return 'relation'
+    // Value-shape fallback keeps ad-hoc fields and pre-refresh schemas usable.
+    // This includes homogeneous lists of plain `.md` filenames.
+    if (isRelationValue(value)) return 'relation'
     if (sf?.allowed_values?.length) return 'select'
     if (sf?.field_type === 'Boolean' || typeof value === 'boolean') return 'boolean'
     if (sf?.field_type === 'Number' || typeof value === 'number') return 'number'
@@ -216,9 +223,6 @@
       if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return 'date'
       if (/^https?:\/\//.test(value)) return 'url'
       if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value)) return 'email'
-      // Value-shape fallback: whole-value [[wiki-link]] renders chips even
-      // for ad-hoc fields and old CLIs (rendering is never version-gated).
-      if (/^\[\[[^\]]+\]\]$/.test(value.trim()) && isLinkShaped(value)) return 'relation'
     }
 
     if (sf?.field_type === 'Date') return 'date'
@@ -448,10 +452,57 @@
 
   let panelScope = $derived(scopeForPanelFile(filePath))
   let existingKeys = $derived(rows.map((r) => r.key))
+
+  // The database layout is presentation state only. Keep `rows` in parsed YAML
+  // order so emitUpdate() preserves the document's actual frontmatter ordering.
+  let propertyColumnLayout = $derived.by<TableColumnLayout[]>(() => {
+    if (!collectionId) return []
+    const folderPath = panelScope ?? ''
+    const matchingTabs = Object.values(workspace.tabs).filter(
+      (candidate) =>
+        candidate.kind === 'table' &&
+        candidate.folderPath.replace(/^\.\/+/, '').replace(/^\/+|\/+$/g, '') === folderPath
+    )
+    // Prefer the most recently-created matching table tab: it reflects the
+    // named/default view the user was actually working in this window.
+    for (let index = matchingTabs.length - 1; index >= 0; index -= 1) {
+      const candidate = matchingTabs[index]
+      if (candidate.kind !== 'table') continue
+      const current = tableStore.mergedConfig(candidate.id).columns
+      if (current.length > 0) return current
+      if (candidate.activeViewId) {
+        const saved = tableViewsStore.getById(collectionId, folderPath, candidate.activeViewId)
+        if (saved?.config.columns.length) return saved.config.columns
+      }
+    }
+    return (
+      tableViewsStore.getDefaultColumns(collectionId, folderPath) ??
+      tableViewsStore.getDefault(collectionId, folderPath)?.config.columns ??
+      []
+    )
+  })
+
+  function orderForDisplay<T>(items: T[], keyOf: (item: T) => string): T[] {
+    if (propertyColumnLayout.length === 0) return items
+    const order = new Map(propertyColumnLayout.map((column) => [column.name, column.order]))
+    return items
+      .map((item, sourceIndex) => ({ item, sourceIndex }))
+      .sort((left, right) => {
+        const leftOrder = order.get(keyOf(left.item)) ?? Number.MAX_SAFE_INTEGER
+        const rightOrder = order.get(keyOf(right.item)) ?? Number.MAX_SAFE_INTEGER
+        return leftOrder - rightOrder || left.sourceIndex - right.sourceIndex
+      })
+      .map(({ item }) => item)
+  }
+
+  let displayRows = $derived(orderForDisplay(rows, (row) => row.key))
   let missingComputedFields = $derived.by(() => {
     const materialized = new Set(rows.map((row) => row.key))
-    return (schema?.fields ?? []).filter(
-      (field) => isComputedFieldType(field.field_type) && !materialized.has(field.name)
+    return orderForDisplay(
+      (schema?.fields ?? []).filter(
+        (field) => isComputedFieldType(field.field_type) && !materialized.has(field.name)
+      ),
+      (field) => field.name
     )
   })
   let formulaDialogFields = $derived.by<SchemaField[]>(() => {
@@ -473,6 +524,15 @@
     }
     return [...fields.values()]
   })
+
+  $effect(() => {
+    const id = collectionId
+    const folderPath = panelScope ?? ''
+    if (!id || typeof window.api?.listTableViews !== 'function') return
+    untrack(() => {
+      void tableViewsStore.load(id, folderPath)
+    })
+  })
 </script>
 
 <div class="dh">
@@ -481,7 +541,7 @@
   {#if rows.length > 0 || missingComputedFields.length > 0}
     <div class="dh-divider"></div>
     <div class="dh-properties">
-      {#each rows as row (row.id)}
+      {#each displayRows as row (row.id)}
         {@const schemaField = getSchemaField(row.key)}
         <PropertyRow
           rowKey={row.key}

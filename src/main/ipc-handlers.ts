@@ -7,10 +7,17 @@
 
 import { app, ipcMain, shell, clipboard, BrowserWindow, dialog } from 'electron'
 import { promises as fs } from 'node:fs'
-import { findCli, getCliVersion, execCommand, execRaw, execModuleTransaction } from './cli'
+import {
+  findCli,
+  getCliVersion,
+  execCommand,
+  execRaw,
+  execWithInput,
+  execModuleTransaction
+} from './cli'
 import { getGraphSnapshot } from './graph-snapshot-cache'
 import { detectCli, installCli, checkLatestVersion } from './cli-install'
-import { readConfig, writeConfigKey, deleteConfigKey } from './config-io'
+import { readSettingsConfig, SETTINGS_SECRET_KEYS, SETTINGS_YAML_KEYS } from './config-io'
 import {
   getOnboardingComplete,
   setOnboardingComplete,
@@ -49,6 +56,7 @@ import type {
   TabTransferData,
   PopupOpenOptions,
   SavedTableView,
+  TableColumnLayout,
   PropertyOpRequest,
   OverlayFieldPatch,
   CollectionSkillsTargetId
@@ -113,6 +121,8 @@ import type {
   FormulaResultType,
   FormulaValidationResult,
   LookupRollupDefinition,
+  EmbeddingModelsResponse,
+  EmbeddingProbe,
   ModuleDescriptor,
   ModuleReport,
   ModuleRunResponse,
@@ -828,6 +838,22 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
     wrapHandler(() => execCommand<void>('config', ['set', key, value], root))
   )
 
+  ipcMain.handle('cli:embedding-models', (_event, root: string, provider?: string) =>
+    wrapHandler(() =>
+      execCommand<EmbeddingModelsResponse>(
+        'embedding',
+        provider ? ['models', '--provider', provider] : ['models'],
+        root
+      )
+    )
+  )
+
+  ipcMain.handle('cli:embedding-probe', (_event, root: string) =>
+    wrapHandler(() =>
+      execCommand<EmbeddingProbe>('embedding', ['probe'], root, { timeout: 120_000 })
+    )
+  )
+
   // Graph data
   ipcMain.handle(
     'cli:graph',
@@ -1221,6 +1247,24 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
       const m = await import('./table-views')
       return m.listTableViews(collectionId, folderPath)
     })
+  )
+
+  ipcMain.handle(
+    'tableviews:get-default-columns',
+    (_event, collectionId: string, folderPath: string) =>
+      wrapHandler(async () => {
+        const m = await import('./table-views')
+        return m.getDefaultTableColumns(collectionId, folderPath)
+      })
+  )
+
+  ipcMain.handle(
+    'tableviews:save-default-columns',
+    (_event, collectionId: string, folderPath: string, columns: TableColumnLayout[]) =>
+      wrapHandler(async () => {
+        const m = await import('./table-views')
+        return m.saveDefaultTableColumns(collectionId, folderPath, columns)
+      })
   )
 
   ipcMain.handle(
@@ -2391,40 +2435,53 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
 
   ipcMain.handle('cli:check-latest-version', () => wrapHandler(() => checkLatestVersion()))
 
-  // User-level config (~/.mdvdb/config)
+  // User-level canonical YAML + secret .env.
   ipcMain.handle('settings:get-user-config', () =>
     wrapHandler(async () => {
       const { join } = await import('node:path')
       const { homedir } = await import('node:os')
-      const configPath = join(homedir(), '.mdvdb', 'config')
-      return readConfig(configPath)
+      const dir = process.env.MDVDB_CONFIG_HOME?.trim() || join(homedir(), '.mdvdb')
+      return readSettingsConfig(join(dir, 'config.yaml'), join(dir, '.env'))
     })
   )
 
   ipcMain.handle('settings:set-user-config', (_event, key: string, value: string) =>
     wrapHandler(async () => {
-      const { join } = await import('node:path')
       const { homedir } = await import('node:os')
-      const configPath = join(homedir(), '.mdvdb', 'config')
-      await writeConfigKey(configPath, key, value)
+      if (SETTINGS_SECRET_KEYS.has(key)) {
+        await execWithInput(
+          'config',
+          ['--global', 'secret', 'set', key, '--stdin'],
+          homedir(),
+          value
+        )
+        return
+      }
+      const yamlKey = SETTINGS_YAML_KEYS[key]
+      if (!yamlKey) throw new Error(`Unsupported setting: ${key}`)
+      await execCommand<void>('config', ['--global', 'set', yamlKey, value], homedir())
     })
   )
 
   ipcMain.handle('settings:delete-user-config', (_event, key: string) =>
     wrapHandler(async () => {
-      const { join } = await import('node:path')
       const { homedir } = await import('node:os')
-      const configPath = join(homedir(), '.mdvdb', 'config')
-      await deleteConfigKey(configPath, key)
+      if (SETTINGS_SECRET_KEYS.has(key)) {
+        await execCommand<void>('config', ['--global', 'secret', 'unset', key], homedir())
+        return
+      }
+      const yamlKey = SETTINGS_YAML_KEYS[key]
+      if (!yamlKey) throw new Error(`Unsupported setting: ${key}`)
+      await execCommand<void>('config', ['--global', 'unset', yamlKey], homedir())
     })
   )
 
-  // Collection-level config (.markdownvdb/.config)
+  // Collection-level canonical YAML + secret .env.
   ipcMain.handle('settings:get-collection-config', (_event, root: string) =>
     wrapHandler(async () => {
       const { join } = await import('node:path')
-      const configPath = join(root, '.markdownvdb', '.config')
-      return readConfig(configPath)
+      const dir = join(root, '.markdownvdb')
+      return readSettingsConfig(join(dir, 'config.yaml'), join(dir, '.env'))
     })
   )
 
@@ -2432,17 +2489,25 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
     'settings:set-collection-config',
     (_event, root: string, key: string, value: string) =>
       wrapHandler(async () => {
-        const { join } = await import('node:path')
-        const configPath = join(root, '.markdownvdb', '.config')
-        await writeConfigKey(configPath, key, value)
+        if (SETTINGS_SECRET_KEYS.has(key)) {
+          await execWithInput('config', ['secret', 'set', key, '--stdin'], root, value)
+          return
+        }
+        const yamlKey = SETTINGS_YAML_KEYS[key]
+        if (!yamlKey) throw new Error(`Unsupported setting: ${key}`)
+        await execCommand<void>('config', ['set', yamlKey, value], root)
       })
   )
 
   ipcMain.handle('settings:delete-collection-config', (_event, root: string, key: string) =>
     wrapHandler(async () => {
-      const { join } = await import('node:path')
-      const configPath = join(root, '.markdownvdb', '.config')
-      await deleteConfigKey(configPath, key)
+      if (SETTINGS_SECRET_KEYS.has(key)) {
+        await execCommand<void>('config', ['secret', 'unset', key], root)
+        return
+      }
+      const yamlKey = SETTINGS_YAML_KEYS[key]
+      if (!yamlKey) throw new Error(`Unsupported setting: ${key}`)
+      await execCommand<void>('config', ['unset', yamlKey], root)
     })
   )
 

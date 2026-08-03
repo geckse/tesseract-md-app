@@ -9,6 +9,8 @@ const openRename = vi.fn()
 const openDrop = vi.fn()
 const applyOverlayFieldPatch = vi.fn()
 const editFormula = vi.fn()
+const reorderColumn = vi.fn()
+const moveColumn = vi.fn()
 const tableHeaderSource = readFileSync(
   resolve(__dirname, '../../src/renderer/components/table/TableHeader.svelte'),
   'utf8'
@@ -31,6 +33,10 @@ vi.mock('../../src/renderer/stores/table.svelte', () => ({
       collapsedGroups: []
     }),
     columnWidth: () => 140,
+    reorderColumn: (...args: unknown[]) => reorderColumn(...args),
+    moveColumn: (...args: unknown[]) => moveColumn(...args),
+    commitColumnLayout: vi.fn(),
+    setColumnWidth: vi.fn(),
     collectionIdFor: () => 'collection-1',
     state: () => ({
       data: {
@@ -149,6 +155,20 @@ function renderHeader(columns: CollectionColumn[] = [statusColumn]) {
   })
 }
 
+function dispatchPointer(
+  target: EventTarget,
+  type: 'pointerdown' | 'pointermove' | 'pointerup',
+  values: { pointerId: number; button?: number; clientX: number }
+): void {
+  const event = new Event(type, { bubbles: true, cancelable: true })
+  Object.defineProperties(event, {
+    pointerId: { value: values.pointerId },
+    button: { value: values.button ?? 0 },
+    clientX: { value: values.clientX }
+  })
+  target.dispatchEvent(event)
+}
+
 describe('TableHeader column menu (phase 41)', () => {
   it('keeps the sticky Title header opaque above horizontally scrolled columns', () => {
     renderHeader()
@@ -177,6 +197,49 @@ describe('TableHeader column menu (phase 41)', () => {
     renderHeader()
     expect(screen.getByRole('button', { name: 'Column options for status' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Column options for Title/i })).toBeNull()
+  })
+
+  it('reorders columns by pointer drag and exposes keyboard arrow movement', async () => {
+    renderHeader([statusColumn, tagsColumn])
+    const statusHandle = screen.getByRole('button', {
+      name: 'Reorder status; use left and right arrow keys'
+    })
+    const tagsHandle = screen.getByRole('button', {
+      name: 'Reorder tags; use left and right arrow keys'
+    })
+
+    const statusHeader = statusHandle.closest('.header-col') as HTMLElement
+    const tagsHeader = tagsHandle.closest('.header-col') as HTMLElement
+    vi.spyOn(statusHeader, 'getBoundingClientRect').mockReturnValue({
+      left: 0,
+      right: 140,
+      top: 0,
+      bottom: 32,
+      width: 140,
+      height: 32,
+      x: 0,
+      y: 0,
+      toJSON: () => ({})
+    })
+    vi.spyOn(tagsHeader, 'getBoundingClientRect').mockReturnValue({
+      left: 140,
+      right: 280,
+      top: 0,
+      bottom: 32,
+      width: 140,
+      height: 32,
+      x: 140,
+      y: 0,
+      toJSON: () => ({})
+    })
+
+    dispatchPointer(statusHandle, 'pointerdown', { pointerId: 7, clientX: 20 })
+    dispatchPointer(window, 'pointermove', { pointerId: 7, clientX: 270 })
+    dispatchPointer(window, 'pointerup', { pointerId: 7, clientX: 270 })
+    expect(reorderColumn).toHaveBeenCalledWith('t1', 'status', 'tags', 'after')
+
+    await fireEvent.keyDown(tagsHandle, { key: 'ArrowLeft' })
+    expect(moveColumn).toHaveBeenCalledWith('t1', 'tags', -1)
   })
 
   it('opens the menu with sort + property actions', async () => {

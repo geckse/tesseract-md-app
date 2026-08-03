@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { workspace } from '@renderer/stores/workspace.svelte'
 import { tableStore, valueToString } from '@renderer/stores/table.svelte'
-import { TITLE_COLUMN } from '@renderer/stores/table-views.svelte'
+import { tableViewsStore, TITLE_COLUMN } from '@renderer/stores/table-views.svelte'
 import { EXACT_NUMBER_KEY } from '../../src/shared/exact-number'
 import type {
   CollectionColumn,
@@ -68,6 +68,8 @@ const fixture: CollectionOutput = {
 }
 
 let mockCollection: ReturnType<typeof vi.fn>
+let mockSaveDefaultColumns: ReturnType<typeof vi.fn>
+let mockUpdateView: ReturnType<typeof vi.fn>
 
 describe('valueToString', () => {
   it('stringifies scalars, arrays, and nullish values', () => {
@@ -96,8 +98,22 @@ describe('tableStore (renderer data store)', () => {
   beforeEach(() => {
     workspace.reset()
     mockCollection = vi.fn().mockResolvedValue(fixture)
+    mockSaveDefaultColumns = vi
+      .fn()
+      .mockImplementation((_collection, _folder, columns) => Promise.resolve(columns))
+    mockUpdateView = vi
+      .fn()
+      .mockImplementation((_collection, _folder, view) => Promise.resolve([view]))
     Object.defineProperty(globalThis, 'window', {
-      value: { api: { collection: mockCollection } },
+      value: {
+        api: {
+          collection: mockCollection,
+          listTableViews: vi.fn().mockResolvedValue([]),
+          getDefaultTableColumns: vi.fn().mockResolvedValue(null),
+          saveDefaultTableColumns: mockSaveDefaultColumns,
+          updateTableView: mockUpdateView
+        }
+      },
       configurable: true
     })
   })
@@ -150,6 +166,85 @@ describe('tableStore (renderer data store)', () => {
     expect(names).toHaveLength(3)
     expect(names.slice(0, 2)).toEqual(['extra', 'status']) // untouched columns keep their order
     expect(names).toContain('date')
+  })
+
+  it('persists reorder and visibility changes in the built-in All fields layout', async () => {
+    const tabId = workspace.openTableTab('blog')
+    await tableStore.load(tabId, 'c-default-layout', '/root')
+
+    tableStore.reorderColumn(tabId, 'status', 'date', 'before')
+    expect(tableStore.visibleColumns(tabId).map((column) => column.name)).toEqual([
+      'status',
+      'date',
+      'extra'
+    ])
+    await vi.waitFor(() => expect(mockSaveDefaultColumns).toHaveBeenCalledTimes(1))
+    expect(mockSaveDefaultColumns.mock.calls[0][2].map((column) => column.name)).toEqual([
+      'status',
+      'date',
+      'extra'
+    ])
+
+    tableStore.toggleColumnHidden(tabId, 'date')
+    await vi.waitFor(() => expect(mockSaveDefaultColumns).toHaveBeenCalledTimes(2))
+    expect(mockSaveDefaultColumns.mock.calls[1][2]).toContainEqual(
+      expect.objectContaining({ name: 'date', hidden: true })
+    )
+
+    workspace.closeTab(tabId)
+    tableStore.dispose(tabId)
+    const reopenedTabId = workspace.openTableTab('blog')
+    await tableStore.load(reopenedTabId, 'c-default-layout', '/root')
+    expect(tableStore.visibleColumns(reopenedTabId).map((column) => column.name)).toEqual([
+      'status',
+      'extra'
+    ])
+  })
+
+  it('persists column changes into the active named view', async () => {
+    const savedView = {
+      id: 'compact',
+      name: 'Compact',
+      version: 2,
+      config: {
+        sort: [],
+        filters: [],
+        columns: [],
+        groupBy: null,
+        collapsedGroups: []
+      },
+      recursive: false,
+      createdAt: 1,
+      updatedAt: 1
+    }
+    window.api.listTableViews = vi.fn().mockResolvedValue([savedView])
+    await tableViewsStore.load('c-named-layout', 'blog')
+    const tabId = workspace.openTableTab('blog')
+    workspace.setTableActiveView(tabId, savedView.id)
+    await tableStore.load(tabId, 'c-named-layout', '/root')
+
+    tableStore.toggleColumnHidden(tabId, 'status')
+
+    await vi.waitFor(() => expect(mockUpdateView).toHaveBeenCalledTimes(1))
+    expect(mockUpdateView.mock.calls[0][2]).toEqual(
+      expect.objectContaining({
+        id: 'compact',
+        config: expect.objectContaining({
+          columns: expect.arrayContaining([
+            expect.objectContaining({ name: 'status', hidden: true })
+          ])
+        })
+      })
+    )
+
+    workspace.closeTab(tabId)
+    tableStore.dispose(tabId)
+    const reopenedTabId = workspace.openTableTab('blog')
+    workspace.setTableActiveView(reopenedTabId, savedView.id)
+    await tableStore.load(reopenedTabId, 'c-named-layout', '/root')
+    expect(tableStore.visibleColumns(reopenedTabId).map((column) => column.name)).not.toContain(
+      'status'
+    )
   })
 
   it('client-side filter narrows rows and rowCount', async () => {

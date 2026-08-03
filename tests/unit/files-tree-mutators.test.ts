@@ -13,6 +13,7 @@ import {
   assetTree,
   setFileNodeState,
   insertAssetNode,
+  insertDirNode,
   insertFileNode,
   routeVaultEventToTree,
   applyWatchReportToTree,
@@ -212,6 +213,34 @@ describe('insertAssetNode', () => {
     expect(t.totalAssets).toBe(1)
     const dir = t.root.children.find((c) => c.name === 'img')!
     expect(dir.children[0].path).toBe('img/pic.png')
+  })
+})
+
+describe('local markdown tree insertion', () => {
+  it('does not turn the CLI root sentinel into a phantom dot directory', () => {
+    fileTree.set({
+      root: { name: '.', path: '.', is_dir: true, state: null, children: [] },
+      total_files: 0,
+      indexed_count: 0,
+      modified_count: 0,
+      new_count: 0,
+      deleted_count: 0
+    })
+
+    insertDirNode('scripts')
+    const createdDirectory = get(fileTree)!.root.children[0]
+    expect(createdDirectory).toMatchObject({ name: 'scripts', path: 'scripts', is_dir: true })
+
+    // The UI uses the locally inserted node path when creating a file inside it.
+    insertFileNode(`./${createdDirectory.path}/models-like-wine.md`, 'new')
+
+    const rootChildren = get(fileTree)!.root.children
+    expect(rootChildren.map((node) => node.name)).toEqual(['scripts'])
+    expect(rootChildren[0].children[0]).toMatchObject({
+      name: 'models-like-wine.md',
+      path: 'scripts/models-like-wine.md',
+      is_dir: false
+    })
   })
 })
 

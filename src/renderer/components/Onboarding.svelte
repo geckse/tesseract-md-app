@@ -35,8 +35,19 @@
   let installStage = $state('')
   let installError: string | null = $state(null)
 
-  let provider: 'openai' | 'ollama' | null = $state(null)
+  type OnboardingProvider =
+    | 'openai'
+    | 'openrouter'
+    | 'gemini'
+    | 'azure'
+    | 'bedrock'
+    | 'huggingface'
+    | 'ollama'
+  let provider: OnboardingProvider | null = $state(null)
   let openAiKey = $state('')
+  let cloudModel = $state('')
+  let cloudEndpoint = $state('')
+  let bedrockRegion = $state('')
   let ollamaHost = $state('http://localhost:11434')
   let ollamaModel = $state('nomic-embed-text')
   let providerError: string | null = $state(null)
@@ -141,6 +152,22 @@
       providerError = 'Enter an OpenAI API key, or choose Skip for now.'
       return
     }
+    if (provider !== 'ollama' && !apiKey) {
+      providerError = 'Enter the provider credential, or choose Skip for now.'
+      return
+    }
+    if (provider !== 'ollama' && !cloudModel.trim()) {
+      providerError = 'Enter any provider embedding model ID.'
+      return
+    }
+    if (provider === 'azure' && !cloudEndpoint.trim()) {
+      providerError = 'Enter the Azure resource endpoint.'
+      return
+    }
+    if (provider === 'bedrock' && !bedrockRegion.trim()) {
+      providerError = 'Enter the AWS Bedrock region.'
+      return
+    }
     if (provider === 'ollama' && (!host || !model)) {
       providerError = 'Both an Ollama host and embedding model are required.'
       return
@@ -150,11 +177,29 @@
     savingProvider = true
     try {
       await window.api.setUserConfig('MDVDB_EMBEDDING_PROVIDER', provider)
-      if (provider === 'openai') {
-        await window.api.setUserConfig('OPENAI_API_KEY', apiKey)
-      } else {
+      await window.api.setUserConfig('MDVDB_EMBEDDING_DIMENSIONS', 'auto')
+      if (provider === 'ollama') {
         await window.api.setUserConfig('MDVDB_EMBEDDING_MODEL', model)
         await window.api.setUserConfig('OLLAMA_HOST', host)
+      } else {
+        const secretKey: Record<Exclude<OnboardingProvider, 'ollama'>, string> = {
+          openai: 'OPENAI_API_KEY',
+          openrouter: 'OPENROUTER_API_KEY',
+          gemini: 'GEMINI_API_KEY',
+          azure: 'AZURE_OPENAI_API_KEY',
+          bedrock: 'AWS_BEARER_TOKEN_BEDROCK',
+          huggingface: 'HF_TOKEN'
+        }
+        await window.api.setUserConfig('MDVDB_EMBEDDING_MODEL', cloudModel.trim())
+        await window.api.setUserConfig(secretKey[provider], apiKey)
+        if (provider === 'azure') {
+          await window.api.setUserConfig('MDVDB_EMBEDDING_ENDPOINT', cloudEndpoint.trim())
+          await window.api.setUserConfig('AZURE_OPENAI_AUTH', 'api_key')
+        }
+        if (provider === 'bedrock') {
+          await window.api.setUserConfig('AWS_BEDROCK_REGION', bedrockRegion.trim())
+          await window.api.setUserConfig('AWS_BEDROCK_FORMAT', 'titan')
+        }
       }
       goToStep(3)
     } catch (error) {
@@ -521,6 +566,96 @@
             <button
               type="button"
               class="provider-card"
+              class:selected={provider === 'openrouter'}
+              aria-pressed={provider === 'openrouter'}
+              onclick={() => {
+                provider = 'openrouter'
+                providerError = null
+              }}
+            >
+              <span class="provider-icon cloud-icon material-symbols-outlined" aria-hidden="true"
+                >route</span
+              >
+              <span class="provider-copy">
+                <strong>OpenRouter</strong><span>Dynamic embedding catalog behind one API.</span>
+              </span>
+              <span class="choice-indicator" aria-hidden="true"></span>
+            </button>
+            <button
+              type="button"
+              class="provider-card"
+              class:selected={provider === 'gemini'}
+              aria-pressed={provider === 'gemini'}
+              onclick={() => {
+                provider = 'gemini'
+                providerError = null
+              }}
+            >
+              <span class="provider-icon cloud-icon material-symbols-outlined" aria-hidden="true"
+                >diamond</span
+              >
+              <span class="provider-copy">
+                <strong>Google Gemini</strong><span>Google-hosted embedding inference.</span>
+              </span>
+              <span class="choice-indicator" aria-hidden="true"></span>
+            </button>
+            <button
+              type="button"
+              class="provider-card"
+              class:selected={provider === 'azure'}
+              aria-pressed={provider === 'azure'}
+              onclick={() => {
+                provider = 'azure'
+                providerError = null
+              }}
+            >
+              <span class="provider-icon cloud-icon material-symbols-outlined" aria-hidden="true"
+                >business</span
+              >
+              <span class="provider-copy">
+                <strong>Azure OpenAI</strong><span>Azure deployment and enterprise endpoint.</span>
+              </span>
+              <span class="choice-indicator" aria-hidden="true"></span>
+            </button>
+            <button
+              type="button"
+              class="provider-card"
+              class:selected={provider === 'bedrock'}
+              aria-pressed={provider === 'bedrock'}
+              onclick={() => {
+                provider = 'bedrock'
+                providerError = null
+              }}
+            >
+              <span class="provider-icon cloud-icon material-symbols-outlined" aria-hidden="true"
+                >dns</span
+              >
+              <span class="provider-copy">
+                <strong>AWS Bedrock</strong><span>Signed Bedrock embedding inference.</span>
+              </span>
+              <span class="choice-indicator" aria-hidden="true"></span>
+            </button>
+            <button
+              type="button"
+              class="provider-card"
+              class:selected={provider === 'huggingface'}
+              aria-pressed={provider === 'huggingface'}
+              onclick={() => {
+                provider = 'huggingface'
+                providerError = null
+              }}
+            >
+              <span class="provider-icon cloud-icon material-symbols-outlined" aria-hidden="true"
+                >neurology</span
+              >
+              <span class="provider-copy">
+                <strong>Hugging Face</strong><span>Serverless feature extraction or TEI.</span>
+              </span>
+              <span class="choice-indicator" aria-hidden="true"></span>
+            </button>
+            <button
+              type="button"
+              class="provider-card"
               class:selected={provider === 'ollama'}
               aria-pressed={provider === 'ollama'}
               onclick={() => {
@@ -543,34 +678,19 @@
             <div class="provider-config">
               <div class="config-heading">
                 <span class="material-symbols-outlined" aria-hidden="true"
-                  >{provider === 'openai' ? 'key' : 'tune'}</span
+                  >{provider === 'ollama' ? 'tune' : 'key'}</span
                 >
                 <div>
-                  <strong>{provider === 'openai' ? 'Connect OpenAI' : 'Connect Ollama'}</strong>
+                  <strong>Connect {provider === 'ollama' ? 'Ollama' : provider}</strong>
                   <span
-                    >{provider === 'openai'
-                      ? 'Stored in your local Tesseract configuration.'
-                      : 'Tesseract will connect directly to this local endpoint.'}</span
+                    >{provider === 'ollama'
+                      ? 'Tesseract will connect directly to this local endpoint.'
+                      : 'Credentials are stored in your protected user .env file.'}</span
                   >
                 </div>
               </div>
 
-              {#if provider === 'openai'}
-                <label class="provider-field">
-                  <span>OpenAI API key</span>
-                  <span class="input-shell">
-                    <span class="material-symbols-outlined" aria-hidden="true">key</span>
-                    <input
-                      type="password"
-                      bind:value={openAiKey}
-                      placeholder="sk-..."
-                      autocomplete="off"
-                      aria-describedby="api-key-hint"
-                    />
-                  </span>
-                  <small id="api-key-hint">Used only when generating embeddings.</small>
-                </label>
-              {:else}
+              {#if provider === 'ollama'}
                 <div class="field-grid">
                   <label class="provider-field">
                     <span>Ollama host</span>
@@ -581,6 +701,54 @@
                     <input type="text" bind:value={ollamaModel} autocomplete="off" />
                   </label>
                 </div>
+              {:else}
+                <div class="field-grid">
+                  <label class="provider-field">
+                    <span>Credential</span>
+                    <span class="input-shell">
+                      <span class="material-symbols-outlined" aria-hidden="true">key</span>
+                      <input
+                        type="password"
+                        bind:value={openAiKey}
+                        placeholder={provider === 'openai'
+                          ? 'sk-...'
+                          : 'Provider API key or bearer token'}
+                        autocomplete="off"
+                      />
+                    </span>
+                  </label>
+                  <label class="provider-field">
+                    <span>Embedding model ID</span>
+                    <input
+                      type="text"
+                      bind:value={cloudModel}
+                      placeholder="Enter any provider model ID"
+                      autocomplete="off"
+                    />
+                  </label>
+                </div>
+                {#if provider === 'azure'}
+                  <label class="provider-field">
+                    <span>Azure resource endpoint</span>
+                    <input
+                      type="url"
+                      bind:value={cloudEndpoint}
+                      placeholder="https://resource.openai.azure.com"
+                      autocomplete="url"
+                    />
+                  </label>
+                {/if}
+                {#if provider === 'bedrock'}
+                  <label class="provider-field">
+                    <span>AWS region</span>
+                    <input
+                      type="text"
+                      bind:value={bedrockRegion}
+                      placeholder="eu-central-1"
+                      autocomplete="off"
+                    />
+                  </label>
+                {/if}
               {/if}
             </div>
           {:else}
@@ -1843,12 +2011,6 @@
     color: var(--color-text, #e4e4e7);
     font-family: var(--font-mono, 'JetBrains Mono Variable', ui-monospace, monospace);
     font-size: 11px;
-  }
-
-  .provider-field small {
-    color: var(--color-text-dim, #71717a);
-    font-size: 10px;
-    font-weight: 400;
   }
 
   .input-shell {

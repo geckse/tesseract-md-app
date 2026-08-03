@@ -16,15 +16,17 @@ import { initStore, getCollections } from './store'
 import { atomicWriteFile } from './atomic-write'
 import { withSerializedFileWrite } from './file-write-queue'
 import { registerOwnWrite } from './own-writes'
-import type { SavedTableView, TableViewConfig } from '../preload/api'
+import type { SavedTableView, TableColumnLayout, TableViewConfig } from '../preload/api'
 
 /** Bump when the persisted view-config shape changes. */
-export const CURRENT_VIEW_VERSION = 1
+export const CURRENT_VIEW_VERSION = 2
 
 /** On-disk shape of `.markdownvdb/table-views.json`. */
 interface TableViewsFile {
   version: number
   folders: Record<string, SavedTableView[]>
+  /** Column layout for the built-in, unnamed "All fields" view. */
+  defaultColumns: Record<string, TableColumnLayout[]>
 }
 
 type LegacyTableViewsMap = Record<string, Record<string, SavedTableView[]>>
@@ -49,6 +51,7 @@ interface LegacyTableViewsSnapshot {
 interface LoadedTableViews {
   snapshot: TableViewsSnapshot
   folders: Record<string, SavedTableView[]>
+  defaultColumns: Record<string, TableColumnLayout[]>
   legacy: LegacyTableViewsSnapshot | null
 }
 
@@ -114,7 +117,36 @@ function validatedFolders(value: unknown, source: string): Record<string, SavedT
   return value as Record<string, SavedTableView[]>
 }
 
-function parseFolders(raw: Buffer, filePath: string): Record<string, SavedTableView[]> {
+function validatedDefaultColumns(
+  value: unknown,
+  source: string
+): Record<string, TableColumnLayout[]> {
+  if (value === undefined) return {}
+  if (!isRecord(value)) throw new MalformedTableViewsError(source)
+  for (const columns of Object.values(value)) {
+    if (
+      !Array.isArray(columns) ||
+      columns.some(
+        (column) =>
+          !isRecord(column) ||
+          typeof column.name !== 'string' ||
+          typeof column.hidden !== 'boolean' ||
+          typeof column.width !== 'number' ||
+          !Number.isFinite(column.width) ||
+          typeof column.order !== 'number' ||
+          !Number.isFinite(column.order)
+      )
+    ) {
+      throw new MalformedTableViewsError(source)
+    }
+  }
+  return value as Record<string, TableColumnLayout[]>
+}
+
+function parseFile(
+  raw: Buffer,
+  filePath: string
+): Pick<TableViewsFile, 'folders' | 'defaultColumns'> {
   let text: string
   try {
     text = new TextDecoder('utf-8', { fatal: true }).decode(raw)
@@ -136,7 +168,10 @@ function parseFolders(raw: Buffer, filePath: string): Record<string, SavedTableV
   ) {
     throw new MalformedTableViewsError(filePath, 'an unsupported version')
   }
-  return validatedFolders(parsed.folders, filePath)
+  return {
+    folders: validatedFolders(parsed.folders, filePath),
+    defaultColumns: validatedDefaultColumns(parsed.defaultColumns, filePath)
+  }
 }
 
 async function captureSnapshot(filePath: string): Promise<TableViewsSnapshot> {
@@ -162,6 +197,17 @@ function snapshotsEqual(left: TableViewsSnapshot, right: TableViewsSnapshot): bo
 function cloneFolders(folders: Record<string, SavedTableView[]>): Record<string, SavedTableView[]> {
   return Object.fromEntries(
     Object.entries(folders).map(([folder, views]) => [folder, views.slice()])
+  )
+}
+
+function cloneDefaultColumns(
+  columns: Record<string, TableColumnLayout[]>
+): Record<string, TableColumnLayout[]> {
+  return Object.fromEntries(
+    Object.entries(columns).map(([folder, layout]) => [
+      folder,
+      layout.map((column) => ({ ...column }))
+    ])
   )
 }
 
@@ -205,9 +251,11 @@ function clearPublishedLegacy(
 async function loadCurrent(location: TableViewsLocation): Promise<LoadedTableViews> {
   const snapshot = await captureSnapshot(location.filePath)
   if (snapshot.existed) {
+    const parsed = parseFile(snapshot.content ?? Buffer.alloc(0), location.filePath)
     return {
       snapshot,
-      folders: parseFolders(snapshot.content ?? Buffer.alloc(0), location.filePath),
+      folders: parsed.folders,
+      defaultColumns: parsed.defaultColumns,
       legacy: null
     }
   }
@@ -215,23 +263,28 @@ async function loadCurrent(location: TableViewsLocation): Promise<LoadedTableVie
   return {
     snapshot,
     folders: legacy ? cloneFolders(legacy.folders) : {},
+    defaultColumns: {},
     legacy
   }
 }
 
-function serializedFolders(folders: Record<string, SavedTableView[]>): string {
-  const payload: TableViewsFile = { version: CURRENT_VIEW_VERSION, folders }
+function serializedFolders(
+  folders: Record<string, SavedTableView[]>,
+  defaultColumns: Record<string, TableColumnLayout[]>
+): string {
+  const payload: TableViewsFile = { version: CURRENT_VIEW_VERSION, folders, defaultColumns }
   return `${JSON.stringify(payload, null, 2)}\n`
 }
 
 async function publishFolders(
   location: TableViewsLocation,
   folders: Record<string, SavedTableView[]>,
+  defaultColumns: Record<string, TableColumnLayout[]>,
   baseline: TableViewsSnapshot,
   options: TableViewsMutationOptions
 ): Promise<void> {
   await fs.mkdir(dirname(location.filePath), { recursive: true })
-  const content = serializedFolders(folders)
+  const content = serializedFolders(folders, defaultColumns)
   const publishedSnapshot: TableViewsSnapshot = {
     existed: true,
     content: Buffer.from(content, 'utf-8')
@@ -263,7 +316,10 @@ async function publishFolders(
  * mutation, exact-baseline check, and publication share the per-file queue. */
 async function mutateFolders<T>(
   collectionId: string,
-  mutate: (folders: Record<string, SavedTableView[]>) => TableViewsMutation<T>,
+  mutate: (
+    folders: Record<string, SavedTableView[]>,
+    defaultColumns: Record<string, TableColumnLayout[]>
+  ) => TableViewsMutation<T>,
   options: TableViewsMutationOptions = {}
 ): Promise<T> {
   const location = await tableViewsLocation(collectionId)
@@ -271,9 +327,10 @@ async function mutateFolders<T>(
     const loaded = await loadCurrent(location)
     await options.onPrepared?.(loaded.snapshot)
     const folders = cloneFolders(loaded.folders)
-    const result = mutate(folders)
+    const defaultColumns = cloneDefaultColumns(loaded.defaultColumns)
+    const result = mutate(folders, defaultColumns)
     if (result.changed || loaded.legacy !== null) {
-      await publishFolders(location, folders, loaded.snapshot, options)
+      await publishFolders(location, folders, defaultColumns, loaded.snapshot, options)
       if (loaded.legacy) clearPublishedLegacy(collectionId, loaded.legacy)
     }
     return result.value
@@ -320,6 +377,43 @@ export async function listTableViews(
 ): Promise<SavedTableView[]> {
   const folders = await readFolders(collectionId)
   return (folders[folderPath] ?? []).map(migrateView)
+}
+
+/** Read the durable column layout for the built-in "All fields" view. */
+export async function getDefaultTableColumns(
+  collectionId: string,
+  folderPath: string
+): Promise<TableColumnLayout[] | null> {
+  try {
+    return await mutateFolders(collectionId, (_folders, defaultColumns) => ({
+      changed: false,
+      value: defaultColumns[folderPath]?.map((column) => ({ ...column })) ?? null
+    }))
+  } catch (error) {
+    if (!(error instanceof MalformedTableViewsError)) throw error
+    console.warn(`table-views: could not read default columns, starting empty:`, error)
+    return null
+  }
+}
+
+/** Replace the durable column layout for the built-in "All fields" view. */
+export async function saveDefaultTableColumns(
+  collectionId: string,
+  folderPath: string,
+  columns: TableColumnLayout[],
+  options: TableViewsMutationOptions = {}
+): Promise<TableColumnLayout[]> {
+  const plain = validatedDefaultColumns({ [folderPath]: columns }, 'All fields column layout')[
+    folderPath
+  ].map((column) => ({ ...column }))
+  return mutateFolders(
+    collectionId,
+    (_folders, defaultColumns) => {
+      defaultColumns[folderPath] = plain
+      return { changed: true, value: plain.map((column) => ({ ...column })) }
+    },
+    options
+  )
 }
 
 /** Insert or replace a view by id (upsert). Returns the migrated list. */
@@ -415,7 +509,7 @@ export async function renamePropertyInViews(
 ): Promise<void> {
   await mutateFolders(
     collectionId,
-    (folders) => {
+    (folders, defaultColumns) => {
       const inScope = (folderPath: string): boolean =>
         scope === '' || folderPath === scope || folderPath.startsWith(`${scope}/`)
       const isRecursiveAncestor = (folderPath: string, view: SavedTableView): boolean =>
@@ -449,6 +543,17 @@ export async function renamePropertyInViews(
           return { ...v, config, updatedAt: now }
         })
       }
+
+      for (const [folderPath, columns] of Object.entries(defaultColumns)) {
+        if (!inScope(folderPath)) continue
+        let changed = false
+        defaultColumns[folderPath] = columns.map((column) => {
+          if (column.name !== oldKey) return column
+          changed = true
+          return { ...column, name: newKey }
+        })
+        if (changed) dirty = true
+      }
       return { changed: dirty, value: undefined }
     },
     options
@@ -468,7 +573,7 @@ export async function removePropertyFromViews(
 ): Promise<void> {
   await mutateFolders(
     collectionId,
-    (folders) => {
+    (folders, defaultColumns) => {
       let dirty = false
       const now = Date.now()
 
@@ -495,6 +600,13 @@ export async function removePropertyFromViews(
             updatedAt: now
           }
         })
+      }
+
+      for (const [folderPath, columns] of Object.entries(defaultColumns)) {
+        const kept = columns.filter((column) => column.name !== key)
+        if (kept.length === columns.length) continue
+        defaultColumns[folderPath] = kept
+        dirty = true
       }
 
       return { changed: dirty, value: undefined }

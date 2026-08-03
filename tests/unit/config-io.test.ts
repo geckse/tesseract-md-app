@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { readConfig, writeConfigKey, deleteConfigKey } from '../../src/main/config-io'
+import {
+  readConfig,
+  readSettingsConfig,
+  writeConfigKey,
+  deleteConfigKey
+} from '../../src/main/config-io'
 import { writeFile, mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -43,7 +48,7 @@ describe('readConfig', () => {
     await writeFile(file, 'NAME="hello world"\n', 'utf-8')
 
     const result = await readConfig(file)
-    expect(result).toEqual({ NAME: '"hello world"' })
+    expect(result).toEqual({ NAME: 'hello world' })
   })
 
   it('preserves malformed lines as-is (skips them)', async () => {
@@ -52,6 +57,36 @@ describe('readConfig', () => {
 
     const result = await readConfig(file)
     expect(result).toEqual({ GOOD: 'value', ALSO: 'ok' })
+  })
+})
+
+describe('readSettingsConfig', () => {
+  it('maps canonical provider YAML and adjacent secrets to editable settings', async () => {
+    const yaml = join(testDir, 'config.yaml')
+    const env = join(testDir, '.env')
+    await writeFile(
+      yaml,
+      `embedding:
+  provider: bedrock
+  model: provider.future-model
+  dimensions: auto
+  bedrock:
+    format: custom
+    invocation: batch
+    embeddings_pointer: /result/items
+`,
+      'utf-8'
+    )
+    await writeFile(env, 'AWS_BEARER_TOKEN_BEDROCK="secret value"\n', 'utf-8')
+
+    const result = await readSettingsConfig(yaml, env)
+    expect(result.MDVDB_EMBEDDING_PROVIDER).toBe('bedrock')
+    expect(result.MDVDB_EMBEDDING_MODEL).toBe('provider.future-model')
+    expect(result.MDVDB_EMBEDDING_DIMENSIONS).toBe('auto')
+    expect(result.AWS_BEDROCK_FORMAT).toBe('custom')
+    expect(result.AWS_BEDROCK_INVOCATION).toBe('batch')
+    expect(result.AWS_BEDROCK_EMBEDDINGS_POINTER).toBe('/result/items')
+    expect(result.AWS_BEARER_TOKEN_BEDROCK).toBe('secret value')
   })
 })
 

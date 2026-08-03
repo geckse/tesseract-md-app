@@ -158,8 +158,7 @@ describe('Shard-local graph analysis presentation', () => {
     ).toEqual({
       message: 'Research Shard Topics need re-ingest.',
       tone: 'warning',
-      canReingest: true,
-      canManageTopics: false
+      canReingest: true
     })
 
     expect(
@@ -173,19 +172,25 @@ describe('Shard-local graph analysis presentation', () => {
         },
         'Research Shard'
       )
-    ).toEqual({
-      message: 'No Topics configured for this Shard.',
-      tone: 'info',
-      canReingest: false,
-      canManageTopics: true
-    })
+    ).toBeNull()
   })
 
-  it('keeps collection no-topic metadata quiet and surfaces independent failures', () => {
+  it('keeps expected empty analysis states quiet and surfaces independent failures', () => {
     expect(
       graphAnalysisNotice(
         { context: 'collection', clusters: 'ready', topics: 'none' },
         'Collection'
+      )
+    ).toBeNull()
+
+    expect(
+      graphAnalysisNotice(
+        {
+          context: 'shard',
+          clusters: 'too_small',
+          topics: 'none'
+        },
+        'Research Shard'
       )
     ).toBeNull()
 
@@ -200,8 +205,7 @@ describe('Shard-local graph analysis presentation', () => {
         'Research Shard'
       )
     ).toMatchObject({
-      message:
-        'Research Shard is too small for automatic clustering. Topic analysis failed for Research Shard. Topic centroid unavailable.',
+      message: 'Topic analysis failed for Research Shard. Topic centroid unavailable.',
       tone: 'error'
     })
   })

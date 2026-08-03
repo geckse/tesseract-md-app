@@ -10,7 +10,7 @@
  * Svelte 5 runes singleton (MUST remain a .svelte.ts file).
  */
 
-import type { SavedTableView, TableViewConfig } from '../../preload/api'
+import type { SavedTableView, TableColumnLayout, TableViewConfig } from '../../preload/api'
 
 /** The Title column is synthetic and always valid. */
 export const TITLE_COLUMN = '__title__'
@@ -42,6 +42,12 @@ class TableViewsStore {
   /** Saved views keyed by `${collectionId}\0${folderPath}`. */
   private views = $state<Record<string, SavedTableView[]>>({})
 
+  /** Durable layouts for the built-in "All fields" view. Null means no saved layout. */
+  private defaultColumns = $state<Record<string, TableColumnLayout[] | null>>({})
+
+  /** Serialize rapid layout writes per view so the newest drag/hide action wins. */
+  private columnSaveQueues = new Map<string, Promise<void>>()
+
   /** Per-key generation of the newest requested disk read. Forced reloads
    * supersede an older in-flight response so a pre-rename view cannot win. */
   private generations = new Map<string, number>()
@@ -60,6 +66,11 @@ class TableViewsStore {
   /** Look up a view by id. */
   getById(collectionId: string, folderPath: string, viewId: string): SavedTableView | null {
     return this.getViews(collectionId, folderPath).find((v) => v.id === viewId) ?? null
+  }
+
+  /** Column layout for the built-in "All fields" view, if the user has customized it. */
+  getDefaultColumns(collectionId: string, folderPath: string): TableColumnLayout[] | null {
+    return this.defaultColumns[key(collectionId, folderPath)] ?? null
   }
 
   /** Load (or reload) the saved views for a folder from disk. */
@@ -85,17 +96,30 @@ class TableViewsStore {
     this.generations.set(k, generation)
     this.loading.set(k, generation)
     try {
-      const list = await api.listTableViews(collectionId, folderPath)
+      const [list, defaultColumns] = await Promise.all([
+        api.listTableViews(collectionId, folderPath),
+        typeof api.getDefaultTableColumns === 'function'
+          ? api.getDefaultTableColumns(collectionId, folderPath)
+          : Promise.resolve(null)
+      ])
       if (this.generations.get(k) !== generation) return
       // Unchanged content → keep the cached array identity so downstream
       // deriveds (mergedConfig et al.) don't recompute for a no-op refetch.
-      const prev = this.views[k]
-      if (prev && JSON.stringify(prev) === JSON.stringify(list)) return
-      this.views = { ...this.views, [k]: list }
+      const prevViews = this.views[k]
+      if (!prevViews || JSON.stringify(prevViews) !== JSON.stringify(list)) {
+        this.views = { ...this.views, [k]: list }
+      }
+      const prevColumns = this.defaultColumns[k]
+      if (JSON.stringify(prevColumns) !== JSON.stringify(defaultColumns)) {
+        this.defaultColumns = { ...this.defaultColumns, [k]: defaultColumns }
+      }
     } catch {
       if (this.generations.get(k) !== generation) return
       // Degrade silently — a missing/locked store yields no saved views.
       if (!this.views[k]) this.views = { ...this.views, [k]: [] }
+      if (!(k in this.defaultColumns)) {
+        this.defaultColumns = { ...this.defaultColumns, [k]: null }
+      }
     } finally {
       if (this.loading.get(k) === generation) this.loading.delete(k)
     }
@@ -114,6 +138,59 @@ class TableViewsStore {
     const list = await api.saveTableView(collectionId, folderPath, plain)
     this.views = { ...this.views, [key(collectionId, folderPath)]: list }
     return list
+  }
+
+  /**
+   * Persist column order/visibility/width into either the built-in All fields
+   * layout (`viewId === null`) or the active named view. Writes are serialized
+   * per target so a quick sequence of drops cannot publish out of order.
+   */
+  async saveColumnLayout(
+    collectionId: string,
+    folderPath: string,
+    viewId: string | null,
+    columns: TableColumnLayout[]
+  ): Promise<void> {
+    const api = window.api
+    if (!api) return
+    const targetKey = `${key(collectionId, folderPath)}\u0000${viewId ?? '__all_fields__'}`
+    const plain = $state.snapshot(columns) as TableColumnLayout[]
+    const previous = this.columnSaveQueues.get(targetKey) ?? Promise.resolve()
+    const operation = previous
+      .catch(() => undefined)
+      .then(async () => {
+        if (viewId === null) {
+          if (typeof api.saveDefaultTableColumns !== 'function') {
+            throw new Error('This app build cannot save the All fields layout.')
+          }
+          const saved = await api.saveDefaultTableColumns(collectionId, folderPath, plain)
+          this.defaultColumns = {
+            ...this.defaultColumns,
+            [key(collectionId, folderPath)]: saved
+          }
+          return
+        }
+
+        const view = this.getById(collectionId, folderPath, viewId)
+        if (!view) throw new Error('The selected saved view no longer exists.')
+        // Views in the $state cache are deep reactive proxies. Spreading the
+        // top level is insufficient: sort/filter/collapsedGroups remain proxies
+        // and Electron IPC rejects the payload as non-cloneable.
+        const updated = $state.snapshot({
+          ...view,
+          config: { ...view.config, columns: plain }
+        }) as SavedTableView
+        const saved = await api.updateTableView(collectionId, folderPath, updated)
+        this.views = { ...this.views, [key(collectionId, folderPath)]: saved }
+      })
+    this.columnSaveQueues.set(targetKey, operation)
+    try {
+      await operation
+    } finally {
+      if (this.columnSaveQueues.get(targetKey) === operation) {
+        this.columnSaveQueues.delete(targetKey)
+      }
+    }
   }
 
   async remove(

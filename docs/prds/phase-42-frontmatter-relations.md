@@ -2,7 +2,7 @@
 
 ## Overview
 
-Phase 42 is the GUI layer over the CLI's phase-31 frontmatter relations (`docs/prds/phase-31-frontmatter-relations.md` in the CLI repo — the authoritative home of the shared JSON contract). Folders-as-tables (phase 39) gain foreign-key columns: frontmatter values like `client: "[[clients/acme]]"` render as clickable document chips with **server-resolved titles**, are edited through a scoped document picker, show reverse references ("Referenced by") in the properties panel, and appear as visually distinct tagged edges in the graph. The CLI resolves everything (`--populate`); the app renders and writes. **The app CAN write frontmatter** — a relation value is a plain YAML string written through the existing `src/main/frontmatter.ts` pipeline, unchanged; only the CLI is read-only. All relation capabilities are gated on the CLI version; on older CLIs the app falls back to today's phase-39/41 behavior exactly.
+Phase 42 is the GUI layer over the CLI's phase-31 frontmatter relations (`docs/prds/phase-31-frontmatter-relations.md` in the CLI repo — the authoritative home of the shared JSON contract). Folders-as-tables (phase 39) gain foreign-key columns: frontmatter values like `client: clients/acme.md` render as clickable document chips with **server-resolved titles**, are edited through a scoped document picker, show reverse references ("Referenced by") in the properties panel, and appear as visually distinct tagged edges in the graph. Plain `.md` paths are the default authoring form; existing wiki-link and Markdown-link values remain supported. The CLI resolves everything (`--populate`); the app renders and writes. **The app CAN write frontmatter** — a relation value is a plain YAML string written through the existing `src/main/frontmatter.ts` pipeline, unchanged; only the CLI is read-only. All relation capabilities are gated on the CLI version; on older CLIs the app falls back to today's phase-39/41 behavior exactly.
 
 ## Problem Statement
 
@@ -185,7 +185,7 @@ export const cliFeatures: CliFeatures
 ### 6.3 Main Process / IPC
 
 - `src/main/ipc-handlers.ts`: `cli:collection` (`:381-401`) appends `--populate` when `options.populate`; `cli:get` accepts `{ populate?: boolean }` and appends `--populate`. No new IPC channels.
-- `src/main/frontmatter.ts`: **zero changes.** A relation is a plain string (or string[]) value; the eemeli `yaml` Document API already quotes `[[...]]` correctly. This is exactly why hand-rolled YAML is banned: unquoted, `[[x]]` parses as a nested YAML flow sequence, silently corrupting the value's meaning. Verify `addRow`'s frontmatter seeding also quotes relation defaults.
+- `src/main/frontmatter.ts`: **zero changes.** A relation is a plain string (or string[]) value. New relation picks use readable `.md` paths; the eemeli `yaml` Document API also continues to preserve and safely quote existing `[[...]]` values. This is exactly why hand-rolled YAML is banned: unquoted `[[x]]` parses as a nested YAML flow sequence, silently corrupting the value's meaning.
 - `src/main/schema-overlay.ts`: add `'relation'` to `VALID_FIELD_TYPES` (`:33-42`); in `upsertOverlayField` handle `patch.target` → `setIn([...base, 'target'], value)` / `deleteIn` on `null`; validate non-empty and **no trailing slash**, reusing the scope-key rule style at `:94-97` (phase-41 no-slash folder-key grammar — this is why the contract emits `relation_target` slash-less).
 - `src/main/property-ops.ts`: `storageKindFor('relation')` → `'string'`; `overlayFieldTypeFor('relation')` → `'relation'`; `convertValue(value, 'relation')` is a **pass-through for strings and string arrays, skip (report) everything else** — converting to relation is a schema pin, never a value rewrite. Converting away from relation = the existing text conversion (values are already strings).
 
@@ -198,7 +198,7 @@ export const cliFeatures: CliFeatures
   - **Display**: one chip per RelationValue (arrays ⇒ multiple chips, `ListCell`-style layout). Chip text = `title ?? basename(path) ?? raw target`. `exists: false` ⇒ warning styling (dashed border, warning-family token, `link_off` icon) + tooltip showing the candidate path. Empty ⇒ em-dash via `isEmptyValue`.
   - **Navigate**: chip click calls `stopPropagation()` (row click selects) then `workspace.openFile(path)` — same route as `TitleCell`'s open. Only when `exists`.
   - **Edit** (dblclick, existing `startEdit`): opens `RelationPicker` anchored to the cell (the `StringCell` PopoverMenu-under-cell pattern). Single-value: pick replaces; a "Clear" item commits `null` (unset). Multi-value (current value is an array): chips gain a remove-x plus an "Add…" affordance opening the picker; commit the new string array (the `ListCell` tag-editing pattern).
-  - **Commit format: always `[[<root-relative-path-without-.md>]]`** — the path contains `/`, so it is deterministic under contract resolution rule 1. No alias is written (display always comes from the server-resolved title; embedded aliases go stale). Existing values keep whatever raw form they have until the user re-picks.
+  - **Commit format: always `<root-relative-path>.md`** — plain Markdown filenames are the default because they are easier to write and review in frontmatter. Existing wiki-link and markdown-link values keep their raw form until the user re-picks; both remain supported by the CLI resolver.
   - **Optimistic reconciliation**: after `editCell` (`:407-455`) the row's `relations` is stale until the debounced reindex + reload (`:457-480`). Rule: a chip renders from the RelationValue whose `raw` equals the current frontmatter value; on mismatch (fresh optimistic edit) fall back to a client parse via `parseWikilinkText` (`src/renderer/lib/tiptap/wikilink-extension.ts:15-48`) rendering a **neutral** (not broken) chip until the server confirms. Client parsing is display-fallback only — never resolution.
 - **Filter / group / sort for relation columns** (`table.svelte.ts`):
   - **Sort**: unchanged — server-authoritative over raw values (phase-39 rule). Title-sort is explicitly future work.
@@ -222,14 +222,14 @@ interface Props {
 }
 ```
 
-Behavior: inline text input above an `AutocompleteDropdown`; debounced (250 ms) + generation-guarded (LinkAutocomplete's `searchGeneration` pattern). Data source: if `targetFolder` is set → one `window.api.collection(root, targetFolder, { recursive: true })` call cached for the picker's lifetime, filtered client-side by title/path substring (scoped folders are small, and this naturally scopes the picker to the FK's table); a missing/empty target folder shows an explicit empty-state message ("No documents in `clients/`"). Else → hybrid `window.api.search` with recents when the query is empty and `window.api.tree` fallback. Primary label = title, secondary = path. Returns a path; the caller wraps it into `[[path-sans-.md]]`.
+Behavior: inline text input above an `AutocompleteDropdown`; debounced (250 ms) + generation-guarded (LinkAutocomplete's `searchGeneration` pattern). Data source: if `targetFolder` is set → one `window.api.collection(root, targetFolder, { recursive: true })` call cached for the picker's lifetime, filtered client-side by title/path substring (scoped folders are small, and this naturally scopes the picker to the FK's table); a missing/empty target folder shows an explicit empty-state message ("No documents in `clients/`"). Else → hybrid `window.api.search` with recents when the query is empty and `window.api.tree` fallback. Primary label = title, secondary = path. Returns a path; the caller stores it as a plain `.md` relation value.
 
 Consumers: `RelationCell` (edit mode) and `PropertyRow` (relation branch). A shared **`RelationChip.svelte`** renders the chip in both surfaces (and PropertiesPanel) to avoid three divergent implementations. Future: `LinkAutocomplete` could be refactored onto the picker — out of scope, noted.
 
 ### 6.6 Property Panel (editing surface)
 
-- `DocumentHeader.svelte` `detectType` (`:79-99`): in the schema-override block, `if (sf?.field_type === 'Relation') return 'relation'`; in the string value-shape block, `if (/^\[\[[^\]]+\]\]$/.test(value)) return 'relation'` (shape fallback lets chips render even for ad-hoc fields and old CLIs). `getDefaultValue('relation')` ⇒ `''`.
-- `PropertyRow.svelte`: the `DetectedType` union (`:10-20`) gains `'relation'`; `typeIcons` gains `relation: 'account_tree'` (**not** `link` — `url` already uses it). New `{#if fieldType === 'relation'}` branch in the value-cell dispatch: `RelationChip` list + edit affordance opening `RelationPicker`; `onValueChange('[[path]]')` (or a string array for multi-value). Resolved data source: `PropertyRow` only has `value` + `schemaField`, so `DocumentHeader` threads down a new optional `relationValues?: RelationValue[]` prop from the properties store's populated `get` (§6.7); fallback = client parse ⇒ neutral chips.
+- `DocumentHeader.svelte` `detectType` (`:79-99`): in the schema-override block, `if (sf?.field_type === 'Relation') return 'relation'`; the value-shape fallback recognizes a link-shaped Markdown relation scalar or homogeneous non-empty list, including plain `.md` filenames (this lets chips render even for ad-hoc fields and old CLIs). Explicit non-Markdown File references still win. `getDefaultValue('relation')` ⇒ `''`.
+- `PropertyRow.svelte`: the `DetectedType` union (`:10-20`) gains `'relation'`; `typeIcons` gains `relation: 'account_tree'` (**not** `link` — `url` already uses it). New `{#if fieldType === 'relation'}` branch in the value-cell dispatch: `RelationChip` list + edit affordance opening `RelationPicker`; `onValueChange('path.md')` (or a string array for multi-value). Resolved data source: `PropertyRow` only has `value` + `schemaField`, so `DocumentHeader` threads down a new optional `relationValues?: RelationValue[]` prop from the properties store's populated `get` (§6.7); fallback = client parse ⇒ neutral chips.
 - `TypePickerDropdown.svelte` `allTypeOptions` (`:17-28`): add `{ type: 'relation', icon: 'account_tree', label: 'Relation' }`, removed via the existing `excludeTypes` when `!cliFeatures.supportsRelations` (caller passes it).
 - `src/renderer/lib/property-types.ts`: `FIELD_TO_DETECTED` gains `Relation: 'relation'`. In `detectedTypeForField`, **Relation wins over `allowed_values`** (a relation with allowed_values is nonsensical; guard anyway).
 - **LOUD CALLOUT — two hand-synced copies of the type vocabulary:** `DetectedType` (`PropertyRow.svelte:10-20`) and `PropertyTargetType` (`api.d.ts:179-189`) are intentionally duplicated across the renderer/preload boundary. Adding `'relation'` to one but not the other typechecks in isolation in some edit orders and then breaks the main-process property-ops path at runtime. Update **both**, plus the `property-types.ts` mapping, and add a unit test asserting the unions stay congruent.
@@ -272,7 +272,7 @@ Consumers: `RelationCell` (edit mode) and `PropertyRow` (relation branch). A sha
 
 - [ ] `npm run typecheck`, `npm run lint`, `npm test` green.
 - [ ] A table over a folder with relation columns shows title chips; a broken ref shows a warning chip with a candidate-path tooltip; multi-value shows N chips in source order (duplicates preserved).
-- [ ] Dblclick opens the picker; with `relation_target` declared, only that folder's documents are offered; picking writes `[[path]]` into frontmatter via `updateFrontmatter` — verify the on-disk YAML value is a quoted string and the body is byte-identical.
+- [ ] Dblclick opens the picker; with `relation_target` declared, only that folder's documents are offered; picking writes `path.md` into frontmatter via `updateFrontmatter` and the body is byte-identical.
 - [ ] Chip click opens the target document; row selection is unaffected.
 - [ ] Property settings pins `field_type: relation` + `target:` into `.markdownvdb.schema.yml` with comments preserved and no trailing slash.
 - [ ] PropertiesPanel's Referenced-by lists referencing documents grouped by field; click navigates; long lists collapse.
@@ -289,7 +289,7 @@ Consumers: `RelationCell` (edit mode) and `PropertyRow` (relation branch). A sha
 - `property-types`: `Relation → 'relation'`; relation-beats-allowed_values; **union-congruence test** importing both `DetectedType` and `PropertyTargetType`.
 - `detectType`: schema `Relation` override; `[[x]]` shape fallback.
 - `RelationChip`/`RelationCell` render states: resolved, broken (`exists:false`), multi-value order, empty em-dash, optimistic raw-mismatch neutral fallback, readOnly.
-- `RelationCell` edit: single replace commits `'[[clients/acme]]'`; multi add/remove commits the array; clear commits `null`.
+- `RelationCell` edit: single replace commits `'clients/acme.md'`; multi add/remove commits the array; clear commits `null`.
 - `RelationPicker`: scoped mode calls `api.collection(targetFolder, recursive)` once and filters client-side; empty-folder empty state; unscoped debounced search; keyboard nav via `AutocompleteDropdown`; `excludePaths` honored.
 - `table.svelte.ts`: `populate` passed iff supported; `equals`/`in` relation_key normalization (raw stored, normalized matched); `contains` matches resolved title; group-by canonicalization + label; mixed-list non-link items never dropped.
 - Main process: `schema-overlay` writes/clears `target`, rejects trailing slash, accepts `relation` field_type (comment-preservation case); `property-ops` convert-to-relation passes strings / skips numbers & objects; `ipc-handlers` arg construction includes `--populate` when asked and **never** when unsupported (mock execFile).
@@ -325,7 +325,7 @@ Consumers: `RelationCell` (edit mode) and `PropertyRow` (relation branch). A sha
 ## Risks
 
 - **Payload bloat under always-populate**: `RelationValue.frontmatter` for every relation cell of every row rides the single `collection --json` response through the 10 MB execFile buffer; a 1k-row table with multi-value relations to fat docs could hit it. The table only reads `title`/`path`/`exists`. Mitigation: measure; the pressure valve is a **shallow populate** variant (no target `frontmatter`) — flagged as coordinated future work in the CLI PRD (phase-31, Cross-Repo Coordination).
-- **Optimistic staleness window**: between `updateFrontmatter` and the debounced reload, `row.relations` mismatches `row.frontmatter`; format-only edits (e.g. `clients/acme.md` → `[[clients/acme]]`) flicker neutral chips. Accepted; covered by the reconciliation rule.
+- **Optimistic staleness window**: between `updateFrontmatter` and the debounced reload, `row.relations` mismatches `row.frontmatter`; format-only edits (e.g. `[[clients/acme]]` → `clients/acme.md`) flicker neutral chips. Accepted; covered by the reconciliation rule.
 - **Version-gate constant wrong**: set before the CLI release lands ⇒ either `--populate` crashes older CLIs or the feature hides on capable ones. Verify against the shipped version; tests assert the unsupported path.
 - **Type-union drift** across the duplicated `DetectedType`/`PropertyTargetType` — mitigated by the congruence unit test.
 - **Graph edge volume**: frontmatter edges add to body edges; dense FK folders (1k invoices → 1 client) create hub explosions in the force layout. GPU path should absorb it; watch cosmos perf — the edge-type filter toggle may need pulling forward.
@@ -333,7 +333,7 @@ Consumers: `RelationCell` (edit mode) and `PropertyRow` (relation branch). A sha
 
 ## Open Questions (non-blocking)
 
-- Alias preservation: re-picking the same doc over `[[clients/acme|Acme Inc]]` writes `[[clients/acme]]` (alias dropped). Acceptable? (Default: yes — titles are server-resolved.)
+- Alias preservation: re-picking the same doc over `[[clients/acme|Acme Inc]]` writes `clients/acme.md` (alias dropped). Acceptable? (Default: yes — titles are server-resolved.)
 - Picker "create new document in target folder" affordance — defer? (Default: defer.)
 - Right-click "fix reference…" on broken table chips? (Default: dblclick-edit suffices.)
 - Folder autocomplete in the target-folder input vs. plain text? (Default: plain text v1.)

@@ -9,7 +9,7 @@
  *  - `relationKey` — the CLI's `relation_key` filter normalization, mirrored
  *    so app-side `equals`/`in` filtering matches `mdvdb --filter` semantics.
  *  - `formatRelationValue` — the ONE commit format the app writes:
- *    `[[<root-relative-path-without-.md>]]`.
+ *    `<root-relative-path>.md`.
  */
 
 /** External / anchor-only targets are never relations (mirrors the CLI). */
@@ -76,6 +76,27 @@ export function isLinkShaped(value: string): boolean {
 }
 
 /**
+ * Whether a scalar or homogeneous, non-empty list is shaped like a Markdown
+ * document relation. Explicit non-Markdown extensions are File references,
+ * not relations (mirrors the CLI's `parsed_link_kind`).
+ */
+export function isRelationValue(value: unknown): boolean {
+  const values = Array.isArray(value) ? value : [value]
+  if (values.length === 0) return false
+  return values.every((item) => {
+    if (typeof item !== 'string') return false
+    const parsed = parseLinkShaped(item)
+    if (!parsed) return false
+    const target = parsed.target.split('#')[0]
+    const filename = target.split(/[\\/]/).pop() ?? target
+    const dot = filename.lastIndexOf('.')
+    if (dot < 0) return true
+    const extension = filename.slice(dot + 1).toLowerCase()
+    return extension === 'md' || extension === 'markdown'
+  })
+}
+
+/**
  * The CLI's `relation_key` filter normalization: inner link target,
  * `#fragment` stripped, `\` → `/`, leading `/` stripped, trailing `.md`
  * stripped. Returns null when the value is not link-shaped.
@@ -99,13 +120,12 @@ export function coerceRelationFilterValue(value: string): string {
 }
 
 /**
- * The commit format for relation writes: `[[<root-relative-path-sans-.md>]]`.
- * The path contains `/`, so resolution rule 1 (root-relative) makes it
- * deterministic. No alias is ever written — titles are server-resolved.
+ * The commit format for relation writes: `<root-relative-path>.md`.
+ * Plain Markdown paths are easier to author and review in YAML. The parser
+ * still accepts wiki links and Markdown links already present in a vault.
  */
 export function formatRelationValue(path: string): string {
-  const sansMd = path.endsWith('.md') ? path.slice(0, -3) : path
-  return `[[${sansMd}]]`
+  return path.endsWith('.md') ? path : `${path}.md`
 }
 
 /** Last path segment without a `.md`/`.markdown` extension. */

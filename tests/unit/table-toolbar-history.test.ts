@@ -5,7 +5,11 @@ import { tick } from 'svelte'
 // Mock window.api on the real jsdom window before store imports
 const mockApi = {
   collection: vi.fn(),
-  listTableViews: vi.fn().mockResolvedValue([])
+  listTableViews: vi.fn().mockResolvedValue([]),
+  getDefaultTableColumns: vi.fn().mockResolvedValue(null),
+  saveDefaultTableColumns: vi
+    .fn()
+    .mockImplementation((_collection, _folder, columns) => Promise.resolve(columns))
 }
 Object.defineProperty(window, 'api', { value: mockApi, writable: true })
 
@@ -87,5 +91,56 @@ describe('TableToolbar undo/redo controls', () => {
     tableHistory.setNotice(tabId, 'Undo skipped — "status" changed outside this table')
     await tick()
     expect(screen.getByText(/Undo skipped/)).toBeTruthy()
+  })
+
+  it('shows the hidden-field count and offers one action to reveal every field', async () => {
+    mockApi.collection.mockResolvedValue({
+      scope: 'docs/',
+      recursive: false,
+      columns: [
+        {
+          name: 'author',
+          field_type: 'String',
+          description: null,
+          occurrence_count: 1,
+          sample_values: [],
+          allowed_values: null,
+          required: false,
+          in_schema: true
+        },
+        {
+          name: 'status',
+          field_type: 'String',
+          description: null,
+          occurrence_count: 1,
+          sample_values: [],
+          allowed_values: null,
+          required: false,
+          in_schema: true
+        }
+      ],
+      rows: [],
+      total_rows: 0,
+      offset: 0
+    })
+    await tableStore.load(tabId, 'c-toolbar-layout', '/root')
+    tableStore.toggleColumnHidden(tabId, 'status')
+    render(TableToolbar, { props: { tabId, onsaveview: () => {} } })
+
+    const columnsButton = screen.getByRole('button', { name: /Columns.*1 hidden/ })
+    expect(columnsButton).toBeTruthy()
+
+    const viewButton = screen.getByRole('button', { name: /^bookmark All fields arrow_drop_down$/ })
+    await fireEvent.click(viewButton)
+    await fireEvent.mouseDown(screen.getByRole('menuitem', { name: /Customize fields.*1 hidden/ }))
+    expect(screen.getByRole('menu', { name: 'Columns' })).toBeTruthy()
+    await fireEvent.mouseDown(
+      screen.getByRole('menuitem', { name: /Show all fields \(1 hidden\)/ })
+    )
+
+    expect(tableStore.visibleColumns(tabId).map((column) => column.name)).toEqual([
+      'author',
+      'status'
+    ])
   })
 })

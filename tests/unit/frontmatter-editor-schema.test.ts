@@ -25,7 +25,9 @@ const mockApi = {
   validateFormula: vi.fn(),
   saveFormula: vi.fn(),
   removeFormula: vi.fn(),
-  showConfirmation: vi.fn()
+  showConfirmation: vi.fn(),
+  listTableViews: vi.fn(),
+  getDefaultTableColumns: vi.fn()
 }
 
 Object.defineProperty(globalThis, 'window', {
@@ -70,6 +72,8 @@ describe('DocumentHeader schema integration', () => {
     documentInfo.set(null)
     mockApi.validateFormula.mockResolvedValue({ valid: true, diagnostics: [] })
     mockApi.showConfirmation.mockResolvedValue(false)
+    mockApi.listTableViews.mockResolvedValue([])
+    mockApi.getDefaultTableColumns.mockResolvedValue(null)
     propertyOpsMock.applyOverlayFieldPatch.mockResolvedValue(undefined)
   })
 
@@ -87,6 +91,36 @@ describe('DocumentHeader schema integration', () => {
     expect(container.querySelector('.dh')).toBeTruthy()
     const keyInput = screen.getByDisplayValue('Hello')
     expect(keyInput).toBeTruthy()
+  })
+
+  it('uses database column order for display without rewriting YAML key order', async () => {
+    mockApi.getDefaultTableColumns.mockResolvedValue([
+      { name: 'author', hidden: false, width: 180, order: 0 },
+      { name: 'status', hidden: false, width: 180, order: 1 }
+    ])
+    const onFrontmatterUpdate = vi.fn()
+    const { container } = render(DocumentHeader, {
+      props: {
+        frontmatterYaml: 'status: draft\nauthor: Ada',
+        onFrontmatterUpdate,
+        schema: null,
+        ...defaultProps
+      }
+    })
+
+    await waitFor(() => {
+      const names = Array.from(
+        container.querySelectorAll<HTMLInputElement>('.dh-properties .pr-key')
+      ).map((input) => input.value)
+      expect(names).toEqual(['author', 'status'])
+    })
+
+    await fireEvent.input(screen.getByLabelText('author value'), {
+      target: { value: 'Grace' }
+    })
+    const yaml = onFrontmatterUpdate.mock.calls.at(-1)?.[0] as string
+    expect(yaml.indexOf('status:')).toBeLessThan(yaml.indexOf('author:'))
+    expect(yaml).toContain('author: Grace')
   })
 
   it('renders <select> for fields with allowed_values', () => {
@@ -841,5 +875,20 @@ describe('DocumentHeader schema integration', () => {
     expect(tiles).toHaveLength(2)
     expect([...tiles].every((tile) => tile.classList.contains('compact'))).toBe(true)
     expect(container.querySelector('.relation-chip')).toBeNull()
+  })
+
+  it('detects a plain Markdown filename list as relations without a schema', () => {
+    const { container } = render(DocumentHeader, {
+      props: {
+        frontmatterYaml:
+          'entries:\n  - what-is-okf.md\n  - validation-rules.md\n  - another-markdown.md',
+        onFrontmatterUpdate: vi.fn(),
+        schema: null,
+        ...defaultProps
+      }
+    })
+
+    expect(container.querySelectorAll('.rel-chip')).toHaveLength(3)
+    expect(container.querySelectorAll('.pr-tag')).toHaveLength(0)
   })
 })

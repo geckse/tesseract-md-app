@@ -20,6 +20,7 @@
   let viewBtnEl: HTMLButtonElement | null = $state(null)
   let groupBtnEl: HTMLButtonElement | null = $state(null)
   let columnsBtnEl: HTMLButtonElement | null = $state(null)
+  let columnsMenuAnchor: HTMLElement | null = $state(null)
 
   let addingRow = $state(false)
   let newRowName = $state('')
@@ -54,16 +55,6 @@
 
   const NONE_ID = '__none__'
 
-  const viewItems = $derived.by<PopoverMenuItem[]>(() => [
-    { id: NONE_ID, label: 'All fields (default)', checked: !tab?.activeViewId },
-    ...savedViews.map((v) => ({
-      id: v.id,
-      label: v.name,
-      icon: v.isDefault ? 'star' : undefined,
-      checked: tab?.activeViewId === v.id
-    }))
-  ])
-
   const groupItems = $derived.by<PopoverMenuItem[]>(() => [
     { id: NONE_ID, label: 'No grouping', checked: !config.groupBy },
     ...allColumns.map((c) => ({
@@ -73,13 +64,50 @@
     }))
   ])
 
-  const columnItems = $derived.by<PopoverMenuItem[]>(() =>
-    allColumns.map((c) => ({
+  const hiddenColumnCount = $derived(allColumns.filter((column) => isHidden(column.name)).length)
+  const layoutError = $derived(tableStore.columnLayoutError(tabId))
+
+  const SHOW_ALL_COLUMNS_ID = '__show_all_columns__'
+  const CUSTOMIZE_FIELDS_ID = '__customize_fields__'
+  const SAVE_VIEW_ID = '__save_view__'
+
+  const viewItems = $derived.by<PopoverMenuItem[]>(() => [
+    { id: NONE_ID, label: 'All fields (default)', checked: !tab?.activeViewId },
+    ...savedViews.map((v) => ({
+      id: v.id,
+      label: v.name,
+      icon: v.isDefault ? 'star' : undefined,
+      checked: tab?.activeViewId === v.id
+    })),
+    {
+      id: CUSTOMIZE_FIELDS_ID,
+      label:
+        hiddenColumnCount === 0
+          ? 'Customize fields…'
+          : `Customize fields… (${hiddenColumnCount} hidden)`,
+      icon: 'view_column',
+      separatorBefore: true
+    },
+    { id: SAVE_VIEW_ID, label: 'Save current as new view…', icon: 'bookmark_add' }
+  ])
+
+  const columnItems = $derived.by<PopoverMenuItem[]>(() => [
+    ...allColumns.map((c) => ({
       id: c.name,
       label: c.name,
       checked: !isHidden(c.name)
-    }))
-  )
+    })),
+    {
+      id: SHOW_ALL_COLUMNS_ID,
+      label:
+        hiddenColumnCount === 0
+          ? 'All fields are visible'
+          : `Show all fields (${hiddenColumnCount} hidden)`,
+      icon: 'visibility',
+      disabled: hiddenColumnCount === 0,
+      separatorBefore: allColumns.length > 0
+    }
+  ])
 
   function toggleMenu(id: MenuId): void {
     openMenu = openMenu === id ? null : id
@@ -90,7 +118,18 @@
   }
 
   function selectView(id: string): void {
+    if (id === CUSTOMIZE_FIELDS_ID) {
+      columnsMenuAnchor = viewBtnEl
+      openMenu = 'columns'
+      return
+    }
+    if (id === SAVE_VIEW_ID) {
+      openMenu = null
+      onsaveview()
+      return
+    }
     workspace.setTableActiveView(tabId, id === NONE_ID ? null : id)
+    openMenu = null
   }
 
   function selectGroupBy(id: string): void {
@@ -102,6 +141,10 @@
   }
 
   function toggleColumnVisible(name: string): void {
+    if (name === SHOW_ALL_COLUMNS_ID) {
+      tableStore.showAllColumns(tabId)
+      return
+    }
     tableStore.toggleColumnHidden(tabId, name)
   }
 
@@ -171,7 +214,9 @@
         items={viewItems}
         ariaLabel="Saved view"
         onselect={selectView}
-        ondismiss={() => (openMenu = null)}
+        ondismiss={() => {
+          if (openMenu === 'view') openMenu = null
+        }}
       />
     {/if}
 
@@ -205,26 +250,46 @@
       aria-haspopup="menu"
       aria-expanded={openMenu === 'columns'}
       title="Show or hide columns"
-      onclick={() => toggleMenu('columns')}
+      onclick={() => {
+        columnsMenuAnchor = columnsBtnEl
+        toggleMenu('columns')
+      }}
     >
       <span class="material-symbols-outlined">view_column</span>
       Columns
+      {#if hiddenColumnCount > 0}
+        <span class="hidden-count" aria-label="{hiddenColumnCount} hidden fields"
+          >{hiddenColumnCount} hidden</span
+        >
+      {/if}
       <span class="material-symbols-outlined caret">arrow_drop_down</span>
     </button>
-    {#if openMenu === 'columns' && columnsBtnEl}
+    {#if openMenu === 'columns' && (columnsMenuAnchor ?? columnsBtnEl)}
       <PopoverMenu
-        anchorEl={columnsBtnEl}
+        anchorEl={(columnsMenuAnchor ?? columnsBtnEl)!}
         items={columnItems}
         ariaLabel="Columns"
         emptyLabel="No fields yet"
         closeOnSelect={false}
         onselect={toggleColumnVisible}
-        ondismiss={() => (openMenu = null)}
+        ondismiss={() => {
+          openMenu = null
+          columnsMenuAnchor = null
+        }}
       />
     {/if}
   </div>
 
   <div class="right">
+    {#if layoutError}
+      <button
+        class="layout-error"
+        title={layoutError}
+        onclick={() => tableStore.retryColumnLayoutSave(tabId)}
+      >
+        Layout not saved · Retry
+      </button>
+    {/if}
     {#if historyNotice}
       <span class="history-notice" role="status" aria-live="polite">{historyNotice.message}</span>
     {/if}
@@ -389,6 +454,14 @@
     background: var(--color-primary-dim);
   }
 
+  .hidden-count {
+    padding: 1px 5px;
+    border-radius: var(--radius-full, 9999px);
+    background: var(--color-primary-dim);
+    color: var(--color-primary);
+    font-size: var(--text-xs, 0.625rem);
+  }
+
   .ghost-btn.accent {
     color: var(--color-primary);
   }
@@ -412,6 +485,25 @@
     text-overflow: ellipsis;
     max-width: 260px;
     animation: notice-in 150ms ease-out;
+  }
+
+  .layout-error {
+    border: 0;
+    padding: 3px 6px;
+    background: transparent;
+    color: var(--color-error);
+    font-size: var(--text-xs, 0.625rem);
+    cursor: pointer;
+  }
+
+  .layout-error:hover,
+  .layout-error:focus-visible {
+    text-decoration: underline;
+  }
+
+  .layout-error:focus-visible {
+    outline: 1px solid var(--color-error);
+    outline-offset: 2px;
   }
 
   @keyframes notice-in {

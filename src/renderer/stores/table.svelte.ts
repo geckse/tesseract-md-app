@@ -225,6 +225,15 @@ class TableStore {
   /** Dedupe guard for lazy `new`-row live-from-disk frontmatter augmentation. */
   private augmenting = new Set<string>()
 
+  /** Last column-layout save failure per tab, surfaced in the table toolbar. */
+  private layoutErrors = $state<Record<string, string | null>>({})
+
+  /** Latest layout per tab, retained so a failed save can be retried explicitly. */
+  private pendingLayouts: Record<string, TableColumnLayout[]> = {}
+
+  /** Width drags write locally on every pointer move but persist only after settling. */
+  private layoutSaveTimers: Record<string, ReturnType<typeof setTimeout>> = {}
+
   constructor() {
     // Single store-level subscription for cross-window edits (multi-window sync).
     // The main process only broadcasts to OTHER windows, so this never echoes
@@ -335,6 +344,10 @@ class TableStore {
         ? tableViewsStore.getById(collectionId, tab.folderPath, tab.activeViewId)
         : tableViewsStore.getDefault(collectionId, tab.folderPath)
       if (view) base = degradeViewConfig(view.config, validCols)
+      if (!tab.activeViewId) {
+        const defaultColumns = tableViewsStore.getDefaultColumns(collectionId, tab.folderPath)
+        if (defaultColumns !== null) base = { ...base, columns: defaultColumns }
+      }
     }
     if (tab.ephemeral) base = { ...base, ...tab.ephemeral }
     // Before the first collection response there is no authoritative schema
@@ -462,6 +475,14 @@ class TableStore {
     delete this.ctx[tabId]
     delete this.inflight[tabId]
     delete this.lastLoaded[tabId]
+    if (this.layoutSaveTimers[tabId]) clearTimeout(this.layoutSaveTimers[tabId])
+    delete this.layoutSaveTimers[tabId]
+    delete this.pendingLayouts[tabId]
+    if (tabId in this.layoutErrors) {
+      const next = { ...this.layoutErrors }
+      delete next[tabId]
+      this.layoutErrors = next
+    }
   }
 
   /** Data columns in display order, honoring layout (hidden/order); Title excluded. */
@@ -973,6 +994,54 @@ class TableStore {
     return seeded
   }
 
+  /** Last persistence error for column layout changes in this tab. */
+  columnLayoutError(tabId: string): string | null {
+    return this.layoutErrors[tabId] ?? null
+  }
+
+  private persistColumnLayout(tabId: string, layout: TableColumnLayout[]): void {
+    const context = this.ctx[tabId]
+    const tab = this.tableTab(tabId)
+    if (!context || !tab) return
+    const plain = layout.map((column) => ({ ...column }))
+    this.pendingLayouts[tabId] = plain
+    this.layoutErrors = { ...this.layoutErrors, [tabId]: null }
+    void tableViewsStore
+      .saveColumnLayout(context.collectionId, tab.folderPath, tab.activeViewId, plain)
+      .then(() => {
+        if (this.pendingLayouts[tabId] === plain) {
+          this.layoutErrors = { ...this.layoutErrors, [tabId]: null }
+        }
+      })
+      .catch((error) => {
+        if (this.pendingLayouts[tabId] !== plain) return
+        this.layoutErrors = {
+          ...this.layoutErrors,
+          [tabId]: error instanceof Error ? error.message : String(error)
+        }
+      })
+  }
+
+  /** Retry the newest failed column-layout save for this tab. */
+  retryColumnLayoutSave(tabId: string): void {
+    const layout = this.pendingLayouts[tabId]
+    if (layout) this.persistColumnLayout(tabId, layout)
+  }
+
+  /** Persist the current layout immediately (used when a width drag ends). */
+  commitColumnLayout(tabId: string): void {
+    if (this.layoutSaveTimers[tabId]) clearTimeout(this.layoutSaveTimers[tabId])
+    delete this.layoutSaveTimers[tabId]
+    this.persistColumnLayout(tabId, this.seededLayout(tabId))
+  }
+
+  private applyColumnLayout(tabId: string, layout: TableColumnLayout[]): void {
+    workspace.setTableEphemeral(tabId, { columns: layout })
+    if (this.layoutSaveTimers[tabId]) clearTimeout(this.layoutSaveTimers[tabId])
+    delete this.layoutSaveTimers[tabId]
+    this.persistColumnLayout(tabId, layout)
+  }
+
   /** Persist a column width into the tab's ephemeral layout (39a polish: resize). */
   setColumnWidth(tabId: string, name: string, width: number): void {
     const clamped = Math.max(80, Math.round(width))
@@ -984,6 +1053,11 @@ class TableStore {
       layout.push({ name, hidden: false, width: clamped, order: layout.length })
     }
     workspace.setTableEphemeral(tabId, { columns: layout })
+    if (this.layoutSaveTimers[tabId]) clearTimeout(this.layoutSaveTimers[tabId])
+    this.layoutSaveTimers[tabId] = setTimeout(() => {
+      delete this.layoutSaveTimers[tabId]
+      this.persistColumnLayout(tabId, this.seededLayout(tabId))
+    }, 300)
   }
 
   /** Toggle a column's visibility without disturbing the display order. */
@@ -995,7 +1069,41 @@ class TableStore {
     } else {
       layout.push({ name, hidden: true, width: 180, order: layout.length })
     }
-    workspace.setTableEphemeral(tabId, { columns: layout })
+    this.applyColumnLayout(tabId, layout)
+  }
+
+  /** Reveal every data column while preserving the current order and widths. */
+  showAllColumns(tabId: string): void {
+    const layout = this.seededLayout(tabId).map((column) => ({ ...column, hidden: false }))
+    this.applyColumnLayout(tabId, layout)
+  }
+
+  /** Move one visible column before/after another and persist the resulting order. */
+  reorderColumn(
+    tabId: string,
+    sourceName: string,
+    targetName: string,
+    position: 'before' | 'after'
+  ): void {
+    if (sourceName === targetName) return
+    const layout = this.seededLayout(tabId)
+    const sourceIndex = layout.findIndex((column) => column.name === sourceName)
+    if (sourceIndex < 0) return
+    const [source] = layout.splice(sourceIndex, 1)
+    const targetIndex = layout.findIndex((column) => column.name === targetName)
+    if (targetIndex < 0) return
+    layout.splice(position === 'after' ? targetIndex + 1 : targetIndex, 0, source)
+    const ordered = layout.map((column, order) => ({ ...column, order }))
+    this.applyColumnLayout(tabId, ordered)
+  }
+
+  /** Keyboard-accessible one-step column move. */
+  moveColumn(tabId: string, name: string, direction: -1 | 1): void {
+    const visible = this.visibleColumns(tabId)
+    const index = visible.findIndex((column) => column.name === name)
+    const target = visible[index + direction]
+    if (index < 0 || !target) return
+    this.reorderColumn(tabId, name, target.name, direction < 0 ? 'before' : 'after')
   }
 }
 

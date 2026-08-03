@@ -236,11 +236,24 @@ export class WatcherManager {
         return
       }
 
-      // Unexpected exit
+      // A non-zero exit before the CLI emitted its first event is a
+      // deterministic startup failure (invalid config, unresolved embedding
+      // space, missing credential, and so on). Retrying the identical command
+      // only spams the renderer and eventually hides the actionable stderr
+      // behind a generic "crashed 5 times" error. Keep crash recovery for a
+      // watcher that had actually reached the running state.
       if (code !== 0) {
-        this.emitError(
-          new Error(`Watcher exited with code ${code}: ${stderrBuf.trim().slice(0, 500)}`)
+        const error = new Error(
+          `Watcher exited with code ${code}: ${stderrBuf.trim().slice(0, 500)}`
         )
+        if (this.state === 'starting') {
+          // Emit the specific error after the state transition so the
+          // renderer's generic state-change fallback cannot overwrite it.
+          this.setState('error')
+          this.emitError(error)
+          return
+        }
+        this.emitError(error)
       }
       this.handleUnexpectedExit()
     })

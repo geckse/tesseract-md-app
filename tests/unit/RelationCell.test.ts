@@ -129,7 +129,7 @@ describe('RelationCell', () => {
     expect(container.querySelector('.rel-chip.broken')).not.toBeNull()
   })
 
-  it('opens the picker in edit mode and commits [[path-sans-.md]] on pick', async () => {
+  it('opens the picker in edit mode and commits a plain .md path on pick', async () => {
     const p = props('', { editing: true })
     render(RelationCell, p.props)
     // The picker is rendered (scoped mode fetches the target folder once).
@@ -159,7 +159,7 @@ describe('RelationCell', () => {
     render(RelationCell, p2.props)
     const option = await screen.findByText('Acme Corp')
     await fireEvent.mouseDown(option)
-    expect(p2.oncommit).toHaveBeenCalledWith('[[clients/acme]]')
+    expect(p2.oncommit).toHaveBeenCalledWith('clients/acme.md')
   })
 
   it('multi-value edit commits the updated array on remove', async () => {

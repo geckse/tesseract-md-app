@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte'
   import { workspace } from '../../stores/workspace.svelte'
   import { tableStore } from '../../stores/table.svelte'
   import { propertyOps } from '../../stores/property-ops.svelte'
@@ -207,6 +208,91 @@
     return d === 'asc' ? 'arrow_upward' : d === 'desc' ? 'arrow_downward' : 'unfold_more'
   }
 
+  // ── Column reorder (pointer drag handle + keyboard arrows) ─────────
+  let headerRow: HTMLDivElement | null = null
+  let draggingColumn = $state<string | null>(null)
+  let dropTarget = $state<{ name: string; position: 'before' | 'after' } | null>(null)
+  let columnDrag: { pointerId: number; source: string; startX: number; moved: boolean } | null =
+    null
+  let previousBodyCursor = ''
+  let previousBodyUserSelect = ''
+
+  function startColumnDrag(e: PointerEvent, name: string): void {
+    if (e.button !== 0 || columnDrag) return
+    e.preventDefault()
+    e.stopPropagation()
+    columnDrag = { pointerId: e.pointerId, source: name, startX: e.clientX, moved: false }
+    draggingColumn = name
+    dropTarget = null
+    previousBodyCursor = document.body.style.cursor
+    previousBodyUserSelect = document.body.style.userSelect
+    document.body.style.cursor = 'grabbing'
+    document.body.style.userSelect = 'none'
+    window.addEventListener('pointermove', moveColumnDrag)
+    window.addEventListener('pointerup', endColumnDrag)
+    window.addEventListener('pointercancel', cancelColumnDrag)
+  }
+
+  function targetAt(clientX: number): { name: string; position: 'before' | 'after' } | null {
+    if (!headerRow || !columnDrag) return null
+    let closest: { name: string; position: 'before' | 'after'; distance: number } | null = null
+    for (const element of headerRow.querySelectorAll<HTMLElement>(
+      '.header-col[data-column-name]'
+    )) {
+      const name = element.dataset.columnName
+      if (!name || name === columnDrag.source) continue
+      const rect = element.getBoundingClientRect()
+      const center = rect.left + rect.width / 2
+      const distance =
+        clientX < rect.left ? rect.left - clientX : clientX > rect.right ? clientX - rect.right : 0
+      if (!closest || distance < closest.distance) {
+        closest = { name, position: clientX < center ? 'before' : 'after', distance }
+      }
+    }
+    return closest ? { name: closest.name, position: closest.position } : null
+  }
+
+  function moveColumnDrag(e: PointerEvent): void {
+    if (!columnDrag || e.pointerId !== columnDrag.pointerId) return
+    e.preventDefault()
+    if (!columnDrag.moved && Math.abs(e.clientX - columnDrag.startX) < 4) return
+    columnDrag.moved = true
+    dropTarget = targetAt(e.clientX)
+  }
+
+  function clearColumnDrag(): void {
+    window.removeEventListener('pointermove', moveColumnDrag)
+    window.removeEventListener('pointerup', endColumnDrag)
+    window.removeEventListener('pointercancel', cancelColumnDrag)
+    document.body.style.cursor = previousBodyCursor
+    document.body.style.userSelect = previousBodyUserSelect
+    columnDrag = null
+    draggingColumn = null
+    dropTarget = null
+  }
+
+  function endColumnDrag(e: PointerEvent): void {
+    if (!columnDrag || e.pointerId !== columnDrag.pointerId) return
+    const source = columnDrag.source
+    const target = dropTarget
+    if (columnDrag.moved && target) {
+      tableStore.reorderColumn(tabId, source, target.name, target.position)
+    }
+    clearColumnDrag()
+  }
+
+  function cancelColumnDrag(e: PointerEvent): void {
+    if (!columnDrag || e.pointerId !== columnDrag.pointerId) return
+    clearColumnDrag()
+  }
+
+  function handleReorderKey(e: KeyboardEvent, name: string): void {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+    e.preventDefault()
+    e.stopPropagation()
+    tableStore.moveColumn(tabId, name, e.key === 'ArrowLeft' ? -1 : 1)
+  }
+
   // ── Column resize (drag the right edge) ──────────────────────────────
   let resizing: { name: string; startX: number; startWidth: number } | null = null
 
@@ -220,6 +306,7 @@
   }
 
   function endResize(): void {
+    if (resizing) tableStore.commitColumnLayout(tabId)
     resizing = null
     document.body.style.cursor = ''
     window.removeEventListener('pointermove', onResizeMove)
@@ -233,9 +320,14 @@
     window.addEventListener('pointermove', onResizeMove)
     window.addEventListener('pointerup', endResize, { once: true })
   }
+
+  onDestroy(() => {
+    if (columnDrag) clearColumnDrag()
+    if (resizing) endResize()
+  })
 </script>
 
-<div class="header-row" role="row">
+<div class="header-row" role="row" bind:this={headerRow}>
   <button
     class="header-cell title-cell sortable"
     role="columnheader"
@@ -256,13 +348,28 @@
   </button>
 
   {#each columns as col (col.name)}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       class="header-col"
+      class:dragging={draggingColumn === col.name}
+      class:drop-before={dropTarget?.name === col.name && dropTarget.position === 'before'}
+      class:drop-after={dropTarget?.name === col.name && dropTarget.position === 'after'}
+      data-column-name={col.name}
       style="width: {tableStore.columnWidth(tabId, col.name)}px; min-width: {tableStore.columnWidth(
         tabId,
         col.name
       )}px;"
     >
+      <button
+        class="drag-handle"
+        title="Drag to reorder {col.name}"
+        aria-label="Reorder {col.name}; use left and right arrow keys"
+        onpointerdown={(e) => startColumnDrag(e, col.name)}
+        onkeydown={(e) => handleReorderKey(e, col.name)}
+        onclick={(e) => e.stopPropagation()}
+      >
+        <span class="material-symbols-outlined" aria-hidden="true">drag_indicator</span>
+      </button>
       <button
         class="header-cell sortable"
         class:unscoped={!col.in_schema}
@@ -406,6 +513,81 @@
     box-sizing: border-box;
   }
 
+  .header-col.dragging {
+    opacity: 0.45;
+  }
+
+  .header-col.drop-before::before,
+  .header-col.drop-after::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    z-index: 3;
+    background: var(--color-primary);
+    pointer-events: none;
+  }
+
+  .header-col.drop-before::before {
+    left: -1px;
+  }
+
+  .header-col.drop-after::after {
+    right: -1px;
+  }
+
+  .drag-handle {
+    position: absolute;
+    top: 50%;
+    left: 2px;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 24px;
+    padding: 0;
+    transform: translateY(-50%);
+    border: 0;
+    border-radius: var(--radius-sm, 4px);
+    background: var(--color-surface);
+    color: var(--color-text-faint);
+    cursor: grab;
+    touch-action: none;
+    opacity: 0.55;
+    transition:
+      opacity var(--transition-fast, 150ms ease),
+      color var(--transition-fast, 150ms ease);
+  }
+
+  .drag-handle:active {
+    cursor: grabbing;
+  }
+
+  .header-col:hover .drag-handle,
+  .drag-handle:focus-visible {
+    opacity: 1;
+  }
+
+  .drag-handle:hover,
+  .drag-handle:focus-visible {
+    color: var(--color-primary);
+  }
+
+  .drag-handle:focus-visible {
+    outline: 1px solid var(--color-primary);
+    outline-offset: -1px;
+  }
+
+  .drag-handle .material-symbols-outlined {
+    font-size: 16px;
+  }
+
+  .header-col > .header-cell {
+    padding-left: 24px;
+  }
+
   .col-menu-btn {
     position: absolute;
     top: 50%;
@@ -515,7 +697,8 @@
     .sortable,
     .sort-icon,
     .col-menu-btn,
-    .resize-handle::after {
+    .resize-handle::after,
+    .drag-handle {
       transition: none;
     }
   }
