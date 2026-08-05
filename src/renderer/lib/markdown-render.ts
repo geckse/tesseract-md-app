@@ -76,7 +76,36 @@ const wikilinkRenderer: TokenizerAndRendererExtension = {
   }
 }
 
-marked.use({ extensions: [mermaidRenderer, wikilinkRenderer] })
+const highlightRenderer: TokenizerAndRendererExtension = {
+  name: 'highlight',
+  level: 'inline',
+  start(src) {
+    const index = src.indexOf('==')
+    return index >= 0 ? index : undefined
+  },
+  tokenizer(src) {
+    const match = /^==(?:\{(\d+)\})?(?!\s)((?:[^=\n]|=(?!=))+?)(?<!\s)==(?!=)/.exec(src)
+    if (!match) return undefined
+
+    const token = {
+      type: 'highlight',
+      raw: match[0],
+      text: match[2],
+      color: match[1] != null ? Number.parseInt(match[1], 10) : null,
+      tokens: []
+    }
+    this.lexer.inline(token.text, token.tokens)
+    return token
+  },
+  renderer(token) {
+    const inner = this.parser.parseInline(token.tokens ?? [])
+    const slot = token.color as number | null
+    if (slot === null || !Number.isInteger(slot)) return `<mark>${inner}</mark>`
+    return `<mark data-color="${slot}" style="--highlight-slot-color: var(--highlight-color-${slot})">${inner}</mark>`
+  }
+}
+
+marked.use({ extensions: [mermaidRenderer, wikilinkRenderer, highlightRenderer] })
 
 /** Basic HTML sanitization to prevent XSS in Electron context. */
 export function sanitizeHtml(html: string): string {

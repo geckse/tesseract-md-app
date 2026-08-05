@@ -266,6 +266,7 @@ export function buildTemplate(
         click: cmd('format.italic')
       },
       { id: 'format.strike', label: 'Strikethrough', click: cmd('format.strike') },
+      { id: 'format.highlight', label: 'Highlight', click: cmd('format.highlight') },
       { id: 'format.code', label: 'Inline Code', click: cmd('format.code') },
       { id: 'format.clear', label: 'Clear Formatting', click: cmd('format.clear') },
       { type: 'separator' },

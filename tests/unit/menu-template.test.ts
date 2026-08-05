@@ -91,6 +91,13 @@ describe('buildTemplate', () => {
     ])
   })
 
+  it('includes a Highlight item in the Format menu', () => {
+    const template = buildTemplate(makeState(), actions)
+    const item = findById(template, 'format.highlight')
+    expect(item).not.toBeNull()
+    expect(item!.label).toBe('Highlight')
+  })
+
   it('omits the app menu on Windows/Linux and adds Help about/updates', () => {
     const template = buildTemplate(makeState({ platform: 'win32' }), actions)
     const labels = template.map((t) => t.label ?? t.role)

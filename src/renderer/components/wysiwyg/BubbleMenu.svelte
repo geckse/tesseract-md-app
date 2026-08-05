@@ -86,6 +86,9 @@
         case 'strike':
           editor.chain().focus().toggleStrike().run()
           break
+        case 'highlight':
+          editor.chain().focus().toggleHighlight().run()
+          break
         case 'link': {
           if (editor.isActive('link')) {
             editor.chain().focus().unsetLink().run()
@@ -144,6 +147,16 @@
     aria-pressed={isActive('strike')}
   >
     <s>S</s>
+  </button>
+  <button
+    class="bubble-btn"
+    class:active={isActive('highlight')}
+    onclick={toggle('highlight')}
+    title="Highlight (⌘⇧H)"
+    aria-label="Highlight"
+    aria-pressed={isActive('highlight')}
+  >
+    <span class="material-symbols-outlined" style="font-size: 16px;">ink_highlighter</span>
   </button>
   <button
     class="bubble-btn"

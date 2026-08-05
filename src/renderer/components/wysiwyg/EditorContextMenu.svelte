@@ -8,6 +8,7 @@
   } from '../../lib/link-navigation'
   import type { MediaEmbed } from '../../lib/media-embed'
   import { workspace } from '../../stores/workspace.svelte'
+  import { valueColorPalette } from '../../stores/value-colors'
 
   interface Props {
     editor: Editor
@@ -37,6 +38,10 @@
   const isItalic = $derived(() => editor.isActive('italic'))
   const isCode = $derived(() => editor.isActive('code'))
   const isStrike = $derived(() => editor.isActive('strike'))
+  const isHighlight = $derived(() => editor.isActive('highlight'))
+  const highlightColor = $derived(
+    () => (editor.getAttributes('highlight').color ?? null) as number | null
+  )
   const isOnMedia = $derived(() => editor.isActive('image') || editor.isActive('mediaEmbed'))
 
   // ── Actions ───────────────────────────────────────────────────────────
@@ -79,6 +84,17 @@
   }
   function handleCode() {
     exec(() => editor.chain().focus().toggleCode().run())
+  }
+  function handleHighlight() {
+    exec(() => editor.chain().focus().toggleHighlight().run())
+  }
+  function handleHighlightColor(slot: number | null) {
+    exec(() =>
+      editor.chain().focus().extendMarkRange('highlight').setHighlight({ color: slot }).run()
+    )
+  }
+  function handleRemoveHighlight() {
+    exec(() => editor.chain().focus().extendMarkRange('highlight').unsetHighlight().run())
   }
   function handleClearFormatting() {
     exec(() => editor.chain().focus().clearNodes().unsetAllMarks().run())
@@ -194,6 +210,9 @@
   }
   function handleOrderedList() {
     exec(() => editor.chain().focus().toggleOrderedList().run())
+  }
+  function handleTaskList() {
+    exec(() => editor.chain().focus().toggleTaskList().run())
   }
   function handleBlockquote() {
     exec(() => editor.chain().focus().toggleBlockquote().run())
@@ -374,12 +393,59 @@
           <span class="material-symbols-outlined">strikethrough_s</span>
           <span class="menu-label">Strikethrough</span>
         </button>
+        <button
+          class="menu-item"
+          class:active={isHighlight()}
+          onclick={handleHighlight}
+          role="menuitem"
+        >
+          <span class="material-symbols-outlined">ink_highlighter</span>
+          <span class="menu-label">Highlight</span>
+          <span class="menu-shortcut">{mod}⇧H</span>
+        </button>
         <button class="menu-item" class:active={isCode()} onclick={handleCode} role="menuitem">
           <span class="material-symbols-outlined">code</span>
           <span class="menu-label">Inline Code</span>
         </button>
       </div>
     </div>
+  {/if}
+
+  {#if isHighlight()}
+    <div class="separator"></div>
+
+    <!-- Highlight color submenu (accent palette, like Select field colors) -->
+    <div class="submenu-trigger" role="menuitem" aria-haspopup="true">
+      <span class="material-symbols-outlined">palette</span>
+      <span class="menu-label">Highlight Color</span>
+      <span class="material-symbols-outlined submenu-arrow">chevron_right</span>
+      <div class="submenu color-submenu">
+        <div class="swatch-grid" role="group" aria-label="Highlight colors">
+          <button
+            class="swatch swatch-default"
+            class:selected={highlightColor() === null}
+            aria-label="Default highlight color"
+            aria-pressed={highlightColor() === null}
+            title="Default (accent)"
+            onclick={() => handleHighlightColor(null)}
+          ></button>
+          {#each $valueColorPalette.colors as color, slot (slot)}
+            <button
+              class="swatch"
+              class:selected={highlightColor() === slot}
+              style="--swatch: {color}"
+              aria-label="Highlight color {slot + 1}"
+              aria-pressed={highlightColor() === slot}
+              onclick={() => handleHighlightColor(slot)}
+            ></button>
+          {/each}
+        </div>
+      </div>
+    </div>
+    <button class="menu-item" onclick={handleRemoveHighlight} role="menuitem">
+      <span class="material-symbols-outlined">format_color_reset</span>
+      <span class="menu-label">Remove Highlight</span>
+    </button>
   {/if}
 
   <div class="separator"></div>
@@ -444,6 +510,15 @@
       >
         <span class="material-symbols-outlined">format_list_numbered</span>
         <span class="menu-label">Numbered List</span>
+      </button>
+      <button
+        class="menu-item"
+        onclick={handleTaskList}
+        class:active={editor.isActive('taskList')}
+        role="menuitem"
+      >
+        <span class="material-symbols-outlined">checklist</span>
+        <span class="menu-label">Todo List</span>
       </button>
       <button
         class="menu-item"
@@ -610,6 +685,52 @@
 
   .submenu-trigger:hover > .submenu {
     display: block;
+  }
+
+  /* ── Highlight color swatches ─────────────────────────── */
+
+  .submenu.color-submenu {
+    min-width: 0;
+    padding: 8px;
+  }
+
+  .swatch-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
+  }
+
+  .swatch {
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 2px solid transparent;
+    border-radius: var(--radius-full, 9999px);
+    background: var(--swatch);
+    cursor: pointer;
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--swatch) 65%, var(--color-border, #27272a));
+    transition: transform var(--transition-fast, 150ms ease);
+  }
+
+  .swatch-default {
+    --swatch: var(--color-primary, #00e5ff);
+  }
+
+  .swatch:hover {
+    transform: scale(1.15);
+  }
+
+  .swatch.selected {
+    border-color: var(--color-surface, #161617);
+    box-shadow:
+      0 0 0 2px var(--color-primary, #00e5ff),
+      0 0 0 3px var(--color-surface, #161617);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .swatch {
+      transition: none;
+    }
   }
 
   /* Flip submenu to left when parent menu is in the right half of the viewport */

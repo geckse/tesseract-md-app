@@ -873,6 +873,9 @@
       case 'format.strike':
         editor.chain().focus().toggleStrike().run()
         break
+      case 'format.highlight':
+        editor.chain().focus().toggleHighlight().run()
+        break
       case 'format.code':
         editor.chain().focus().toggleCode().run()
         break

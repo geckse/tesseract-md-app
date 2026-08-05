@@ -381,6 +381,18 @@
     text-decoration: underline;
   }
 
+  .markdown-body :global(mark) {
+    background-color: color-mix(in srgb, var(--color-primary, #00e5ff) 22%, transparent);
+    color: color-mix(in srgb, var(--color-primary, #00e5ff) 75%, white);
+    border-radius: 2px;
+    padding: 0.05em 0.15em;
+  }
+
+  .markdown-body :global(mark[data-color]) {
+    background-color: color-mix(in srgb, var(--highlight-slot-color) 26%, transparent);
+    color: color-mix(in srgb, var(--highlight-slot-color) 70%, var(--color-text, #e4e4e7));
+  }
+
   .markdown-body :global(code) {
     font-family: var(--font-mono, 'JetBrains Mono', monospace);
     background: var(--color-surface, #161617);

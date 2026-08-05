@@ -122,10 +122,16 @@
 }
 
 .ProseMirror mark {
-  background-color: rgba(250, 204, 21, 0.25);
-  color: #fef08a;
+  background-color: color-mix(in srgb, var(--color-primary, #00e5ff) 22%, transparent);
+  color: color-mix(in srgb, var(--color-primary, #00e5ff) 75%, white);
   border-radius: 2px;
   padding: 0.05em 0.15em;
+}
+
+/* Colored highlights reference their palette slot via an element-level var. */
+.ProseMirror mark[data-color] {
+  background-color: color-mix(in srgb, var(--highlight-slot-color) 26%, transparent);
+  color: color-mix(in srgb, var(--highlight-slot-color) 70%, var(--color-text, #e4e4e7));
 }
 
 .ProseMirror kbd {

@@ -9,6 +9,7 @@ import { CodeBlockLowlight } from '@tiptap/extension-code-block-lowlight'
 import { TaskList, TaskItem } from '@tiptap/extension-list'
 import { createLowlight, common as commonGrammars } from 'lowlight'
 import { Wikilink } from './wikilink-extension'
+import { Highlight } from './highlight-extension'
 import { SlashCommandExtension } from './slash-command-extension'
 import { LinkAutocompleteExtension } from './link-autocomplete-extension'
 import { BlockDragExtension } from './block-drag-extension'
@@ -105,6 +106,7 @@ export function createWysiwygEditor(
       TaskList,
       TaskItem.configure({ nested: true }),
       Wikilink,
+      Highlight,
       SlashCommandExtension,
       LinkAutocompleteExtension.configure({
         collectionPath: options.collectionPath ?? '',
@@ -117,7 +119,9 @@ export function createWysiwygEditor(
         currentFilePath: options.currentFilePath ?? ''
       })
     ],
-    onUpdate: options.onUpdate ? ({ editor: e }) => options.onUpdate!(e) : undefined
+    // Always register a function — passing undefined overrides TipTap's default
+    // and crashes the EventEmitter on the first doc-changing transaction.
+    onUpdate: ({ editor: e }) => options.onUpdate?.(e)
   })
 
   function getMarkdown(): string {

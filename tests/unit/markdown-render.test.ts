@@ -51,3 +51,39 @@ describe('renderMarkdown wikilink support', () => {
     expect(html).toContain('data-wikilink-target="notes/&quot;bad"')
   })
 })
+
+describe('renderMarkdown highlight support', () => {
+  it('renders ==text== as a mark element', () => {
+    const html = renderMarkdown('This is ==important== text')
+    expect(html).toContain('<mark>important</mark>')
+  })
+
+  it('renders nested formatting inside a highlight', () => {
+    const html = renderMarkdown('==with **bold** inside==')
+    expect(html).toContain('<mark>with <strong>bold</strong> inside</mark>')
+  })
+
+  it('leaves unmatched delimiters as plain text', () => {
+    const html = renderMarkdown('a == b compares values')
+    expect(html).not.toContain('<mark>')
+  })
+})
+
+describe('renderMarkdown colored highlight support', () => {
+  it('renders =={N}text== with the slot variable style', () => {
+    const html = renderMarkdown('A =={5}colored== highlight')
+    expect(html).toContain(
+      '<mark data-color="5" style="--highlight-slot-color: var(--highlight-color-5)">colored</mark>'
+    )
+  })
+
+  it('renders uncolored highlights without color styling', () => {
+    const html = renderMarkdown('A ==plain== highlight')
+    expect(html).toContain('<mark>plain</mark>')
+  })
+
+  it('parses nested markdown inside a colored highlight', () => {
+    const html = renderMarkdown('=={2}with **bold**==')
+    expect(html).toContain('<strong>bold</strong>')
+  })
+})

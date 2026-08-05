@@ -73,6 +73,7 @@ const EDITOR_COMMAND_IDS: ReadonlySet<string> = new Set<EditorCommandId>([
   'format.bold',
   'format.italic',
   'format.strike',
+  'format.highlight',
   'format.code',
   'format.clear',
   'format.heading',

@@ -684,7 +684,7 @@
 
   /** Strip common inline markdown markers from the selection (Clear Formatting). */
   function stripInlineMarks(text: string): string {
-    return text.replace(/(\*\*|__|\*|_|~~|`)/g, '')
+    return text.replace(/(\*\*|__|==|\*|_|~~|`)/g, '')
   }
 
   function executeEditorCommand(signal: EditorCommandSignal): void {
@@ -705,6 +705,9 @@
         break
       case 'format.strike':
         applyInlineMark(view, '~~')
+        break
+      case 'format.highlight':
+        applyInlineMark(view, '==')
         break
       case 'format.code':
         applyInlineMark(view, '`')
