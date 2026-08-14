@@ -35,10 +35,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22.22
           cache: npm
@@ -81,10 +81,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Checkout app-specific Tesseract skills
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: geckse/tesseract-md-skills
           path: tesseract-skills
@@ -101,7 +101,7 @@ jobs:
           test -f ../tesseract-skills/plugins/tesseract/.claude-plugin/plugin.json
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22.22
           cache: npm
@@ -229,7 +229,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download verified Linux packages
         uses: actions/download-artifact@v4
@@ -255,7 +255,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download verified Windows packages
         uses: actions/download-artifact@v4

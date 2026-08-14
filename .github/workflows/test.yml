@@ -9,10 +9,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22.22
           cache: npm
@@ -34,16 +34,16 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Checkout app-specific Tesseract skills
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: geckse/tesseract-md-skills
           path: tesseract-skills
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22.22
           cache: npm
@@ -73,7 +73,7 @@ jobs:
 
       - name: Checkout mdvdb CLI source fallback
         if: steps.mdvdb.outcome == 'failure'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: geckse/markdown-vdb
           ref: ${{ vars.MDVDB_REF || 'main' }}
@@ -116,16 +116,16 @@ jobs:
     runs-on: windows-2022
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Checkout app-specific Tesseract skills
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: geckse/tesseract-md-skills
           path: tesseract-skills
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22.22
           cache: npm
@@ -153,7 +153,7 @@ jobs:
 
       - name: Checkout mdvdb CLI source fallback
         if: steps.mdvdb.outcome == 'failure'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: geckse/markdown-vdb
           ref: ${{ vars.MDVDB_REF || 'main' }}
@@ -199,16 +199,16 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Checkout app-specific Tesseract skills
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: geckse/tesseract-md-skills
           path: tesseract-skills
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22.22
           cache: npm
@@ -236,7 +236,7 @@ jobs:
 
       - name: Checkout mdvdb CLI source fallback
         if: steps.mdvdb.outcome == 'failure'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: geckse/markdown-vdb
           ref: ${{ vars.MDVDB_REF || 'main' }}
