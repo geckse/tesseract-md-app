@@ -17,6 +17,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync
 import { tmpdir } from 'node:os'
 
 const appPath = resolve(__dirname, '../../out/main/index.js')
+const modifier = process.platform === 'darwin' ? 'Meta' : 'Control'
 
 function findMdvdbSync(): string {
   const whichCmd = process.platform === 'win32' ? 'where' : 'which'
@@ -137,7 +138,7 @@ test.describe('Table undo/redo @table-undo', () => {
     await expect(window.locator('button[title^="Undo"]')).toBeEnabled()
 
     // Cmd+Z restores the old value on disk and in the grid, and arms redo.
-    await window.keyboard.press('Meta+z')
+    await window.keyboard.press(`${modifier}+z`)
     await expect
       .poll(() => readFileSync(aPath, 'utf-8'), { timeout: 15_000 })
       .toContain('status: draft')
@@ -147,7 +148,7 @@ test.describe('Table undo/redo @table-undo', () => {
     await expect(window.locator('button[title^="Redo"]')).toBeEnabled()
 
     // Cmd+Shift+Z reapplies the edit.
-    await window.keyboard.press('Meta+Shift+z')
+    await window.keyboard.press(`${modifier}+Shift+z`)
     await expect
       .poll(() => readFileSync(aPath, 'utf-8'), { timeout: 15_000 })
       .toContain('status: published')
@@ -182,7 +183,7 @@ test.describe('Table undo/redo @table-undo', () => {
 
     // Cmd+Z recreates the file from the pre-trash snapshot, byte-identical,
     // and the re-ingest returns the row to an editable (non-deleted) state.
-    await window.keyboard.press('Meta+z')
+    await window.keyboard.press(`${modifier}+z`)
     await expect.poll(() => existsSync(filePath), { timeout: 15_000 }).toBe(true)
     expect(readFileSync(filePath, 'utf-8')).toBe(UNDO_ME_CONTENT)
     await expect(window.locator('.row:not(.deleted)', { hasText: 'undo-me' }).first()).toBeVisible({

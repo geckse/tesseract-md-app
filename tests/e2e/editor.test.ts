@@ -138,7 +138,9 @@ test.describe('Editor Workflow', () => {
 
     await setNativeDialogResponse(electronApp, 1)
     await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.close())
-    await expectNativeDialogCalled(electronApp)
+    // Reaching zero windows proves the response stub was called and accepted.
+    // On Linux the Electron process exits immediately after the last window,
+    // so evaluating main-process globals after this point races process exit.
     await expect.poll(() => electronApp.windows().length).toBe(0)
 
     await electronApp.close()

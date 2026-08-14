@@ -96,7 +96,9 @@ test.describe('Collection Management', () => {
 
     await window.locator('.switcher-trigger').click({ button: 'right' })
     const settings = window.locator('.submenu-wrapper', { hasText: 'Settings' })
-    await settings.hover()
+    // Drive the component's hover state directly. Playwright's physical hover
+    // is timing-sensitive under headless X11 and is unrelated to this CSS test.
+    await settings.dispatchEvent('mouseenter')
 
     const provider = window.getByRole('button', { name: 'Embedding Provider' })
     await expect(provider).toBeVisible()
