@@ -155,6 +155,10 @@ app
 let appQuitConfirmed = false
 
 app.on('before-quit', (event) => {
+  if (isE2e) {
+    windowManager.prepareForAutomationQuit()
+    return
+  }
   if (!appQuitConfirmed && windowManager.getAllWindows().length > 0) {
     event.preventDefault()
     windowManager.requestAppQuit(() => {

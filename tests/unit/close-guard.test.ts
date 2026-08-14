@@ -240,6 +240,20 @@ describe('dirty-close guard', () => {
     expect(resume).toHaveBeenCalledOnce()
   })
 
+  it('lets explicit automation teardown close every window immediately', () => {
+    const first = wm.createWindow()
+    const second = wm.createWindow()
+
+    wm.prepareForAutomationQuit()
+    first.close()
+    second.close()
+
+    expect(first.isDestroyed()).toBe(true)
+    expect(second.isDestroyed()).toBe(true)
+    expect(first.webContents.send).not.toHaveBeenCalledWith('app:close-request')
+    expect(second.webContents.send).not.toHaveBeenCalledWith('app:close-request')
+  })
+
   it('does not resume application quit after a renderer cancels', () => {
     const win = wm.createWindow()
     const resume = vi.fn()

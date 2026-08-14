@@ -224,6 +224,22 @@ export class WindowManager {
     }
   }
 
+  /**
+   * Let an explicit automation teardown close every window without waiting for
+   * renderer confirmation. Playwright initiates shutdown with app.quit(); on
+   * Windows, intercepting that quit and starting a second guarded quit leaves
+   * Electron's debugging process tree alive. Native window-close behavior is
+   * still guarded because this is called only from the explicit E2E quit path.
+   */
+  prepareForAutomationQuit(): void {
+    this.resumeAppQuit = null
+    for (const win of this.getAllWindows()) {
+      const id = win.webContents.id
+      this.clearCloseTimer(id)
+      this.forceClose.add(id)
+    }
+  }
+
   /** Cancel a pending application quit when any renderer keeps its window open. */
   cancelAppQuit(): void {
     this.resumeAppQuit = null
