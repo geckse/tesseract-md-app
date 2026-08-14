@@ -23,6 +23,10 @@ process.env['TESSERACT_E2E_AUTO_CREATE_EXAMPLE'] = hasMdvdbOnPath() ? '1' : '0'
 export default defineConfig({
   testDir: './tests/e2e',
   timeout: 30000,
+  // Electron 43 reserves substantially more virtual memory per process. Keep
+  // concurrent desktop instances bounded so macOS and Windows runners do not
+  // abort launches under resource pressure.
+  workers: process.env['CI'] ? 2 : 4,
   retries: 0,
   use: {
     trace: 'on-first-retry'

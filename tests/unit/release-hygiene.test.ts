@@ -16,9 +16,10 @@ describe('release hygiene', () => {
     expect(existsSync(join(appRoot, 'LICENSE'))).toBe(true)
   })
 
-  it('supports macOS 11 and later', () => {
+  it("declares Electron 43's macOS 12 compatibility floor", () => {
     const pkg = JSON.parse(readFileSync(join(appRoot, 'package.json'), 'utf8'))
-    expect(pkg.build.mac.minimumSystemVersion).toBe('11.0')
+    expect(pkg.build.mac.minimumSystemVersion).toBe('12.0')
+    expect(pkg.devDependencies.electron).toBe('43.4.0')
   })
 
   it('requires signed production macOS builds and keeps unsigned builds explicit', () => {
@@ -48,12 +49,46 @@ describe('release hygiene', () => {
     expect(workflow).toContain('default: mac')
     expect(workflow).toContain('fail-fast: false')
     expect(workflow).toContain("github.event_name == 'push'")
-    expect(workflow).toContain('tag builds publish only the signed and notarized macOS artifacts')
+    expect(workflow).toContain('signed macOS and Windows artifacts')
     expect(workflow).toContain("MACOS_RELEASE_BUILD: 'true'")
     expect(workflow).toContain('Authority=Developer ID Application:')
     expect(workflow).toContain('codesign --verify --deep --strict')
     expect(workflow).toContain('xcrun stapler validate')
     expect(workflow).toContain('spctl --assess --type execute')
+  })
+
+  it('gates Windows releases on native E2E, signing, package launch, and clean install', () => {
+    const pkg = JSON.parse(readFileSync(join(appRoot, 'package.json'), 'utf8'))
+    const buildWorkflow = readFileSync(join(appRoot, '.github/workflows/build-app.yml'), 'utf8')
+    const testWorkflow = readFileSync(join(appRoot, '.github/workflows/test.yml'), 'utf8')
+    const signingConfig = readFileSync(
+      join(appRoot, 'scripts/electron-builder.windows.cjs'),
+      'utf8'
+    )
+    const verifier = readFileSync(join(appRoot, 'scripts/verify-windows-artifacts.ps1'), 'utf8')
+    const windowsE2e = testWorkflow.slice(
+      testWorkflow.indexOf('  e2e-win:'),
+      testWorkflow.indexOf('  e2e-linux:')
+    )
+
+    expect(pkg.scripts.postinstall).toContain('node_modules/electron/install.js')
+    expect(pkg.scripts['build:win']).toContain('electron-builder.windows.cjs')
+    expect(windowsE2e.split('\n').slice(0, 3)).toEqual([
+      '  e2e-win:',
+      '    runs-on: windows-2022',
+      '    steps:'
+    ])
+    expect(windowsE2e).toContain('cargo build --locked --release --no-default-features')
+    expect(windowsE2e).toContain('npm run test:integration')
+    expect(buildWorkflow).toContain('WINDOWS_RELEASE_BUILD')
+    expect(buildWorkflow).toContain('AZURE_ARTIFACT_SIGNING_ENDPOINT')
+    expect(buildWorkflow).toContain('windows-clean-install-smoke:')
+    expect(buildWorkflow).toContain("'-InstallNsis'")
+    expect(signingConfig).toContain('config.forceCodeSigning = true')
+    expect(signingConfig).toContain('azureSignOptions')
+    expect(verifier).toContain('Get-AuthenticodeSignature')
+    expect(verifier).toContain('Assert-X64PortableExecutable')
+    expect(verifier).toContain("Start-AppSmoke $installedApplication 'Installed NSIS application'")
   })
 
   it('builds and verifies non-publishing Linux packages on Ubuntu 22.04 and 24.04', () => {
@@ -83,6 +118,7 @@ describe('release hygiene', () => {
     const linuxJob = workflow.slice(workflow.indexOf('  e2e-linux:'))
     expect(major > 1 || (major === 1 && minor >= 59)).toBe(true)
     expect(playwrightConfig).toContain("delete process.env['ELECTRON_RUN_AS_NODE']")
+    expect(playwrightConfig).toContain("workers: process.env['CI'] ? 2 : 4")
     expect(linuxJob.split('\n').slice(0, 3)).toEqual([
       '  e2e-linux:',
       '    runs-on: ubuntu-22.04',

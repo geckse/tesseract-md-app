@@ -13,7 +13,7 @@
   "private": true,
   "main": "./out/main/index.js",
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=22.13.0"
   },
   "scripts": {
     "dev": "electron-vite dev",
@@ -27,10 +27,10 @@
     "lint": "eslint . --max-warnings=0 && prettier --check .",
     "lint:fix": "eslint --fix . && prettier --write .",
     "typecheck": "tsc --noEmit",
-    "postinstall": "electron-builder install-app-deps && node scripts/fix-pty-permissions.js",
+    "postinstall": "node node_modules/electron/install.js && electron-builder install-app-deps && node scripts/fix-pty-permissions.js",
     "build:mac": "electron-vite build && MACOS_RELEASE_BUILD=true electron-builder --mac --publish never",
     "build:mac:unsigned": "electron-vite build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --publish never -c.mac.identity=null -c.mac.forceCodeSigning=false",
-    "build:win": "electron-vite build && electron-builder --win",
+    "build:win": "electron-vite build && electron-builder --config scripts/electron-builder.windows.cjs --win --x64 --publish never",
     "build:linux": "electron-vite build && electron-builder --linux",
     "build:all": "electron-vite build && electron-builder --mac --win --linux",
     "publish": "electron-vite build && electron-builder --mac --win --linux --publish always"
@@ -97,7 +97,7 @@
     "@types/node": "^22.10.5",
     "@types/three": "^0.183.1",
     "axe-core": "^4.10.3",
-    "electron": "^39.2.6",
+    "electron": "43.4.0",
     "electron-builder": "^26.0.12",
     "electron-vite": "^3.1.0",
     "eslint": "^9.18.0",
@@ -159,7 +159,7 @@
           ]
         }
       ],
-      "minimumSystemVersion": "11.0",
+      "minimumSystemVersion": "12.0",
       "category": "public.app-category.developer-tools",
       "icon": "resources/icon.png",
       "hardenedRuntime": true,

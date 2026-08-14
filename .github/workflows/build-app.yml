@@ -5,9 +5,9 @@ on:
     tags:
       - 'v*'
   # Manual smoke builds default to one platform and use --publish never, so
-  # packaging can be verified without cutting a release. During the macOS-first
-  # rollout, tag builds publish only the signed and notarized macOS artifacts;
-  # Linux stays non-publishing until its clean-machine checklist is green.
+  # packaging can be verified without cutting a release. Tag builds publish
+  # signed macOS and Windows artifacts; Linux stays non-publishing until its
+  # release/publishing policy is enabled explicitly.
   workflow_dispatch:
     inputs:
       platform:
@@ -20,6 +20,11 @@ on:
           - win
           - linux
           - all
+      sign_windows:
+        description: Sign a manual Windows smoke build with Azure Artifact Signing
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -35,7 +40,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22.12
+          node-version: 22.22
           cache: npm
           cache-dependency-path: package-lock.json
 
@@ -62,14 +67,14 @@ jobs:
       matrix: >-
         ${{ fromJSON(
           github.event_name == 'push' &&
-          '{"include":[{"os":"macos-latest","platform":"mac"}]}' ||
+          '{"include":[{"os":"macos-latest","platform":"mac"},{"os":"windows-2022","platform":"win"}]}' ||
           github.event_name == 'workflow_dispatch' && inputs.platform == 'mac' &&
           '{"include":[{"os":"macos-latest","platform":"mac"}]}' ||
           github.event_name == 'workflow_dispatch' && inputs.platform == 'win' &&
-          '{"include":[{"os":"windows-latest","platform":"win"}]}' ||
+          '{"include":[{"os":"windows-2022","platform":"win"}]}' ||
           github.event_name == 'workflow_dispatch' && inputs.platform == 'linux' &&
           '{"include":[{"os":"ubuntu-22.04","platform":"linux"}]}' ||
-          '{"include":[{"os":"macos-latest","platform":"mac"},{"os":"windows-latest","platform":"win"},{"os":"ubuntu-22.04","platform":"linux"}]}'
+          '{"include":[{"os":"macos-latest","platform":"mac"},{"os":"windows-2022","platform":"win"},{"os":"ubuntu-22.04","platform":"linux"}]}'
         ) }}
 
     runs-on: ${{ matrix.os }}
@@ -98,7 +103,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22.12
+          node-version: 22.22
           cache: npm
           cache-dependency-path: package-lock.json
 
@@ -108,8 +113,7 @@ jobs:
       - name: Build with electron-vite
         run: npx electron-vite build
 
-      # Signing/notarization secrets are scoped to the mac leg ONLY.
-      # win (unsigned beta) and linux get nothing but GH_TOKEN.
+      # Signing/notarization secrets are scoped to the mac leg only.
       - name: Build Electron app (mac, signed + notarized)
         if: matrix.platform == 'mac'
         env:
@@ -139,11 +143,57 @@ jobs:
             spctl --assess --type execute --verbose=4 "$app_path"
           done
 
-      - name: Build Electron app (Windows beta)
-        if: matrix.platform == 'win'
+      - name: Build Electron app (Windows unsigned smoke)
+        if: >-
+          matrix.platform == 'win' &&
+          github.event_name == 'workflow_dispatch' &&
+          !inputs.sign_windows
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --win --publish never
+        run: npx electron-builder --config scripts/electron-builder.windows.cjs --win --x64 --publish never
+
+      - name: Build Electron app (Windows signed)
+        if: >-
+          matrix.platform == 'win' &&
+          (github.event_name == 'push' || inputs.sign_windows)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WINDOWS_RELEASE_BUILD: 'true'
+          WINDOWS_PUBLISHER_NAME: ${{ vars.WINDOWS_PUBLISHER_NAME }}
+          AZURE_ARTIFACT_SIGNING_ENDPOINT: ${{ vars.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+          AZURE_ARTIFACT_SIGNING_ACCOUNT_NAME: ${{ vars.AZURE_ARTIFACT_SIGNING_ACCOUNT_NAME }}
+          AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE_NAME: ${{ vars.AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE_NAME }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        run: npx electron-builder --config scripts/electron-builder.windows.cjs --win --x64 --publish ${{ github.event_name == 'push' && 'always' || 'never' }}
+
+      - name: Verify Windows NSIS and ZIP packages
+        if: matrix.platform == 'win'
+        env:
+          REQUIRE_WINDOWS_SIGNATURE: ${{ github.event_name == 'push' || inputs.sign_windows }}
+          WINDOWS_PUBLISHER_NAME: ${{ vars.WINDOWS_PUBLISHER_NAME }}
+        shell: pwsh
+        run: |
+          $arguments = @('-ArtifactDirectory', 'dist')
+          if ($env:REQUIRE_WINDOWS_SIGNATURE -eq 'true') {
+            $arguments += '-RequireSignature'
+            $arguments += @('-ExpectedPublisher', $env:WINDOWS_PUBLISHER_NAME)
+          }
+          & scripts/verify-windows-artifacts.ps1 @arguments
+
+      - name: Upload verified Windows packages
+        if: matrix.platform == 'win'
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-windows-x64
+          path: |
+            dist/*.exe
+            dist/*.zip
+            dist/latest.yml
+            dist/*.blockmap
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Build Electron app (Linux x64 smoke)
         if: matrix.platform == 'linux'
@@ -191,3 +241,37 @@ jobs:
         env:
           INSTALL_DEB: 'true'
         run: scripts/verify-linux-artifacts.sh dist amd64
+
+  windows-clean-install-smoke:
+    name: Verify Windows installer on a clean runner
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' &&
+      (inputs.platform == 'win' || inputs.platform == 'all'))
+    needs: build
+    runs-on: windows-2022
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download verified Windows packages
+        uses: actions/download-artifact@v4
+        with:
+          name: app-windows-x64
+          path: dist
+
+      - name: Install and launch NSIS package
+        env:
+          REQUIRE_WINDOWS_SIGNATURE: ${{ github.event_name == 'push' || inputs.sign_windows }}
+          WINDOWS_PUBLISHER_NAME: ${{ vars.WINDOWS_PUBLISHER_NAME }}
+        shell: pwsh
+        run: |
+          $arguments = @('-ArtifactDirectory', 'dist', '-InstallNsis')
+          if ($env:REQUIRE_WINDOWS_SIGNATURE -eq 'true') {
+            $arguments += '-RequireSignature'
+            $arguments += @('-ExpectedPublisher', $env:WINDOWS_PUBLISHER_NAME)
+          }
+          & scripts/verify-windows-artifacts.ps1 @arguments
