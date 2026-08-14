@@ -54,7 +54,10 @@ describe('isIgnoredPath', () => {
   const dir = { isFile: () => false, isDirectory: () => true } as unknown as Stats
 
   it.each([
-    ['/vault/.markdownvdb/index', true],
+    ['/vault/.markdownvdb', false],
+    ['/vault/.markdownvdb/index', false],
+    ['/vault/.markdownvdb/index.lock', true],
+    ['/vault/.markdownvdb/fts/meta.json', true],
     ['/vault/.git/HEAD', true],
     ['/vault/.obsidian/app.json', true],
     ['/vault/node_modules/pkg/readme.md', true],
@@ -111,6 +114,7 @@ describe('VaultWatcher', () => {
     expect(batches).toHaveLength(1)
     expect(batches[0].root).toBe(ROOT)
     expect(batches[0].overflow).toBe(false)
+    expect(batches[0].indexChanged).toBe(false)
     const byPath = new Map(batches[0].events.map((e) => [e.path, e]))
     // add + change merge into a single 'created'
     expect(byPath.get('a.md')?.kind).toBe('created')
@@ -118,6 +122,22 @@ describe('VaultWatcher', () => {
     expect(byPath.get('a.md')?.fileKind).toBe('markdown')
     expect(byPath.get('b.md')?.kind).toBe('modified')
     expect(batches[0].events).toHaveLength(2)
+  })
+
+  it('reports index replacement without exposing an internal tree event', async () => {
+    const { batches } = await startedWatcher()
+
+    fake.emit('all', 'change', '/vault/.markdownvdb/index', fileStats(42))
+    await vi.advanceTimersByTimeAsync(100)
+
+    expect(batches).toEqual([
+      {
+        root: ROOT,
+        events: [],
+        indexChanged: true,
+        overflow: false
+      }
+    ])
   })
 
   it('drops created+deleted pairs and folds deleted+created into modified', async () => {

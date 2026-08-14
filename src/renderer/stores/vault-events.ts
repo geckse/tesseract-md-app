@@ -1,7 +1,7 @@
 import { writable, get } from 'svelte/store'
 import type { VaultEventBatch, VaultFileEvent, VaultWatcherStatus } from '../../preload/api'
 import { activeCollection } from './collections'
-import { loadFileTree, loadAssetTree, routeVaultEventToTree } from './files'
+import { loadFileTree, loadAssetTree, routeVaultEventToTree, scheduleTreeResync } from './files'
 import { refreshCollectionStatus } from './watcher'
 import { refreshGraphData } from './graph'
 
@@ -64,6 +64,16 @@ export function handleVaultEventBatch(batch: VaultEventBatch): void {
         handler(event)
       }
     }
+  }
+
+  if (batch.indexChanged) {
+    // Raw file events are patched on a short queue. Schedule the authoritative
+    // CLI tree reload after that queue has drained so an earlier "modified"
+    // event cannot overwrite the freshly indexed state. This also catches
+    // ingest/reindex commands launched outside the app.
+    scheduleTreeResync()
+    void refreshCollectionStatus()
+    refreshGraphData().catch(() => {})
   }
 }
 

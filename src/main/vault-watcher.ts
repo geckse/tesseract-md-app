@@ -45,6 +45,9 @@ const TEMP_SUFFIXES = ['~', '.tmp', '.swp', '.swx', '.crswap', '.part']
 
 const MARKDOWN_RE = /\.(md|markdown)$/i
 
+/** The CLI persists this file atomically after every successful ingest. */
+const INDEX_RELATIVE_PATH = '.markdownvdb/index'
+
 /** Resolve symlinks to the canonical path so macOS FSEvents matches events. */
 async function canonicalize(p: string): Promise<string> {
   try {
@@ -64,6 +67,14 @@ export function isIgnoredPath(root: string, absPath: string, stats?: Stats): boo
   if (rel === '') return false
   // Outside the root (shouldn't happen) — ignore defensively
   if (rel.startsWith('..')) return true
+
+  // Let chokidar traverse the internal directory and observe the one file
+  // whose replacement tells the renderer that an external CLI ingest ended.
+  // handleRawEvent consumes both paths internally, so neither can appear in
+  // the user-facing collection tree.
+  const relPosix = rel.split(sep).join('/')
+  if (relPosix === '.markdownvdb' || relPosix === INDEX_RELATIVE_PATH) return false
+  if (relPosix.startsWith('.markdownvdb/')) return true
 
   const segments = rel.split(sep)
   for (const segment of segments) {
@@ -117,6 +128,7 @@ export class VaultWatcher {
   private errorMessage: string | undefined
 
   private pending = new Map<string, VaultFileEvent>()
+  private indexChanged = false
   private overflow = false
   private flushTimer: ReturnType<typeof setTimeout> | null = null
   private firstEnqueueTs: number | null = null
@@ -276,6 +288,16 @@ export class VaultWatcher {
     if (relNative === '' || relNative.startsWith('..')) return
     const rel = relNative.split(sep).join('/')
 
+    // The index is an internal synchronization signal, never a tree node.
+    // Its atomic replacement is observable for both app-launched and external
+    // `mdvdb ingest` / `mdvdb ingest --reindex` processes.
+    if (rel === INDEX_RELATIVE_PATH) {
+      this.indexChanged = true
+      this.scheduleFlush()
+      return
+    }
+    if (rel === '.markdownvdb') return
+
     // Final extension filter — the ignored() predicate can be consulted
     // without stats, so unknown file types may reach us here.
     const name = rel.split('/').pop() ?? rel
@@ -341,8 +363,9 @@ export class VaultWatcher {
     }
     this.firstEnqueueTs = null
 
-    if (this.pending.size === 0 || !this.root) {
+    if ((this.pending.size === 0 && !this.indexChanged) || !this.root) {
       this.pending.clear()
+      this.indexChanged = false
       this.overflow = false
       return
     }
@@ -351,9 +374,11 @@ export class VaultWatcher {
     const batch: VaultEventBatch = {
       root: this.root,
       events,
+      indexChanged: this.indexChanged,
       overflow: this.overflow
     }
     this.pending.clear()
+    this.indexChanged = false
     this.overflow = false
 
     for (const cb of this.batchCallbacks) {

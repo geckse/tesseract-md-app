@@ -1118,6 +1118,8 @@ export interface VaultEventBatch {
   /** Absolute collection root the watcher was watching — consumers filter on this. */
   root: string
   events: VaultFileEvent[]
+  /** True when the persisted CLI index changed (including an external ingest/reindex). */
+  indexChanged: boolean
   /** True when the burst exceeded the batch cap: events is truncated; consumers must resync. */
   overflow: boolean
 }

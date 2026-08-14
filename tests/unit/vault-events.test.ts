@@ -4,10 +4,12 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 const routeVaultEventToTree = vi.fn()
 const loadFileTree = vi.fn().mockResolvedValue(undefined)
 const loadAssetTree = vi.fn().mockResolvedValue(undefined)
+const scheduleTreeResync = vi.fn()
 vi.mock('../../src/renderer/stores/files', () => ({
   routeVaultEventToTree: (...a: unknown[]) => routeVaultEventToTree(...a),
   loadFileTree: (...a: unknown[]) => loadFileTree(...a),
-  loadAssetTree: (...a: unknown[]) => loadAssetTree(...a)
+  loadAssetTree: (...a: unknown[]) => loadAssetTree(...a),
+  scheduleTreeResync: (...a: unknown[]) => scheduleTreeResync(...a)
 }))
 
 const refreshCollectionStatus = vi.fn().mockResolvedValue(undefined)
@@ -40,7 +42,7 @@ function ev(over: Partial<VaultFileEvent> = {}): VaultFileEvent {
 }
 
 function batch(events: VaultFileEvent[], over: Partial<VaultEventBatch> = {}): VaultEventBatch {
-  return { root: '/vault', events, overflow: false, ...over }
+  return { root: '/vault', events, indexChanged: false, overflow: false, ...over }
 }
 
 beforeEach(() => {
@@ -86,5 +88,14 @@ describe('handleVaultEventBatch', () => {
     expect(seen).toHaveLength(0)
     // Tree routing still happens
     expect(routeVaultEventToTree).toHaveBeenCalledTimes(1)
+  })
+
+  it('authoritatively refreshes collection views when the CLI index changes', () => {
+    handleVaultEventBatch(batch([], { indexChanged: true }))
+
+    expect(scheduleTreeResync).toHaveBeenCalledTimes(1)
+    expect(refreshCollectionStatus).toHaveBeenCalledTimes(1)
+    expect(refreshGraphData).toHaveBeenCalledTimes(1)
+    expect(routeVaultEventToTree).not.toHaveBeenCalled()
   })
 })
