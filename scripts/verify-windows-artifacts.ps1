@@ -153,13 +153,22 @@ $nativeModules = @(Get-ChildItem -LiteralPath $applicationRoot -Recurse -File -F
 if ($nativeModules.Count -eq 0) {
   throw 'Packaged app contains no native Node modules.'
 }
-if (-not ($nativeModules | Where-Object FullName -Match '[\\/]node-pty[\\/]')) {
-  throw 'Packaged app is missing the node-pty native module.'
+
+# node-pty ships prebuilds for multiple operating systems in one package. Only
+# the win32-x64 binaries are loadable by this artifact and must be x64 PE files.
+$nodePtyX64Modules = @(
+  $nativeModules | Where-Object FullName -Match '[\\/]node-pty[\\/].*[\\/]win32-x64[\\/]'
+)
+if ($nodePtyX64Modules.Count -eq 0) {
+  throw 'Packaged app is missing the win32-x64 node-pty native module.'
 }
-if (-not ($nativeModules | Where-Object FullName -Match '[\\/](sharp|sharp-win32-x64)[\\/]')) {
-  throw 'Packaged app is missing the sharp native module.'
+$sharpX64Modules = @(
+  $nativeModules | Where-Object FullName -Match '[\\/]sharp-win32-x64[\\/]'
+)
+if ($sharpX64Modules.Count -eq 0) {
+  throw 'Packaged app is missing the win32-x64 sharp native module.'
 }
-foreach ($module in $nativeModules) {
+foreach ($module in @($nodePtyX64Modules + $sharpX64Modules)) {
   Assert-X64PortableExecutable $module
 }
 

@@ -91,6 +91,8 @@ describe('release hygiene', () => {
     expect(verifier).toContain('Get-AuthenticodeSignature')
     expect(verifier).toContain('Assert-PortableExecutable $installer')
     expect(verifier).toContain('Assert-X64PortableExecutable')
+    expect(verifier).toContain('win32-x64 node-pty native module')
+    expect(verifier).toContain('win32-x64 sharp native module')
     expect(verifier).toContain("Start-AppSmoke $installedApplication 'Installed NSIS application'")
   })
 
