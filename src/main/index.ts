@@ -161,7 +161,10 @@ app.on('before-quit', (event) => {
     // process attached indefinitely there, so explicit test teardown uses
     // Electron's immediate exit path. Production shutdown is unaffected.
     if (process.platform === 'win32') {
-      app.exit(0)
+      // Let Playwright's Runtime.evaluate(app.quit()) return before exiting;
+      // terminating synchronously here strands its debugger connection.
+      event.preventDefault()
+      setImmediate(() => app.exit(0))
       return
     }
     windowManager.prepareForAutomationQuit()
