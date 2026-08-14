@@ -175,10 +175,10 @@ jobs:
           WINDOWS_PUBLISHER_NAME: ${{ vars.WINDOWS_PUBLISHER_NAME }}
         shell: pwsh
         run: |
-          $arguments = @('-ArtifactDirectory', 'dist')
+          $arguments = @{ ArtifactDirectory = 'dist' }
           if ($env:REQUIRE_WINDOWS_SIGNATURE -eq 'true') {
-            $arguments += '-RequireSignature'
-            $arguments += @('-ExpectedPublisher', $env:WINDOWS_PUBLISHER_NAME)
+            $arguments.RequireSignature = $true
+            $arguments.ExpectedPublisher = $env:WINDOWS_PUBLISHER_NAME
           }
           & scripts/verify-windows-artifacts.ps1 @arguments
 
@@ -269,9 +269,12 @@ jobs:
           WINDOWS_PUBLISHER_NAME: ${{ vars.WINDOWS_PUBLISHER_NAME }}
         shell: pwsh
         run: |
-          $arguments = @('-ArtifactDirectory', 'dist', '-InstallNsis')
+          $arguments = @{
+            ArtifactDirectory = 'dist'
+            InstallNsis = $true
+          }
           if ($env:REQUIRE_WINDOWS_SIGNATURE -eq 'true') {
-            $arguments += '-RequireSignature'
-            $arguments += @('-ExpectedPublisher', $env:WINDOWS_PUBLISHER_NAME)
+            $arguments.RequireSignature = $true
+            $arguments.ExpectedPublisher = $env:WINDOWS_PUBLISHER_NAME
           }
           & scripts/verify-windows-artifacts.ps1 @arguments
