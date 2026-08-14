@@ -1,7 +1,25 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { readFileSync } from 'node:fs'
 import { resolve } from 'path'
 
 const appPath = resolve(__dirname, '../../out/main/index.js')
+
+interface WindowBounds {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+async function readPersistedBounds(
+  electronApp: Awaited<ReturnType<typeof electron.launch>>
+): Promise<WindowBounds> {
+  const userDataPath = await electronApp.evaluate(async ({ app }) => app.getPath('userData'))
+  const config = JSON.parse(readFileSync(resolve(userDataPath, 'config.json'), 'utf8')) as {
+    windowBounds: WindowBounds
+  }
+  return config.windowBounds
+}
 
 test.describe('Window State Persistence', () => {
   test('should load initial window bounds from store', async () => {
@@ -96,35 +114,51 @@ test.describe('Window State Persistence', () => {
     const window = await electronApp.firstWindow()
     await window.waitForLoadState('domcontentloaded')
 
-    // Get initial bounds
-    const initialBounds = await electronApp.evaluate(async ({ BrowserWindow }) => {
-      const win = BrowserWindow.getAllWindows()[0]
-      return win.getBounds()
-    })
+    const { initialBounds, targetBounds } = await electronApp.evaluate(
+      async ({ BrowserWindow, screen }) => {
+        const win = BrowserWindow.getAllWindows()[0]
+        if (win.isMaximized()) win.unmaximize()
 
-    // Resize window (pass values directly)
-    await electronApp.evaluate(async ({ BrowserWindow }, bounds) => {
-      const win = BrowserWindow.getAllWindows()[0]
-      win.setBounds({
-        x: bounds.x,
-        y: bounds.y,
-        width: bounds.width + 100,
-        height: bounds.height + 100
-      })
-    }, initialBounds)
+        const initialBounds = win.getBounds()
+        const workArea = screen.getDisplayMatching(initialBounds).workArea
+        const [minWidth, minHeight] = win.getMinimumSize()
+        const width =
+          initialBounds.width + 100 <= workArea.width
+            ? initialBounds.width + 100
+            : Math.max(minWidth, initialBounds.width - 100)
+        const height =
+          initialBounds.height + 100 <= workArea.height
+            ? initialBounds.height + 100
+            : Math.max(minHeight, initialBounds.height - 100)
+        const targetBounds = {
+          x: Math.max(workArea.x, Math.min(initialBounds.x, workArea.x + workArea.width - width)),
+          y: Math.max(workArea.y, Math.min(initialBounds.y, workArea.y + workArea.height - height)),
+          width,
+          height
+        }
 
-    // Wait for debounce
+        win.setBounds(targetBounds)
+        return { initialBounds, targetBounds }
+      }
+    )
+
+    expect(targetBounds.width).not.toBe(initialBounds.width)
+    expect(targetBounds.height).not.toBe(initialBounds.height)
+
+    // Wait for the window manager's persistence debounce.
     await window.waitForTimeout(1000)
 
-    // Get new bounds
     const newBounds = await electronApp.evaluate(async ({ BrowserWindow }) => {
       const win = BrowserWindow.getAllWindows()[0]
       return win.getBounds()
     })
 
-    // Verify resize happened
-    expect(newBounds.width).toBeGreaterThan(initialBounds.width)
-    expect(newBounds.height).toBeGreaterThan(initialBounds.height)
+    expect(Math.abs(newBounds.width - targetBounds.width)).toBeLessThanOrEqual(2)
+    expect(Math.abs(newBounds.height - targetBounds.height)).toBeLessThanOrEqual(2)
+
+    const persistedBounds = await readPersistedBounds(electronApp)
+    expect(persistedBounds.width).toBe(newBounds.width)
+    expect(persistedBounds.height).toBe(newBounds.height)
 
     await electronApp.close()
   })
@@ -137,35 +171,44 @@ test.describe('Window State Persistence', () => {
     const window = await electronApp.firstWindow()
     await window.waitForLoadState('domcontentloaded')
 
-    // Get initial bounds
-    const initialBounds = await electronApp.evaluate(async ({ BrowserWindow }) => {
-      const win = BrowserWindow.getAllWindows()[0]
-      return win.getBounds()
-    })
+    const { initialBounds, targetBounds } = await electronApp.evaluate(
+      async ({ BrowserWindow, screen }) => {
+        const win = BrowserWindow.getAllWindows()[0]
+        if (win.isMaximized()) win.unmaximize()
 
-    // Move window (pass values directly)
-    await electronApp.evaluate(async ({ BrowserWindow }, bounds) => {
-      const win = BrowserWindow.getAllWindows()[0]
-      win.setBounds({
-        x: bounds.x + 50,
-        y: bounds.y + 50,
-        width: bounds.width,
-        height: bounds.height
-      })
-    }, initialBounds)
+        const initialBounds = win.getBounds()
+        const workArea = screen.getDisplayMatching(initialBounds).workArea
+        const [minWidth, minHeight] = win.getMinimumSize()
+        const width = Math.min(initialBounds.width, Math.max(minWidth, workArea.width - 100))
+        const height = Math.min(initialBounds.height, Math.max(minHeight, workArea.height - 100))
+        const targetBounds = {
+          x: workArea.x + Math.min(50, workArea.width - width),
+          y: workArea.y + Math.min(50, workArea.height - height),
+          width,
+          height
+        }
 
-    // Wait for debounce
+        win.setBounds(targetBounds)
+        return { initialBounds, targetBounds }
+      }
+    )
+
+    expect(targetBounds.x !== initialBounds.x || targetBounds.y !== initialBounds.y).toBe(true)
+
+    // Wait for the window manager's persistence debounce.
     await window.waitForTimeout(1000)
 
-    // Get new bounds
     const newBounds = await electronApp.evaluate(async ({ BrowserWindow }) => {
       const win = BrowserWindow.getAllWindows()[0]
       return win.getBounds()
     })
 
-    // Verify move happened (allowing small variance)
-    expect(Math.abs(newBounds.x - (initialBounds.x + 50))).toBeLessThanOrEqual(2)
-    expect(Math.abs(newBounds.y - (initialBounds.y + 50))).toBeLessThanOrEqual(2)
+    expect(Math.abs(newBounds.x - targetBounds.x)).toBeLessThanOrEqual(2)
+    expect(Math.abs(newBounds.y - targetBounds.y)).toBeLessThanOrEqual(2)
+
+    const persistedBounds = await readPersistedBounds(electronApp)
+    expect(persistedBounds.x).toBe(newBounds.x)
+    expect(persistedBounds.y).toBe(newBounds.y)
 
     await electronApp.close()
   })
