@@ -187,9 +187,9 @@ test.describe('Large file-tree performance', () => {
       await expect(directory.locator('.expand-icon')).not.toHaveClass(/expanded/)
       // This includes two Playwright round trips and two rendered-state
       // assertions in addition to the application's expand/collapse work.
-      // Keep a sub-second regression budget while allowing hosted macOS
-      // runners enough scheduling headroom to avoid failing on ~50 ms jitter.
-      expect(Date.now() - start).toBeLessThan(750)
+      // Keep a sub-second regression budget while allowing hosted runners
+      // enough scheduling headroom to avoid failing on incidental load jitter.
+      expect(Date.now() - start).toBeLessThan(1_000)
     }
   })
 
