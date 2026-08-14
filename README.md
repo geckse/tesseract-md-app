@@ -178,11 +178,13 @@ mdvdb doctor                          # Diagnostic health check
 
 ### Download
 
-Grab the latest release for your platform:
+The current production release is available for macOS:
 
-- **macOS** — `.dmg`
-- **Windows** — `.exe` installer
-- **Linux** — `.AppImage`
+- **Apple Silicon** — arm64 `.dmg` or `.zip`
+- **Intel Mac** — x64 `.dmg` or `.zip`
+
+Windows and Linux remain in beta while their platform-specific signing, packaging, and clean-machine
+checks are completed.
 
 > [Releases on GitHub](https://github.com/geckse/tesseract-md-app/releases)
 
