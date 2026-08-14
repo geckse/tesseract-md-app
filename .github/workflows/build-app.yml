@@ -6,7 +6,8 @@ on:
       - 'v*'
   # Manual smoke builds default to one platform and use --publish never, so
   # packaging can be verified without cutting a release. During the macOS-first
-  # rollout, tag builds publish only the signed and notarized macOS artifacts.
+  # rollout, tag builds publish only the signed and notarized macOS artifacts;
+  # Linux stays non-publishing until its clean-machine checklist is green.
   workflow_dispatch:
     inputs:
       platform:
@@ -67,8 +68,8 @@ jobs:
           github.event_name == 'workflow_dispatch' && inputs.platform == 'win' &&
           '{"include":[{"os":"windows-latest","platform":"win"}]}' ||
           github.event_name == 'workflow_dispatch' && inputs.platform == 'linux' &&
-          '{"include":[{"os":"ubuntu-latest","platform":"linux"}]}' ||
-          '{"include":[{"os":"macos-latest","platform":"mac"},{"os":"windows-latest","platform":"win"},{"os":"ubuntu-latest","platform":"linux"}]}'
+          '{"include":[{"os":"ubuntu-22.04","platform":"linux"}]}' ||
+          '{"include":[{"os":"macos-latest","platform":"mac"},{"os":"windows-latest","platform":"win"},{"os":"ubuntu-22.04","platform":"linux"}]}'
         ) }}
 
     runs-on: ${{ matrix.os }}
@@ -138,8 +139,55 @@ jobs:
             spctl --assess --type execute --verbose=4 "$app_path"
           done
 
-      - name: Build Electron app (${{ matrix.platform }})
-        if: matrix.platform != 'mac'
+      - name: Build Electron app (Windows beta)
+        if: matrix.platform == 'win'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --${{ matrix.platform }} --publish ${{ github.event_name == 'workflow_dispatch' && 'never' || 'always' }}
+        run: npx electron-builder --win --publish never
+
+      - name: Build Electron app (Linux x64 smoke)
+        if: matrix.platform == 'linux'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --linux --x64 --publish never
+
+      - name: Verify Linux AppImage and deb on Ubuntu 22.04
+        if: matrix.platform == 'linux'
+        run: scripts/verify-linux-artifacts.sh dist amd64
+
+      - name: Upload verified Linux packages
+        if: matrix.platform == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-linux-x64
+          path: |
+            dist/*.AppImage
+            dist/*.deb
+            dist/latest-linux*.yml
+          if-no-files-found: error
+          retention-days: 7
+
+  linux-ubuntu-24-smoke:
+    name: Verify Linux packages on Ubuntu 24.04
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      (inputs.platform == 'linux' || inputs.platform == 'all')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download verified Linux packages
+        uses: actions/download-artifact@v4
+        with:
+          name: app-linux-x64
+          path: dist
+
+      - name: Install deb and verify AppImage launch on Ubuntu 24.04
+        env:
+          INSTALL_DEB: 'true'
+        run: scripts/verify-linux-artifacts.sh dist amd64

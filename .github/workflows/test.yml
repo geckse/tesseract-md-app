@@ -86,8 +86,8 @@ jobs:
       - name: Run e2e tests
         run: npm run test:e2e
 
-  # First-time platform runs — allowed to fail while Windows/Linux support is
-  # hardened (P1). Same guard as the mac job for the mdvdb binary.
+  # Windows support is still being hardened (P1), so this job is informative.
+  # It uses the same mdvdb-binary guard as the macOS job.
   e2e-win:
     runs-on: windows-latest
     continue-on-error: true
@@ -136,9 +136,9 @@ jobs:
       - name: Run e2e tests
         run: npm run test:e2e
 
+  # Linux is a release gate and runs on the oldest supported Ubuntu baseline.
   e2e-linux:
-    runs-on: ubuntu-latest
-    continue-on-error: true
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

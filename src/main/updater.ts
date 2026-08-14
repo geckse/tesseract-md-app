@@ -31,6 +31,18 @@ const INITIAL_DELAY_MS = 5_000
 /** Interval between periodic checks (ms) — 6 hours */
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1_000
 
+/**
+ * AppImage updates are unprivileged and checksum-verified by electron-updater.
+ * Debian packages are installed system-wide and must stay under the package
+ * manager's control instead of prompting for an elevated in-app replacement.
+ */
+export function supportsAutomaticUpdates(
+  platform = process.platform,
+  appImagePath = process.env.APPIMAGE
+): boolean {
+  return platform !== 'linux' || Boolean(appImagePath)
+}
+
 export class AppUpdater {
   private state: UpdateState = 'idle'
   private windowManager: WindowManager | null = null
@@ -52,7 +64,7 @@ export class AppUpdater {
 
   /** Start periodic update checks. No-op in dev mode. */
   start(): void {
-    if (is.dev) return
+    if (is.dev || !supportsAutomaticUpdates()) return
 
     this.initialTimer = setTimeout(() => {
       this.checkForUpdates()
@@ -77,7 +89,7 @@ export class AppUpdater {
 
   /** Manually trigger an update check. */
   async checkForUpdates(): Promise<void> {
-    if (is.dev) return
+    if (is.dev || !supportsAutomaticUpdates()) return
     if (this.state === 'checking' || this.state === 'downloading') return
 
     try {
@@ -90,6 +102,7 @@ export class AppUpdater {
 
   /** Start downloading an available update. */
   async downloadUpdate(): Promise<void> {
+    if (!supportsAutomaticUpdates()) return
     if (this.state !== 'available') return
 
     try {
@@ -101,6 +114,7 @@ export class AppUpdater {
 
   /** Install a downloaded update and restart the app. */
   quitAndInstall(): void {
+    if (!supportsAutomaticUpdates()) return
     if (this.state !== 'downloaded') return
     autoUpdater.quitAndInstall()
   }

@@ -28,6 +28,14 @@ describe('release hygiene', () => {
     expect(pkg.scripts['build:mac:unsigned']).toContain('CSC_IDENTITY_AUTO_DISCOVERY=false')
   })
 
+  it('uses the static AppImage runtime and explicit Linux desktop metadata', () => {
+    const pkg = JSON.parse(readFileSync(join(appRoot, 'package.json'), 'utf8'))
+    expect(pkg.build.toolsets.appimage).toBe('1.0.2')
+    expect(pkg.build.linux.target).toEqual(['AppImage', 'deb'])
+    expect(pkg.build.linux.executableArgs).not.toContain('--no-sandbox')
+    expect(pkg.build.linux.desktop.entry.StartupWMClass).toBe(pkg.build.appId)
+  })
+
   it('keeps the runtime application identity aligned with the packaged Bundle ID', () => {
     const pkg = JSON.parse(readFileSync(join(appRoot, 'package.json'), 'utf8'))
     const main = readFileSync(join(appRoot, 'src/main/index.ts'), 'utf8')
@@ -46,6 +54,23 @@ describe('release hygiene', () => {
     expect(workflow).toContain('codesign --verify --deep --strict')
     expect(workflow).toContain('xcrun stapler validate')
     expect(workflow).toContain('spctl --assess --type execute')
+  })
+
+  it('builds and verifies non-publishing Linux packages on Ubuntu 22.04 and 24.04', () => {
+    const workflow = readFileSync(join(appRoot, '.github/workflows/build-app.yml'), 'utf8')
+    expect(workflow).toContain('ubuntu-22.04')
+    expect(workflow).toContain('runs-on: ubuntu-24.04')
+    expect(workflow).toContain('npx electron-builder --linux --x64 --publish never')
+    expect(workflow).toContain('scripts/verify-linux-artifacts.sh dist amd64')
+    expect(workflow).toContain('name: app-linux-x64')
+    expect(workflow).toContain('dist/latest-linux*.yml')
+  })
+
+  it('treats Linux Electron E2E on the compatibility baseline as a release gate', () => {
+    const workflow = readFileSync(join(appRoot, '.github/workflows/test.yml'), 'utf8')
+    const linuxJob = workflow.slice(workflow.indexOf('  e2e-linux:'))
+    expect(linuxJob).toMatch(/^  e2e-linux:\n    runs-on: ubuntu-22\.04\n    steps:/)
+    expect(linuxJob).toContain('xvfb-run --auto-servernum -- npm run test:e2e')
   })
 
   it('loads the ESLint flat config as an ES module', () => {

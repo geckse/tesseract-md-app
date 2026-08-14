@@ -33,7 +33,19 @@ vi.mock('../../src/main/store', () => ({
   })
 }))
 
-import { AppUpdater } from '../../src/main/updater'
+import { AppUpdater, supportsAutomaticUpdates } from '../../src/main/updater'
+
+describe('supportsAutomaticUpdates', () => {
+  it('supports AppImage updates but leaves deb updates to the package manager', () => {
+    expect(supportsAutomaticUpdates('linux', '/home/test/Tesseract.AppImage')).toBe(true)
+    expect(supportsAutomaticUpdates('linux', undefined)).toBe(false)
+  })
+
+  it('keeps the existing updater on macOS and Windows', () => {
+    expect(supportsAutomaticUpdates('darwin', undefined)).toBe(true)
+    expect(supportsAutomaticUpdates('win32', undefined)).toBe(true)
+  })
+})
 
 beforeEach(() => {
   vi.useFakeTimers()

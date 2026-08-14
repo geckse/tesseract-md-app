@@ -138,6 +138,9 @@
     "publish": {
       "provider": "github"
     },
+    "toolsets": {
+      "appimage": "1.0.2"
+    },
     "afterSign": "scripts/notarize.js",
     "mac": {
       "target": [
@@ -184,6 +187,18 @@
       "category": "Development",
       "icon": "resources/icon.png",
       "maintainer": "geckse",
+      "executableArgs": [
+        "--ozone-platform-hint=auto"
+      ],
+      "desktop": {
+        "entry": {
+          "Name": "Tesseract",
+          "Comment": "Markdown editor and knowledge base powered by mdvdb",
+          "Categories": "Development;Office;",
+          "Terminal": false,
+          "StartupWMClass": "md.tesseract.app"
+        }
+      },
       "synopsis": "Markdown editor with semantic search, powered by mdvdb",
       "description": "Tesseract is a desktop markdown editor and knowledge base with semantic, hybrid, and lexical search, graph views, topics/clusters, a database table view, and frontmatter relations, powered by the mdvdb CLI."
     }
