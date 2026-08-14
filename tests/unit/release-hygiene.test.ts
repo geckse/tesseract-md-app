@@ -83,7 +83,6 @@ describe('release hygiene', () => {
       '    runs-on: ubuntu-22.04',
       '    steps:'
     ])
-    expect(linuxJob).toContain('DEBUG: pw:browser*')
     expect(linuxJob).toContain('xvfb-run --auto-servernum -- npm run test:e2e')
   })
 

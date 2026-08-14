@@ -78,6 +78,16 @@ describe('AppUpdater', () => {
       const updater = new AppUpdater()
       expect(updater.getState()).toBe('idle')
     })
+
+    it('does not instantiate the platform updater in dev mode', () => {
+      mockIs.dev = true
+
+      new AppUpdater()
+
+      expect(mockAutoUpdater.autoDownload).toBe(true)
+      expect(mockAutoUpdater.autoInstallOnAppQuit).toBe(false)
+      expect(mockAutoUpdater.eventNames()).toEqual([])
+    })
   })
 
   describe('start', () => {
@@ -121,6 +131,7 @@ describe('AppUpdater', () => {
 
       vi.advanceTimersByTime(60_000)
       expect(mockAutoUpdater.checkForUpdates).not.toHaveBeenCalled()
+      expect(mockAutoUpdater.eventNames()).toEqual([])
     })
   })
 

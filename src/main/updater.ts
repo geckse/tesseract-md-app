@@ -48,8 +48,17 @@ export class AppUpdater {
   private windowManager: WindowManager | null = null
   private checkTimer: ReturnType<typeof setInterval> | null = null
   private initialTimer: ReturnType<typeof setTimeout> | null = null
+  private readonly enabled: boolean
 
   constructor() {
+    // electron-updater constructs its platform backend on first access. In an
+    // unpackaged Linux process Electron reports version "0.0", which the
+    // AppImage updater correctly rejects as invalid semver. Unsupported
+    // runtimes must therefore avoid touching autoUpdater at all, rather than
+    // merely skipping checkForUpdates() later.
+    this.enabled = !is.dev && supportsAutomaticUpdates()
+    if (!this.enabled) return
+
     // Configure electron-updater
     autoUpdater.autoDownload = false
     autoUpdater.autoInstallOnAppQuit = true
@@ -64,7 +73,7 @@ export class AppUpdater {
 
   /** Start periodic update checks. No-op in dev mode. */
   start(): void {
-    if (is.dev || !supportsAutomaticUpdates()) return
+    if (!this.enabled) return
 
     this.initialTimer = setTimeout(() => {
       this.checkForUpdates()
@@ -89,7 +98,7 @@ export class AppUpdater {
 
   /** Manually trigger an update check. */
   async checkForUpdates(): Promise<void> {
-    if (is.dev || !supportsAutomaticUpdates()) return
+    if (!this.enabled) return
     if (this.state === 'checking' || this.state === 'downloading') return
 
     try {
@@ -102,7 +111,7 @@ export class AppUpdater {
 
   /** Start downloading an available update. */
   async downloadUpdate(): Promise<void> {
-    if (!supportsAutomaticUpdates()) return
+    if (!this.enabled) return
     if (this.state !== 'available') return
 
     try {
@@ -114,7 +123,7 @@ export class AppUpdater {
 
   /** Install a downloaded update and restart the app. */
   quitAndInstall(): void {
-    if (!supportsAutomaticUpdates()) return
+    if (!this.enabled) return
     if (this.state !== 'downloaded') return
     autoUpdater.quitAndInstall()
   }
@@ -139,7 +148,7 @@ export class AppUpdater {
   /** Clean up all timers and listeners. */
   destroy(): void {
     this.stop()
-    autoUpdater.removeAllListeners()
+    if (this.enabled) autoUpdater.removeAllListeners()
     this.windowManager = null
   }
 
