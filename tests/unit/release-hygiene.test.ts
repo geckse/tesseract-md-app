@@ -66,6 +66,8 @@ describe('release hygiene', () => {
     expect(workflow).toContain('name: app-linux-x64')
     expect(workflow).toContain('dist/latest-linux*.yml')
     expect(verifier).toContain('if [[ "$module" == *linuxmusl* ]]')
+    expect(verifier).toContain('ELF 64-bit LSB shared object, x86-64')
+    expect(verifier).toContain('Skipping native module for another platform or architecture')
     expect(verifier).toContain('if ((checked_native_modules == 0))')
   })
 

@@ -84,8 +84,18 @@ for module in "${native_modules[@]}"; do
     continue
   fi
 
-  file "$module"
-  dependencies="$(ldd "$module")"
+  module_description="$(file -b "$module")"
+  echo "$module: $module_description"
+  if [[ "$module_description" != *'ELF 64-bit LSB shared object, x86-64'* ]]; then
+    echo "Skipping native module for another platform or architecture: $module"
+    continue
+  fi
+
+  if ! dependencies="$(ldd "$module" 2>&1)"; then
+    printf '%s\n' "$dependencies" >&2
+    echo "Could not inspect native-module dependencies: $module" >&2
+    exit 1
+  fi
   if grep -F 'not found' <<<"$dependencies"; then
     printf '%s\n' "$dependencies" >&2
     echo "Unresolved native-module dependency: $module" >&2
