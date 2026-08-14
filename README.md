@@ -214,9 +214,14 @@ info → Run anyway**.
 
 ### Linux
 
-Linux releases include both an AppImage and a Debian package (`.deb`). Make the AppImage
-executable before launching it (`chmod +x Tesseract-*.AppImage`), or install the Debian package
-with your system package manager. Some distributions may require FUSE for AppImage support.
+Linux releases include both an AppImage and a Debian package (`.deb`). On Ubuntu 24.04 and later,
+use the Debian package: it installs the scoped AppArmor configuration required by Electron's
+Chromium sandbox. Install it with `sudo apt install ./tesseract-app_*.deb`.
+
+The AppImage is supported on Ubuntu 22.04 and distributions that permit unprivileged user
+namespaces. Make it executable before launching it (`chmod +x Tesseract-*.AppImage`). Some
+distributions also require FUSE. Tesseract does not disable Chromium's sandbox automatically;
+do not use `--no-sandbox` as a compatibility workaround.
 
 Tesseract's only network egress is to GitHub for CLI/app release checks and to the embedding
 provider you choose. Your Markdown files and indexes remain local.

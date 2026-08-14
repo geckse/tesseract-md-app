@@ -187,7 +187,7 @@ jobs:
           name: app-linux-x64
           path: dist
 
-      - name: Install deb and verify AppImage launch on Ubuntu 24.04
+      - name: Install and launch deb on Ubuntu 24.04
         env:
           INSTALL_DEB: 'true'
         run: scripts/verify-linux-artifacts.sh dist amd64

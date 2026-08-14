@@ -69,6 +69,9 @@ describe('release hygiene', () => {
     expect(verifier).toContain('ELF 64-bit LSB shared object, x86-64')
     expect(verifier).toContain('Skipping native module for another platform or architecture')
     expect(verifier).toContain('if ((checked_native_modules == 0))')
+    expect(verifier).toContain("smoke_launch 'AppImage' env APPIMAGE_EXTRACT_AND_RUN=1")
+    expect(verifier).toContain("smoke_launch 'Installed deb application' \"$installed_executable\"")
+    expect(workflow).toContain('Install and launch deb on Ubuntu 24.04')
   })
 
   it('treats Linux Electron E2E on the compatibility baseline as a release gate', () => {

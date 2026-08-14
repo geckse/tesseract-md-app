@@ -7,14 +7,14 @@ Test on Ubuntu 22.04 **and** 24.04, on X11 **and** Wayland sessions.
 
 - [ ] `chmod +x Tesseract-*.AppImage` then launch — starts on Ubuntu 22.04 (X11).
 - [ ] Launches on Ubuntu 22.04 (Wayland).
-- [ ] Launches on Ubuntu 24.04 (X11).
-- [ ] Launches on Ubuntu 24.04 (Wayland).
-- [ ] No `chrome-sandbox` SUID error on launch (if it appears, document the `--no-sandbox` / AppArmor profile workaround before release).
+- [ ] On Ubuntu 24.04, exits with the documented sandbox error rather than silently adding `--no-sandbox`; use the deb package there.
+- [ ] No release or desktop metadata injects `--no-sandbox`.
 
 ## deb package
 
 - [ ] `sudo apt install ./tesseract-app_*.deb` installs cleanly (maintainer/description fields present, no dpkg warnings that block install).
-- [ ] App launches from the desktop entry after deb install.
+- [ ] App launches from the desktop entry after deb install on Ubuntu 22.04 (X11 and Wayland).
+- [ ] App launches from the desktop entry after deb install on Ubuntu 24.04 (X11 and Wayland); the package installs its scoped AppArmor profile.
 
 ## Window controls
 

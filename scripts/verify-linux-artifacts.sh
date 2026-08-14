@@ -107,22 +107,27 @@ if ((checked_native_modules == 0)); then
   exit 1
 fi
 
-set +e
-APPIMAGE_EXTRACT_AND_RUN=1 timeout --signal=TERM 20s \
-  xvfb-run --auto-servernum "$appimage" >"$launch_log" 2>&1
-launch_status=$?
-set -e
+smoke_launch() {
+  local label="$1"
+  shift
+  : >"$launch_log"
 
-if ((launch_status != 124)); then
-  cat "$launch_log" >&2
-  echo "AppImage did not remain healthy during launch smoke (exit $launch_status)." >&2
-  exit 1
-fi
-if grep -Eiq 'FATAL|No usable sandbox|error while loading shared libraries|Trace/breakpoint trap' "$launch_log"; then
-  cat "$launch_log" >&2
-  echo 'AppImage emitted a fatal launch error.' >&2
-  exit 1
-fi
+  set +e
+  timeout --signal=TERM 20s xvfb-run --auto-servernum "$@" >"$launch_log" 2>&1
+  local launch_status=$?
+  set -e
+
+  if ((launch_status != 124)); then
+    cat "$launch_log" >&2
+    echo "$label did not remain healthy during launch smoke (exit $launch_status)." >&2
+    exit 1
+  fi
+  if grep -Eiq 'FATAL|No usable sandbox|error while loading shared libraries|Trace/breakpoint trap' "$launch_log"; then
+    cat "$launch_log" >&2
+    echo "$label emitted a fatal launch error." >&2
+    exit 1
+  fi
+}
 
 if [[ "${INSTALL_DEB:-false}" == 'true' ]]; then
   sudo apt-get install -y "$deb"
@@ -131,6 +136,17 @@ if [[ "${INSTALL_DEB:-false}" == 'true' ]]; then
   installed_desktop="$(dpkg-query --listfiles "$package_name" | grep -E '/applications/.*\.desktop$' | head -1)"
   test -n "$installed_desktop"
   test -f "$installed_desktop"
+  installed_executable="$(readlink -f "/usr/bin/$package_name")"
+  test -x "$installed_executable"
+  test -f "$(dirname "$installed_executable")/resources/apparmor-profile"
+  smoke_launch 'Installed deb application' "$installed_executable"
+else
+  # Ubuntu 22.04 allows the unprivileged user namespace Electron uses for its
+  # Chromium sandbox. Ubuntu 24.04 restricts that namespace for unconfined
+  # applications, so its clean-machine gate launches the installed deb above;
+  # electron-builder's deb postinst installs a narrowly scoped AppArmor profile
+  # (and a SUID sandbox fallback) instead of disabling Chromium's sandbox.
+  smoke_launch 'AppImage' env APPIMAGE_EXTRACT_AND_RUN=1 "$appimage"
 fi
 
 echo "Linux packages verified: $(basename "$appimage"), $(basename "$deb")"
