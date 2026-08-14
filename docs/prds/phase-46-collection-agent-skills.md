@@ -4,7 +4,7 @@
 
 Help users make Tesseract collection knowledge available to AI coding agents. When a collection becomes active, the app compares its project-local agent skill folders with the `tesseract-skills` plugin bundled in the app. A banner offers an explicit install or update when no current copy is available.
 
-This is an app-only distribution path. The bundled source is exclusively `tesseract-skills/plugins/tesseract`; the app does not discover or copy the repository's general `/skills` content. The umbrella checkout resolves the sibling subrepo, while standalone app CI checks the same repository out below the app workspace before packaging.
+This is an app-only distribution path. The bundled source is exclusively `tesseract-skills/plugins/tesseract`; the app does not discover or copy the repository's general `/skills` content. The umbrella checkout resolves the sibling subrepo, while standalone app CI stages its skills checkout into that same sibling layout before packaging and verifies the plugin manifest inside the packaged app.
 
 ## Supported project folders
 

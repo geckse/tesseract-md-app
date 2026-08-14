@@ -129,10 +129,6 @@
       {
         "from": "../tesseract-skills/plugins/tesseract",
         "to": "tesseract-skills"
-      },
-      {
-        "from": "tesseract-skills/plugins/tesseract",
-        "to": "tesseract-skills"
       }
     ],
     "asarUnpack": [

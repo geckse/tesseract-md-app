@@ -89,15 +89,17 @@ describe('release hygiene', () => {
       {
         from: '../tesseract-skills/plugins/tesseract',
         to: 'tesseract-skills'
-      },
-      {
-        from: 'tesseract-skills/plugins/tesseract',
-        to: 'tesseract-skills'
       }
     ])
 
     const releaseWorkflow = readFileSync(join(appRoot, '.github/workflows/build-app.yml'), 'utf8')
     expect(releaseWorkflow).toContain('repository: geckse/tesseract-md-skills')
+    expect(releaseWorkflow).toContain(
+      'cp -R tesseract-skills/plugins/tesseract ../tesseract-skills/plugins/'
+    )
+    expect(releaseWorkflow).toContain(
+      '$app_path/Contents/Resources/tesseract-skills/.claude-plugin/plugin.json'
+    )
   })
 
   it('places the collection skills banner immediately above the footer status bar', () => {

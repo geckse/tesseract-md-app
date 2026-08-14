@@ -52,6 +52,9 @@ jobs:
 
   build:
     needs: checks
+    # Two mac architectures are notarized sequentially. This is a final guard
+    # above each submission's explicit 90-minute notary-service timeout.
+    timeout-minutes: 210
     strategy:
       # One platform must never cancel another platform mid-signing/notarization.
       fail-fast: false
@@ -78,6 +81,17 @@ jobs:
           repository: geckse/tesseract-md-skills
           path: tesseract-skills
 
+      # electron-builder resolves the shared umbrella layout from the app's
+      # parent directory. Recreate that layout for this standalone checkout.
+      - name: Stage bundled Tesseract skills
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f tesseract-skills/plugins/tesseract/.claude-plugin/plugin.json
+          mkdir -p ../tesseract-skills/plugins
+          cp -R tesseract-skills/plugins/tesseract ../tesseract-skills/plugins/
+          test -f ../tesseract-skills/plugins/tesseract/.claude-plugin/plugin.json
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -103,6 +117,7 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           MACOS_RELEASE_BUILD: 'true'
+          NOTARIZATION_TIMEOUT_MINUTES: '90'
         run: npx electron-builder --mac --publish ${{ github.event_name == 'workflow_dispatch' && 'never' || 'always' }}
 
       - name: Verify macOS release signature and notarization ticket
@@ -112,6 +127,7 @@ jobs:
         run: |
           set -euo pipefail
           for app_path in dist/mac*/Tesseract.app; do
+            test -f "$app_path/Contents/Resources/tesseract-skills/.claude-plugin/plugin.json"
             signature="$(codesign -dv --verbose=4 "$app_path" 2>&1)"
             grep -F 'Authority=Developer ID Application:' <<<"$signature"
             grep -F "TeamIdentifier=${APPLE_TEAM_ID}" <<<"$signature"
