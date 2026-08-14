@@ -334,9 +334,12 @@ test.describe('Graph collection switching', () => {
       )
       await expect(nestedFolder).toContainText('marketing', { timeout: 15_000 })
       await expect(nestedFolder).toContainText('2')
-      await nestedFolder.click()
+      // Folder labels track the live force simulation and can move between
+      // Playwright's actionability check and pointer dispatch on slower CI
+      // runners. Invoke the real button activation without freezing layout.
+      await nestedFolder.evaluate((element: HTMLButtonElement) => element.click())
       await expect(window.locator('.folder-badge-text')).toHaveText('departments/marketing')
-      await nestedFolder.click()
+      await nestedFolder.evaluate((element: HTMLButtonElement) => element.click())
       await expect(window.locator('.folder-badge-text')).toHaveCount(0)
       expect(shaderErrors).toEqual([])
 
