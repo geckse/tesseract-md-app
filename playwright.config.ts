@@ -27,6 +27,10 @@ export default defineConfig({
   // concurrent desktop instances bounded so macOS and Windows runners do not
   // abort launches under resource pressure.
   workers: process.env['CI'] ? 1 : 4,
+  // A stuck Electron teardown consumes both the test and worker-teardown
+  // budgets. Fail the Windows job after the first such failure so the useful
+  // call site is reported instead of repeating the same lifecycle fault.
+  maxFailures: process.platform === 'win32' && process.env['CI'] ? 1 : 0,
   retries: 0,
   use: {
     trace: 'on-first-retry'

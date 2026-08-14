@@ -4424,9 +4424,20 @@
     backgroundContextMenuOpen = false
   }
 
-  function selectFolderLabel(nodeId: string): void {
+  function selectFolderLabel(nodeId: string, path: string | undefined): void {
     const node = liveNodesById.get(nodeId)
-    if (node && isFolderGraphNode(node)) selectBatchedNode(node)
+    if (node && isFolderGraphNode(node)) {
+      selectBatchedNode(node)
+      return
+    }
+
+    // Labels and the live force-node map are refreshed independently. A label
+    // can remain clickable for one frame after its node is replaced, so keep
+    // the folder-selection action reliable using the path carried by the label.
+    if (path) {
+      selectGraphNode(null)
+      setGraphHighlightedFolder(path)
+    }
   }
 
   function postGraphDragPin(node: ForceNode): void {
@@ -5023,7 +5034,7 @@
                 data-folder-path={lbl.path}
                 title={`${lbl.path ?? lbl.label} · ${lbl.documentCount ?? 0} document${lbl.documentCount === 1 ? '' : 's'}`}
                 style="left: {lbl.x}px; top: {lbl.y}px"
-                onclick={() => selectFolderLabel(lbl.id)}
+                onclick={() => selectFolderLabel(lbl.id, lbl.path)}
               >
                 {lbl.label}
                 <span class="folder-label-count">{lbl.documentCount ?? 0}</span>
