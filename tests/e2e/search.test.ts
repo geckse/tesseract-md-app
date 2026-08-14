@@ -1,3 +1,4 @@
+import { closeElectronApp } from './support/electron-lifecycle'
 import { test, expect, _electron as electron } from '@playwright/test'
 import { resolve } from 'node:path'
 import { waitForExampleCollection } from './support/example-collection'
@@ -27,7 +28,7 @@ test.describe('Search', () => {
     await window.keyboard.press(`${modifier}+k`)
     await expect(input).toBeFocused()
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('returns indexed guide results for a real query', async () => {
@@ -40,7 +41,7 @@ test.describe('Search', () => {
     expect(await results.count()).toBeGreaterThan(0)
     await expect(results.first()).toContainText(/Tesseract|Welcome|Feature/i)
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('opens a result and closes the results panel', async () => {
@@ -53,7 +54,7 @@ test.describe('Search', () => {
     await expect(overlay).not.toBeVisible()
     await expect(window.getByRole('main', { name: 'Editor' })).toBeVisible({ timeout: 10_000 })
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('switches to lexical mode and refreshes results', async () => {
@@ -67,7 +68,7 @@ test.describe('Search', () => {
     await expect(lexical).toHaveClass(/active/)
     await expect(results.first()).toBeVisible({ timeout: 15_000 })
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('closes results with Escape', async () => {
@@ -79,7 +80,7 @@ test.describe('Search', () => {
     await window.keyboard.press('Escape')
     await expect(overlay).not.toBeVisible()
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('supports keyboard result navigation and selection from the results list', async () => {
@@ -97,6 +98,6 @@ test.describe('Search', () => {
     await expect(overlay).not.toBeVisible()
     await expect(window.getByRole('main', { name: 'Editor' })).toBeVisible({ timeout: 10_000 })
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 })

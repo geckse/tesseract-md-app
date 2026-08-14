@@ -1,3 +1,4 @@
+import { closeElectronApp } from './support/electron-lifecycle'
 import { expect, test, _electron as electron } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -126,7 +127,7 @@ test.describe('Graph collection switching', () => {
         window.getByText('No files indexed. Run ingest to build the graph.')
       ).toHaveCount(0)
 
-      await electronApp.close()
+      await closeElectronApp(electronApp)
     } finally {
       rmSync(profile, { recursive: true, force: true })
       rmSync(firstVault, { recursive: true, force: true })
@@ -198,7 +199,7 @@ test.describe('Graph collection switching', () => {
         timeout: 15_000
       })
 
-      await electronApp.close()
+      await closeElectronApp(electronApp)
     } finally {
       rmSync(profile, { recursive: true, force: true })
       rmSync(firstVault, { recursive: true, force: true })
@@ -262,7 +263,7 @@ test.describe('Graph collection switching', () => {
         window.getByText('No files indexed. Run ingest to build the graph.')
       ).toHaveCount(0)
 
-      await electronApp.close()
+      await closeElectronApp(electronApp)
     } finally {
       rmSync(profile, { recursive: true, force: true })
       rmSync(vault, { recursive: true, force: true })
@@ -350,7 +351,7 @@ test.describe('Graph collection switching', () => {
       await expect(window.locator('.folder-badge-text')).toHaveCount(0)
       expect(shaderErrors).toEqual([])
 
-      await electronApp.close()
+      await closeElectronApp(electronApp)
     } finally {
       rmSync(profile, { recursive: true, force: true })
       rmSync(vault, { recursive: true, force: true })

@@ -1,3 +1,4 @@
+import { closeElectronApp } from './support/electron-lifecycle'
 import { test, expect, _electron as electron, type Page } from '@playwright/test'
 import { resolve } from 'node:path'
 import { openExampleFile, waitForExampleCollection } from './support/example-collection'
@@ -31,7 +32,7 @@ test.describe('Favorites and native recents', () => {
     await expect(window.locator('.favorites-section')).toHaveCount(0)
     await expect(window.locator('.recents-section')).toHaveCount(0)
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('favorites an open guide and renders its real collection details', async () => {
@@ -51,7 +52,7 @@ test.describe('Favorites and native recents', () => {
     await expect(item.locator('.favorite-collection')).toHaveText('Tesseract Example')
     await expect(item.locator('.nav-icon')).toHaveText('description')
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('opens a favorited guide from the sidebar', async () => {
@@ -67,7 +68,7 @@ test.describe('Favorites and native recents', () => {
     await window.locator('.favorite-item', { hasText: 'Start Here.md' }).click()
     await expect(window.getByRole('heading', { name: 'Welcome to Tesseract' })).toBeVisible()
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('adds and removes a favorite from the file context menu', async () => {
@@ -87,7 +88,7 @@ test.describe('Favorites and native recents', () => {
     await window.getByRole('menuitem', { name: 'Remove from Favorites' }).click()
     await expect(window.locator('.favorites-section')).toHaveCount(0)
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('tracks, opens, and clears files through the native recent menu', async () => {
@@ -141,6 +142,6 @@ test.describe('Favorites and native recents', () => {
       )
       .toEqual({ firstRecentExists: false, clearEnabled: false })
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 })

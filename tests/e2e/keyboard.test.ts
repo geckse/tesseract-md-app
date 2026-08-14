@@ -1,3 +1,4 @@
+import { closeElectronApp } from './support/electron-lifecycle'
 import { test, expect, _electron as electron, type Page } from '@playwright/test'
 import { resolve } from 'node:path'
 import { openExampleFile, waitForExampleCollection } from './support/example-collection'
@@ -33,7 +34,7 @@ test.describe('Keyboard navigation', () => {
     await window.keyboard.press(`${modifier}+k`)
     await expect(input).toBeFocused()
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('Cmd/Ctrl+O opens Quick Open and keyboard-selects a real file', async () => {
@@ -52,7 +53,7 @@ test.describe('Keyboard navigation', () => {
     await expect(dialog).not.toBeVisible()
     await expect(window.getByRole('heading', { name: 'Search by meaning' })).toBeVisible()
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('reserves Cmd/Ctrl+B for editing and uses the native sidebar accelerator', async () => {
@@ -83,7 +84,7 @@ test.describe('Keyboard navigation', () => {
     })
     await expect(sidebar).toBeVisible()
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('Cmd/Ctrl+Shift+B toggles the Properties panel both ways', async () => {
@@ -107,7 +108,7 @@ test.describe('Keyboard navigation', () => {
       await expect(properties).not.toBeVisible()
     }
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('Tab and Shift+Tab cycle through the main regions', async () => {
@@ -128,7 +129,7 @@ test.describe('Keyboard navigation', () => {
     await window.keyboard.press('Shift+Tab')
     await expectFocused(window, '#main-content')
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('Cmd/Ctrl+E changes editor mode without inventing unsaved changes', async () => {
@@ -145,6 +146,6 @@ test.describe('Keyboard navigation', () => {
     await expect(window.getByRole('main', { name: 'Editor' })).toBeVisible()
     await expect(dirty).not.toBeVisible()
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 })

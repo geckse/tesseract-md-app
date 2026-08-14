@@ -1,3 +1,4 @@
+import { closeElectronApp } from './support/electron-lifecycle'
 import {
   test,
   expect,
@@ -103,7 +104,7 @@ test.describe('Large file-tree performance', () => {
   })
 
   test.afterEach(async () => {
-    await electronApp?.close().catch(() => {})
+    await closeElectronApp(electronApp).catch(() => {})
     electronApp = undefined
     rmSync(profileDir, { recursive: true, force: true })
   })

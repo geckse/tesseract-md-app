@@ -156,17 +156,6 @@ let appQuitConfirmed = false
 
 app.on('before-quit', (event) => {
   if (isE2e) {
-    // Playwright launches Electron through a Windows shell and waits for that
-    // process tree to exit. A graceful app.quit() can leave the debugging
-    // process attached indefinitely there, so explicit test teardown uses
-    // Electron's immediate exit path. Production shutdown is unaffected.
-    if (process.platform === 'win32') {
-      // Let Playwright's Runtime.evaluate(app.quit()) return before exiting;
-      // terminating synchronously here strands its debugger connection.
-      event.preventDefault()
-      setImmediate(() => app.exit(0))
-      return
-    }
     windowManager.prepareForAutomationQuit()
     return
   }

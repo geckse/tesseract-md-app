@@ -1,3 +1,4 @@
+import { closeElectronApp } from './support/electron-lifecycle'
 import {
   test,
   expect,
@@ -71,7 +72,7 @@ test.describe('Onboarding Flow', () => {
     await expect(window.locator('.step-nav [aria-current="step"]')).toContainText('Welcome')
     await expect(window.getByRole('heading', { name: /Your knowledge/i })).toBeFocused()
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('should navigate through welcome step with Get Started button', async () => {
@@ -93,7 +94,7 @@ test.describe('Onboarding Flow', () => {
     const stepTitle = window.locator('.step-title')
     await expect(stepTitle).toContainText(/cli/i)
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('loads the bundled Space Grotesk font instead of a serif fallback', async () => {
@@ -113,7 +114,7 @@ test.describe('Onboarding Flow', () => {
     expect(fontState.family).not.toMatch(/(^|,\s*)serif(?:,|$)/i)
     expect(fontState.loaded).toBe(true)
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('should advance through the detected CLI state', async () => {
@@ -133,7 +134,7 @@ test.describe('Onboarding Flow', () => {
     const stepTitle = window.locator('.step-title')
     await expect(stepTitle).toContainText(/embedding provider/i)
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('should complete onboarding and show main app after skipping all steps', async () => {
@@ -164,7 +165,7 @@ test.describe('Onboarding Flow', () => {
     const sidebar = window.locator('.sidebar')
     await expect(sidebar).toBeVisible()
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('should not show onboarding wizard on subsequent launches', async () => {
@@ -191,7 +192,7 @@ test.describe('Onboarding Flow', () => {
       await expect(overlay).not.toBeVisible()
     }
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
 
     // Second launch - onboarding should NOT show (persisted)
     const electronApp2 = await electron.launch({
@@ -209,7 +210,7 @@ test.describe('Onboarding Flow', () => {
     const sidebar = window2.locator('.sidebar')
     await expect(sidebar).toBeVisible()
 
-    await electronApp2.close()
+    await closeElectronApp(electronApp2)
   })
 
   test('should expose the current step in the semantic progress rail', async () => {
@@ -226,7 +227,7 @@ test.describe('Onboarding Flow', () => {
     await expect(progress.locator('[aria-current="step"]')).toContainText('CLI')
     await expect(progress.locator('li').first()).toHaveClass(/complete/)
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('keeps collection supporting copy readable', async () => {
@@ -252,7 +253,7 @@ test.describe('Onboarding Flow', () => {
       expect(styles.color).not.toBe('rgb(82, 82, 91)')
     }
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('should create and open the guided example collection', async () => {
@@ -278,6 +279,6 @@ test.describe('Onboarding Flow', () => {
       readFileSync(join(examplePath, 'Guides', 'Properties and table views.md'), 'utf8')
     ).toContain('published: true')
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 })

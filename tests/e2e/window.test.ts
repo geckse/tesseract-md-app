@@ -1,3 +1,4 @@
+import { closeElectronApp } from './support/electron-lifecycle'
 import { test, expect, _electron as electron } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'path'
@@ -54,7 +55,7 @@ test.describe('Window State Persistence', () => {
     expect(Number.isNaN(bounds.x)).toBe(false)
     expect(Number.isNaN(bounds.y)).toBe(false)
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('should have default window dimensions on first launch', async () => {
@@ -74,7 +75,7 @@ test.describe('Window State Persistence', () => {
     expect(bounds.width).toBeGreaterThanOrEqual(800) // minWidth constraint
     expect(bounds.height).toBeGreaterThanOrEqual(600) // minHeight constraint
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('should respect minimum window dimensions', async () => {
@@ -103,7 +104,7 @@ test.describe('Window State Persistence', () => {
     expect(bounds.width).toBeGreaterThanOrEqual(800)
     expect(bounds.height).toBeGreaterThanOrEqual(600)
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('should save bounds on window resize', async () => {
@@ -165,7 +166,7 @@ test.describe('Window State Persistence', () => {
     expect(persistedBounds.width).toBe(newBounds.width)
     expect(persistedBounds.height).toBe(newBounds.height)
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('should save bounds on window move', async () => {
@@ -215,6 +216,6 @@ test.describe('Window State Persistence', () => {
     expect(persistedBounds.x).toBe(newBounds.x)
     expect(persistedBounds.y).toBe(newBounds.y)
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 })

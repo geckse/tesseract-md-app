@@ -1,3 +1,4 @@
+import { closeElectronApp } from './support/electron-lifecycle'
 /**
  * E2E: phase-41 property type conversion.
  *
@@ -165,7 +166,7 @@ test.describe('Property type conversion (phase 41)', () => {
     expect(overlay).toContain('notes')
     expect(overlay).toContain('field_type: number')
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('renames a property across the folder from the modal', async () => {
@@ -200,6 +201,6 @@ test.describe('Property type conversion (phase 41)', () => {
     expect(alpha).toContain('rank:')
     expect(alpha).not.toContain('priority:')
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 })

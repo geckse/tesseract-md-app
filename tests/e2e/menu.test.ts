@@ -1,3 +1,4 @@
+import { closeElectronApp } from './support/electron-lifecycle'
 import { test, expect, _electron as electron, type ElectronApplication } from '@playwright/test'
 import { resolve, join } from 'path'
 import { execFileSync } from 'node:child_process'
@@ -88,7 +89,7 @@ test.describe('Native App Menu', () => {
       expect(menuInfo!.labels).toContain(label)
     }
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('View > Toggle Properties Panel round-trips the panel', async () => {
@@ -119,7 +120,7 @@ test.describe('Native App Menu', () => {
       await expect(properties).toBeHidden()
     }
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('View > Toggle Sidebar hides and restores the sidebar', async () => {
@@ -142,7 +143,7 @@ test.describe('Native App Menu', () => {
     await clickToggle()
     await expect(sidebar).toBeVisible()
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('Help > Keyboard Shortcuts opens the reference modal and Escape closes it', async () => {
@@ -161,7 +162,7 @@ test.describe('Native App Menu', () => {
     await window.keyboard.press('Escape')
     await expect(dialog).toBeHidden()
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('export commands no-op safely without a document and never open a dialog', async () => {
@@ -198,7 +199,7 @@ test.describe('Native App Menu', () => {
     // App still healthy
     await expect(window.locator('body')).toBeVisible()
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('exports a renderer ArrayBuffer through the real Electron binary channel', async () => {
@@ -229,7 +230,7 @@ test.describe('Native App Menu', () => {
       expect(result).toEqual({ saved: true, path: outputPath })
       expect([...readFileSync(outputPath)]).toEqual([0x89, 0x50, 0x4e, 0x47])
     } finally {
-      await electronApp.close()
+      await closeElectronApp(electronApp)
       rmSync(outputDir, { recursive: true, force: true })
     }
   })
@@ -370,6 +371,6 @@ test.describe('Native App Menu — seeded vault flows', () => {
         checkboxChecked: false
       })) as typeof dialog.showMessageBox
     })
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 })

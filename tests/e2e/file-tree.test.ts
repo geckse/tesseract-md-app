@@ -1,3 +1,4 @@
+import { closeElectronApp } from './support/electron-lifecycle'
 import {
   test,
   expect,
@@ -49,7 +50,7 @@ test.describe('File Tree Navigation — empty collection state', () => {
       await expect(window.getByRole('main', { name: 'No file open' })).toBeVisible()
       await expect(window.locator('.file-tree-section')).toHaveCount(0)
     } finally {
-      await electronApp.close()
+      await closeElectronApp(electronApp)
     }
   })
 })
@@ -116,7 +117,7 @@ test.describe('File Tree Navigation — indexed collection', () => {
   })
 
   test.afterEach(async () => {
-    await electronApp?.close().catch(() => {})
+    await closeElectronApp(electronApp).catch(() => {})
     electronApp = undefined
     rmSync(profileDir, { recursive: true, force: true })
   })

@@ -1,3 +1,4 @@
+import { closeElectronApp } from './support/electron-lifecycle'
 import { test, expect, _electron as electron } from '@playwright/test'
 import { resolve } from 'path'
 
@@ -18,7 +19,7 @@ test.describe('Collection Management', () => {
     const collectionsSection = window.locator('.collections-section')
     await expect(collectionsSection).toBeVisible()
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('should show add collection button', async () => {
@@ -33,7 +34,7 @@ test.describe('Collection Management', () => {
     const addBtn = window.locator('.dropdown-menu').getByRole('button', { name: 'Add Collection' })
     await expect(addBtn).toBeVisible()
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('should show empty state when no collections exist', async () => {
@@ -48,7 +49,7 @@ test.describe('Collection Management', () => {
     await expect(window.getByRole('button', { name: 'Add Collection' })).toBeVisible()
     await expect(window.locator('.file-tree-section')).toHaveCount(0)
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('should highlight active collection with active class', async () => {
@@ -64,7 +65,7 @@ test.describe('Collection Management', () => {
     await expect(collectionItem).toBeVisible()
     await expect(collectionItem).toHaveClass(/active/)
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('should show context menu on right-click collection', async () => {
@@ -86,7 +87,7 @@ test.describe('Collection Management', () => {
     await overlay.click()
     await expect(contextMenu).not.toBeVisible()
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('truncates long submenu labels instead of wrapping them', async () => {
@@ -115,7 +116,7 @@ test.describe('Collection Management', () => {
     })
     expect(await label.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true)
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('loads collection information with the installed CLI', async () => {
@@ -135,7 +136,7 @@ test.describe('Collection Management', () => {
 
     await dialog.getByRole('button', { name: 'Close' }).click()
     await expect(dialog).not.toBeVisible()
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('should display collection name and stats', async () => {
@@ -150,7 +151,7 @@ test.describe('Collection Management', () => {
     await expect(switcher.locator('.switcher-label')).toHaveText('Tesseract Example')
     await expect(switcher.locator('.switcher-stats')).toContainText('8 docs', { timeout: 15_000 })
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('should expose settings at the bottom of the sidebar', async () => {
@@ -164,6 +165,6 @@ test.describe('Collection Management', () => {
     const settingsButton = window.getByRole('button', { name: 'Settings' })
     await expect(settingsButton).toBeVisible()
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 })

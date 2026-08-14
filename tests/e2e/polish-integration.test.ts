@@ -1,3 +1,4 @@
+import { closeElectronApp } from './support/electron-lifecycle'
 import { test, expect, _electron as electron } from '@playwright/test'
 import { resolve } from 'node:path'
 import { waitForExampleCollection } from './support/example-collection'
@@ -21,6 +22,6 @@ test.describe('Desktop polish', () => {
       }))
     ).toEqual({ matchesPreference: true, transitionDuration: '0s' })
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 })

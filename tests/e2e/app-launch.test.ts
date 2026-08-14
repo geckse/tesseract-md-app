@@ -1,3 +1,4 @@
+import { closeElectronApp } from './support/electron-lifecycle'
 import { test, expect, _electron as electron } from '@playwright/test'
 import { resolve } from 'path'
 
@@ -15,7 +16,7 @@ test.describe('App Launch', () => {
     const title = await window.title()
     expect(title).toBeTruthy()
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('should have the correct window dimensions', async () => {
@@ -32,7 +33,7 @@ test.describe('App Launch', () => {
     expect(width).toBeGreaterThan(0)
     expect(height).toBeGreaterThan(0)
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('should render the app shell with sidebar', async () => {
@@ -55,7 +56,7 @@ test.describe('App Launch', () => {
       )
       .toBe('none')
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('should display CLI status indicator in the status bar', async () => {
@@ -81,6 +82,6 @@ test.describe('App Launch', () => {
     const cliDot = window.locator('.cli-dot')
     await expect(cliDot).toBeVisible()
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 })

@@ -1,3 +1,4 @@
+import { closeElectronApp } from './support/electron-lifecycle'
 /**
  * E2E: phase-42 frontmatter relations (@relations).
  *
@@ -173,7 +174,7 @@ test.describe('Frontmatter relations (phase 42) @relations', () => {
       timeout: 10_000
     })
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('panel flow: Referenced-by lists referencing invoices; Property settings pins the target folder', async () => {
@@ -237,6 +238,6 @@ test.describe('Frontmatter relations (phase 42) @relations', () => {
     expect(overlay).not.toContain('clients/')
     expect(overlay).toContain('field_type: relation')
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 })

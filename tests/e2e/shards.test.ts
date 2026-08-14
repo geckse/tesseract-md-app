@@ -1,3 +1,4 @@
+import { closeElectronApp } from './support/electron-lifecycle'
 import { expect, test, _electron as electron } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -313,7 +314,7 @@ test.describe('Named Shards', () => {
         })
       ])
     } finally {
-      await electronApp?.close().catch(() => {})
+      await closeElectronApp(electronApp).catch(() => {})
       rmSync(profileDir, { recursive: true, force: true })
       rmSync(vaultDir, { recursive: true, force: true })
     }

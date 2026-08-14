@@ -1,3 +1,4 @@
+import { closeElectronApp } from './support/electron-lifecycle'
 import { test, expect, _electron as electron } from '@playwright/test'
 import { resolve } from 'node:path'
 import { openExampleFile } from './support/example-collection'
@@ -23,7 +24,7 @@ test.describe('Metadata Panel', () => {
     await toggle.click()
     await expect(panel).not.toBeVisible()
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('shows real frontmatter, links, and outline data for the guide', async () => {
@@ -39,7 +40,7 @@ test.describe('Metadata Panel', () => {
     await expect(panel).toContainText('ready')
     await expect(panel.locator('.outline-item').first()).toContainText('Welcome to Tesseract')
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('collapses and expands frontmatter without losing the panel', async () => {
@@ -58,7 +59,7 @@ test.describe('Metadata Panel', () => {
     await expect(header).toHaveAttribute('aria-expanded', 'true')
     await expect(panel).toContainText('ready')
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('keeps live metadata in sync with WYSIWYG property edits', async () => {
@@ -76,7 +77,7 @@ test.describe('Metadata Panel', () => {
 
     await window.keyboard.press(`${modifier}+s`)
     await expect(window.locator('.dirty-dot')).not.toBeVisible({ timeout: 10_000 })
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('renders the real local graph and opens a linked note from it', async () => {
@@ -99,7 +100,7 @@ test.describe('Metadata Panel', () => {
     })
     await expect(window.getByRole('main', { name: 'Editor' })).toBeVisible()
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('reloads indexed links when returning to an already-loaded tab', async () => {
@@ -129,6 +130,6 @@ test.describe('Metadata Panel', () => {
     )
     await expect(panel).toContainText('Search by meaning.md', { timeout: 10_000 })
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 })

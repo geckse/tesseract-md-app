@@ -1,3 +1,4 @@
+import { closeElectronApp } from './support/electron-lifecycle'
 /**
  * E2E: table view undo/redo (phase: table history).
  *
@@ -153,7 +154,7 @@ test.describe('Table undo/redo @table-undo', () => {
       .poll(() => readFileSync(aPath, 'utf-8'), { timeout: 15_000 })
       .toContain('status: published')
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('row flow: delete row → Cmd+Z recreates the file verbatim', async () => {
@@ -190,6 +191,6 @@ test.describe('Table undo/redo @table-undo', () => {
       timeout: 15_000
     })
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 })

@@ -1,3 +1,4 @@
+import { closeElectronApp } from './support/electron-lifecycle'
 import { test, expect, _electron as electron, type Page } from '@playwright/test'
 import axe from 'axe-core'
 import { resolve } from 'node:path'
@@ -17,15 +18,10 @@ interface AxeResult {
 }
 
 async function launch() {
-  console.log(`[accessibility] ${new Date().toISOString()} launching Electron`)
   const electronApp = await electron.launch({ args: [appPath] })
-  console.log(`[accessibility] ${new Date().toISOString()} Electron launched`)
   const window = await electronApp.firstWindow()
-  console.log(`[accessibility] ${new Date().toISOString()} first window ready`)
   await window.waitForLoadState('domcontentloaded')
-  console.log(`[accessibility] ${new Date().toISOString()} DOM loaded`)
   await waitForExampleCollection(window)
-  console.log(`[accessibility] ${new Date().toISOString()} example collection ready`)
   return { electronApp, window }
 }
 
@@ -54,11 +50,8 @@ function formatViolations(violations: AxeViolation[]): string {
 }
 
 async function expectNoHighImpactViolations(page: Page) {
-  console.log(`[accessibility] ${new Date().toISOString()} injecting axe`)
   await injectAxe(page)
-  console.log(`[accessibility] ${new Date().toISOString()} running axe`)
   const results = await runAxe(page)
-  console.log(`[accessibility] ${new Date().toISOString()} axe complete`)
   const highImpact = results.violations.filter(
     (violation) => violation.impact === 'critical' || violation.impact === 'serious'
   )
@@ -71,9 +64,7 @@ test.describe('Accessibility', () => {
 
     await expectNoHighImpactViolations(window)
 
-    console.log(`[accessibility] ${new Date().toISOString()} closing Electron`)
-    await electronApp.close()
-    console.log(`[accessibility] ${new Date().toISOString()} Electron closed`)
+    await closeElectronApp(electronApp)
   })
 
   test('has no critical or serious violations with a document and Properties open', async () => {
@@ -92,7 +83,7 @@ test.describe('Accessibility', () => {
 
     await expectNoHighImpactViolations(window)
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('has no critical or serious violations with real search results open', async () => {
@@ -104,7 +95,7 @@ test.describe('Accessibility', () => {
 
     await expectNoHighImpactViolations(window)
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('passes explicit button-name, form-label, heading-order, and contrast rules', async () => {
@@ -120,6 +111,6 @@ test.describe('Accessibility', () => {
     ])
     expect(results.violations, formatViolations(results.violations)).toEqual([])
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 })

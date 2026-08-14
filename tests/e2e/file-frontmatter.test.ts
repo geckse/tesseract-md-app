@@ -1,3 +1,4 @@
+import { closeElectronApp } from './support/electron-lifecycle'
 /**
  * E2E: File frontmatter fields and attachment tiles.
  *
@@ -185,6 +186,6 @@ test.describe('File frontmatter fields @files', () => {
     expect(existsSync(join(vaultDir, 'assets', 'mockup.png'))).toBe(true)
     expect(existsSync(join(vaultDir, 'documents', 'spec.pdf'))).toBe(true)
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 })

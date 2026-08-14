@@ -1,3 +1,4 @@
+import { closeElectronApp } from './support/electron-lifecycle'
 import { test, expect, _electron as electron, type ElectronApplication } from '@playwright/test'
 import { resolve } from 'path'
 
@@ -48,7 +49,7 @@ test.describe('Settings Panel', () => {
     const settingsHeader = window.locator('.settings-header')
     await expect(settingsHeader).toBeVisible()
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('should display Global Settings in navigation', async () => {
@@ -77,7 +78,7 @@ test.describe('Settings Panel', () => {
     const count = await sectionTabs.count()
     expect(count).toBeGreaterThanOrEqual(4)
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('should navigate between sections using section tabs', async () => {
@@ -105,7 +106,7 @@ test.describe('Settings Panel', () => {
     await cliTab.click()
     await expect(cliTab).toHaveClass(/active/)
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('should change editor font size and verify it applies', async () => {
@@ -139,7 +140,7 @@ test.describe('Settings Panel', () => {
     const newSize = await fontSizeValue.textContent()
     expect(newSize).not.toBe(initialSize)
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('should close settings and return to editor', async () => {
@@ -164,7 +165,7 @@ test.describe('Settings Panel', () => {
     // Verify settings panel is gone
     await expect(settingsPanel).not.toBeVisible()
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('should persist changed values when reopening settings', async () => {
@@ -209,7 +210,7 @@ test.describe('Settings Panel', () => {
     const persistedSize = await fontSizeValue.textContent()
     expect(persistedSize).toBe(changedSize)
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('uses a native dialog before discarding unsaved settings', async () => {
@@ -241,6 +242,6 @@ test.describe('Settings Panel', () => {
     await window.locator('.section-tab', { hasText: 'Embedding Provider' }).click()
     await expect(window.locator('#setting-embedding-provider')).toHaveValue(original)
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 })

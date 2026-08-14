@@ -1,3 +1,4 @@
+import { closeElectronApp } from './support/electron-lifecycle'
 import { test, expect, _electron as electron, type ElectronApplication } from '@playwright/test'
 import { resolve } from 'node:path'
 import { openExampleFile, openRawEditor } from './support/example-collection'
@@ -39,7 +40,7 @@ test.describe('Editor Workflow', () => {
     await expect(emptyState).toBeVisible()
     await expect(emptyState).toContainText('Open a file from the sidebar')
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('opens the generated guide in the WYSIWYG editor', async () => {
@@ -51,7 +52,7 @@ test.describe('Editor Workflow', () => {
     await expect(window.locator('.ProseMirror')).toBeVisible()
     await expect(window.getByRole('heading', { name: 'Welcome to Tesseract' })).toBeVisible()
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('reports non-zero word and token counts for an open guide', async () => {
@@ -67,7 +68,7 @@ test.describe('Editor Workflow', () => {
       /[1-9][\d,]* tokens/
     )
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('marks source edits dirty and clears the state after saving', async () => {
@@ -88,7 +89,7 @@ test.describe('Editor Workflow', () => {
     await window.keyboard.press(`${modifier}+s`)
     await expect(dirtyDot).not.toBeVisible({ timeout: 10_000 })
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('uses the native dialog for destructive discard actions', async () => {
@@ -115,7 +116,7 @@ test.describe('Editor Workflow', () => {
     await expect(window.locator('.dirty-dot')).not.toBeVisible()
     await expect(content).not.toContainText('Unsaved dialog test.')
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('guards a native window close with the native discard dialog', async () => {
@@ -143,7 +144,7 @@ test.describe('Editor Workflow', () => {
     // so evaluating main-process globals after this point races process exit.
     await expect.poll(() => electronApp.windows().length).toBe(0)
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 
   test('loads different content when switching files', async () => {
@@ -159,6 +160,6 @@ test.describe('Editor Workflow', () => {
     await expect(window.getByRole('heading', { name: 'Welcome to Tesseract' })).not.toBeVisible()
     await expect(window.locator('.dirty-dot')).not.toBeVisible()
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 })

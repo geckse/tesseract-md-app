@@ -1,3 +1,4 @@
+import { closeElectronApp } from './support/electron-lifecycle'
 import { test, expect, _electron as electron, type ElectronApplication } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -88,7 +89,7 @@ test.describe('Image editor overwrite flow', () => {
           })) as typeof dialog.showMessageBox
         })
         .catch(() => {})
-      await electronApp.close().catch(() => {})
+      await closeElectronApp(electronApp).catch(() => {})
     }
     electronApp = undefined
     rmSync(profileDir, { recursive: true, force: true })

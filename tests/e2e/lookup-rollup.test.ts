@@ -1,3 +1,4 @@
+import { closeElectronApp } from './support/electron-lifecycle'
 /**
  * E2E: Lookup authoring and propagation through the real desktop/CLI boundary.
  */
@@ -197,6 +198,6 @@ test.describe('Lookup/Rollup computed fields', () => {
       timeout: 30_000
     })
 
-    await electronApp.close()
+    await closeElectronApp(electronApp)
   })
 })
