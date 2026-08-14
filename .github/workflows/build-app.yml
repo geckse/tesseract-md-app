@@ -184,7 +184,7 @@ jobs:
 
       - name: Upload verified Windows packages
         if: matrix.platform == 'win'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: app-windows-x64
           path: |
@@ -207,7 +207,7 @@ jobs:
 
       - name: Upload verified Linux packages
         if: matrix.platform == 'linux'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: app-linux-x64
           path: |
@@ -232,7 +232,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Download verified Linux packages
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: app-linux-x64
           path: dist
@@ -258,7 +258,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Download verified Windows packages
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: app-windows-x64
           path: dist
