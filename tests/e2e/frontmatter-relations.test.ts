@@ -3,7 +3,7 @@
  *
  * Two flows against a seeded invoices/ → clients/ fixture vault:
  *  1. Table flow — relation column shows server-resolved titles, edit via the
- *     scoped picker writes a quoted `[[path]]` into frontmatter on disk.
+ *     scoped picker writes a root-relative Markdown path into frontmatter.
  *  2. Panel flow — Referenced-by lists the referencing invoices grouped by
  *     field; Property settings pins the target folder into the overlay.
  *
@@ -114,7 +114,7 @@ test.describe('Frontmatter relations (phase 42) @relations', () => {
     rmSync(vaultDir, { recursive: true, force: true })
   })
 
-  test('table flow: title chips render, picker edit writes quoted [[path]] to disk', async () => {
+  test('table flow: title chips render, picker edit writes a plain .md path to disk', async () => {
     const electronApp = await electron.launch({
       args: [`--user-data-dir=${profileDir}`, appPath]
     })
@@ -150,12 +150,13 @@ test.describe('Frontmatter relations (phase 42) @relations', () => {
     await expect(picker.locator('.rp-title', { hasText: 'Acme Corp' })).toBeVisible()
     await picker.locator('.rp-item', { hasText: 'Globex' }).dispatchEvent('mousedown')
 
-    // On disk: the RAW value is a QUOTED wiki link; the body is byte-identical.
+    // On disk: the raw value uses the app's canonical plain `.md` path format;
+    // the body remains byte-identical.
     await expect
       .poll(() => readFileSync(join(vaultDir, 'invoices', 'i1.md'), 'utf-8'), {
         timeout: 15_000
       })
-      .toContain('client: "[[clients/globex]]"')
+      .toContain('client: "clients/globex.md"')
     const i1 = readFileSync(join(vaultDir, 'invoices', 'i1.md'), 'utf-8')
     expect(i1).toContain(INVOICE_BODY)
     expect(i1).not.toContain('clients/acme')
