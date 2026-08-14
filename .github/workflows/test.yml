@@ -181,4 +181,6 @@ jobs:
         run: echo "::notice title=CLI coverage skipped::mdvdb CLI asset not downloadable from geckse/markdown-vdb (release not published yet?) — app-only Playwright coverage will still run."
 
       - name: Run e2e tests
+        env:
+          DEBUG: pw:browser*
         run: xvfb-run --auto-servernum -- npm run test:e2e

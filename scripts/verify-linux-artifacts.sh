@@ -70,7 +70,20 @@ if ((${#native_modules[@]} == 0)); then
   echo 'Packaged app contains no native Node modules.' >&2
   exit 1
 fi
+checked_native_modules=0
 for module in "${native_modules[@]}"; do
+  # sharp publishes separate glibc and musl optional binaries for Linux.
+  # npm installs both x64 variants because those packages do not declare a
+  # libc constraint, but sharp selects exactly one at runtime. Running glibc's
+  # ldd against the unused musl binary necessarily reports the musl loader as
+  # missing, so validate only the binaries that can execute on this glibc
+  # release target. The AppImage launch below then exercises sharp's runtime
+  # selection as part of the full packaged application.
+  if [[ "$module" == *linuxmusl* ]]; then
+    echo "Skipping optional musl native module on glibc target: $module"
+    continue
+  fi
+
   file "$module"
   dependencies="$(ldd "$module")"
   if grep -F 'not found' <<<"$dependencies"; then
@@ -78,7 +91,12 @@ for module in "${native_modules[@]}"; do
     echo "Unresolved native-module dependency: $module" >&2
     exit 1
   fi
+  ((checked_native_modules += 1))
 done
+if ((checked_native_modules == 0)); then
+  echo 'Packaged app contains no native modules for the glibc release target.' >&2
+  exit 1
+fi
 
 set +e
 APPIMAGE_EXTRACT_AND_RUN=1 timeout --signal=TERM 20s \

@@ -58,12 +58,15 @@ describe('release hygiene', () => {
 
   it('builds and verifies non-publishing Linux packages on Ubuntu 22.04 and 24.04', () => {
     const workflow = readFileSync(join(appRoot, '.github/workflows/build-app.yml'), 'utf8')
+    const verifier = readFileSync(join(appRoot, 'scripts/verify-linux-artifacts.sh'), 'utf8')
     expect(workflow).toContain('ubuntu-22.04')
     expect(workflow).toContain('runs-on: ubuntu-24.04')
     expect(workflow).toContain('npx electron-builder --linux --x64 --publish never')
     expect(workflow).toContain('scripts/verify-linux-artifacts.sh dist amd64')
     expect(workflow).toContain('name: app-linux-x64')
     expect(workflow).toContain('dist/latest-linux*.yml')
+    expect(verifier).toContain('if [[ "$module" == *linuxmusl* ]]')
+    expect(verifier).toContain('if ((checked_native_modules == 0))')
   })
 
   it('treats Linux Electron E2E on the compatibility baseline as a release gate', () => {
@@ -80,6 +83,7 @@ describe('release hygiene', () => {
       '    runs-on: ubuntu-22.04',
       '    steps:'
     ])
+    expect(linuxJob).toContain('DEBUG: pw:browser*')
     expect(linuxJob).toContain('xvfb-run --auto-servernum -- npm run test:e2e')
   })
 
