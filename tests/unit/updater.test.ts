@@ -38,7 +38,7 @@ import { AppUpdater, supportsAutomaticUpdates } from '../../src/main/updater'
 describe('supportsAutomaticUpdates', () => {
   it('supports AppImage updates but leaves deb updates to the package manager', () => {
     expect(supportsAutomaticUpdates('linux', '/home/test/Tesseract.AppImage')).toBe(true)
-    expect(supportsAutomaticUpdates('linux', undefined)).toBe(false)
+    expect(supportsAutomaticUpdates('linux', '')).toBe(false)
   })
 
   it('keeps the existing updater on macOS and Windows', () => {
@@ -49,6 +49,7 @@ describe('supportsAutomaticUpdates', () => {
 
 beforeEach(() => {
   vi.useFakeTimers()
+  vi.stubEnv('APPIMAGE', '/tmp/Tesseract.AppImage')
   mockAutoUpdater.removeAllListeners()
   mockAutoUpdater.checkForUpdates.mockReset()
   mockAutoUpdater.downloadUpdate.mockReset()
@@ -61,6 +62,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.unstubAllEnvs()
   vi.useRealTimers()
 })
 

@@ -13,6 +13,9 @@ function hasMdvdbOnPath(): boolean {
 // Electron's production single-instance lock is deliberately bypassed only in
 // this test process. The app then gives every unseeded launch a temporary,
 // isolated user-data directory; tests that need persistence pass one explicitly.
+// Some agent shells use Electron as Node internally. Never leak that mode into
+// the real Electron child process launched by Playwright.
+delete process.env['ELECTRON_RUN_AS_NODE']
 process.env['TESSERACT_E2E'] = '1'
 process.env['TESSERACT_E2E_AUTO_COMPLETE_ONBOARDING'] = '1'
 process.env['TESSERACT_E2E_AUTO_CREATE_EXAMPLE'] = hasMdvdbOnPath() ? '1' : '0'

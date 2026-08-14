@@ -67,8 +67,14 @@ describe('release hygiene', () => {
   })
 
   it('treats Linux Electron E2E on the compatibility baseline as a release gate', () => {
+    const pkg = JSON.parse(readFileSync(join(appRoot, 'package.json'), 'utf8'))
+    const playwrightVersion = pkg.devDependencies['@playwright/test'].replace(/^[^\d]*/, '')
+    const [major, minor] = playwrightVersion.split('.').map(Number)
+    const playwrightConfig = readFileSync(join(appRoot, 'playwright.config.ts'), 'utf8')
     const workflow = readFileSync(join(appRoot, '.github/workflows/test.yml'), 'utf8')
     const linuxJob = workflow.slice(workflow.indexOf('  e2e-linux:'))
+    expect(major > 1 || (major === 1 && minor >= 59)).toBe(true)
+    expect(playwrightConfig).toContain("delete process.env['ELECTRON_RUN_AS_NODE']")
     expect(linuxJob.split('\n').slice(0, 3)).toEqual([
       '  e2e-linux:',
       '    runs-on: ubuntu-22.04',
