@@ -6,6 +6,13 @@ import { dirname, join, resolve } from 'node:path'
 
 const appPath = resolve(__dirname, '../../out/main/index.js')
 const whichCommand = process.platform === 'win32' ? 'where' : 'which'
+// Chromium no longer falls back to software WebGL automatically. Opt this
+// trusted, headless Linux test into SwiftShader without changing production
+// launch behavior.
+const softwareWebGlArgs =
+  process.platform === 'linux'
+    ? ['--use-gl=angle', '--use-angle=swiftshader-webgl', '--enable-unsafe-swiftshader']
+    : []
 
 function findCli(): string {
   try {
@@ -90,7 +97,7 @@ test.describe('Graph collection switching', () => {
       )
 
       const electronApp = await electron.launch({
-        args: [`--user-data-dir=${profile}`, appPath],
+        args: [...softwareWebGlArgs, `--user-data-dir=${profile}`, appPath],
         env: { ...process.env, TESSERACT_E2E_AUTO_CREATE_EXAMPLE: '0' }
       })
       const window = await electronApp.firstWindow()
@@ -165,7 +172,7 @@ test.describe('Graph collection switching', () => {
       )
 
       const electronApp = await electron.launch({
-        args: [`--user-data-dir=${profile}`, appPath],
+        args: [...softwareWebGlArgs, `--user-data-dir=${profile}`, appPath],
         env: { ...process.env, TESSERACT_E2E_AUTO_CREATE_EXAMPLE: '0' }
       })
       const window = await electronApp.firstWindow()
@@ -226,7 +233,7 @@ test.describe('Graph collection switching', () => {
       )
 
       const electronApp = await electron.launch({
-        args: [`--user-data-dir=${profile}`, appPath],
+        args: [...softwareWebGlArgs, `--user-data-dir=${profile}`, appPath],
         env: { ...process.env, TESSERACT_E2E_AUTO_CREATE_EXAMPLE: '0' }
       })
       const window = await electronApp.firstWindow()
@@ -304,7 +311,7 @@ test.describe('Graph collection switching', () => {
       )
 
       const electronApp = await electron.launch({
-        args: [`--user-data-dir=${profile}`, appPath],
+        args: [...softwareWebGlArgs, `--user-data-dir=${profile}`, appPath],
         env: { ...process.env, TESSERACT_E2E_AUTO_CREATE_EXAMPLE: '0' }
       })
       const window = await electronApp.firstWindow()

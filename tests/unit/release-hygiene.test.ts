@@ -115,10 +115,15 @@ describe('release hygiene', () => {
     const [major, minor] = playwrightVersion.split('.').map(Number)
     const playwrightConfig = readFileSync(join(appRoot, 'playwright.config.ts'), 'utf8')
     const workflow = readFileSync(join(appRoot, '.github/workflows/test.yml'), 'utf8')
+    const graphSwitchE2e = readFileSync(
+      join(appRoot, 'tests/e2e/graph-collection-switch.test.ts'),
+      'utf8'
+    )
     const linuxJob = workflow.slice(workflow.indexOf('  e2e-linux:'))
     expect(major > 1 || (major === 1 && minor >= 59)).toBe(true)
     expect(playwrightConfig).toContain("delete process.env['ELECTRON_RUN_AS_NODE']")
     expect(playwrightConfig).toContain("workers: process.env['CI'] ? 1 : 4")
+    expect(graphSwitchE2e).toContain("'--enable-unsafe-swiftshader'")
     expect(linuxJob.split('\n').slice(0, 3)).toEqual([
       '  e2e-linux:',
       '    runs-on: ubuntu-22.04',
