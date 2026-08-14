@@ -72,14 +72,13 @@ if ((${#native_modules[@]} == 0)); then
 fi
 checked_native_modules=0
 for module in "${native_modules[@]}"; do
-  # sharp publishes separate glibc and musl optional binaries for Linux.
-  # npm installs both x64 variants because those packages do not declare a
-  # libc constraint, but sharp selects exactly one at runtime. Running glibc's
-  # ldd against the unused musl binary necessarily reports the musl loader as
-  # missing, so validate only the binaries that can execute on this glibc
-  # release target. The AppImage launch below then exercises sharp's runtime
-  # selection as part of the full packaged application.
-  if [[ "$module" == *linuxmusl* ]]; then
+  # Native packages such as sharp and Canvas publish separate glibc and musl
+  # optional binaries for Linux. npm can install both x64 variants, but each
+  # package selects exactly one at runtime. Running glibc's ldd against an
+  # unused musl binary necessarily reports the musl loader as missing, so
+  # validate only binaries that can execute on this glibc release target. The
+  # AppImage launch below exercises runtime selection in the packaged app.
+  if [[ "$module" == *musl* ]]; then
     echo "Skipping optional musl native module on glibc target: $module"
     continue
   fi

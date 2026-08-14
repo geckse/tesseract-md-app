@@ -55,9 +55,8 @@ jobs:
       - name: Build with electron-vite
         run: npx electron-vite build
 
-      # The raw mdvdb binary asset only exists once the CLI release is published.
-      # If the download fails (asset/release not there yet), CLI-dependent
-      # coverage self-skips while app-only Electron coverage still runs.
+      # Prefer the exact released CLI. Before that release exists, build the
+      # configured CLI ref so cross-repository integration remains a real gate.
       - name: Download mdvdb CLI
         id: mdvdb
         continue-on-error: true
@@ -72,12 +71,37 @@ jobs:
           ./mdvdb --version
           echo "$RUNNER_TEMP/mdvdb-bin" >> "$GITHUB_PATH"
 
-      - name: Notice — CLI-dependent coverage skipped (mdvdb binary unavailable)
+      - name: Checkout mdvdb CLI source fallback
         if: steps.mdvdb.outcome == 'failure'
-        run: echo "::notice title=CLI coverage skipped::mdvdb CLI asset not downloadable from geckse/markdown-vdb (release not published yet?) — app-only Playwright coverage will still run."
+        uses: actions/checkout@v4
+        with:
+          repository: geckse/markdown-vdb
+          ref: ${{ vars.MDVDB_REF || 'main' }}
+          path: mdvdb-source
+
+      - name: Install Rust toolchain for CLI source fallback
+        if: steps.mdvdb.outcome == 'failure'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache CLI source fallback build
+        if: steps.mdvdb.outcome == 'failure'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: mdvdb-source -> target
+          key: app-e2e-macos
+
+      - name: Build mdvdb CLI source fallback
+        if: steps.mdvdb.outcome == 'failure'
+        working-directory: mdvdb-source
+        run: |
+          cargo build --locked --release
+          mkdir -p "$RUNNER_TEMP/mdvdb-bin"
+          cp target/release/mdvdb "$RUNNER_TEMP/mdvdb-bin/mdvdb"
+          "$RUNNER_TEMP/mdvdb-bin/mdvdb" --version
+          echo "$RUNNER_TEMP/mdvdb-bin" >> "$GITHUB_PATH"
+          echo "::notice title=CLI source fallback::The configured release asset was unavailable, so E2E uses geckse/markdown-vdb@${{ vars.MDVDB_REF || 'main' }}."
 
       - name: Run integration tests with mdvdb
-        if: steps.mdvdb.outcome == 'success'
         run: npm run test:integration
 
       # No `playwright install` needed: playwright.config.ts defines a single
@@ -176,9 +200,38 @@ jobs:
           ./mdvdb --version
           echo "$RUNNER_TEMP/mdvdb-bin" >> "$GITHUB_PATH"
 
-      - name: Notice — CLI-dependent coverage skipped (mdvdb binary unavailable)
+      - name: Checkout mdvdb CLI source fallback
         if: steps.mdvdb.outcome == 'failure'
-        run: echo "::notice title=CLI coverage skipped::mdvdb CLI asset not downloadable from geckse/markdown-vdb (release not published yet?) — app-only Playwright coverage will still run."
+        uses: actions/checkout@v4
+        with:
+          repository: geckse/markdown-vdb
+          ref: ${{ vars.MDVDB_REF || 'main' }}
+          path: mdvdb-source
+
+      - name: Install Rust toolchain for CLI source fallback
+        if: steps.mdvdb.outcome == 'failure'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache CLI source fallback build
+        if: steps.mdvdb.outcome == 'failure'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: mdvdb-source -> target
+          key: app-e2e-linux-x64
+
+      - name: Build mdvdb CLI source fallback
+        if: steps.mdvdb.outcome == 'failure'
+        working-directory: mdvdb-source
+        env:
+          CXX: g++-12
+        run: |
+          "$CXX" --version
+          cargo build --locked --release
+          mkdir -p "$RUNNER_TEMP/mdvdb-bin"
+          cp target/release/mdvdb "$RUNNER_TEMP/mdvdb-bin/mdvdb"
+          "$RUNNER_TEMP/mdvdb-bin/mdvdb" --version
+          echo "$RUNNER_TEMP/mdvdb-bin" >> "$GITHUB_PATH"
+          echo "::notice title=CLI source fallback::The configured release asset was unavailable, so E2E uses geckse/markdown-vdb@${{ vars.MDVDB_REF || 'main' }}."
 
       - name: Run e2e tests
         run: xvfb-run --auto-servernum -- npm run test:e2e
