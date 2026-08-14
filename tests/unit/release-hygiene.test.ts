@@ -39,6 +39,8 @@ describe('release hygiene', () => {
     expect(workflow).toContain('needs: checks')
     expect(workflow).toContain('default: mac')
     expect(workflow).toContain('fail-fast: false')
+    expect(workflow).toContain("github.event_name == 'push'")
+    expect(workflow).toContain('tag builds publish only the signed and notarized macOS artifacts')
     expect(workflow).toContain("MACOS_RELEASE_BUILD: 'true'")
     expect(workflow).toContain('Authority=Developer ID Application:')
     expect(workflow).toContain('codesign --verify --deep --strict')

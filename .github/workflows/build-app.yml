@@ -5,8 +5,8 @@ on:
     tags:
       - 'v*'
   # Manual smoke builds default to one platform and use --publish never, so
-  # packaging can be verified without cutting a release. Tag builds still run
-  # the complete platform matrix.
+  # packaging can be verified without cutting a release. During the macOS-first
+  # rollout, tag builds publish only the signed and notarized macOS artifacts.
   workflow_dispatch:
     inputs:
       platform:
@@ -60,6 +60,8 @@ jobs:
       fail-fast: false
       matrix: >-
         ${{ fromJSON(
+          github.event_name == 'push' &&
+          '{"include":[{"os":"macos-latest","platform":"mac"}]}' ||
           github.event_name == 'workflow_dispatch' && inputs.platform == 'mac' &&
           '{"include":[{"os":"macos-latest","platform":"mac"}]}' ||
           github.event_name == 'workflow_dispatch' && inputs.platform == 'win' &&
