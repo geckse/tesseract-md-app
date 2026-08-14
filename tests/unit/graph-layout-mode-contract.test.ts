@@ -117,6 +117,7 @@ describe('GraphView mode-aware layout contract', () => {
 
   it('routes folder hubs away from document actions and keeps labels interactive', () => {
     const selection = functionBody('selectBatchedNode', 'function selectFolderLabel')
+    const labelSelection = functionBody('selectFolderLabel', 'function postGraphDragPin')
     const navigation = functionBody('navigateToConnectedNode', 'function handleRetry')
     const contextMenu = functionBody('onBatchedContextMenu', 'function onBatchedPointerLeave')
 
@@ -124,10 +125,11 @@ describe('GraphView mode-aware layout contract', () => {
     expect(selection).toContain('selectGraphNode(null)')
     expect(selection).toContain('setGraphHighlightedFolder(node.path)')
     expect(selection).toContain('focusCameraOnNode(node)')
+    expect(labelSelection).toContain('setGraphHighlightedFolder(path)')
     expect(contextMenu).toContain('node && isFolderGraphNode(node)')
     expect(navigation).toContain('isFolderGraphNode(neighborNode)')
     expect(source).toContain('data-folder-path={lbl.path}')
-    expect(source).toContain('onclick={() => selectFolderLabel(lbl.id)}')
+    expect(source).toContain('onclick={() => selectFolderLabel(lbl.id, lbl.path)}')
     expect(source).toContain('folder_document_count')
     expect(source).toContain('No document links found. The folder hierarchy is still available.')
   })
