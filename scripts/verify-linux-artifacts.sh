@@ -112,21 +112,39 @@ smoke_launch() {
   shift
   : >"$launch_log"
 
-  set +e
-  timeout --signal=TERM 20s xvfb-run --auto-servernum "$@" >"$launch_log" 2>&1
-  local launch_status=$?
-  set -e
+  # Launch in a separate process group so Xvfb and every Electron subprocess
+  # can be cleaned up together. Inspect health before teardown: Electron may
+  # emit a shutdown-only fatal message when a test harness sends SIGTERM, which
+  # says nothing about whether the packaged application launched successfully.
+  setsid xvfb-run --auto-servernum "$@" >"$launch_log" 2>&1 &
+  local launch_pid=$!
+  local elapsed=0
+  while ((elapsed < 20)); do
+    sleep 1
+    if ! kill -0 "$launch_pid" 2>/dev/null; then
+      set +e
+      wait "$launch_pid"
+      local launch_status=$?
+      set -e
+      cat "$launch_log" >&2
+      echo "$label did not remain healthy during launch smoke (exit $launch_status)." >&2
+      exit 1
+    fi
+    ((elapsed += 1))
+  done
 
-  if ((launch_status != 124)); then
-    cat "$launch_log" >&2
-    echo "$label did not remain healthy during launch smoke (exit $launch_status)." >&2
-    exit 1
-  fi
   if grep -Eiq 'FATAL|No usable sandbox|error while loading shared libraries|Trace/breakpoint trap' "$launch_log"; then
     cat "$launch_log" >&2
     echo "$label emitted a fatal launch error." >&2
+    kill -KILL -- "-$launch_pid" 2>/dev/null || true
+    wait "$launch_pid" 2>/dev/null || true
     exit 1
   fi
+
+  kill -TERM -- "-$launch_pid" 2>/dev/null || true
+  sleep 1
+  kill -KILL -- "-$launch_pid" 2>/dev/null || true
+  wait "$launch_pid" 2>/dev/null || true
 }
 
 if [[ "${INSTALL_DEB:-false}" == 'true' ]]; then
