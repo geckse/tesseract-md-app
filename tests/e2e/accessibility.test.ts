@@ -17,10 +17,15 @@ interface AxeResult {
 }
 
 async function launch() {
+  console.log(`[accessibility] ${new Date().toISOString()} launching Electron`)
   const electronApp = await electron.launch({ args: [appPath] })
+  console.log(`[accessibility] ${new Date().toISOString()} Electron launched`)
   const window = await electronApp.firstWindow()
+  console.log(`[accessibility] ${new Date().toISOString()} first window ready`)
   await window.waitForLoadState('domcontentloaded')
+  console.log(`[accessibility] ${new Date().toISOString()} DOM loaded`)
   await waitForExampleCollection(window)
+  console.log(`[accessibility] ${new Date().toISOString()} example collection ready`)
   return { electronApp, window }
 }
 
@@ -49,8 +54,11 @@ function formatViolations(violations: AxeViolation[]): string {
 }
 
 async function expectNoHighImpactViolations(page: Page) {
+  console.log(`[accessibility] ${new Date().toISOString()} injecting axe`)
   await injectAxe(page)
+  console.log(`[accessibility] ${new Date().toISOString()} running axe`)
   const results = await runAxe(page)
+  console.log(`[accessibility] ${new Date().toISOString()} axe complete`)
   const highImpact = results.violations.filter(
     (violation) => violation.impact === 'critical' || violation.impact === 'serious'
   )
@@ -63,7 +71,9 @@ test.describe('Accessibility', () => {
 
     await expectNoHighImpactViolations(window)
 
+    console.log(`[accessibility] ${new Date().toISOString()} closing Electron`)
     await electronApp.close()
+    console.log(`[accessibility] ${new Date().toISOString()} Electron closed`)
   })
 
   test('has no critical or serious violations with a document and Properties open', async () => {
