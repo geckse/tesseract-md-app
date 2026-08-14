@@ -89,6 +89,7 @@ describe('release hygiene', () => {
     expect(signingConfig).toContain('config.forceCodeSigning = true')
     expect(signingConfig).toContain('azureSignOptions')
     expect(verifier).toContain('Get-AuthenticodeSignature')
+    expect(verifier).toContain('Assert-PortableExecutable $installer')
     expect(verifier).toContain('Assert-X64PortableExecutable')
     expect(verifier).toContain("Start-AppSmoke $installedApplication 'Installed NSIS application'")
   })

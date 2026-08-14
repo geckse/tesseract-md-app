@@ -22,7 +22,7 @@ function Get-SingleFile {
   return $files[0]
 }
 
-function Assert-X64PortableExecutable {
+function Get-PortableExecutableMachine {
   param([System.IO.FileInfo]$File)
 
   $stream = [System.IO.File]::OpenRead($File.FullName)
@@ -37,13 +37,25 @@ function Assert-X64PortableExecutable {
     if ($reader.ReadUInt32() -ne 0x00004550) {
       throw "$($File.FullName) is not a PE file (missing PE header)."
     }
-    $machine = $reader.ReadUInt16()
-    if ($machine -ne 0x8664) {
-      throw ("Expected x64 PE machine 0x8664 for {0}; got 0x{1:X4}." -f $File.FullName, $machine)
-    }
+    return $reader.ReadUInt16()
   }
   finally {
     $stream.Dispose()
+  }
+}
+
+function Assert-PortableExecutable {
+  param([System.IO.FileInfo]$File)
+
+  $null = Get-PortableExecutableMachine $File
+}
+
+function Assert-X64PortableExecutable {
+  param([System.IO.FileInfo]$File)
+
+  $machine = Get-PortableExecutableMachine $File
+  if ($machine -ne 0x8664) {
+    throw ("Expected x64 PE machine 0x8664 for {0}; got 0x{1:X4}." -f $File.FullName, $machine)
   }
 }
 
@@ -110,7 +122,9 @@ if ($blockmaps.Count -lt 1) {
   throw "Missing Windows update blockmap in $artifactRoot."
 }
 
-Assert-X64PortableExecutable $installer
+# NSIS intentionally uses a 32-bit bootstrapper even for an x64-only payload.
+# The extracted application and every native module are checked as x64 below.
+Assert-PortableExecutable $installer
 if ($RequireSignature) {
   if (-not $ExpectedPublisher) {
     throw 'ExpectedPublisher is required when RequireSignature is set.'
