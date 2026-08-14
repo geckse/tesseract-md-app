@@ -26,7 +26,7 @@ export default defineConfig({
   // Electron 43 reserves substantially more virtual memory per process. Keep
   // concurrent desktop instances bounded so macOS and Windows runners do not
   // abort launches under resource pressure.
-  workers: process.env['CI'] ? 2 : 4,
+  workers: process.env['CI'] ? 1 : 4,
   retries: 0,
   use: {
     trace: 'on-first-retry'
