@@ -3,6 +3,9 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { createRequire } from 'node:module'
+
+const require = createRequire(import.meta.url)
 
 /**
  * Verifies scripts/notarize.js (electron-builder afterSign hook):
@@ -19,6 +22,7 @@ import { join } from 'node:path'
 describe('notarize afterSign hook', () => {
   const scriptPath = join(__dirname, '..', '..', 'scripts', 'notarize.js')
   const appleVars = ['APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID']
+  const controlledVars = [...appleVars, 'MACOS_RELEASE_BUILD']
   let work: string
   let driverPath: string
 
@@ -57,7 +61,7 @@ hook.default(context).then(
     // Start from the parent env (node needs PATH etc.) but strip every var
     // the hook branches on, then layer the scenario's overrides on top.
     const env: NodeJS.ProcessEnv = { ...process.env }
-    for (const key of ['CI', 'GITHUB_REF_TYPE', ...appleVars]) delete env[key]
+    for (const key of ['CI', 'GITHUB_REF_TYPE', ...controlledVars]) delete env[key]
     Object.assign(env, envOverrides)
 
     try {
@@ -83,6 +87,12 @@ hook.default(context).then(
     for (const name of appleVars) {
       expect(result.stderr).toContain(name)
     }
+  })
+
+  it('throws on an explicitly requested release build when credentials are missing', () => {
+    const result = runHook('darwin', { MACOS_RELEASE_BUILD: 'true' })
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('un-notarized mac release artifact')
   })
 
   it('throws on a tagged CI build listing only the missing credentials', () => {
@@ -114,5 +124,50 @@ hook.default(context).then(
     expect(result.status).toBe(0)
     expect(result.stdout).not.toContain('Skipping notarization')
     expect(result.stdout).not.toContain('Notarizing')
+  })
+
+  describe('Developer ID signature validation', () => {
+    const { validateDeveloperIdSignature } = require(scriptPath) as {
+      validateDeveloperIdSignature: (
+        output: string,
+        expectedBundleId: string,
+        expectedTeamId: string
+      ) => void
+    }
+    const validSignature = [
+      'Identifier=md.tesseract.app',
+      'Authority=Developer ID Application: Example Developer (ABCDE12345)',
+      'Authority=Developer ID Certification Authority',
+      'Authority=Apple Root CA',
+      'TeamIdentifier=ABCDE12345'
+    ].join('\n')
+
+    it('accepts the expected Developer ID Application signature', () => {
+      expect(() =>
+        validateDeveloperIdSignature(validSignature, 'md.tesseract.app', 'ABCDE12345')
+      ).not.toThrow()
+    })
+
+    it('rejects an Apple Development certificate', () => {
+      expect(() =>
+        validateDeveloperIdSignature(
+          validSignature.replace(
+            'Developer ID Application: Example Developer',
+            'Apple Development: Example Developer'
+          ),
+          'md.tesseract.app',
+          'ABCDE12345'
+        )
+      ).toThrow('Developer ID Application certificate')
+    })
+
+    it('rejects a mismatched bundle ID or Team ID', () => {
+      expect(() =>
+        validateDeveloperIdSignature(validSignature, 'com.example.other', 'ABCDE12345')
+      ).toThrow('bundle ID')
+      expect(() =>
+        validateDeveloperIdSignature(validSignature, 'md.tesseract.app', 'OTHER12345')
+      ).toThrow('Team ID')
+    })
   })
 })

@@ -13,7 +13,34 @@ permissions:
   contents: write
 
 jobs:
+  checks:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.12
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit and integration tests
+        run: npm test
+
   build:
+    needs: checks
     strategy:
       matrix:
         include:
@@ -60,7 +87,23 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          MACOS_RELEASE_BUILD: 'true'
         run: npx electron-builder --mac --publish ${{ github.event_name == 'workflow_dispatch' && 'never' || 'always' }}
+
+      - name: Verify macOS release signature and notarization ticket
+        if: matrix.platform == 'mac'
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          for app_path in dist/mac*/Tesseract.app; do
+            signature="$(codesign -dv --verbose=4 "$app_path" 2>&1)"
+            grep -F 'Authority=Developer ID Application:' <<<"$signature"
+            grep -F "TeamIdentifier=${APPLE_TEAM_ID}" <<<"$signature"
+            codesign --verify --deep --strict --verbose=2 "$app_path"
+            xcrun stapler validate "$app_path"
+            spctl --assess --type execute --verbose=4 "$app_path"
+          done
 
       - name: Build Electron app (${{ matrix.platform }})
         if: matrix.platform != 'mac'

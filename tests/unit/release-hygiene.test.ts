@@ -21,6 +21,29 @@ describe('release hygiene', () => {
     expect(pkg.build.mac.minimumSystemVersion).toBe('11.0')
   })
 
+  it('requires signed production macOS builds and keeps unsigned builds explicit', () => {
+    const pkg = JSON.parse(readFileSync(join(appRoot, 'package.json'), 'utf8'))
+    expect(pkg.build.mac.forceCodeSigning).toBe(true)
+    expect(pkg.scripts['build:mac']).toContain('MACOS_RELEASE_BUILD=true')
+    expect(pkg.scripts['build:mac:unsigned']).toContain('CSC_IDENTITY_AUTO_DISCOVERY=false')
+  })
+
+  it('keeps the runtime application identity aligned with the packaged Bundle ID', () => {
+    const pkg = JSON.parse(readFileSync(join(appRoot, 'package.json'), 'utf8'))
+    const main = readFileSync(join(appRoot, 'src/main/index.ts'), 'utf8')
+    expect(main).toContain(`electronApp.setAppUserModelId('${pkg.build.appId}')`)
+  })
+
+  it('gates releases on tests and verifies the macOS signature and notarization ticket', () => {
+    const workflow = readFileSync(join(appRoot, '.github/workflows/build-app.yml'), 'utf8')
+    expect(workflow).toContain('needs: checks')
+    expect(workflow).toContain("MACOS_RELEASE_BUILD: 'true'")
+    expect(workflow).toContain('Authority=Developer ID Application:')
+    expect(workflow).toContain('codesign --verify --deep --strict')
+    expect(workflow).toContain('xcrun stapler validate')
+    expect(workflow).toContain('spctl --assess --type execute')
+  })
+
   it('loads the ESLint flat config as an ES module', () => {
     expect(existsSync(join(appRoot, 'eslint.config.mjs'))).toBe(true)
     expect(existsSync(join(appRoot, 'eslint.config.js'))).toBe(false)

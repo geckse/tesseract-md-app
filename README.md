@@ -232,8 +232,14 @@ npm install
 # Run in development mode
 npm run dev
 
-# Build for production
+# Compile the production bundles into out/
 npm run build
+
+# Package an intentionally unsigned local macOS smoke build
+npm run build:mac:unsigned
+
+# Package, sign, and notarize a macOS release (Apple credentials required)
+npm run build:mac
 ```
 
 Development builds can use `mdvdb` from `PATH`, the app-managed CLI directory, or a standard
@@ -246,6 +252,8 @@ system install location. The first-run installer can acquire it automatically in
 ```bash
 npm run dev           # Start with hot reload
 npm run build         # Production build
+npm run build:mac     # Signed + notarized macOS package (credentials required)
+npm run build:mac:unsigned # Unsigned local macOS packaging smoke test
 npm run test          # Unit tests (Vitest)
 npm run test:e2e      # E2E tests (Playwright)
 npm run lint          # ESLint + Prettier

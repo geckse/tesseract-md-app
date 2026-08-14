@@ -28,7 +28,8 @@
     "lint:fix": "eslint --fix . && prettier --write .",
     "typecheck": "tsc --noEmit",
     "postinstall": "electron-builder install-app-deps && node scripts/fix-pty-permissions.js",
-    "build:mac": "electron-vite build && electron-builder --mac",
+    "build:mac": "electron-vite build && MACOS_RELEASE_BUILD=true electron-builder --mac --publish never",
+    "build:mac:unsigned": "electron-vite build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --publish never -c.mac.identity=null -c.mac.forceCodeSigning=false",
     "build:win": "electron-vite build && electron-builder --win",
     "build:linux": "electron-vite build && electron-builder --linux",
     "build:all": "electron-vite build && electron-builder --mac --win --linux",
@@ -164,6 +165,7 @@
       "category": "public.app-category.developer-tools",
       "icon": "resources/icon.png",
       "hardenedRuntime": true,
+      "forceCodeSigning": true,
       "entitlements": "resources/entitlements.mac.plist",
       "entitlementsInherit": "resources/entitlements.mac.plist",
       "notarize": false
