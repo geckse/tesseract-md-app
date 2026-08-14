@@ -69,7 +69,11 @@ describe('release hygiene', () => {
   it('treats Linux Electron E2E on the compatibility baseline as a release gate', () => {
     const workflow = readFileSync(join(appRoot, '.github/workflows/test.yml'), 'utf8')
     const linuxJob = workflow.slice(workflow.indexOf('  e2e-linux:'))
-    expect(linuxJob).toMatch(/^  e2e-linux:\n    runs-on: ubuntu-22\.04\n    steps:/)
+    expect(linuxJob.split('\n').slice(0, 3)).toEqual([
+      '  e2e-linux:',
+      '    runs-on: ubuntu-22.04',
+      '    steps:'
+    ])
     expect(linuxJob).toContain('xvfb-run --auto-servernum -- npm run test:e2e')
   })
 
