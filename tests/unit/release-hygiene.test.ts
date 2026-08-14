@@ -37,6 +37,8 @@ describe('release hygiene', () => {
   it('gates releases on tests and verifies the macOS signature and notarization ticket', () => {
     const workflow = readFileSync(join(appRoot, '.github/workflows/build-app.yml'), 'utf8')
     expect(workflow).toContain('needs: checks')
+    expect(workflow).toContain('default: mac')
+    expect(workflow).toContain('fail-fast: false')
     expect(workflow).toContain("MACOS_RELEASE_BUILD: 'true'")
     expect(workflow).toContain('Authority=Developer ID Application:')
     expect(workflow).toContain('codesign --verify --deep --strict')

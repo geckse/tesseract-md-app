@@ -4,10 +4,21 @@ on:
   push:
     tags:
       - 'v*'
-  # Manual smoke build: runs the exact same matrix but with --publish never,
-  # so packaging (signing, notarization, installers) can be verified without
-  # cutting a release.
+  # Manual smoke builds default to one platform and use --publish never, so
+  # packaging can be verified without cutting a release. Tag builds still run
+  # the complete platform matrix.
   workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform to smoke-test without publishing
+        required: true
+        default: mac
+        type: choice
+        options:
+          - mac
+          - win
+          - linux
+          - all
 
 permissions:
   contents: write
@@ -42,14 +53,18 @@ jobs:
   build:
     needs: checks
     strategy:
-      matrix:
-        include:
-          - os: macos-latest
-            platform: mac
-          - os: windows-latest
-            platform: win
-          - os: ubuntu-latest
-            platform: linux
+      # One platform must never cancel another platform mid-signing/notarization.
+      fail-fast: false
+      matrix: >-
+        ${{ fromJSON(
+          github.event_name == 'workflow_dispatch' && inputs.platform == 'mac' &&
+          '{"include":[{"os":"macos-latest","platform":"mac"}]}' ||
+          github.event_name == 'workflow_dispatch' && inputs.platform == 'win' &&
+          '{"include":[{"os":"windows-latest","platform":"win"}]}' ||
+          github.event_name == 'workflow_dispatch' && inputs.platform == 'linux' &&
+          '{"include":[{"os":"ubuntu-latest","platform":"linux"}]}' ||
+          '{"include":[{"os":"macos-latest","platform":"mac"},{"os":"windows-latest","platform":"win"},{"os":"ubuntu-latest","platform":"linux"}]}'
+        ) }}
 
     runs-on: ${{ matrix.os }}
 
