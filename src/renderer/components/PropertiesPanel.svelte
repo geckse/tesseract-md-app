@@ -18,7 +18,7 @@
     propertiesError
   } from '../stores/properties'
   import { activeCollection, activeCollectionId } from '../stores/collections'
-  import { assetsByPath, selectedFilePath } from '../stores/files'
+  import { assetsByPath, focusedFileTab } from '../stores/files'
   import { schema } from '../stores/schema'
   import { isFileReferenceValue, parseFileReference } from '../../shared/file-reference'
   import { scrollToLine, activeHeadingIndex, isDirty } from '../stores/editor'
@@ -39,6 +39,7 @@
     Schema
   } from '../types/cli'
   import type { OutlineHeading } from '../stores/properties'
+  import type { AssetTab, DocumentTab } from '../stores/workspace.svelte'
 
   interface PropertiesPanelProps {
     onfileselect?: (detail: { path: string }) => void
@@ -78,7 +79,7 @@
   let currentOutline: OutlineHeading[] = $state([])
   let currentLoading = $state(false)
   let currentError: string | null = $state(null)
-  let currentFilePath: string | null = $state(null)
+  let currentFocusedFile: DocumentTab | AssetTab | null = $state(null)
   let currentActiveHeadingIndex = $state(-1)
 
   let currentNeighborhood: NeighborhoodResult | null = $state(null)
@@ -98,7 +99,7 @@
     outline.subscribe((v) => (currentOutline = v)),
     propertiesLoading.subscribe((v) => (currentLoading = v)),
     propertiesError.subscribe((v) => (currentError = v)),
-    selectedFilePath.subscribe((v) => (currentFilePath = v)),
+    focusedFileTab.subscribe((v) => (currentFocusedFile = v)),
     activeHeadingIndex.subscribe((v) => (currentActiveHeadingIndex = v)),
     activeCollectionId.subscribe((v) => (currentActiveCollectionId = v)),
     activeCollection.subscribe((v) => (currentCollectionPath = v?.path ?? null)),
@@ -109,21 +110,73 @@
 
   onDestroy(() => unsubs.forEach((u) => u()))
 
-  // Filename derivation
-  let fileName = $derived.by(() => {
-    if (currentFilePath) {
-      const parts = currentFilePath.split('/').filter((s: string) => s.length > 0)
-      return parts.length > 0 ? parts[parts.length - 1] : null
+  interface FileSystemInfo {
+    size: number
+    mtime: string
+  }
+
+  let currentFileInfo: FileSystemInfo | null = $state(null)
+  let currentFileInfoLoading = $state(false)
+  let currentFileInfoError: string | null = $state(null)
+
+  const currentFilePath = $derived(currentFocusedFile?.filePath ?? null)
+  const fileName = $derived(currentFocusedFile?.title ?? null)
+  const isDocumentFile = $derived(currentFocusedFile?.kind === 'document')
+  const isCollectionDocument = $derived(
+    currentFocusedFile?.kind === 'document' && currentFocusedFile.origin === 'collection'
+  )
+  const canFavorite = $derived(isCollectionDocument)
+  const focusedFileDirty = $derived(currentFocusedFile?.isDirty ?? currentIsDirty)
+  const absoluteFilePath = $derived.by(() => {
+    if (!currentFocusedFile) return null
+    if (currentFocusedFile.origin === 'collection' && currentCollectionPath) {
+      return `${currentCollectionPath.replace(/[\\/]+$/, '')}/${currentFocusedFile.filePath.replace(/^[\\/]+/, '')}`
     }
-    return null
+    if (currentFocusedFile.kind === 'document' && currentFocusedFile.origin === 'standalone') {
+      return currentFocusedFile.standalonePath
+    }
+    return currentFocusedFile.externalPath
+  })
+  const displayFilePath = $derived(
+    currentFocusedFile?.externalPath ??
+      (currentFocusedFile?.kind === 'document' ? currentFocusedFile.standalonePath : null) ??
+      currentFilePath ??
+      '—'
+  )
+
+  $effect(() => {
+    const tab = currentFocusedFile
+    const path = absoluteFilePath
+    currentFileInfo = null
+    currentFileInfoError = null
+    currentFileInfoLoading = false
+    if (!tab || tab.origin !== 'collection' || !path) return
+
+    let active = true
+    currentFileInfoLoading = true
+    void window.api
+      .fileInfo(path)
+      .then((info) => {
+        if (active) currentFileInfo = info
+      })
+      .catch((error: unknown) => {
+        if (active) currentFileInfoError = error instanceof Error ? error.message : String(error)
+      })
+      .finally(() => {
+        if (active) currentFileInfoLoading = false
+      })
+    return () => {
+      active = false
+    }
   })
 
   async function handleToggleFavorite() {
-    if (!currentActiveCollectionId || !currentFilePath) return
+    if (!canFavorite || !currentActiveCollectionId || !currentFilePath) return
     await toggleFavorite(currentActiveCollectionId, currentFilePath)
   }
 
   // Section collapse state
+  let fileInfoOpen = $state(true)
   let metadataOpen = $state(true)
   let localGraphOpen = $state(true)
   let linksOpen = $state(true)
@@ -173,6 +226,88 @@
   )
   let neighborCount = $derived(incomingCount + outgoingCount)
 
+  const displayedFileSize = $derived.by(() => {
+    if (currentFileInfo) return currentFileInfo.size
+    if (currentFocusedFile?.kind === 'asset' && currentFocusedFile.fileSize !== undefined) {
+      return currentFocusedFile.fileSize
+    }
+    if (currentDocInfo?.file_size !== undefined) return currentDocInfo.file_size
+    if (currentFocusedFile?.kind === 'document' && currentFocusedFile.content !== null) {
+      return new TextEncoder().encode(currentFocusedFile.content).byteLength
+    }
+    return null
+  })
+
+  const fileExtension = $derived.by(() => {
+    const name = fileName ?? ''
+    const dot = name.lastIndexOf('.')
+    return dot > 0 && dot < name.length - 1 ? name.slice(dot + 1).toUpperCase() : 'None'
+  })
+
+  const fileTypeLabel = $derived.by(() => {
+    if (currentFocusedFile?.kind === 'document') return 'Markdown document'
+    switch (currentFocusedFile?.mimeCategory) {
+      case 'image':
+        return 'Image'
+      case 'pdf':
+        return 'PDF document'
+      case 'video':
+        return 'Video'
+      case 'audio':
+        return 'Audio'
+      default:
+        return 'File'
+    }
+  })
+
+  const fileTypeIcon = $derived.by(() => {
+    if (currentFocusedFile?.kind === 'document') return 'description'
+    switch (currentFocusedFile?.mimeCategory) {
+      case 'image':
+        return 'image'
+      case 'pdf':
+        return 'picture_as_pdf'
+      case 'video':
+        return 'videocam'
+      case 'audio':
+        return 'audiotrack'
+      default:
+        return 'draft'
+    }
+  })
+
+  const fileLocation = $derived.by(() => {
+    if (!currentFocusedFile) return '—'
+    if (currentFocusedFile.origin === 'collection') {
+      const normalized = currentFocusedFile.filePath.replaceAll('\\', '/')
+      const slash = normalized.lastIndexOf('/')
+      return slash >= 0 ? normalized.slice(0, slash) : 'Collection root'
+    }
+    const normalized = displayFilePath.replaceAll('\\', '/')
+    const slash = normalized.lastIndexOf('/')
+    return slash > 0 ? normalized.slice(0, slash) : '—'
+  })
+
+  const fileSource = $derived.by(() => {
+    switch (currentFocusedFile?.origin) {
+      case 'collection':
+        return 'Collection'
+      case 'external':
+        return 'External file'
+      case 'standalone':
+        return 'Standalone file'
+      case 'activity-log':
+        return 'Activity log'
+      default:
+        return '—'
+    }
+  })
+
+  const canUseFileActions = $derived(
+    !!currentFocusedFile?.externalId ||
+      (currentFocusedFile?.origin === 'collection' && !!absoluteFilePath)
+  )
+
   function expandToFullGraph() {
     if (!currentFilePath) return
     const nh = currentNeighborhood
@@ -202,6 +337,46 @@
       day: 'numeric',
       year: 'numeric'
     }).format(date)
+  }
+
+  function formatFileTimestamp(timestamp: string | null | undefined): string {
+    if (!timestamp) return formatDate(currentDocInfo?.modified_at)
+    const date = new Date(timestamp)
+    if (Number.isNaN(date.getTime())) return '—'
+    return new Intl.DateTimeFormat('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit'
+    }).format(date)
+  }
+
+  function formatFileSize(bytes: number | null): string {
+    if (bytes === null) return '—'
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
+  }
+
+  async function handleFileAction(action: 'open' | 'reveal' | 'copy'): Promise<void> {
+    const tab = currentFocusedFile
+    if (!tab) return
+    currentFileInfoError = null
+    try {
+      if (action === 'copy') {
+        await window.api.writeToClipboard(displayFilePath)
+      } else if (tab.externalId) {
+        if (action === 'open') await window.api.openExternalFile(tab.externalId)
+        else await window.api.revealExternalFile(tab.externalId)
+      } else if (tab.origin === 'collection' && absoluteFilePath) {
+        if (action === 'open') await window.api.openPath(absoluteFilePath)
+        else await window.api.showItemInFolder(absoluteFilePath)
+      }
+    } catch (error) {
+      currentFileInfoError = error instanceof Error ? error.message : String(error)
+    }
   }
 
   function formatValue(value: JsonValue): string {
@@ -285,407 +460,526 @@
   {#if fileName}
     <div class="file-header">
       <span class="file-name"
-        >{fileName}{#if currentIsDirty}<span class="dirty-indicator"> ●</span>{/if}</span
+        >{fileName}{#if focusedFileDirty}<span class="dirty-indicator"> ●</span>{/if}</span
       >
-      <button
-        class="star-button"
-        title={currentIsFavorited ? 'Remove from favorites' : 'Add to favorites'}
-        onclick={handleToggleFavorite}
-      >
-        <span class="material-symbols-outlined" class:filled={currentIsFavorited}>star</span>
-      </button>
+      {#if canFavorite}
+        <button
+          class="star-button"
+          title={currentIsFavorited ? 'Remove from favorites' : 'Add to favorites'}
+          onclick={handleToggleFavorite}
+        >
+          <span class="material-symbols-outlined" class:filled={currentIsFavorited}>star</span>
+        </button>
+      {/if}
     </div>
   {/if}
 
-  {#if !currentFilePath}
+  {#if !currentFocusedFile}
     <div class="empty-state">
       <span class="material-symbols-outlined empty-icon">description</span>
       <span class="empty-text">Select a file to view properties</span>
     </div>
-  {:else if currentLoading}
-    <div class="empty-state">
-      <span class="material-symbols-outlined empty-icon spinning">hourglass_empty</span>
-      <span class="empty-text">Loading...</span>
-    </div>
-  {:else if currentError}
-    <div class="empty-state">
-      <span class="material-symbols-outlined empty-icon error-icon">error</span>
-      <span class="empty-text error-text">{currentError}</span>
-    </div>
   {:else}
-    <!-- METADATA section -->
-    <section class="panel-section">
-      <button
-        type="button"
-        class="section-header"
-        aria-expanded={metadataOpen}
-        aria-controls="properties-frontmatter"
-        onclick={() => (metadataOpen = !metadataOpen)}
-      >
-        <span
-          class="material-symbols-outlined section-chevron"
-          class:rotated={metadataOpen}
-          aria-hidden="true">chevron_right</span
-        >
-        <span class="section-title">Frontmatter</span>
-      </button>
+    {#if isDocumentFile}
+      {#if currentLoading}
+        <div class="document-info-state" role="status">
+          <span class="material-symbols-outlined empty-icon spinning">hourglass_empty</span>
+          <span class="empty-text">Loading...</span>
+        </div>
+      {:else if currentError}
+        <div class="document-info-state">
+          <span class="material-symbols-outlined empty-icon error-icon">error</span>
+          <span class="empty-text error-text">{currentError}</span>
+        </div>
+      {:else}
+        <!-- METADATA section -->
+        <section class="panel-section">
+          <button
+            type="button"
+            class="section-header"
+            aria-expanded={metadataOpen}
+            aria-controls="properties-frontmatter"
+            onclick={() => (metadataOpen = !metadataOpen)}
+          >
+            <span
+              class="material-symbols-outlined section-chevron"
+              class:rotated={metadataOpen}
+              aria-hidden="true">chevron_right</span
+            >
+            <span class="section-title">Frontmatter</span>
+          </button>
 
-      {#if metadataOpen}
-        <div id="properties-frontmatter" class="section-content">
-          {#if currentFrontmatter}
-            <div class="properties-grid">
-              {#each Object.entries(currentFrontmatter) as [key, value]}
-                {@const keyRelations = relationsFor(key)}
-                {@const keyFiles = fileReferencesFor(key, value)}
-                {@const keyIsFile = isFileProperty(key, value)}
-                <div class="property-row">
-                  <span class="property-label">{key}</span>
-                  <div class="property-value">
-                    {#if keyIsFile && currentCollectionPath}
-                      <div class="file-tiles">
-                        {#if keyFiles.length === 0}
-                          <span class="muted-text">No files</span>
+          {#if metadataOpen}
+            <div id="properties-frontmatter" class="section-content">
+              {#if currentFrontmatter}
+                <div class="properties-grid">
+                  {#each Object.entries(currentFrontmatter) as [key, value]}
+                    {@const keyRelations = relationsFor(key)}
+                    {@const keyFiles = fileReferencesFor(key, value)}
+                    {@const keyIsFile = isFileProperty(key, value)}
+                    <div class="property-row">
+                      <span class="property-label">{key}</span>
+                      <div class="property-value">
+                        {#if keyIsFile && currentCollectionPath}
+                          <div class="file-tiles">
+                            {#if keyFiles.length === 0}
+                              <span class="muted-text">No files</span>
+                            {:else}
+                              {#each keyFiles as reference, i (i)}
+                                {@const asset = reference.path
+                                  ? $assetsByPath.get(reference.path)
+                                  : undefined}
+                                <FileTile
+                                  root={currentCollectionPath}
+                                  path={reference.path ?? reference.raw}
+                                  raw={reference.raw}
+                                  mimeCategory={asset?.mimeCategory ?? 'other'}
+                                  fileSize={asset?.fileSize}
+                                  exists={!!asset}
+                                  compact
+                                />
+                              {/each}
+                            {/if}
+                          </div>
+                        {:else if keyRelations && keyRelations.length > 0}
+                          <div class="tags-list">
+                            {#each keyRelations as relation, i (i)}
+                              <RelationChip
+                                {relation}
+                                raw={relation.raw}
+                                onnavigate={handleRelationNavigate}
+                              />
+                            {/each}
+                          </div>
+                        {:else if isJsonProperty(key, value)}
+                          <span class="value-text json-value">
+                            <JsonSyntax text={stringifyExactJson(value)} />
+                          </span>
+                        {:else if key.toLowerCase() === 'status' && typeof value === 'string'}
+                          <Badge variant={statusVariant(value)}>{value}</Badge>
+                        {:else if key.toLowerCase() === 'tags' && isArrayValue(value)}
+                          <div class="tags-list">
+                            {#each value as tag}
+                              <Badge variant="default">{formatValue(tag)}</Badge>
+                            {/each}
+                          </div>
                         {:else}
-                          {#each keyFiles as reference, i (i)}
-                            {@const asset = reference.path
-                              ? $assetsByPath.get(reference.path)
-                              : undefined}
-                            <FileTile
-                              root={currentCollectionPath}
-                              path={reference.path ?? reference.raw}
-                              raw={reference.raw}
-                              mimeCategory={asset?.mimeCategory ?? 'other'}
-                              fileSize={asset?.fileSize}
-                              exists={!!asset}
-                              compact
-                            />
-                          {/each}
+                          <span class="value-text">{formatValue(value)}</span>
                         {/if}
-                      </div>
-                    {:else if keyRelations && keyRelations.length > 0}
-                      <div class="tags-list">
-                        {#each keyRelations as relation, i (i)}
-                          <RelationChip
-                            {relation}
-                            raw={relation.raw}
-                            onnavigate={handleRelationNavigate}
-                          />
-                        {/each}
-                      </div>
-                    {:else if isJsonProperty(key, value)}
-                      <span class="value-text json-value">
-                        <JsonSyntax text={stringifyExactJson(value)} />
-                      </span>
-                    {:else if key.toLowerCase() === 'status' && typeof value === 'string'}
-                      <Badge variant={statusVariant(value)}>{value}</Badge>
-                    {:else if key.toLowerCase() === 'tags' && isArrayValue(value)}
-                      <div class="tags-list">
-                        {#each value as tag}
-                          <Badge variant="default">{formatValue(tag)}</Badge>
-                        {/each}
-                      </div>
-                    {:else}
-                      <span class="value-text">{formatValue(value)}</span>
-                    {/if}
-                  </div>
-                </div>
-              {/each}
-            </div>
-          {:else}
-            <span class="muted-text">No frontmatter</span>
-          {/if}
-
-          <!-- Dates -->
-          <div class="properties-grid dates-grid">
-            <div class="property-row">
-              <span class="property-label">Modified</span>
-              <span class="value-text">{formatDate(currentDocInfo?.modified_at)}</span>
-            </div>
-            <div class="property-row">
-              <span class="property-label">Indexed</span>
-              <span class="value-text">{formatDate(currentDocInfo?.indexed_at)}</span>
-            </div>
-          </div>
-        </div>
-      {/if}
-    </section>
-
-    <!-- LOCAL GRAPH section -->
-    <section class="panel-section">
-      <div class="section-header section-header-group">
-        <button
-          type="button"
-          class="section-toggle"
-          aria-expanded={localGraphOpen}
-          aria-controls="properties-local-graph"
-          onclick={() => (localGraphOpen = !localGraphOpen)}
-        >
-          <span
-            class="material-symbols-outlined section-chevron"
-            class:rotated={localGraphOpen}
-            aria-hidden="true">chevron_right</span
-          >
-          <span class="section-title">Local Graph</span>
-          {#if neighborCount > 0}
-            <span class="section-count">{neighborCount}</span>
-          {/if}
-        </button>
-        <button
-          type="button"
-          class="expand-button"
-          title="Open full graph view"
-          onclick={expandToFullGraph}
-        >
-          <span class="material-symbols-outlined" aria-hidden="true">open_in_full</span>
-        </button>
-      </div>
-
-      {#if localGraphOpen}
-        <div id="properties-local-graph" class="graph-section-content">
-          <LocalGraph
-            centerPath={currentFilePath}
-            linksInfo={currentLinks}
-            backlinksInfo={currentBacklinks}
-            {onfileselect}
-            onexpand={expandToFullGraph}
-          />
-        </div>
-      {/if}
-    </section>
-
-    <!-- LINKS section -->
-    <section class="panel-section">
-      <button
-        type="button"
-        class="section-header"
-        aria-expanded={linksOpen}
-        aria-controls="properties-links"
-        onclick={() => (linksOpen = !linksOpen)}
-      >
-        <span
-          class="material-symbols-outlined section-chevron"
-          class:rotated={linksOpen}
-          aria-hidden="true">chevron_right</span
-        >
-        <span class="section-title">Links</span>
-        {#if incomingCount + outgoingCount > 0}
-          <span class="section-count">{incomingCount + outgoingCount}</span>
-        {/if}
-      </button>
-
-      {#if linksOpen}
-        <div id="properties-links" class="section-content">
-          <!-- Tabs -->
-          <div class="links-tabs">
-            <button
-              class="links-tab"
-              class:active={linksTab === 'incoming'}
-              onclick={() => (linksTab = 'incoming')}
-            >
-              Incoming
-              {#if incomingCount > 0}
-                <span class="tab-count">{incomingCount}</span>
-              {/if}
-            </button>
-            <button
-              class="links-tab"
-              class:active={linksTab === 'outgoing'}
-              onclick={() => (linksTab = 'outgoing')}
-            >
-              Outgoing
-              {#if outgoingCount > 0}
-                <span class="tab-count">{outgoingCount}</span>
-              {/if}
-            </button>
-          </div>
-
-          <!-- Incoming (backlinks) -->
-          {#if linksTab === 'incoming'}
-            {#if currentNeighborhood?.incoming?.length > 0}
-              <div class="links-list">
-                {#each currentNeighborhood.incoming as node}
-                  {@render neighborhoodTreeNode(node, 'in', 0)}
-                {/each}
-              </div>
-            {:else if currentBacklinks && currentBacklinks.backlinks.length > 0}
-              <div class="links-list">
-                {#each currentBacklinks.backlinks as link}
-                  <!-- svelte-ignore a11y_click_events_have_key_events -->
-                  <div
-                    class="link-item"
-                    role="button"
-                    tabindex="0"
-                    onclick={() => handleBacklinkClick(link.entry.source)}
-                  >
-                    <span class="material-symbols-outlined link-icon link-icon-in">arrow_back</span>
-                    <div class="link-info">
-                      <span class="link-name">
-                        {getFileName(link.entry.source)}
-                        {#if link.entry.field}
-                          <span
-                            class="field-tag"
-                            title="Frontmatter relation via `{link.entry.field}`"
-                            >{link.entry.field}</span
-                          >
-                        {/if}
-                      </span>
-                      {#if link.entry.text}
-                        <span class="link-snippet">{link.entry.text}</span>
-                      {/if}
-                    </div>
-                  </div>
-                {/each}
-              </div>
-            {:else}
-              <span class="muted-text">No incoming links</span>
-            {/if}
-          {/if}
-
-          <!-- Outgoing -->
-          {#if linksTab === 'outgoing'}
-            {#if currentNeighborhood?.outgoing?.length > 0}
-              <div class="links-list">
-                {#each currentNeighborhood.outgoing as node}
-                  {@render neighborhoodTreeNode(node, 'out', 0)}
-                {/each}
-              </div>
-            {:else if currentLinks && currentLinks.links.outgoing.length > 0}
-              <div class="links-list">
-                {#each currentLinks.links.outgoing as link}
-                  <!-- svelte-ignore a11y_click_events_have_key_events -->
-                  <div
-                    class="link-item"
-                    role="button"
-                    tabindex="0"
-                    onclick={() => handleBacklinkClick(link.entry.target)}
-                  >
-                    <span class="material-symbols-outlined link-icon link-icon-out"
-                      >arrow_forward</span
-                    >
-                    <div class="link-info">
-                      <span class="link-name">
-                        {getFileName(link.entry.target)}
-                        {#if link.entry.field}
-                          <span
-                            class="field-tag"
-                            title="Frontmatter relation via `{link.entry.field}`"
-                            >{link.entry.field}</span
-                          >
-                        {/if}
-                      </span>
-                      {#if link.entry.text}
-                        <span class="link-snippet">{link.entry.text}</span>
-                      {/if}
-                    </div>
-                  </div>
-                {/each}
-              </div>
-            {:else}
-              <span class="muted-text">No outgoing links</span>
-            {/if}
-          {/if}
-        </div>
-      {/if}
-    </section>
-
-    <!-- REFERENCED BY section (phase 42: reverse frontmatter relations).
-         Distinct from Backlinks: "Referenced by" lists documents whose
-         FRONTMATTER points here; Backlinks lists body links. -->
-    {#if referencedBy.length > 0}
-      <section class="panel-section">
-        <button
-          type="button"
-          class="section-header"
-          aria-expanded={referencedByOpen}
-          aria-controls="properties-referenced-by"
-          onclick={() => (referencedByOpen = !referencedByOpen)}
-        >
-          <span
-            class="material-symbols-outlined section-chevron"
-            class:rotated={referencedByOpen}
-            aria-hidden="true">chevron_right</span
-          >
-          <span class="section-title">Referenced by</span>
-          <span class="section-count">{referencedBy.length}</span>
-        </button>
-
-        {#if referencedByOpen}
-          <div id="properties-referenced-by" class="section-content">
-            <span class="muted-text refby-hint"
-              >Documents whose frontmatter points here (body links are under Links).</span
-            >
-            {#each referencedByGroups as group (group.field)}
-              <div class="refby-group">
-                <span class="refby-field">{group.field}</span>
-                <div class="links-list">
-                  {#each group.entries as entry, i (`${entry.source} ${i}`)}
-                    <!-- svelte-ignore a11y_click_events_have_key_events -->
-                    <div
-                      class="link-item"
-                      role="button"
-                      tabindex="0"
-                      onclick={() => handleBacklinkClick(entry.source)}
-                    >
-                      <span class="material-symbols-outlined link-icon link-icon-in"
-                        >account_tree</span
-                      >
-                      <div class="link-info">
-                        <span class="link-name">{entry.title}</span>
-                        <span class="link-snippet">{entry.source}</span>
                       </div>
                     </div>
                   {/each}
                 </div>
-              </div>
-            {/each}
-            {#if !showAllReferencedBy && referencedBy.length > REFERENCED_BY_COLLAPSE}
-              <button class="refby-show-all" onclick={() => (showAllReferencedBy = true)}>
-                Show all ({referencedBy.length})
+              {:else}
+                <span class="muted-text">No frontmatter</span>
+              {/if}
+            </div>
+          {/if}
+        </section>
+
+        {#if isCollectionDocument}
+          <!-- LOCAL GRAPH section -->
+          <section class="panel-section">
+            <div class="section-header section-header-group">
+              <button
+                type="button"
+                class="section-toggle"
+                aria-expanded={localGraphOpen}
+                aria-controls="properties-local-graph"
+                onclick={() => (localGraphOpen = !localGraphOpen)}
+              >
+                <span
+                  class="material-symbols-outlined section-chevron"
+                  class:rotated={localGraphOpen}
+                  aria-hidden="true">chevron_right</span
+                >
+                <span class="section-title">Local Graph</span>
+                {#if neighborCount > 0}
+                  <span class="section-count">{neighborCount}</span>
+                {/if}
               </button>
+              <button
+                type="button"
+                class="expand-button"
+                title="Open full graph view"
+                onclick={expandToFullGraph}
+              >
+                <span class="material-symbols-outlined" aria-hidden="true">open_in_full</span>
+              </button>
+            </div>
+
+            {#if localGraphOpen}
+              <div id="properties-local-graph" class="graph-section-content">
+                <LocalGraph
+                  centerPath={currentFilePath}
+                  linksInfo={currentLinks}
+                  backlinksInfo={currentBacklinks}
+                  {onfileselect}
+                  onexpand={expandToFullGraph}
+                />
+              </div>
             {/if}
-          </div>
+          </section>
+
+          <!-- LINKS section -->
+          <section class="panel-section">
+            <button
+              type="button"
+              class="section-header"
+              aria-expanded={linksOpen}
+              aria-controls="properties-links"
+              onclick={() => (linksOpen = !linksOpen)}
+            >
+              <span
+                class="material-symbols-outlined section-chevron"
+                class:rotated={linksOpen}
+                aria-hidden="true">chevron_right</span
+              >
+              <span class="section-title">Links</span>
+              {#if incomingCount + outgoingCount > 0}
+                <span class="section-count">{incomingCount + outgoingCount}</span>
+              {/if}
+            </button>
+
+            {#if linksOpen}
+              <div id="properties-links" class="section-content">
+                <!-- Tabs -->
+                <div class="links-tabs">
+                  <button
+                    class="links-tab"
+                    class:active={linksTab === 'incoming'}
+                    onclick={() => (linksTab = 'incoming')}
+                  >
+                    Incoming
+                    {#if incomingCount > 0}
+                      <span class="tab-count">{incomingCount}</span>
+                    {/if}
+                  </button>
+                  <button
+                    class="links-tab"
+                    class:active={linksTab === 'outgoing'}
+                    onclick={() => (linksTab = 'outgoing')}
+                  >
+                    Outgoing
+                    {#if outgoingCount > 0}
+                      <span class="tab-count">{outgoingCount}</span>
+                    {/if}
+                  </button>
+                </div>
+
+                <!-- Incoming (backlinks) -->
+                {#if linksTab === 'incoming'}
+                  {#if currentNeighborhood?.incoming?.length > 0}
+                    <div class="links-list">
+                      {#each currentNeighborhood.incoming as node}
+                        {@render neighborhoodTreeNode(node, 'in', 0)}
+                      {/each}
+                    </div>
+                  {:else if currentBacklinks && currentBacklinks.backlinks.length > 0}
+                    <div class="links-list">
+                      {#each currentBacklinks.backlinks as link}
+                        <!-- svelte-ignore a11y_click_events_have_key_events -->
+                        <div
+                          class="link-item"
+                          role="button"
+                          tabindex="0"
+                          onclick={() => handleBacklinkClick(link.entry.source)}
+                        >
+                          <span class="material-symbols-outlined link-icon link-icon-in"
+                            >arrow_back</span
+                          >
+                          <div class="link-info">
+                            <span class="link-name">
+                              {getFileName(link.entry.source)}
+                              {#if link.entry.field}
+                                <span
+                                  class="field-tag"
+                                  title="Frontmatter relation via `{link.entry.field}`"
+                                  >{link.entry.field}</span
+                                >
+                              {/if}
+                            </span>
+                            {#if link.entry.text}
+                              <span class="link-snippet">{link.entry.text}</span>
+                            {/if}
+                          </div>
+                        </div>
+                      {/each}
+                    </div>
+                  {:else}
+                    <span class="muted-text">No incoming links</span>
+                  {/if}
+                {/if}
+
+                <!-- Outgoing -->
+                {#if linksTab === 'outgoing'}
+                  {#if currentNeighborhood?.outgoing?.length > 0}
+                    <div class="links-list">
+                      {#each currentNeighborhood.outgoing as node}
+                        {@render neighborhoodTreeNode(node, 'out', 0)}
+                      {/each}
+                    </div>
+                  {:else if currentLinks && currentLinks.links.outgoing.length > 0}
+                    <div class="links-list">
+                      {#each currentLinks.links.outgoing as link}
+                        <!-- svelte-ignore a11y_click_events_have_key_events -->
+                        <div
+                          class="link-item"
+                          role="button"
+                          tabindex="0"
+                          onclick={() => handleBacklinkClick(link.entry.target)}
+                        >
+                          <span class="material-symbols-outlined link-icon link-icon-out"
+                            >arrow_forward</span
+                          >
+                          <div class="link-info">
+                            <span class="link-name">
+                              {getFileName(link.entry.target)}
+                              {#if link.entry.field}
+                                <span
+                                  class="field-tag"
+                                  title="Frontmatter relation via `{link.entry.field}`"
+                                  >{link.entry.field}</span
+                                >
+                              {/if}
+                            </span>
+                            {#if link.entry.text}
+                              <span class="link-snippet">{link.entry.text}</span>
+                            {/if}
+                          </div>
+                        </div>
+                      {/each}
+                    </div>
+                  {:else}
+                    <span class="muted-text">No outgoing links</span>
+                  {/if}
+                {/if}
+              </div>
+            {/if}
+          </section>
+
+          <!-- REFERENCED BY section (phase 42: reverse frontmatter relations).
+         Distinct from Backlinks: "Referenced by" lists documents whose
+         FRONTMATTER points here; Backlinks lists body links. -->
+          {#if referencedBy.length > 0}
+            <section class="panel-section">
+              <button
+                type="button"
+                class="section-header"
+                aria-expanded={referencedByOpen}
+                aria-controls="properties-referenced-by"
+                onclick={() => (referencedByOpen = !referencedByOpen)}
+              >
+                <span
+                  class="material-symbols-outlined section-chevron"
+                  class:rotated={referencedByOpen}
+                  aria-hidden="true">chevron_right</span
+                >
+                <span class="section-title">Referenced by</span>
+                <span class="section-count">{referencedBy.length}</span>
+              </button>
+
+              {#if referencedByOpen}
+                <div id="properties-referenced-by" class="section-content">
+                  <span class="muted-text refby-hint"
+                    >Documents whose frontmatter points here (body links are under Links).</span
+                  >
+                  {#each referencedByGroups as group (group.field)}
+                    <div class="refby-group">
+                      <span class="refby-field">{group.field}</span>
+                      <div class="links-list">
+                        {#each group.entries as entry, i (`${entry.source} ${i}`)}
+                          <!-- svelte-ignore a11y_click_events_have_key_events -->
+                          <div
+                            class="link-item"
+                            role="button"
+                            tabindex="0"
+                            onclick={() => handleBacklinkClick(entry.source)}
+                          >
+                            <span class="material-symbols-outlined link-icon link-icon-in"
+                              >account_tree</span
+                            >
+                            <div class="link-info">
+                              <span class="link-name">{entry.title}</span>
+                              <span class="link-snippet">{entry.source}</span>
+                            </div>
+                          </div>
+                        {/each}
+                      </div>
+                    </div>
+                  {/each}
+                  {#if !showAllReferencedBy && referencedBy.length > REFERENCED_BY_COLLAPSE}
+                    <button class="refby-show-all" onclick={() => (showAllReferencedBy = true)}>
+                      Show all ({referencedBy.length})
+                    </button>
+                  {/if}
+                </div>
+              {/if}
+            </section>
+          {/if}
         {/if}
-      </section>
+
+        <!-- OUTLINE section -->
+        <section class="panel-section">
+          <button
+            type="button"
+            class="section-header"
+            aria-expanded={outlineOpen}
+            aria-controls="properties-outline"
+            onclick={() => (outlineOpen = !outlineOpen)}
+          >
+            <span
+              class="material-symbols-outlined section-chevron"
+              class:rotated={outlineOpen}
+              aria-hidden="true">chevron_right</span
+            >
+            <span class="section-title">Outline</span>
+          </button>
+
+          {#if outlineOpen}
+            <div id="properties-outline" class="section-content">
+              {#if currentOutline.length > 0}
+                <nav class="outline-list">
+                  {#each currentOutline as item, i}
+                    <!-- svelte-ignore a11y_click_events_have_key_events -->
+                    <div
+                      class="outline-item"
+                      class:active={i === currentActiveHeadingIndex}
+                      style="padding-left: {(item.level - 1) * 12}px"
+                      role="button"
+                      tabindex="0"
+                      onclick={() => handleOutlineClick(item)}
+                    >
+                      <span class="outline-text">{item.heading}</span>
+                    </div>
+                  {/each}
+                </nav>
+              {:else}
+                <span class="muted-text">No headings</span>
+              {/if}
+            </div>
+          {/if}
+        </section>
+      {/if}
     {/if}
 
-    <!-- OUTLINE section -->
-    <section class="panel-section">
+    <!-- Filesystem details come after document-specific insights for Markdown files. -->
+    <section class="panel-section file-info-section">
       <button
         type="button"
         class="section-header"
-        aria-expanded={outlineOpen}
-        aria-controls="properties-outline"
-        onclick={() => (outlineOpen = !outlineOpen)}
+        aria-expanded={fileInfoOpen}
+        aria-controls="properties-file-information"
+        onclick={() => (fileInfoOpen = !fileInfoOpen)}
       >
         <span
           class="material-symbols-outlined section-chevron"
-          class:rotated={outlineOpen}
+          class:rotated={fileInfoOpen}
           aria-hidden="true">chevron_right</span
         >
-        <span class="section-title">Outline</span>
+        <span class="section-title">File information</span>
       </button>
 
-      {#if outlineOpen}
-        <div id="properties-outline" class="section-content">
-          {#if currentOutline.length > 0}
-            <nav class="outline-list">
-              {#each currentOutline as item, i}
-                <!-- svelte-ignore a11y_click_events_have_key_events -->
-                <div
-                  class="outline-item"
-                  class:active={i === currentActiveHeadingIndex}
-                  style="padding-left: {(item.level - 1) * 12}px"
-                  role="button"
-                  tabindex="0"
-                  onclick={() => handleOutlineClick(item)}
+      {#if fileInfoOpen}
+        <div id="properties-file-information" class="section-content file-info-content">
+          <div class="file-kind-summary">
+            <span class="material-symbols-outlined file-kind-icon" aria-hidden="true"
+              >{fileTypeIcon}</span
+            >
+            <div class="file-kind-text">
+              <span class="file-kind-label">{fileTypeLabel}</span>
+              <span class="file-kind-format">{fileExtension}</span>
+            </div>
+          </div>
+
+          <div class="properties-grid file-info-grid">
+            <div class="property-row">
+              <span class="property-label">Type</span>
+              <span class="value-text">{fileTypeLabel}</span>
+            </div>
+            <div class="property-row">
+              <span class="property-label">Format</span>
+              <span class="value-text mono-value">{fileExtension}</span>
+            </div>
+            <div class="property-row">
+              <span class="property-label">Size</span>
+              <span class="value-text">
+                {currentFileInfoLoading && displayedFileSize === null
+                  ? 'Reading…'
+                  : formatFileSize(displayedFileSize)}
+              </span>
+            </div>
+            <div class="property-row">
+              <span class="property-label">Modified</span>
+              <span class="value-text">{formatFileTimestamp(currentFileInfo?.mtime)}</span>
+            </div>
+            <div class="property-row">
+              <span class="property-label">Location</span>
+              <span class="value-text path-value" title={fileLocation}>{fileLocation}</span>
+            </div>
+            <div class="property-row">
+              <span class="property-label">Path</span>
+              <span class="value-text path-value" title={displayFilePath}>{displayFilePath}</span>
+            </div>
+            <div class="property-row">
+              <span class="property-label">Source</span>
+              <span class="value-text">{fileSource}</span>
+            </div>
+            {#if isDocumentFile}
+              <div class="property-row">
+                <span class="property-label">Indexed</span>
+                <span class="value-text">{formatDate(currentDocInfo?.indexed_at)}</span>
+              </div>
+            {/if}
+            {#if currentDocInfo}
+              <div class="property-row">
+                <span class="property-label">Chunks</span>
+                <span class="value-text">{currentDocInfo.chunk_count}</span>
+              </div>
+              <div class="property-row">
+                <span class="property-label">Content hash</span>
+                <span class="value-text mono-value" title={currentDocInfo.content_hash}
+                  >{currentDocInfo.content_hash.slice(0, 12)}</span
                 >
-                  <span class="outline-text">{item.heading}</span>
-                </div>
-              {/each}
-            </nav>
-          {:else}
-            <span class="muted-text">No headings</span>
+              </div>
+            {/if}
+          </div>
+
+          {#if currentFileInfoError}
+            <p class="file-info-error" role="alert">{currentFileInfoError}</p>
           {/if}
+
+          <div class="file-info-actions">
+            {#if canUseFileActions}
+              <button
+                type="button"
+                class="file-info-action"
+                onclick={() => void handleFileAction('reveal')}
+                title="Reveal in Finder/File Explorer"
+                aria-label="Reveal in Finder/File Explorer"
+              >
+                <span class="material-symbols-outlined" aria-hidden="true">folder_open</span>
+              </button>
+              <button
+                type="button"
+                class="file-info-action"
+                onclick={() => void handleFileAction('open')}
+                title="Open in Default App"
+                aria-label="Open in Default App"
+              >
+                <span class="material-symbols-outlined" aria-hidden="true">open_in_new</span>
+              </button>
+            {/if}
+            <button
+              type="button"
+              class="file-info-action"
+              onclick={() => void handleFileAction('copy')}
+              title="Copy Path"
+              aria-label="Copy Path"
+            >
+              <span class="material-symbols-outlined" aria-hidden="true">content_copy</span>
+            </button>
+          </div>
         </div>
       {/if}
     </section>
@@ -858,6 +1152,113 @@
     border-bottom: 1px solid var(--color-border, #27272a);
   }
 
+  .file-info-content {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4, 16px);
+  }
+
+  .file-kind-summary {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3, 12px);
+    padding: var(--space-3, 12px);
+    border: 1px solid var(--color-border, #27272a);
+    border-radius: var(--radius-md, 6px);
+    background: var(--color-surface, #161617);
+  }
+
+  .file-kind-icon {
+    flex: 0 0 auto;
+    color: var(--color-primary, #00e5ff);
+    font-size: 30px;
+  }
+
+  .file-kind-text {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .file-kind-label {
+    overflow: hidden;
+    color: var(--color-text, #e4e4e7);
+    font-size: var(--text-sm, 12px);
+    font-weight: var(--weight-medium, 500);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .file-kind-format,
+  .mono-value {
+    color: var(--color-text-dim, #71717a);
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-size: var(--text-xs, 10px);
+  }
+
+  .properties-grid.file-info-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .path-value {
+    overflow-wrap: anywhere;
+  }
+
+  .file-info-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-1, 4px);
+  }
+
+  .file-info-action {
+    display: inline-flex;
+    width: 30px;
+    height: 30px;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1px solid var(--color-border, #27272a);
+    border-radius: var(--radius-md, 6px);
+    background: var(--color-surface, #161617);
+    color: var(--color-text-dim, #71717a);
+    cursor: pointer;
+  }
+
+  .file-info-action:hover {
+    border-color: var(--color-primary, #00e5ff);
+    color: var(--color-primary, #00e5ff);
+  }
+
+  .file-info-action:focus-visible {
+    outline: 2px solid var(--color-primary, #00e5ff);
+    outline-offset: 2px;
+  }
+
+  .file-info-action .material-symbols-outlined {
+    font-size: 17px;
+  }
+
+  .file-info-error {
+    margin: 0;
+    color: var(--color-error, #ef4444);
+    font-size: var(--text-xs, 10px);
+    overflow-wrap: anywhere;
+  }
+
+  .document-info-state {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 8px);
+    padding: var(--space-4, 16px);
+    border-bottom: 1px solid var(--color-border, #27272a);
+  }
+
+  .document-info-state .empty-icon {
+    font-size: 18px;
+  }
+
   .section-header {
     display: flex;
     align-items: center;
@@ -961,12 +1362,6 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-3, 12px);
-  }
-
-  .dates-grid {
-    margin-top: var(--space-3, 12px);
-    padding-top: var(--space-3, 12px);
-    border-top: 1px solid var(--color-border, #27272a);
   }
 
   .property-row {
@@ -1222,5 +1617,22 @@
     margin-left: 4px;
     font-weight: 400;
     font-style: italic;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .spinning {
+      animation: none;
+    }
+
+    .star-button,
+    .section-header,
+    .section-chevron,
+    .expand-button,
+    .links-tab,
+    .link-item,
+    .outline-item,
+    .outline-text {
+      transition: none;
+    }
   }
 </style>

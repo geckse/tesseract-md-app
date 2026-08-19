@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/svelte'
+import { tick } from 'svelte'
 
 // Mock window.api before importing stores
 const mockApi = {
@@ -15,6 +16,12 @@ const mockApi = {
   readFile: vi.fn(),
   tree: vi.fn(),
   neighborhood: vi.fn(),
+  fileInfo: vi.fn(),
+  openPath: vi.fn(),
+  showItemInFolder: vi.fn(),
+  writeToClipboard: vi.fn(),
+  openExternalFile: vi.fn(),
+  revealExternalFile: vi.fn(),
   saveWindowSession: vi.fn().mockResolvedValue(undefined),
   detachTab: vi.fn().mockResolvedValue(undefined)
 }
@@ -122,6 +129,14 @@ function selectFilePath(filePath: string): void {
   syncFileStoresFromTab()
 }
 
+function selectAssetPath(
+  filePath: string,
+  mimeCategory: 'image' | 'pdf' | 'video' | 'audio' | 'other'
+): void {
+  workspace.openAssetTab(filePath, mimeCategory, 2048)
+  syncFileStoresFromTab()
+}
+
 function resetStores() {
   documentInfo.set(null)
   backlinksInfo.set(null)
@@ -139,6 +154,12 @@ function resetStores() {
 beforeEach(() => {
   resetStores()
   vi.resetAllMocks()
+  mockApi.fileInfo.mockResolvedValue({ size: 4096, mtime: '2026-08-16T12:30:00.000Z' })
+  mockApi.openPath.mockResolvedValue(undefined)
+  mockApi.showItemInFolder.mockResolvedValue(undefined)
+  mockApi.writeToClipboard.mockResolvedValue(undefined)
+  mockApi.openExternalFile.mockResolvedValue(undefined)
+  mockApi.revealExternalFile.mockResolvedValue(undefined)
 })
 
 describe('PropertiesPanel component', () => {
@@ -257,6 +278,97 @@ describe('PropertiesPanel component', () => {
 
       const dashes = screen.getAllByText('—')
       expect(dashes.length).toBeGreaterThanOrEqual(2)
+    })
+  })
+
+  describe('file information', () => {
+    it('places Markdown file information last and keeps it collapsible', async () => {
+      selectFilePath('docs/test.md')
+
+      const { container } = render(PropertiesPanel)
+
+      const sectionTitles = Array.from(container.querySelectorAll('.section-title')).map((title) =>
+        title.textContent?.trim()
+      )
+      expect(sectionTitles.at(-1)).toBe('File information')
+
+      const fileInfoToggle = screen.getByRole('button', { name: 'File information' })
+      expect(fileInfoToggle.getAttribute('aria-expanded')).toBe('true')
+
+      await fireEvent.click(fileInfoToggle)
+
+      expect(fileInfoToggle.getAttribute('aria-expanded')).toBe('false')
+      expect(container.querySelector('#properties-file-information')).toBeNull()
+    })
+
+    it.each([
+      ['image', 'assets/photo.png', 'Image', 'PNG'],
+      ['pdf', 'documents/spec.pdf', 'PDF document', 'PDF'],
+      ['video', 'media/demo.mp4', 'Video', 'MP4'],
+      ['audio', 'media/theme.mp3', 'Audio', 'MP3'],
+      ['other', 'archives/data.bin', 'File', 'BIN']
+    ] as const)(
+      'shows useful details for an opened %s file',
+      async (category, path, label, format) => {
+        collections.set([
+          { id: 'col-1', name: 'Vault', path: '/vault', addedAt: 0, lastOpenedAt: 0 }
+        ])
+        activeCollectionId.set('col-1')
+        selectAssetPath(path, category)
+
+        render(PropertiesPanel)
+
+        await Promise.resolve()
+        await tick()
+        expect(mockApi.fileInfo).toHaveBeenCalledWith(`/vault/${path}`)
+        expect(screen.getByText('File information')).toBeTruthy()
+        expect(screen.getAllByText(label).length).toBeGreaterThanOrEqual(1)
+        expect(screen.getAllByText(format).length).toBeGreaterThanOrEqual(1)
+        expect(screen.getByText('4.0 KB')).toBeTruthy()
+        expect(screen.getByText(path)).toBeTruthy()
+        expect(screen.queryByText('Frontmatter')).toBeNull()
+        expect(screen.queryByText('Links')).toBeNull()
+        expect(screen.queryByText('Outline')).toBeNull()
+      }
+    )
+
+    it('provides reveal, default-app, and copy-path actions for collection files', async () => {
+      collections.set([{ id: 'col-1', name: 'Vault', path: '/vault', addedAt: 0, lastOpenedAt: 0 }])
+      activeCollectionId.set('col-1')
+      selectAssetPath('media/demo.mp4', 'video')
+      render(PropertiesPanel)
+
+      await fireEvent.click(screen.getByRole('button', { name: 'Reveal in Finder/File Explorer' }))
+      await fireEvent.click(screen.getByRole('button', { name: 'Open in Default App' }))
+      await fireEvent.click(screen.getByRole('button', { name: 'Copy Path' }))
+
+      expect(mockApi.showItemInFolder).toHaveBeenCalledWith('/vault/media/demo.mp4')
+      expect(mockApi.openPath).toHaveBeenCalledWith('/vault/media/demo.mp4')
+      expect(mockApi.writeToClipboard).toHaveBeenCalledWith('media/demo.mp4')
+    })
+
+    it('shows external asset information without exposing its path to collection APIs', async () => {
+      workspace.openExternalAssetTab({
+        id: 'grant-1',
+        path: '/outside/demo.webm',
+        name: 'demo.webm',
+        mimeCategory: 'video',
+        fileSize: 8192,
+        objectUrl: 'blob:demo'
+      })
+      syncFileStoresFromTab()
+      render(PropertiesPanel)
+
+      expect(screen.getByText('External file')).toBeTruthy()
+      expect(screen.getByText('/outside/demo.webm')).toBeTruthy()
+      expect(screen.getByText('8.0 KB')).toBeTruthy()
+      expect(mockApi.fileInfo).not.toHaveBeenCalled()
+
+      await fireEvent.click(screen.getByRole('button', { name: 'Reveal in Finder/File Explorer' }))
+      await fireEvent.click(screen.getByRole('button', { name: 'Open in Default App' }))
+      expect(mockApi.revealExternalFile).toHaveBeenCalledWith('grant-1')
+      expect(mockApi.openExternalFile).toHaveBeenCalledWith('grant-1')
+      expect(mockApi.openPath).not.toHaveBeenCalled()
     })
   })
 

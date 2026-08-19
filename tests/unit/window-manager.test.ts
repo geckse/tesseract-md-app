@@ -99,11 +99,13 @@ vi.mock('@electron-toolkit/utils', () => ({
 // Mock ./store
 const mockStoreGet = vi.fn()
 const mockStoreSet = vi.fn()
+const mockGetActiveCollection = vi.fn()
 vi.mock('../../src/main/store', () => ({
   initStore: vi.fn(() => ({
     get: (...args: unknown[]) => mockStoreGet(...args),
     set: (...args: unknown[]) => mockStoreSet(...args)
   })),
+  getActiveCollection: (...args: unknown[]) => mockGetActiveCollection(...args),
   setZoomLevel: vi.fn()
 }))
 
@@ -122,6 +124,7 @@ describe('WindowManager', () => {
     nextLoadFailure = null
     mockStoreGet.mockReset()
     mockStoreSet.mockReset()
+    mockGetActiveCollection.mockReset().mockReturnValue(null)
     mockStoreGet.mockImplementation((key: string, defaultValue?: unknown) => {
       if (key === 'windowBounds') return { x: 0, y: 0, width: 1200, height: 800 }
       if (key === 'zoomLevel') return 1.0
@@ -421,6 +424,182 @@ describe('WindowManager', () => {
       expect(wm.getWindow(id)).toBeUndefined()
       // Subsequent call should also return undefined (stale entry cleaned up)
       expect(wm.getWindow(id)).toBeUndefined()
+    })
+  })
+
+  describe('external dropped-file grants', () => {
+    it('binds an opaque exact-file capability to its owning renderer', () => {
+      const owner = wm.createWindow()
+      const other = wm.createWindow()
+
+      const grantId = wm.grantExternalFile(owner.webContents.id, '/outside/photo.png')
+
+      expect(grantId).toMatch(/^[0-9a-f-]{36}$/)
+      expect(wm.getExternalFilePath(owner.webContents.id, grantId)).toBe('/outside/photo.png')
+      expect(wm.getExternalFilePath(other.webContents.id, grantId)).toBeUndefined()
+    })
+
+    it('deduplicates the same normalized path within one window', () => {
+      const owner = wm.createWindow()
+
+      const first = wm.grantExternalFile(owner.webContents.id, '/outside/notes/../report.md')
+      const second = wm.grantExternalFile(owner.webContents.id, '/outside/report.md')
+
+      expect(second).toBe(first)
+    })
+
+    it('allows an owner to release one grant without affecting another', () => {
+      const owner = wm.createWindow()
+      const first = wm.grantExternalFile(owner.webContents.id, '/outside/one.md')
+      const second = wm.grantExternalFile(owner.webContents.id, '/outside/two.md')
+
+      expect(wm.releaseExternalFile(owner.webContents.id, first)).toBe(true)
+      expect(wm.getExternalFilePath(owner.webContents.id, first)).toBeUndefined()
+      expect(wm.getExternalFilePath(owner.webContents.id, second)).toBe('/outside/two.md')
+      expect(wm.releaseExternalFile(owner.webContents.id, first)).toBe(false)
+    })
+
+    it('cleans every grant when its window closes or becomes stale', () => {
+      const closed = wm.createWindow() as unknown as MockBrowserWindow
+      const closedGrant = wm.grantExternalFile(closed.webContents.id, '/outside/closed.md')
+      closed.close()
+      expect(wm.getExternalFilePath(closed.webContents.id, closedGrant)).toBeUndefined()
+
+      const stale = wm.createWindow() as unknown as MockBrowserWindow
+      const staleGrant = wm.grantExternalFile(stale.webContents.id, '/outside/stale.md')
+      stale._simulateDestroy()
+      wm.getAllWindows()
+      expect(wm.getExternalFilePath(stale.webContents.id, staleGrant)).toBeUndefined()
+    })
+
+    it('refuses to grant a file to an unknown renderer', () => {
+      expect(() => wm.grantExternalFile(9999, '/outside/secret.md')).toThrow(/requesting window/)
+    })
+  })
+
+  describe('OS-opened Markdown documents', () => {
+    function triggerDidFinishLoad(win: MockBrowserWindow): void {
+      const registration = win.webContents.on.mock.calls.find(
+        ([event]) => event === 'did-finish-load'
+      )
+      expect(registration).toBeDefined()
+      ;(registration?.[1] as () => void)()
+    }
+
+    it('creates a standalone editor without exposing its absolute path in the URL', () => {
+      const win = wm.createStandaloneWindow(
+        '/outside/private-note.md'
+      ) as unknown as MockBrowserWindow
+      const options = vi.mocked(BrowserWindow).mock.calls.at(-1)?.[0] as unknown as {
+        width: number
+        height: number
+        minWidth: number
+        minHeight: number
+      }
+      const search = win.loadFile.mock.calls[0][1]?.search as string
+
+      expect(options).toMatchObject({ width: 960, height: 720, minWidth: 640, minHeight: 480 })
+      expect(search).toContain('mode=standalone')
+      expect(search).toContain('kind=document')
+      expect(search).not.toContain('private-note')
+      expect(wm.getStandaloneFilePath(win.webContents.id)).toBe('/outside/private-note.md')
+      expect(wm.isStandalone(win.webContents.id)).toBe(true)
+      expect(wm.isPopup(win.webContents.id)).toBe(true)
+      expect(wm.getPrimaryWindowId()).toBeNull()
+    })
+
+    it('blocks a standalone renderer from navigating away with its file capability', () => {
+      const win = wm.createStandaloneWindow(
+        '/outside/private-note.md'
+      ) as unknown as MockBrowserWindow
+      const registration = win.webContents.on.mock.calls.find(
+        ([event]) => event === 'will-navigate'
+      )
+      const navigationEvent = { preventDefault: vi.fn() }
+
+      expect(registration).toBeDefined()
+      ;(registration?.[1] as (event: typeof navigationEvent) => void)(navigationEvent)
+
+      expect(navigationEvent.preventDefault).toHaveBeenCalledOnce()
+    })
+
+    it('focuses the existing standalone window when the same file is reopened', () => {
+      const first = wm.createStandaloneWindow('/outside/reused.md') as unknown as MockBrowserWindow
+      first.isMinimized.mockReturnValue(true)
+
+      const second = wm.createStandaloneWindow('/outside/reused.md')
+
+      expect(second).toBe(first)
+      expect(mockWindowInstances).toHaveLength(1)
+      expect(first.restore).toHaveBeenCalled()
+      expect(first.show).toHaveBeenCalled()
+      expect(first.focus).toHaveBeenCalled()
+    })
+
+    it('drops the exact-file capability when its standalone window closes', () => {
+      const win = wm.createStandaloneWindow('/outside/closed.md') as unknown as MockBrowserWindow
+      const id = win.webContents.id
+
+      win.close()
+
+      expect(wm.getStandaloneFilePath(id)).toBeUndefined()
+      expect(wm.isStandalone(id)).toBe(false)
+    })
+
+    it('queues collection documents until a new full renderer is loaded', () => {
+      const first = wm.openCollectionDocument(
+        'work',
+        'notes/one.md'
+      ) as unknown as MockBrowserWindow
+      const second = wm.openCollectionDocument('work', 'notes/two.md')
+
+      expect(second).toBe(first)
+      expect(mockWindowInstances).toHaveLength(1)
+      expect(wm.isPopup(first.webContents.id)).toBe(false)
+      expect(first.webContents.send).not.toHaveBeenCalledWith('menu:open-recent', expect.anything())
+
+      triggerDidFinishLoad(first)
+
+      expect(first.webContents.send).toHaveBeenNthCalledWith(1, 'menu:open-recent', {
+        collectionId: 'work',
+        filePath: 'notes/one.md'
+      })
+      expect(first.webContents.send).toHaveBeenNthCalledWith(2, 'menu:open-recent', {
+        collectionId: 'work',
+        filePath: 'notes/two.md'
+      })
+    })
+
+    it('immediately opens and focuses a document in an already-loaded collection window', () => {
+      const win = wm.createWindow({ collectionId: 'work' }) as unknown as MockBrowserWindow
+      triggerDidFinishLoad(win)
+      win.webContents.send.mockClear()
+
+      const reused = wm.openCollectionDocument('work', 'notes/ready.md')
+
+      expect(reused).toBe(win)
+      expect(win.webContents.send).toHaveBeenCalledWith('menu:open-recent', {
+        collectionId: 'work',
+        filePath: 'notes/ready.md'
+      })
+      expect(win.show).toHaveBeenCalled()
+      expect(win.focus).toHaveBeenCalled()
+    })
+
+    it('reuses a normal window that started on the persisted active collection', () => {
+      mockGetActiveCollection.mockReturnValue({ id: 'work' })
+      const win = wm.createWindow() as unknown as MockBrowserWindow
+      triggerDidFinishLoad(win)
+      win.webContents.send.mockClear()
+
+      const reused = wm.openCollectionDocument('work', 'notes/ready.md')
+
+      expect(reused).toBe(win)
+      expect(mockWindowInstances).toHaveLength(1)
+      expect(win.webContents.send).toHaveBeenCalledWith('menu:open-recent', {
+        collectionId: 'work',
+        filePath: 'notes/ready.md'
+      })
     })
   })
 

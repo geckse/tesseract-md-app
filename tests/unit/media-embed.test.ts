@@ -19,6 +19,7 @@ describe('media embeds', () => {
   it('detects supported media extensions, including URL query strings', () => {
     expect(inferMediaKind('https://cdn.example.test/hero.webp?width=800')).toBe('image')
     expect(inferMediaKind('demo.webm')).toBe('video')
+    expect(inferMediaKind('demo.mkv')).toBe('video')
     expect(inferMediaKind('recording.m4a#play')).toBe('audio')
     expect(inferMediaKind('document.pdf')).toBeNull()
   })

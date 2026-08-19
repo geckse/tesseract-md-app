@@ -154,11 +154,14 @@ const mockHandleClose = vi.fn()
 const mockRename = vi.fn().mockResolvedValue(undefined)
 const mockRm = vi.fn().mockResolvedValue(undefined)
 const mockLink = vi.fn().mockResolvedValue(undefined)
+const mockCopyFile = vi.fn().mockResolvedValue(undefined)
 const mockMkdir = vi.fn().mockResolvedValue(undefined)
 const mockAccess = vi.fn()
 const mockStat = vi.fn()
 vi.mock('node:fs', () => ({
+  constants: { COPYFILE_EXCL: 1 },
   default: {
+    constants: { COPYFILE_EXCL: 1 },
     promises: {
       readFile: (...args: unknown[]) => mockReadFile(...args),
       writeFile: (...args: unknown[]) => mockWriteFile(...args),
@@ -168,6 +171,7 @@ vi.mock('node:fs', () => ({
       rename: (...args: unknown[]) => mockRename(...args),
       rm: (...args: unknown[]) => mockRm(...args),
       link: (...args: unknown[]) => mockLink(...args),
+      copyFile: (...args: unknown[]) => mockCopyFile(...args),
       mkdir: (...args: unknown[]) => mockMkdir(...args),
       access: (...args: unknown[]) => mockAccess(...args),
       stat: (...args: unknown[]) => mockStat(...args)
@@ -182,6 +186,7 @@ vi.mock('node:fs', () => ({
     rename: (...args: unknown[]) => mockRename(...args),
     rm: (...args: unknown[]) => mockRm(...args),
     link: (...args: unknown[]) => mockLink(...args),
+    copyFile: (...args: unknown[]) => mockCopyFile(...args),
     mkdir: (...args: unknown[]) => mockMkdir(...args),
     access: (...args: unknown[]) => mockAccess(...args),
     stat: (...args: unknown[]) => mockStat(...args)
@@ -304,6 +309,7 @@ vi.mock('@electron-toolkit/utils', () => ({
 }))
 
 // Mock electron shell, clipboard, and BrowserWindow
+const mockShellShowItemInFolder = vi.fn()
 const mockShellOpenPath = vi.fn()
 const mockClipboardWriteText = vi.fn()
 const mockFromWebContents = vi.fn()
@@ -318,7 +324,7 @@ vi.mock('electron', () => ({
     on: vi.fn()
   },
   shell: {
-    showItemInFolder: vi.fn(),
+    showItemInFolder: (...args: unknown[]) => mockShellShowItemInFolder(...args),
     openPath: (...args: unknown[]) => mockShellOpenPath(...args)
   },
   clipboard: {
@@ -350,6 +356,10 @@ function createMockWindowManager() {
   const mockClearCloseTimer = vi.fn()
   const mockIsPopup = vi.fn().mockReturnValue(false)
   const mockSetWindowCollectionId = vi.fn()
+  const mockGetStandaloneFilePath = vi.fn()
+  const mockGrantExternalFile = vi.fn().mockReturnValue('external-grant')
+  const mockGetExternalFilePath = vi.fn()
+  const mockReleaseExternalFile = vi.fn().mockReturnValue(true)
 
   const wm = {
     broadcastToAll: mockBroadcastToAll,
@@ -363,7 +373,11 @@ function createMockWindowManager() {
     cancelAppQuit: mockCancelAppQuit,
     clearCloseTimer: mockClearCloseTimer,
     isPopup: mockIsPopup,
-    setWindowCollectionId: mockSetWindowCollectionId
+    setWindowCollectionId: mockSetWindowCollectionId,
+    getStandaloneFilePath: (...args: unknown[]) => mockGetStandaloneFilePath(...args),
+    grantExternalFile: (...args: unknown[]) => mockGrantExternalFile(...args),
+    getExternalFilePath: (...args: unknown[]) => mockGetExternalFilePath(...args),
+    releaseExternalFile: (...args: unknown[]) => mockReleaseExternalFile(...args)
   } as unknown as WindowManager
 
   return {
@@ -379,7 +393,11 @@ function createMockWindowManager() {
     mockCancelAppQuit,
     mockClearCloseTimer,
     mockIsPopup,
-    mockSetWindowCollectionId
+    mockSetWindowCollectionId,
+    mockGetStandaloneFilePath,
+    mockGrantExternalFile,
+    mockGetExternalFilePath,
+    mockReleaseExternalFile
   }
 }
 
@@ -453,6 +471,8 @@ beforeEach(() => {
     close: (...args: unknown[]) => mockHandleClose(...args)
   }))
   mockLstat.mockReset().mockResolvedValue({
+    isFile: () => true,
+    isDirectory: () => false,
     isSymbolicLink: () => false,
     nlink: 1,
     dev: 1,
@@ -463,6 +483,7 @@ beforeEach(() => {
   mockRename.mockReset().mockResolvedValue(undefined)
   mockRm.mockReset().mockResolvedValue(undefined)
   mockLink.mockReset().mockResolvedValue(undefined)
+  mockCopyFile.mockReset().mockResolvedValue(undefined)
   mockMkdir.mockReset().mockResolvedValue(undefined)
   mockAccess.mockReset()
   mockStat.mockReset()
@@ -498,6 +519,7 @@ beforeEach(() => {
   mockRenameOverlayField.mockReset().mockResolvedValue(false)
   mockRenamePropertyInViews.mockReset().mockResolvedValue(undefined)
   mockAssertComputedOutputKeyAbsentOnDisk.mockReset().mockResolvedValue(undefined)
+  mockShellShowItemInFolder.mockReset()
   mockShellOpenPath.mockReset()
   mockClipboardWriteText.mockReset()
   mockFromWebContents.mockReset()
@@ -550,6 +572,16 @@ describe('registerIpcHandlers', () => {
     expect(channels).toContain('skills:check-collection')
     expect(channels).toContain('skills:install-collection')
     expect(channels).toContain('skills:set-collection-dismissed')
+    expect(channels).toContain('standalone:get-document')
+    expect(channels).toContain('standalone:save-document')
+    expect(channels).toContain('standalone:reveal-document')
+    expect(channels).toContain('external:open-dropped-file')
+    expect(channels).toContain('external:read-document')
+    expect(channels).toContain('external:save-document')
+    expect(channels).toContain('external:reveal-file')
+    expect(channels).toContain('external:open-file')
+    expect(channels).toContain('external:release-file')
+    expect(channels).toContain('external:import-dropped-files')
     expect(channels).toContain('fs:read-file')
     expect(channels).toContain('fs:write-file')
     expect(channels).toContain('fs:write-file-if-unchanged')
@@ -639,7 +671,7 @@ describe('registerIpcHandlers', () => {
     expect(channels).toContain('cli:cancel-ingest')
     expect(channels).toContain('activity-log:open-today')
     expect(channels).toContain('activity-log:read')
-    expect(channels).toHaveLength(165)
+    expect(channels).toHaveLength(175)
   })
 })
 
@@ -2451,6 +2483,377 @@ describe('IPC handler argument passing', () => {
 
       expect(mockExecRaw).toHaveBeenCalledWith('init', [], '/tmp/project')
     })
+  })
+})
+
+describe('Standalone document IPC handlers', () => {
+  const grantedPath = '/outside/Notes/readme.md'
+  const ownerEvent = { sender: { id: 42 } }
+
+  function createStandaloneHarness() {
+    const manager = createMockWindowManager()
+    manager.mockGetStandaloneFilePath.mockImplementation((senderId: number) =>
+      senderId === ownerEvent.sender.id ? grantedPath : undefined
+    )
+    registerIpcHandlers(manager.wm)
+
+    return {
+      ...manager,
+      getHandler(channel: string): (...args: unknown[]) => Promise<unknown> {
+        const call = mockHandle.mock.calls.find((candidate: unknown[]) => candidate[0] === channel)
+        if (!call) throw new Error(`No handler for channel: ${channel}`)
+        return call[1] as (...args: unknown[]) => Promise<unknown>
+      }
+    }
+  }
+
+  it('reads only the exact regular file granted to the sender', async () => {
+    mockReadFile.mockResolvedValue('# Standalone\n')
+    const { getHandler, mockGetStandaloneFilePath } = createStandaloneHarness()
+
+    const result = await getHandler('standalone:get-document')(ownerEvent, '/etc/passwd')
+
+    expect(mockGetStandaloneFilePath).toHaveBeenCalledWith(42)
+    expect(mockLstat).toHaveBeenCalledWith(grantedPath)
+    expect(mockReadFile).toHaveBeenCalledWith(grantedPath, 'utf-8')
+    expect(result).toEqual({
+      path: grantedPath,
+      name: 'readme.md',
+      directory: '/outside/Notes',
+      content: '# Standalone\n'
+    })
+  })
+
+  it('atomically saves the granted file against the renderer baseline', async () => {
+    mockReadFile.mockResolvedValue('# Before\n')
+    const { getHandler, mockGetStandaloneFilePath, mockGetAllWindows } = createStandaloneHarness()
+
+    const result = await getHandler('standalone:save-document')(
+      ownerEvent,
+      '# Before\n',
+      '# After\n'
+    )
+
+    expect(mockGetStandaloneFilePath).toHaveBeenCalledWith(42)
+    expect(mockReadFile).toHaveBeenCalledTimes(2)
+    expect(mockAtomicTempWriteFile).toHaveBeenCalledWith(
+      expect.stringMatching(/^\/outside\/Notes\/\.\d+\.\d+\.[0-9a-f-]+\.mdvdb\.tmp$/),
+      '# After\n',
+      'utf-8'
+    )
+    const temporaryPath = mockAtomicTempWriteFile.mock.calls[0][0]
+    expect(mockRename).toHaveBeenCalledWith(temporaryPath, grantedPath)
+    // The standalone capability is private to its renderer. Do not leak the
+    // absolute path or document content through cross-window save broadcasts.
+    expect(mockGetAllWindows).not.toHaveBeenCalled()
+    expect(result).toBeUndefined()
+  })
+
+  it('reveals the sender grant and ignores an injected renderer path', async () => {
+    const { getHandler } = createStandaloneHarness()
+
+    const result = await getHandler('standalone:reveal-document')(ownerEvent, '/etc/passwd')
+
+    expect(mockShellShowItemInFolder).toHaveBeenCalledWith(grantedPath)
+    expect(result).toBeUndefined()
+  })
+
+  it('denies get, save, and reveal when the sender owns no grant', async () => {
+    const { getHandler, mockGetStandaloneFilePath } = createStandaloneHarness()
+    const untrustedEvent = { sender: { id: 7 } }
+    const denial = {
+      error: true,
+      type: 'CliExecutionError',
+      message: 'Access denied: no standalone document is granted'
+    }
+
+    const getResult = await getHandler('standalone:get-document')(untrustedEvent)
+    const saveResult = await getHandler('standalone:save-document')(
+      untrustedEvent,
+      '# Before\n',
+      '# After\n'
+    )
+    const revealResult = await getHandler('standalone:reveal-document')(untrustedEvent, grantedPath)
+
+    expect(getResult).toEqual(denial)
+    expect(saveResult).toEqual(denial)
+    expect(revealResult).toEqual(denial)
+    expect(mockGetStandaloneFilePath).toHaveBeenCalledTimes(3)
+    expect(mockGetStandaloneFilePath).toHaveBeenCalledWith(7)
+    expect(mockLstat).not.toHaveBeenCalled()
+    expect(mockReadFile).not.toHaveBeenCalled()
+    expect(mockAtomicTempWriteFile).not.toHaveBeenCalled()
+    expect(mockShellShowItemInFolder).not.toHaveBeenCalled()
+  })
+
+  it('does not publish when the file changes after the save starts', async () => {
+    mockReadFile.mockResolvedValueOnce('# Before\n').mockResolvedValueOnce('# Changed externally\n')
+    const { getHandler } = createStandaloneHarness()
+
+    const result = await getHandler('standalone:save-document')(
+      ownerEvent,
+      '# Before\n',
+      '# After\n'
+    )
+
+    expect(result).toEqual({
+      error: true,
+      type: 'CliExecutionError',
+      message: 'The file changed on disk after this editor opened it'
+    })
+    expect(mockAtomicTempWriteFile).toHaveBeenCalledOnce()
+    const temporaryPath = mockAtomicTempWriteFile.mock.calls[0][0]
+    expect(mockRename).not.toHaveBeenCalled()
+    expect(mockRm).toHaveBeenCalledWith(temporaryPath, { force: true })
+  })
+})
+
+describe('External dropped-file IPC handlers', () => {
+  const ownerEvent = { sender: { id: 42 } }
+  const regularFile = (size = 18) => ({
+    isFile: () => true,
+    isDirectory: () => false,
+    isSymbolicLink: () => false,
+    nlink: 1,
+    dev: 1,
+    ino: 2,
+    mode: 0o100644,
+    size
+  })
+  const safeDirectory = () => ({
+    isFile: () => false,
+    isDirectory: () => true,
+    isSymbolicLink: () => false,
+    nlink: 1,
+    dev: 1,
+    ino: 3,
+    mode: 0o40755,
+    size: 0
+  })
+
+  function createExternalHarness(grantedPath = '/outside/readme.md') {
+    const manager = createMockWindowManager()
+    manager.mockGetExternalFilePath.mockImplementation((senderId: number, grantId: string) =>
+      senderId === ownerEvent.sender.id && grantId === 'external-grant' ? grantedPath : undefined
+    )
+    registerIpcHandlers(manager.wm)
+    return {
+      ...manager,
+      getHandler(channel: string): (...args: unknown[]) => Promise<unknown> {
+        const call = mockHandle.mock.calls.find((candidate: unknown[]) => candidate[0] === channel)
+        if (!call) throw new Error(`No handler for channel: ${channel}`)
+        return call[1] as (...args: unknown[]) => Promise<unknown>
+      }
+    }
+  }
+
+  it('opens a safe Markdown drop, reports collection membership, and binds its canonical path', async () => {
+    mockGetCollections.mockReturnValue([
+      { id: 'vault', name: 'Vault', path: '/vault', addedAt: 1, lastOpenedAt: 1 }
+    ])
+    mockLstat.mockResolvedValue(regularFile(12))
+    mockReadFile.mockResolvedValue('# Report\n')
+    const { getHandler, mockGrantExternalFile } = createExternalHarness()
+
+    const result = await getHandler('external:open-dropped-file')(
+      ownerEvent,
+      '/vault/notes/report.md'
+    )
+
+    expect(mockGrantExternalFile).toHaveBeenCalledWith(42, '/vault/notes/report.md')
+    expect(result).toEqual({
+      id: 'external-grant',
+      path: '/vault/notes/report.md',
+      name: 'report.md',
+      directory: '/vault/notes',
+      size: 12,
+      kind: 'markdown',
+      mimeCategory: 'other',
+      content: '# Report\n',
+      collectionId: 'vault',
+      relativePath: 'notes/report.md'
+    })
+  })
+
+  it('classifies known media without reading it as text', async () => {
+    mockLstat.mockResolvedValue(regularFile(4096))
+    const { getHandler } = createExternalHarness('/outside/movie.mp4')
+
+    const result = await getHandler('external:open-dropped-file')(ownerEvent, '/outside/movie.mp4')
+
+    expect(result).toMatchObject({
+      name: 'movie.mp4',
+      size: 4096,
+      kind: 'asset',
+      mimeCategory: 'video',
+      collectionId: null,
+      relativePath: null
+    })
+    expect(result).not.toHaveProperty('content')
+    expect(mockReadFile).not.toHaveBeenCalled()
+  })
+
+  it('rejects symbolic, hard-linked, and non-file drops before granting them', async () => {
+    const { getHandler, mockGrantExternalFile } = createExternalHarness()
+    const unsafe = [
+      { ...regularFile(), isSymbolicLink: () => true },
+      { ...regularFile(), nlink: 2 },
+      { ...safeDirectory() }
+    ]
+
+    for (const metadata of unsafe) {
+      mockLstat.mockReset().mockResolvedValue(metadata)
+      const result = await getHandler('external:open-dropped-file')(
+        ownerEvent,
+        '/outside/unsafe.md'
+      )
+      expect(result).toMatchObject({
+        error: true,
+        message: 'The dropped item is not a safe regular file'
+      })
+    }
+    expect(mockGrantExternalFile).not.toHaveBeenCalled()
+  })
+
+  it('reads only a Markdown grant owned by the requesting renderer', async () => {
+    mockLstat.mockResolvedValue(regularFile())
+    mockReadFile.mockResolvedValue('# Current\n')
+    const { getHandler, mockGetExternalFilePath } = createExternalHarness()
+
+    const content = await getHandler('external:read-document')(ownerEvent, 'external-grant')
+    const denied = await getHandler('external:read-document')(
+      { sender: { id: 7 } },
+      'external-grant'
+    )
+
+    expect(content).toBe('# Current\n')
+    expect(denied).toMatchObject({ error: true, message: /grant is unavailable/ })
+    expect(mockGetExternalFilePath).toHaveBeenCalledWith(42, 'external-grant')
+    expect(mockGetExternalFilePath).toHaveBeenCalledWith(7, 'external-grant')
+  })
+
+  it('CAS-saves a sender-owned external Markdown document atomically', async () => {
+    mockLstat.mockResolvedValue(regularFile())
+    mockReadFile.mockResolvedValue('# Before\n')
+    const { getHandler, mockGetAllWindows } = createExternalHarness()
+
+    const result = await getHandler('external:save-document')(
+      ownerEvent,
+      'external-grant',
+      '# Before\n',
+      '# After\n'
+    )
+
+    expect(result).toBeUndefined()
+    expect(mockReadFile).toHaveBeenCalledTimes(2)
+    expect(mockRename).toHaveBeenCalledWith(
+      expect.stringMatching(/\.mdvdb\.tmp$/),
+      '/outside/readme.md'
+    )
+    expect(mockGetAllWindows).not.toHaveBeenCalled()
+  })
+
+  it('does not overwrite an external Markdown document whose baseline changed', async () => {
+    mockLstat.mockResolvedValue(regularFile())
+    mockReadFile.mockResolvedValueOnce('# Changed elsewhere\n')
+    const { getHandler } = createExternalHarness()
+
+    const result = await getHandler('external:save-document')(
+      ownerEvent,
+      'external-grant',
+      '# Before\n',
+      '# After\n'
+    )
+
+    expect(result).toMatchObject({ error: true, message: /changed on disk/ })
+    expect(mockAtomicTempWriteFile).not.toHaveBeenCalled()
+    expect(mockRename).not.toHaveBeenCalled()
+  })
+
+  it('reveals, opens, and releases only the exact external grant', async () => {
+    mockLstat.mockResolvedValue(regularFile())
+    mockShellOpenPath.mockResolvedValue('')
+    const { getHandler, mockReleaseExternalFile } = createExternalHarness()
+
+    expect(await getHandler('external:reveal-file')(ownerEvent, 'external-grant')).toBeUndefined()
+    expect(await getHandler('external:open-file')(ownerEvent, 'external-grant')).toBeUndefined()
+    expect(await getHandler('external:release-file')(ownerEvent, 'external-grant')).toBeUndefined()
+
+    expect(mockShellShowItemInFolder).toHaveBeenCalledWith('/outside/readme.md')
+    expect(mockShellOpenPath).toHaveBeenCalledWith('/outside/readme.md')
+    expect(mockReleaseExternalFile).toHaveBeenCalledWith(42, 'external-grant')
+  })
+
+  it('imports into an existing safe collection folder and auto-suffixes collisions', async () => {
+    mockGetCollections.mockReturnValue([
+      { id: 'vault', name: 'Vault', path: '/vault', addedAt: 1, lastOpenedAt: 1 }
+    ])
+    mockLstat.mockImplementation(async (path: string) =>
+      path === '/vault' || path === '/vault/docs' ? safeDirectory() : regularFile(23)
+    )
+    mockCopyFile
+      .mockRejectedValueOnce(Object.assign(new Error('exists'), { code: 'EEXIST' }))
+      .mockResolvedValueOnce(undefined)
+    const { getHandler } = createExternalHarness()
+
+    const result = await getHandler('external:import-dropped-files')(
+      ownerEvent,
+      ['/outside/report.md'],
+      'vault',
+      'docs'
+    )
+
+    expect(mockCopyFile).toHaveBeenNthCalledWith(
+      1,
+      '/outside/report.md',
+      '/vault/docs/report.md',
+      1
+    )
+    expect(mockCopyFile).toHaveBeenNthCalledWith(
+      2,
+      '/outside/report.md',
+      '/vault/docs/report-1.md',
+      1
+    )
+    expect(result).toEqual([
+      {
+        sourceName: 'report.md',
+        relativePath: 'docs/report-1.md',
+        size: 23,
+        kind: 'markdown',
+        mimeCategory: 'other'
+      }
+    ])
+    expect(matchAndConsumeOwnWrite('/vault/docs/report.md', 'created', { size: 23 })).toBe(false)
+    expect(matchAndConsumeOwnWrite('/vault/docs/report-1.md', 'created', { size: 23 })).toBe(true)
+  })
+
+  it('rejects unknown collections, traversal, unsafe target folders, and unsafe sources', async () => {
+    const { getHandler } = createExternalHarness()
+    const handler = getHandler('external:import-dropped-files')
+
+    const unknown = await handler(ownerEvent, ['/outside/a.md'], 'missing', '')
+    expect(unknown).toMatchObject({ error: true, message: /unknown collection/ })
+
+    mockGetCollections.mockReturnValue([
+      { id: 'vault', name: 'Vault', path: '/vault', addedAt: 1, lastOpenedAt: 1 }
+    ])
+    mockLstat.mockResolvedValue(safeDirectory())
+    const traversal = await handler(ownerEvent, ['/outside/a.md'], 'vault', '../private')
+    expect(traversal).toMatchObject({ error: true, message: /invalid collection target/ })
+
+    mockLstat.mockImplementation(async (path: string) =>
+      path === '/vault' ? safeDirectory() : { ...safeDirectory(), isSymbolicLink: () => true }
+    )
+    const linkedTarget = await handler(ownerEvent, ['/outside/a.md'], 'vault', 'linked')
+    expect(linkedTarget).toMatchObject({ error: true, message: /not a safe directory/ })
+
+    mockLstat.mockImplementation(async (path: string) =>
+      path === '/vault' ? safeDirectory() : { ...regularFile(), isSymbolicLink: () => true }
+    )
+    const linkedSource = await handler(ownerEvent, ['/outside/a.md'], 'vault', '')
+    expect(linkedSource).toMatchObject({ error: true, message: /not a safe regular file/ })
+    expect(mockCopyFile).not.toHaveBeenCalled()
   })
 })
 

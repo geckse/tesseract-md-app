@@ -26,7 +26,6 @@
   } from '../stores/editor'
   import { computeFixedHeadingLevels, type ParsedHeading } from '../lib/markdown-structure'
   import type { DocumentSchemaMutationContext } from '../lib/property-types'
-  import { relativeToCollection } from '../lib/path'
   import { buildTocTiptapJSON } from '../lib/tiptap/toc-content'
   import { loadProperties, propertiesFileContent } from '../stores/properties'
   import ConflictNotification from './ConflictNotification.svelte'
@@ -41,15 +40,16 @@
   import EditorContextMenu from './wysiwyg/EditorContextMenu.svelte'
   import LinkModal from './wysiwyg/LinkModal.svelte'
   import InsertAssetDialog from './InsertAssetDialog.svelte'
-  import { requestConfirmation } from '../stores/confirmation'
   import {
     computeRelativeMediaPath,
+    inferMediaKind,
     isPublicMediaUrl,
+    mediaKindFromMimeCategory,
     resolveCollectionMediaPath,
     type MediaEmbed
   } from '../lib/media-embed'
   import LinkHoverPreview from './LinkHoverPreview.svelte'
-  import { insertAssetNode, syncFileStoresFromTab } from '../stores/files'
+  import { insertAssetNode, insertFileNode, syncFileStoresFromTab } from '../stores/files'
   import {
     clipboardImageData,
     firstClipboardImageItem,
@@ -59,12 +59,17 @@
     type ClipboardImageDestination
   } from '../lib/clipboard-image'
   import { registerComputedEditorAdapter } from '../stores/computed-editor-flush'
+  import { saveExternalDocumentTab } from '../lib/external-document-save'
+  import { isExternalFileDrag } from '../lib/external-drop'
+  import type { ImportedDroppedFile } from '../../preload/api'
 
   // ── Props ─────────────────────────────────────────────────────────────
   interface WysiwygEditorProps {
     tabId?: string
+    /** Render a non-collection document without schema/navigation affordances. */
+    standalone?: boolean
   }
-  let { tabId }: WysiwygEditorProps = $props()
+  let { tabId, standalone = false }: WysiwygEditorProps = $props()
 
   // ── Constants ─────────────────────────────────────────────────────────
   /** Maximum number of live TipTap editor instances to keep in the pool. */
@@ -140,7 +145,7 @@
 
   // Fetch schema when the active document tab or collection changes
   $effect(() => {
-    if (currentActiveCollection && activeDocTab) {
+    if (!standalone && currentActiveCollection && activeDocTab) {
       const filePath = activeDocTab.filePath
       const lastSlash = filePath.lastIndexOf('/')
       const pathPrefix = lastSlash > 0 ? filePath.substring(0, lastSlash) : undefined
@@ -216,9 +221,29 @@
     to: number
   }
 
+  interface PendingExternalDrop {
+    awaitingSaveAs: boolean
+    collectionId: string
+    files: File[]
+    from: number
+    tabId: string
+    to: number
+  }
+
   let pendingClipboardImage = $state<PendingClipboardImage | null>(null)
+  let pendingExternalDrop = $state<PendingExternalDrop | null>(null)
   let currentSaveAsTabId = $state<string | null>(null)
-  const unsubSaveAs = saveAsTabId.subscribe((value) => (currentSaveAsTabId = value))
+  const unsubSaveAs = saveAsTabId.subscribe((value) => {
+    currentSaveAsTabId = value
+    const pending = pendingExternalDrop
+    if (value !== null || !pending?.awaitingSaveAs) return
+
+    pendingExternalDrop = null
+    const pendingTab = workspace.tabs[pending.tabId]
+    if (pendingTab?.kind === 'document' && !pendingTab.isUntitled) {
+      void importExternalDrop(pending)
+    }
+  })
 
   const pendingClipboardTab = $derived.by(() => {
     if (!pendingClipboardImage) return null
@@ -278,7 +303,7 @@
   }
 
   function openMediaInTab(media: MediaEmbed): void {
-    if (!activeDocTab) return
+    if (!activeDocTab || standalone) return
     const filePath = resolveCollectionMediaPath(activeDocTab.filePath, media.src)
     if (!filePath) return
 
@@ -302,7 +327,7 @@
       window.open(media.src, '_blank')
       return
     }
-    if (!activeDocTab || !currentActiveCollection) return
+    if (!activeDocTab || standalone || !currentActiveCollection) return
     const filePath = resolveCollectionMediaPath(activeDocTab.filePath, media.src)
     if (!filePath) return
     const root = currentActiveCollection.path.replace(/[\\/]+$/, '')
@@ -479,8 +504,8 @@
         editor = createWysiwygEditor(container, '', {
           onUpdate: () => handleEditorUpdate(),
           onPaste: handleEditorPaste,
-          collectionPath: currentActiveCollection?.path ?? '',
-          collectionId: currentActiveCollection?.id ?? '',
+          collectionPath: standalone ? '' : (currentActiveCollection?.path ?? ''),
+          collectionId: standalone ? '' : (currentActiveCollection?.id ?? ''),
           currentFilePath: activeDocTab?.filePath ?? '',
           editable: !activeDocTab?.readOnly
         })
@@ -493,8 +518,8 @@
         editor = createWysiwygEditor(container, split.body, {
           onUpdate: () => handleEditorUpdate(),
           onPaste: handleEditorPaste,
-          collectionPath: currentActiveCollection?.path ?? '',
-          collectionId: currentActiveCollection?.id ?? '',
+          collectionPath: standalone ? '' : (currentActiveCollection?.path ?? ''),
+          collectionId: standalone ? '' : (currentActiveCollection?.id ?? ''),
           currentFilePath: activeDocTab?.filePath ?? '',
           editable: !activeDocTab?.readOnly
         })
@@ -731,7 +756,7 @@
   // ── Save ──────────────────────────────────────────────────────────────
 
   function handleSave(): boolean {
-    if (!activeTabId || !currentActiveCollection) return true
+    if (!activeTabId) return true
     const entry = pool.get(activeTabId)
     if (!entry) return true
 
@@ -739,18 +764,23 @@
     if (!tab) return true
     if (tab.readOnly) return true
 
+    const content = getFullContentForEntry(entry)
+    if (tab.origin === 'external') {
+      if (tab.isDirty) void saveExternalDocumentTab(activeTabId, content)
+      return true
+    }
+    if (!currentActiveCollection) return true
+
     // Skip save if already clean (e.g., SaveAsModal already handled it)
     if (!tab.isDirty && !tab.isUntitled) return true
 
     // Untitled files need a "Save As" dialog to pick a filename
     if (tab.isUntitled) {
-      const content = getFullContentForEntry(entry)
       tab.content = content
       requestSaveAs(activeTabId)
       return true
     }
 
-    const content = getFullContentForEntry(entry)
     const fullPath = `${currentActiveCollection.path}/${tab.filePath}`
 
     entry.lastSavedContent = content
@@ -1024,163 +1054,157 @@
 
   // ── Drag-and-drop (internal tree + external OS) ──────────────────────
 
-  const ASSET_IMAGE_EXTS = new Set([
-    'png',
-    'jpg',
-    'jpeg',
-    'gif',
-    'svg',
-    'webp',
-    'bmp',
-    'ico',
-    'avif'
-  ])
-  const ASSET_EXTS = new Set([
-    ...ASSET_IMAGE_EXTS,
-    'pdf',
-    'mp4',
-    'webm',
-    'mov',
-    'mp3',
-    'wav',
-    'ogg'
-  ])
-
-  function getRelativePath(fromFile: string, toFile: string): string {
-    const fromParts = fromFile.split('/')
-    fromParts.pop() // Remove filename to get directory
-    const toParts = toFile.split('/')
-
-    // Find common prefix length
-    let common = 0
-    while (
-      common < fromParts.length &&
-      common < toParts.length &&
-      fromParts[common] === toParts[common]
-    ) {
-      common++
+  function dropRange(
+    editor: import('@tiptap/core').Editor,
+    event: DragEvent
+  ): { from: number; to: number } {
+    try {
+      const position = editor.view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos
+      if (position !== undefined) return { from: position, to: position }
+    } catch {
+      // JSDOM and unusual embedded surfaces may not expose coordinate lookup.
     }
+    return {
+      from: editor.state.selection.from,
+      to: editor.state.selection.to
+    }
+  }
 
-    const ups = fromParts.length - common
-    const rest = toParts.slice(common)
-    const prefix = ups > 0 ? Array(ups).fill('..').join('/') : '.'
-    return ups > 0 ? `${prefix}/${rest.join('/')}` : rest.join('/')
+  function droppedFileNode(
+    currentFilePath: string,
+    relativePath: string,
+    mediaKind: ReturnType<typeof inferMediaKind>
+  ): import('@tiptap/core').JSONContent {
+    const filename = relativePath.split('/').pop() ?? relativePath
+    if (mediaKind) {
+      const src = computeRelativeMediaPath(currentFilePath, relativePath)
+      return mediaKind === 'image'
+        ? { type: 'image', attrs: { src, alt: filename } }
+        : { type: 'mediaEmbed', attrs: { kind: mediaKind, src, alt: filename } }
+    }
+    return {
+      type: 'paragraph',
+      content: [
+        {
+          type: 'wikilink',
+          attrs: { target: relativePath, anchor: null, display: null }
+        }
+      ]
+    }
+  }
+
+  function insertDroppedNodes(
+    editor: import('@tiptap/core').Editor,
+    range: { from: number; to: number },
+    nodes: import('@tiptap/core').JSONContent[]
+  ): boolean {
+    if (nodes.length === 0) return false
+    return editor.chain().focus().insertContentAt(range, nodes).run()
+  }
+
+  function patchImportedFile(file: ImportedDroppedFile, collectionId: string): void {
+    if (get(activeCollection)?.id !== collectionId) return
+    if (file.kind === 'markdown') {
+      insertFileNode(file.relativePath, 'new')
+    } else {
+      insertAssetNode(file.relativePath, file.mimeCategory, file.size)
+    }
+  }
+
+  async function importExternalDrop(pending: PendingExternalDrop): Promise<void> {
+    const tab = workspace.tabs[pending.tabId]
+    if (tab?.kind !== 'document' || tab.isUntitled || tab.readOnly) return
+
+    try {
+      const imported = await window.api.importDroppedFiles(
+        pending.files,
+        pending.collectionId,
+        markdownFileDirectory(tab.filePath)
+      )
+      for (const file of imported) patchImportedFile(file, pending.collectionId)
+
+      const entry = pool.get(pending.tabId)
+      const currentTab = workspace.tabs[pending.tabId]
+      if (!entry || currentTab?.kind !== 'document') {
+        throw new Error('The files were imported, but the source editor is no longer open.')
+      }
+
+      const nodes = imported.map((file) =>
+        droppedFileNode(
+          currentTab.filePath,
+          file.relativePath,
+          mediaKindFromMimeCategory(file.mimeCategory)
+        )
+      )
+      if (nodes.length > 0 && !insertDroppedNodes(entry.editor.editor, pending, nodes)) {
+        throw new Error('The files were imported, but could not be inserted into the document.')
+      }
+    } catch (cause) {
+      void window.api.showMessage({
+        title: 'File Drop Failed',
+        message:
+          cause instanceof Error ? cause.message : 'The dropped files could not be imported.',
+        type: 'error'
+      })
+    }
   }
 
   function handleEditorDragOver(e: DragEvent) {
-    if (activeDocTab?.readOnly) return
+    if (activeDocTab?.readOnly || standalone || activeDocTab?.origin !== 'collection') return
+    const dataTransfer = e.dataTransfer
+    if (!dataTransfer) return
+    const internal = dataTransfer.types.includes('application/x-mdvdb-path')
+    if (!internal && !isExternalFileDrag(dataTransfer)) return
+
     e.preventDefault()
-    if (e.dataTransfer) {
-      e.dataTransfer.dropEffect = 'link'
-    }
+    dataTransfer.dropEffect = internal ? 'link' : 'copy'
   }
 
-  async function handleEditorDrop(e: DragEvent) {
-    if (activeDocTab?.readOnly) return
-    e.preventDefault()
+  function handleEditorDrop(e: DragEvent) {
+    if (activeDocTab?.readOnly || standalone || activeDocTab?.origin !== 'collection') return
     if (!e.dataTransfer) return
 
     const currentEditor = activeEditor
     if (!currentEditor) return
-
-    const currentFile = activeDocTab?.filePath
-    if (!currentFile) return
     const collection = get(activeCollection)
     if (!collection) return
 
-    // Case 1: Internal tree drag (application/x-mdvdb-path)
     const mdvdbPath = e.dataTransfer.getData('application/x-mdvdb-path')
     if (mdvdbPath) {
-      const ext = mdvdbPath.split('.').pop()?.toLowerCase() ?? ''
-      const relPath = getRelativePath(currentFile, mdvdbPath)
-      const name = mdvdbPath.split('/').pop() ?? mdvdbPath
-
-      if (ASSET_IMAGE_EXTS.has(ext)) {
-        currentEditor.chain().focus().setImage({ src: relPath, alt: name }).run()
-      } else {
-        currentEditor.chain().focus().insertContent(`[${name}](${relPath})`).run()
-      }
+      e.preventDefault()
+      e.stopPropagation()
+      const range = dropRange(currentEditor, e)
+      insertDroppedNodes(currentEditor, range, [
+        droppedFileNode(activeDocTab.filePath, mdvdbPath, inferMediaKind(mdvdbPath))
+      ])
       return
     }
 
-    // Case 2: External OS drag (File objects)
-    const files = e.dataTransfer.files
-    if (files.length > 0) {
-      for (const file of files) {
-        const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
-        if (!ASSET_EXTS.has(ext)) continue
+    if (!isExternalFileDrag(e.dataTransfer)) return
+    const files = Array.from(e.dataTransfer.files)
+    if (files.length === 0 || !activeTabId) return
+    e.preventDefault()
+    e.stopPropagation()
 
-        const absolutePath = window.api.getPathForFile(file)
-        if (!absolutePath) continue
-
-        const checkResult = await window.api.isWithinCollection(absolutePath)
-
-        if (checkResult.within && checkResult.collectionPath === collection.path) {
-          // File is inside the collection — just link it
-          const relToCollection = relativeToCollection(absolutePath, collection.path) ?? file.name
-          const relPath = getRelativePath(currentFile, relToCollection)
-          const name = file.name
-
-          if (ASSET_IMAGE_EXTS.has(ext)) {
-            currentEditor.chain().focus().setImage({ src: relPath, alt: name }).run()
-          } else {
-            currentEditor.chain().focus().insertContent(`[${name}](${relPath})`).run()
-          }
-        } else {
-          // File is outside the collection — prompt and copy
-          const confirmed = await requestConfirmation({
-            title: `Copy ${file.name} into this collection?`,
-            message:
-              'The file is outside your collection. Tesseract can copy it alongside the current document before inserting the link.',
-            confirmLabel: 'Copy and Insert'
-          })
-          if (!confirmed) continue
-
-          // Determine destination path (same directory as current file)
-          const currentDir = currentFile.split('/').slice(0, -1).join('/')
-          let destName = file.name
-          let destRelPath = currentDir ? `${currentDir}/${destName}` : destName
-          let destAbsPath = `${collection.path}/${destRelPath}`
-
-          // Auto-suffix if file already exists
-          try {
-            await window.api.fileInfo(destAbsPath)
-            // File exists — add suffix
-            const baseName = destName.replace(/\.[^.]+$/, '')
-            const extension = destName.includes('.') ? '.' + destName.split('.').pop() : ''
-            let suffix = 1
-            while (true) {
-              destName = `${baseName}-${suffix}${extension}`
-              destRelPath = currentDir ? `${currentDir}/${destName}` : destName
-              destAbsPath = `${collection.path}/${destRelPath}`
-              try {
-                await window.api.fileInfo(destAbsPath)
-                suffix++
-              } catch {
-                break
-              }
-            }
-          } catch {
-            // File doesn't exist — good
-          }
-
-          await window.api.copyFile(absolutePath, destAbsPath)
-          const relPath = getRelativePath(currentFile, destRelPath)
-
-          if (ASSET_IMAGE_EXTS.has(ext)) {
-            currentEditor.chain().focus().setImage({ src: relPath, alt: destName }).run()
-          } else {
-            currentEditor.chain().focus().insertContent(`[${destName}](${relPath})`).run()
-          }
-        }
-      }
+    const pending: PendingExternalDrop = {
+      awaitingSaveAs: activeDocTab.isUntitled,
+      collectionId: collection.id,
+      files,
+      ...dropRange(currentEditor, e),
+      tabId: activeTabId
     }
+    if (pending.awaitingSaveAs) {
+      pendingExternalDrop = pending
+      requestSaveAs(activeTabId)
+      return
+    }
+    void importExternalDrop(pending)
   }
 
   // ── Clipboard paste (images) ─────────────────────────────────────────
 
   function handleEditorPaste(e: ClipboardEvent): boolean {
-    if (activeDocTab?.readOnly) return false
+    if (activeDocTab?.readOnly || standalone) return false
     if (!e.clipboardData) return false
 
     const clipboardImage = firstClipboardImageItem(e.clipboardData.items)
@@ -1277,7 +1301,7 @@
       </div>
     {/if}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="wysiwyg-scroll" ondragover={handleEditorDragOver} ondrop={handleEditorDrop}>
+    <div class="wysiwyg-scroll" ondragover={handleEditorDragOver} ondropcapture={handleEditorDrop}>
       {#if activeDocTab.readOnly}
         <div class="readonly-document-header">
           <span class="material-symbols-outlined">lock</span>
@@ -1288,15 +1312,17 @@
         <DocumentHeader
           frontmatterYaml={currentFrontmatter}
           onFrontmatterUpdate={handleFrontmatterUpdate}
-          schema={currentSchema}
+          schema={standalone ? null : currentSchema}
           filePath={activeDocTab.filePath}
-          collectionPath={currentActiveCollection?.path ?? ''}
-          collectionId={currentActiveCollection?.id ?? null}
+          collectionPath={standalone ? '' : (currentActiveCollection?.path ?? '')}
+          collectionId={standalone ? null : (currentActiveCollection?.id ?? null)}
           documentTabId={activeTabId}
           isUntitled={activeDocTab.isUntitled}
+          collectionFeaturesEnabled={!standalone}
+          showFileName={!standalone}
           onFileRenamed={handleFileRenamed}
-          onBeforeSchemaMutate={flushBeforeSchemaMutation}
-          onSchemaApplied={reconcileAfterSchemaMutation}
+          onBeforeSchemaMutate={standalone ? undefined : flushBeforeSchemaMutation}
+          onSchemaApplied={standalone ? undefined : reconcileAfterSchemaMutation}
         />
       {/if}
       <div class="wysiwyg-content" bind:this={editorHost}></div>
@@ -1313,7 +1339,7 @@
     {#if !activeDocTab.readOnly}
       <LinkHoverPreview
         container={editorHost}
-        collectionPath={currentActiveCollection?.path ?? ''}
+        collectionPath={standalone ? '' : (currentActiveCollection?.path ?? '')}
       />
       <InsertAssetDialog
         bind:visible={mediaDialogOpen}

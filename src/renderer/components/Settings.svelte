@@ -63,6 +63,7 @@
   } from '../stores/topics'
   import { runIngest, ingestRunning } from '../stores/ingest'
   import CustomClusterModal from './CustomClusterModal.svelte'
+  import CollectionSkillsSettings from './CollectionSkillsSettings.svelte'
   import ShardIcon from './ShardIcon.svelte'
   import { compareSemver } from '../lib/cli-features.svelte'
   import {
@@ -84,6 +85,7 @@
     | 'search'
     | 'chunking'
     | 'clusters'
+    | 'skills'
     | 'terminal'
     | 'appearance'
     | 'about'
@@ -103,6 +105,7 @@
     { id: 'search', label: 'Search Defaults', icon: 'search' },
     { id: 'chunking', label: 'Chunking', icon: 'content_cut' },
     { id: 'clusters', label: 'Topics', icon: 'category' },
+    { id: 'skills', label: 'Agent Skills', icon: 'school' },
     { id: 'appearance', label: 'Appearance', icon: 'palette' }
   ]
 
@@ -113,6 +116,7 @@
     chunking: 'Control how documents are split into chunks before embedding.',
     clusters:
       'Define semantic Topics for the collection or one Shard. Changes apply immediately to the selected project-local scope.',
+    skills: 'Install and update project-local skills for the AI agents that use this collection.',
     terminal:
       'Configure the embedded terminal. Leave the shell path blank to use your system default.',
     appearance: 'Visual preferences for the app.',
@@ -2057,6 +2061,8 @@
               onclose={handleClusterModalClose}
             />
           {/if}
+        {:else if currentSection === 'skills' && !isGlobal && targetCollection}
+          <CollectionSkillsSettings collectionId={targetCollection.id} />
         {:else if currentSection === 'terminal' && isGlobal}
           <div class="section">
             <h2 class="section-title">Terminal</h2>

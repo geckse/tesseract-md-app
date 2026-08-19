@@ -61,6 +61,9 @@
   }
 
   async function confirmRename() {
+    // Enter commits and hides the input, which also fires its blur handler.
+    // Ignore that second event so the same source path is never renamed twice.
+    if (!isEditing) return
     isEditing = false
     const trimmed = editValue.trim()
 

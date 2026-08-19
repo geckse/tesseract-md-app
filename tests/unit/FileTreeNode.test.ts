@@ -97,13 +97,32 @@ describe('FileTreeNode folder interactions', () => {
       props: { node: dirNode, shardPaths: new Set(['docs']) }
     })
 
-    const indicator = screen.getByTitle('Shard')
+    const indicator = screen.getByRole('button', { name: 'Open docs Shard' })
     const icon = indicator.querySelector('[data-shard-icon="faceted-gem-outline"]')
     expect(icon).toBeTruthy()
     expect(icon?.getAttribute('fill')).toBe('none')
     expect(icon?.getAttribute('stroke')).toBe('currentColor')
     expect(indicator.classList.contains('shard-indicator')).toBe(true)
     expect(container.querySelector('.tree-node.shard-folder')).toBeTruthy()
+  })
+
+  it('opens a configured Shard from its icon without opening the folder table', async () => {
+    const onshardopen = vi.fn()
+    const onfolderopen = vi.fn()
+    render(FileTreeNode, {
+      props: {
+        node: dirNode,
+        shardPaths: new Set(['docs']),
+        onshardopen,
+        onfolderopen
+      }
+    })
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Open docs Shard' }))
+
+    expect(onshardopen).toHaveBeenCalledWith('docs')
+    expect(onfolderopen).not.toHaveBeenCalled()
+    expect(get(expandedPaths).has('docs')).toBe(false)
   })
 
   it('does not mark an unconfigured descendant folder as a Shard', () => {
@@ -116,7 +135,7 @@ describe('FileTreeNode folder interactions', () => {
       props: { node: descendantNode, shardPaths: new Set(['docs']) }
     })
 
-    expect(screen.queryByTitle('Shard')).toBeNull()
+    expect(screen.queryByRole('button', { name: /Open .* Shard/ })).toBeNull()
   })
 })
 

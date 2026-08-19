@@ -7,8 +7,9 @@
  *    collection switch/add/remove, watcher toggle)
  *  - menu item clicks → sendMenuCommand → `menu:command` {id, payload} to
  *    the focused application window. Graph-local commands may target a focused
- *    graph popup; all other commands fall back to the primary window. Commands
- *    are never broadcast because, for example, that would save every tab.
+ *    graph popup, while document-local commands may target a focused standalone
+ *    editor. All other commands fall back to the primary window. Commands are
+ *    never broadcast because, for example, that would save every tab.
  *
  * The template itself is a pure function in menu-template.ts, fed by a
  * store snapshot from menu-state.ts.
@@ -47,22 +48,42 @@ const popupGraphCommandIds = new Set([
   'graph.screenshot-transparent'
 ])
 
-/** Resolve a command target, permitting only graph-local actions in graph popups. */
+/** Exact document commands supported by the collection-free editor shell. */
+const standaloneDocumentCommandIds = new Set([
+  'file.save',
+  'file.reveal-current',
+  'view.toggle-editor-mode',
+  'view.zoom-in',
+  'view.zoom-out',
+  'view.zoom-reset'
+])
+
+function isStandaloneDocumentCommand(commandId: string): boolean {
+  return (
+    standaloneDocumentCommandIds.has(commandId) ||
+    commandId.startsWith('format.') ||
+    commandId.startsWith('structure.')
+  )
+}
+
+/** Resolve a command target without leaking collection actions into popups. */
 function resolveMenuTarget(commandId?: string): BrowserWindow | undefined {
   if (!windowManagerRef) return undefined
 
   const focused = BrowserWindow.getFocusedWindow()
-  if (focused && !focused.isDestroyed() && !windowManagerRef.isPopup(focused.webContents.id)) {
-    return focused
-  }
-  if (
-    focused &&
-    !focused.isDestroyed() &&
-    commandId &&
-    popupGraphCommandIds.has(commandId) &&
-    windowMenuContexts.get(focused.webContents.id)?.active
-  ) {
-    return focused
+  if (focused && !focused.isDestroyed()) {
+    const focusedId = focused.webContents.id
+    if (windowManagerRef.isStandalone(focusedId)) {
+      if (commandId && isStandaloneDocumentCommand(commandId)) return focused
+    } else if (!windowManagerRef.isPopup(focusedId)) {
+      return focused
+    } else if (
+      commandId &&
+      popupGraphCommandIds.has(commandId) &&
+      windowMenuContexts.get(focusedId)?.active
+    ) {
+      return focused
+    }
   }
 
   const primaryId = windowManagerRef.getPrimaryWindowId()
@@ -73,7 +94,9 @@ function resolveMenuTarget(commandId?: string): BrowserWindow | undefined {
 function getFocusedMenuState() {
   const focused = BrowserWindow.getFocusedWindow()
   const focusedPopupContext =
-    focused && windowManagerRef?.isPopup(focused.webContents.id)
+    focused &&
+    windowManagerRef?.isPopup(focused.webContents.id) &&
+    !windowManagerRef.isStandalone(focused.webContents.id)
       ? windowMenuContexts.get(focused.webContents.id)
       : undefined
   const target = focusedPopupContext?.active ? focused : resolveMenuTarget()
@@ -105,8 +128,8 @@ export function clearWindowMenuContext(webContentsId: number): void {
 
 /**
  * Send a menu command to its appropriate focused target. Graph-local commands
- * can reach a focused graph popup; all other popup commands fall back to the
- * primary window.
+ * can reach a focused graph popup, and document-local commands can reach a
+ * focused standalone editor. Everything else falls back to the primary.
  */
 function sendMenuCommand(id: string, payload?: unknown): void {
   resolveMenuTarget(id)?.webContents.send('menu:command', { id, payload })
@@ -125,12 +148,14 @@ function showAbout(): void {
 const menuActions: MenuActions = {
   sendCommand: sendMenuCommand,
   openRecent: (payload) => {
-    // Send to the focused window, or broadcast to all if none focused
-    const focusedWindow = BrowserWindow.getFocusedWindow()
-    if (focusedWindow && !focusedWindow.isDestroyed()) {
-      focusedWindow.webContents.send('menu:open-recent', payload)
-    } else if (windowManagerRef) {
-      windowManagerRef.broadcastToAll('menu:open-recent', payload)
+    // Recent collection files belong to a full application window. In
+    // particular, never deliver one to a standalone renderer just because it
+    // currently has focus.
+    const target = resolveMenuTarget()
+    if (target) {
+      target.webContents.send('menu:open-recent', payload)
+    } else {
+      windowManagerRef?.openCollectionDocument(payload.collectionId, payload.filePath)
     }
   },
   clearRecents: () => {

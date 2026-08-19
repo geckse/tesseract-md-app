@@ -40,6 +40,10 @@
     collectionId?: string | null
     documentTabId?: string | null
     isUntitled?: boolean
+    /** Disable collection schema, relation, file-picker, and batch-property behavior. */
+    collectionFeaturesEnabled?: boolean
+    /** The surrounding standalone shell already presents the filename. */
+    showFileName?: boolean
     onFileRenamed: (newPath: string) => void
     /** Flush pending document edits before a schema mutation can run the CLI. */
     onBeforeSchemaMutate?: (context: DocumentSchemaMutationContext) => void | Promise<void>
@@ -56,6 +60,8 @@
     collectionId = null,
     documentTabId = null,
     isUntitled = false,
+    collectionFeaturesEnabled = true,
+    showFileName = true,
     onFileRenamed,
     onBeforeSchemaMutate,
     onSchemaApplied
@@ -110,7 +116,7 @@
   })
 
   $effect(() => {
-    if (collectionPath) void cliFeatures.initModules(collectionPath)
+    if (collectionFeaturesEnabled && collectionPath) void cliFeatures.initModules(collectionPath)
   })
 
   // Sync rows from frontmatterYaml prop (only on external changes)
@@ -150,16 +156,19 @@
     // exact YAML pair protected during that window. Invalid/missing overlay
     // tombstones deliberately do not claim ownership: the same key may have
     // become an ordinary user field after its definition was removed.
-    const computedKeys = new Set(
-      schema?.fields
-        .filter((field) => isComputedFieldType(field.field_type))
-        .map((field) => field.name) ?? []
-    )
-    const indexedDocument = $documentInfo
-    for (const key of Object.keys(indexedDocument?.computed_fields ?? {})) computedKeys.add(key)
-    for (const [key, diagnostic] of Object.entries(indexedDocument?.computed_field_errors ?? {})) {
-      if (diagnostic.code !== 'invalid_schema' && diagnostic.code !== 'schema_overlay_missing') {
-        computedKeys.add(key)
+    const computedKeys = new Set<string>()
+    if (collectionFeaturesEnabled) {
+      for (const field of schema?.fields ?? []) {
+        if (isComputedFieldType(field.field_type)) computedKeys.add(field.name)
+      }
+      const indexedDocument = $documentInfo
+      for (const key of Object.keys(indexedDocument?.computed_fields ?? {})) computedKeys.add(key)
+      for (const [key, diagnostic] of Object.entries(
+        indexedDocument?.computed_field_errors ?? {}
+      )) {
+        if (diagnostic.code !== 'invalid_schema' && diagnostic.code !== 'schema_overlay_missing') {
+          computedKeys.add(key)
+        }
       }
     }
     const yaml =
@@ -172,7 +181,7 @@
   }
 
   function getSchemaField(key: string): SchemaField | null {
-    if (!schema?.fields) return null
+    if (!collectionFeaturesEnabled || !schema?.fields) return null
     return schema.fields.find((f) => f.name === key) ?? null
   }
 
@@ -218,15 +227,15 @@
     // Explicit File schema pins support empty and extensionless values. An
     // unambiguous File value then wins over a stale legacy Relation label so
     // the editor and read-only properties panel classify the same data alike.
-    if (sf?.field_type === 'File') return 'file'
+    if (collectionFeaturesEnabled && sf?.field_type === 'File') return 'file'
     if (sf?.field_type === 'Json') return 'complex'
     const typeHint = rows.find((candidate) => candidate.key === key)?.typeHint
-    if (typeHint === 'file' && Array.isArray(value)) return 'file'
-    if (isFileReferenceValue(value)) return 'file'
-    if (sf?.field_type === 'Relation') return 'relation'
+    if (collectionFeaturesEnabled && typeHint === 'file' && Array.isArray(value)) return 'file'
+    if (collectionFeaturesEnabled && isFileReferenceValue(value)) return 'file'
+    if (collectionFeaturesEnabled && sf?.field_type === 'Relation') return 'relation'
     // Value-shape fallback keeps ad-hoc fields and pre-refresh schemas usable.
     // This includes homogeneous lists of plain `.md` filenames.
-    if (isRelationValue(value)) return 'relation'
+    if (collectionFeaturesEnabled && isRelationValue(value)) return 'relation'
     if (sf?.allowed_values?.length) return 'select'
     if (sf?.field_type === 'Boolean' || typeof value === 'boolean') return 'boolean'
     if (sf?.field_type === 'Number' || typeof value === 'number') return 'number'
@@ -243,7 +252,12 @@
 
     if (sf?.field_type === 'Date') return 'date'
     if (value !== null && typeof value === 'object' && !Array.isArray(value)) return 'complex'
-    if (typeHint) return typeHint
+    if (
+      typeHint &&
+      (collectionFeaturesEnabled || (typeHint !== 'relation' && typeHint !== 'file'))
+    ) {
+      return typeHint
+    }
     return 'text'
   }
 
@@ -253,6 +267,7 @@
    * selected file, which normally matches the open document).
    */
   function relationValuesFor(key: string): RelationValue[] | undefined {
+    if (!collectionFeaturesEnabled) return undefined
     if (!$documentInfo || $documentInfo.path !== filePath) return undefined
     return $documentInfo.relations?.[key]
   }
@@ -289,7 +304,7 @@
   }
 
   function mutationContext(): DocumentSchemaMutationContext | null {
-    if (!collectionId || !documentTabId) return null
+    if (!collectionFeaturesEnabled || !collectionId || !documentTabId) return null
     return {
       tabId: documentTabId,
       filePath,
@@ -313,6 +328,9 @@
     }
     rows.push(row)
     emitUpdate()
+    // A standalone file owns only its local YAML. Adding a property is
+    // complete once the frontmatter update has been emitted.
+    if (!collectionFeaturesEnabled) return
     if (alreadyInSchema) return
 
     const context = mutationContext()
@@ -459,10 +477,12 @@
   // the row locally — the change flows disk → file-sync → editor reload, so
   // the triggering file is never double-applied.
   function handleTypeChangeRequest(key: string, value: JsonValue, target: DetectedType) {
+    if (!collectionFeaturesEnabled) return
     propertyOps.openConvert({ kind: 'panel', filePath }, key, target, detectType(key, value))
   }
 
   function handleRenameRequest(key: string) {
+    if (!collectionFeaturesEnabled) return
     propertyOps.openRename({ kind: 'panel', filePath }, key)
   }
 
@@ -472,7 +492,7 @@
   // The database layout is presentation state only. Keep `rows` in parsed YAML
   // order so emitUpdate() preserves the document's actual frontmatter ordering.
   let propertyColumnLayout = $derived.by<TableColumnLayout[]>(() => {
-    if (!collectionId) return []
+    if (!collectionFeaturesEnabled || !collectionId) return []
     const folderPath = panelScope ?? ''
     const matchingTabs = Object.values(workspace.tabs).filter(
       (candidate) =>
@@ -513,6 +533,7 @@
 
   let displayRows = $derived(orderForDisplay(rows, (row) => row.key))
   let missingComputedFields = $derived.by(() => {
+    if (!collectionFeaturesEnabled) return []
     const materialized = new Set(rows.map((row) => row.key))
     return orderForDisplay(
       (schema?.fields ?? []).filter(
@@ -544,7 +565,9 @@
   $effect(() => {
     const id = collectionId
     const folderPath = panelScope ?? ''
-    if (!id || typeof window.api?.listTableViews !== 'function') return
+    if (!collectionFeaturesEnabled || !id || typeof window.api?.listTableViews !== 'function') {
+      return
+    }
     untrack(() => {
       void tableViewsStore.load(id, folderPath)
     })
@@ -552,7 +575,9 @@
 </script>
 
 <div class="dh">
-  <FileNameEditor {filePath} {collectionPath} {isUntitled} {onFileRenamed} />
+  {#if showFileName}
+    <FileNameEditor {filePath} {collectionPath} {isUntitled} {onFileRenamed} />
+  {/if}
 
   {#if rows.length > 0 || missingComputedFields.length > 0}
     <div class="dh-divider"></div>
@@ -573,21 +598,26 @@
           onKeyChange={(k) => handleKeyChange(row.id, k)}
           onValueChange={(v) => handleValueChange(row.id, v)}
           onRemove={() => handleRemove(row.id)}
-          onTypeChange={(t) => handleTypeChangeRequest(row.key, row.value, t)}
-          onRename={() => handleRenameRequest(row.key)}
-          onEditFormula={schemaField?.field_type === 'Formula' && collectionId
+          onTypeChange={collectionFeaturesEnabled
+            ? (t) => handleTypeChangeRequest(row.key, row.value, t)
+            : undefined}
+          onRename={collectionFeaturesEnabled ? () => handleRenameRequest(row.key) : undefined}
+          onEditFormula={collectionFeaturesEnabled &&
+          schemaField?.field_type === 'Formula' &&
+          collectionId
             ? () => openFormulaEditor(schemaField)
             : undefined}
-          onEditComputed={schemaField &&
+          onEditComputed={collectionFeaturesEnabled &&
+          schemaField &&
           isLookupRollupFieldType(schemaField.field_type) &&
           collectionId &&
           cliFeatures.supportsLookupRollup
             ? () => openLookupRollupEditor(schemaField)
             : undefined}
-          settingsScope={panelScope}
+          settingsScope={collectionFeaturesEnabled ? panelScope : undefined}
           relationValues={relationValuesFor(row.key)}
-          {collectionPath}
-          {collectionId}
+          collectionPath={collectionFeaturesEnabled ? collectionPath : ''}
+          collectionId={collectionFeaturesEnabled ? collectionId : null}
         />
       {/each}
       {#each missingComputedFields as schemaField (schemaField.name)}
@@ -603,28 +633,37 @@
           onKeyChange={() => undefined}
           onValueChange={() => undefined}
           onRemove={() => undefined}
-          onEditFormula={collectionId && schemaField.field_type === 'Formula'
+          onEditFormula={collectionFeaturesEnabled &&
+          collectionId &&
+          schemaField.field_type === 'Formula'
             ? () => openFormulaEditor(schemaField)
             : undefined}
-          onEditComputed={collectionId &&
+          onEditComputed={collectionFeaturesEnabled &&
+          collectionId &&
           isLookupRollupFieldType(schemaField.field_type) &&
           cliFeatures.supportsLookupRollup
             ? () => openLookupRollupEditor(schemaField)
             : undefined}
-          settingsScope={panelScope}
-          {collectionPath}
-          {collectionId}
+          settingsScope={collectionFeaturesEnabled ? panelScope : undefined}
+          collectionPath={collectionFeaturesEnabled ? collectionPath : ''}
+          collectionId={collectionFeaturesEnabled ? collectionId : null}
         />
       {/each}
     </div>
   {/if}
 
   <AddPropertyRow
-    {schema}
+    schema={collectionFeaturesEnabled ? schema : null}
     {existingKeys}
     onAdd={handleAdd}
-    onAddFormula={collectionId && !isUntitled ? openNewFormula : undefined}
-    onAddComputed={collectionId && !isUntitled && cliFeatures.supportsLookupRollup
+    {collectionFeaturesEnabled}
+    onAddFormula={collectionFeaturesEnabled && collectionId && !isUntitled
+      ? openNewFormula
+      : undefined}
+    onAddComputed={collectionFeaturesEnabled &&
+    collectionId &&
+    !isUntitled &&
+    cliFeatures.supportsLookupRollup
       ? openNewLookupRollup
       : undefined}
   />

@@ -164,6 +164,16 @@ describe('buildTemplate', () => {
       }
     })
 
+    it('keeps CmdOrCtrl+R reload available in production', () => {
+      const production = buildTemplate(makeState({ isDev: false }), actions)
+      const reload = collect(production, (item) => item.role === 'reload')
+
+      expect(reload).toHaveLength(1)
+      expect(reload[0].accelerator).toBe('CmdOrCtrl+R')
+      expect(collect(production, (item) => item.role === 'forceReload')).toEqual([])
+      expect(collect(production, (item) => item.role === 'toggleDevTools')).toEqual([])
+    })
+
     it('never attaches an accelerator to a Z binding', () => {
       for (const platform of ['darwin', 'win32'] as const) {
         const template = buildTemplate(makeState({ platform }), actions)
@@ -433,7 +443,14 @@ describe('buildTemplate', () => {
 
     it('deep-links every collection settings section', () => {
       const template = buildTemplate(makeState(), actions)
-      for (const section of ['embedding', 'search', 'chunking', 'clusters', 'appearance']) {
+      for (const section of [
+        'embedding',
+        'search',
+        'chunking',
+        'clusters',
+        'skills',
+        'appearance'
+      ]) {
         const item = findById(template, `collection.settings.${section}`)!
         item.click!(undefined as never, undefined as never, undefined as never)
         expect(actions.sendCommand).toHaveBeenCalledWith('settings.open', {

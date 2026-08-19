@@ -12,7 +12,7 @@ This is an app-only distribution path. The bundled source is exclusively `tesser
 - Codex and compatible agents: `.agents/skills`
 - Gemini CLI: `.gemini/skills`
 
-The banner recommends an outdated target first, then an already-present agent folder, and otherwise `.agents/skills`. A current copy in any supported folder satisfies the collection check. Installation never writes global user-level agent configuration.
+The footer banner recommends an outdated target first, then an already-present agent folder, and otherwise `.agents/skills`. A current copy in any supported folder satisfies the automatic collection reminder. Collection Settings still shows every target independently so users can maintain more than one agent installation. Installation never writes global user-level agent configuration.
 
 ## Update detection
 
@@ -23,6 +23,7 @@ Checks run when the active collection changes and when the app window regains fo
 ## User actions
 
 - **Install skills / Update skills** copies the bundled skill directories into the selected collection-local target.
+- **Collection Settings → Agent Skills** shows the status of every supported target and can install or update any selected combination (for example Claude Code and Codex together).
 - **Not now** hides the banner for the current app session.
 - **Never for this collection** stores a permanent per-collection dismissal in the app store.
 
@@ -36,6 +37,6 @@ The main process resolves the collection from its registered ID. Target IDs are 
 
 - Main-process tests cover missing/current/outdated detection, agent-folder recommendation, content and version updates, installation isolation, and symlink rejection.
 - IPC tests cover collection validation, target forwarding, dismissal persistence, and channel registration.
-- Store and component tests cover lifecycle checks, install/update actions, error/retry, and both dismissal modes.
+- Store and component tests cover lifecycle checks, single- and multi-target install/update actions, error/retry, and both dismissal modes.
 - Release-hygiene coverage pins the packaged `tesseract-skills` resource.
 - Typecheck, lint, unit/integration tests, and production build pass.

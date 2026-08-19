@@ -71,6 +71,39 @@ export interface Collection {
   lastOpenedAt: number
 }
 
+/** One exact non-collection Markdown file granted to a standalone window. */
+export interface StandaloneDocument {
+  path: string
+  name: string
+  directory: string
+  content: string
+}
+
+/** One OS-backed file opened from an external drag payload. */
+export interface ExternalDroppedFileDescriptor {
+  /** Opaque sender-bound capability used by every follow-up operation. */
+  id: string
+  path: string
+  name: string
+  directory: string
+  size: number
+  kind: 'markdown' | 'asset' | 'other'
+  mimeCategory: 'image' | 'pdf' | 'video' | 'audio' | 'other'
+  /** Present only for Markdown files. */
+  content?: string
+  collectionId: string | null
+  relativePath: string | null
+}
+
+/** Result of exclusively copying one external drop into a collection. */
+export interface ImportedDroppedFile {
+  sourceName: string
+  relativePath: string
+  size: number
+  kind: 'markdown' | 'asset' | 'other'
+  mimeCategory: 'image' | 'pdf' | 'video' | 'audio' | 'other'
+}
+
 /** A favorited file entry. */
 export interface FavoriteEntry {
   collectionId: string // Which collection this file belongs to
@@ -678,6 +711,27 @@ export interface MdvdbApi {
   setCollectionSkillsDismissed(collectionId: string, dismissed: boolean): Promise<void>
 
   // File operations
+  /** Read the exact Markdown file granted to this standalone renderer. */
+  getStandaloneDocument(): Promise<StandaloneDocument>
+  /** Atomically save it only if the on-disk content still matches the baseline. */
+  saveStandaloneDocument(expectedContent: string, content: string): Promise<void>
+  /** Reveal the granted file without accepting an arbitrary renderer path. */
+  revealStandaloneDocument(): Promise<void>
+  /** Open an OS-backed drag payload and mint an opaque exact-file capability. */
+  openDroppedFile(file: File): Promise<ExternalDroppedFileDescriptor>
+  /** Re-read an external Markdown capability from disk. */
+  readExternalDocument(id: string): Promise<string>
+  /** CAS-save an external Markdown capability without accepting a path. */
+  saveExternalDocument(id: string, expectedContent: string, content: string): Promise<void>
+  revealExternalFile(id: string): Promise<void>
+  openExternalFile(id: string): Promise<void>
+  releaseExternalFile(id: string): Promise<void>
+  /** Exclusively copy real OS-backed File objects into an existing collection folder. */
+  importDroppedFiles(
+    files: File[],
+    collectionId: string,
+    targetDirectory: string
+  ): Promise<ImportedDroppedFile[]>
   readFile(absolutePath: string): Promise<string>
   writeFile(absolutePath: string, content: string): Promise<void>
   /**

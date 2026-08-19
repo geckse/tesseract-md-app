@@ -37,6 +37,21 @@ describe('release hygiene', () => {
     expect(pkg.build.linux.desktop.entry.StartupWMClass).toBe(pkg.build.appId)
   })
 
+  it('registers Markdown documents with one cross-platform file association', () => {
+    const pkg = JSON.parse(readFileSync(join(appRoot, 'package.json'), 'utf8'))
+    expect(pkg.build.fileAssociations).toEqual([
+      {
+        ext: 'md',
+        name: 'Tesseract.Markdown',
+        description: 'Markdown document',
+        mimeType: 'text/markdown',
+        role: 'Editor',
+        rank: 'Default'
+      }
+    ])
+    expect(pkg.build.linux).not.toHaveProperty('mimeTypes')
+  })
+
   it('keeps the runtime application identity aligned with the packaged Bundle ID', () => {
     const pkg = JSON.parse(readFileSync(join(appRoot, 'package.json'), 'utf8'))
     const main = readFileSync(join(appRoot, 'src/main/index.ts'), 'utf8')
@@ -146,14 +161,14 @@ describe('release hygiene', () => {
     expect(existsSync(join(appRoot, 'eslint.config.js'))).toBe(false)
   })
 
-  it('registers synchronous preload IPC before creating the first window', () => {
+  it('registers renderer IPC before creating the first window', () => {
     const main = readFileSync(join(appRoot, 'src/main/index.ts'), 'utf8')
     expect(main.indexOf('registerStartupIpcHandlers()')).toBeGreaterThan(-1)
     expect(main.indexOf('windowManager.createWindow()')).toBeGreaterThan(
       main.indexOf('registerStartupIpcHandlers()')
     )
-    expect(main.indexOf('registerIpcHandlers(windowManager, ptyManager)')).toBeGreaterThan(
-      main.indexOf('windowManager.createWindow()')
+    expect(main.indexOf('windowManager.createWindow()')).toBeGreaterThan(
+      main.indexOf('registerIpcHandlers(windowManager, ptyManager)')
     )
   })
 
@@ -197,8 +212,10 @@ describe('release hygiene', () => {
     )
   })
 
-  it('places the collection skills banner immediately above the footer status bar', () => {
+  it('places update and collection skills notices in the footer above the status bar', () => {
     const app = readFileSync(join(appRoot, 'src/renderer/App.svelte'), 'utf8')
-    expect(app).toMatch(/<BottomPanel \/>\s*<CollectionSkillsNotification \/>\s*<StatusBar \/>/)
+    expect(app).toMatch(
+      /<BottomPanel \/>\s*<UpdateNotification \/>\s*<CollectionSkillsNotification \/>\s*<StatusBar \/>/
+    )
   })
 })

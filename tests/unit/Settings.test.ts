@@ -9,6 +9,27 @@ const mockApi = {
   addCollection: vi.fn(),
   removeCollection: vi.fn(),
   setActiveCollection: vi.fn(),
+  checkCollectionSkills: vi.fn().mockResolvedValue({
+    state: 'missing',
+    bundleVersion: '1.0.0',
+    bundleFingerprint: 'bundle-hash',
+    skillCount: 1,
+    targets: [
+      {
+        id: 'agents',
+        label: 'Codex & compatible agents',
+        relativePath: '.agents/skills',
+        state: 'missing',
+        installedSkillCount: 0,
+        totalSkillCount: 1,
+        agentDirectoryPresent: false
+      }
+    ],
+    recommendedTargetId: 'agents',
+    dismissedForever: false
+  }),
+  installCollectionSkills: vi.fn(),
+  setCollectionSkillsDismissed: vi.fn(),
   status: vi.fn(),
   readFile: vi.fn(),
   writeFile: vi.fn(),
@@ -150,7 +171,7 @@ describe('Settings component', () => {
     expect(screen.getByText(/These settings override global defaults/)).toBeTruthy()
   })
 
-  it('collection view shows only embedding/search/chunking/appearance tabs', async () => {
+  it('collection view includes agent skills but excludes global-only tabs', async () => {
     collections.set([{ id: 'c1', name: 'My Notes', path: '/tmp/notes' }])
     settingsTarget.set('c1')
     activeSection.set('embedding')
@@ -165,10 +186,22 @@ describe('Settings component', () => {
     expect(tabTexts.some((t) => t.includes('Embedding Provider'))).toBe(true)
     expect(tabTexts.some((t) => t.includes('Search Defaults'))).toBe(true)
     expect(tabTexts.some((t) => t.includes('Chunking'))).toBe(true)
+    expect(tabTexts.some((t) => t.includes('Agent Skills'))).toBe(true)
     expect(tabTexts.some((t) => t.includes('Appearance'))).toBe(true)
     // These should NOT be present
     expect(tabTexts.some((t) => t.includes('CLI'))).toBe(false)
     expect(tabTexts.some((t) => t.includes('About'))).toBe(false)
+  })
+
+  it('opens project-local agent skill management from collection settings', async () => {
+    collections.set([{ id: 'c1', name: 'My Notes', path: '/tmp/notes' }])
+    settingsTarget.set('c1')
+    activeSection.set('skills')
+    render(Settings, { props: { onclose: vi.fn() } })
+
+    expect(screen.getByRole('heading', { name: 'Agent Skills' })).toBeTruthy()
+    await waitFor(() => expect(mockApi.checkCollectionSkills).toHaveBeenCalledWith('c1'))
+    expect(screen.getByText('Codex & compatible agents')).toBeTruthy()
   })
 
   it('section tab navigation switches active section', async () => {

@@ -25,6 +25,8 @@
 
   interface TabBarProps {
     paneId: string
+    /** True while an OS-backed file is hovering this tab strip. */
+    externalFileDragOver?: boolean
     onactivate?: (tabId: string) => void
     onclose?: (tabId: string) => void
     onclosemany?: (tabIds: string[]) => void
@@ -33,8 +35,15 @@
     trailingActions?: Snippet
   }
 
-  let { paneId, onactivate, onclose, onclosemany, oncreate, trailingActions }: TabBarProps =
-    $props()
+  let {
+    paneId,
+    externalFileDragOver = false,
+    onactivate,
+    onclose,
+    onclosemany,
+    oncreate,
+    trailingActions
+  }: TabBarProps = $props()
 
   // ── Reactive tab data ───────────────────────────────────────────────
 
@@ -271,7 +280,11 @@
   const isContextTabGraph = $derived(contextTab?.kind === 'graph')
   const isContextTabCloseable = $derived(contextTab?.kind !== 'graph')
   const canSplit = $derived(isContextTabCloseable)
-  const canDetach = $derived(contextTab != null)
+  const contextTabIsExternal = $derived(
+    (contextTab?.kind === 'document' || contextTab?.kind === 'asset') &&
+      contextTab.origin === 'external'
+  )
+  const canDetach = $derived(contextTab != null && !contextTabIsExternal)
   const hasTabsToLeft = $derived(
     contextMenuTabId ? workspace.getTabIdsToLeft(contextMenuTabId, paneId).length > 0 : false
   )
@@ -366,7 +379,7 @@
   }
 </script>
 
-<div class="tab-bar">
+<div class="tab-bar" class:external-file-drag={externalFileDragOver}>
   <!-- Left scroll button -->
   {#if canScrollLeft}
     <button class="scroll-btn scroll-left" onclick={scrollLeft} aria-label="Scroll tabs left">
@@ -539,6 +552,11 @@
     border-bottom: 1px solid var(--color-border, #27272a);
     position: relative;
     overflow: hidden;
+  }
+
+  .tab-bar.external-file-drag {
+    background: color-mix(in srgb, var(--color-primary, #00e5ff) 12%, transparent);
+    box-shadow: inset 0 0 0 2px var(--color-primary, #00e5ff);
   }
 
   .trailing-actions {

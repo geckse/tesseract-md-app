@@ -1,4 +1,5 @@
 import type { MimeCategory } from '../types/cli'
+import { assetMimeCategory } from '../../shared/media-types'
 
 export type MediaKind = 'image' | 'video' | 'audio'
 
@@ -8,26 +9,14 @@ export interface MediaEmbed {
   alt: string
 }
 
-const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico', 'avif'])
-const VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'mov', 'm4v', 'ogv'])
-const AUDIO_EXTENSIONS = new Set(['mp3', 'wav', 'ogg', 'oga', 'flac', 'm4a', 'aac'])
-
-function extensionOf(value: string): string {
-  const withoutQuery = value.split(/[?#]/, 1)[0]
-  return withoutQuery.split('.').pop()?.toLowerCase() ?? ''
-}
-
 export function mediaKindFromMimeCategory(category: MimeCategory): MediaKind | null {
   if (category === 'image' || category === 'video' || category === 'audio') return category
   return null
 }
 
 export function inferMediaKind(value: string): MediaKind | null {
-  const extension = extensionOf(value)
-  if (IMAGE_EXTENSIONS.has(extension)) return 'image'
-  if (VIDEO_EXTENSIONS.has(extension)) return 'video'
-  if (AUDIO_EXTENSIONS.has(extension)) return 'audio'
-  return null
+  const category = assetMimeCategory(value)
+  return category === 'image' || category === 'video' || category === 'audio' ? category : null
 }
 
 export function isPublicMediaUrl(value: string): boolean {

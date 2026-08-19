@@ -7,10 +7,11 @@
  */
 
 import { promises as fs } from 'node:fs'
-import { join, relative, extname, sep } from 'node:path'
+import { join, relative, sep } from 'node:path'
+import { assetMimeCategory, type AssetMimeCategory } from '../shared/media-types'
 
 /** Mime category for display purposes. */
-export type MimeCategory = 'image' | 'pdf' | 'video' | 'audio' | 'other'
+export type MimeCategory = AssetMimeCategory
 
 /** A non-markdown asset file discovered by the app scanner. */
 export interface AssetFileNode {
@@ -27,28 +28,6 @@ export interface AssetScanResult {
   root: AssetFileNode
   totalAssets: number
   scanDurationMs: number
-}
-
-/** Extensions mapped to mime categories. */
-const EXTENSION_MAP: Record<string, MimeCategory> = {
-  '.png': 'image',
-  '.jpg': 'image',
-  '.jpeg': 'image',
-  '.gif': 'image',
-  '.svg': 'image',
-  '.webp': 'image',
-  '.bmp': 'image',
-  '.ico': 'image',
-  '.avif': 'image',
-  '.pdf': 'pdf',
-  '.mp4': 'video',
-  '.webm': 'video',
-  '.mov': 'video',
-  '.avi': 'video',
-  '.mp3': 'audio',
-  '.wav': 'audio',
-  '.ogg': 'audio',
-  '.flac': 'audio'
 }
 
 /** Directories that are always skipped. */
@@ -82,8 +61,7 @@ const MAX_FILES = 10_000
  */
 export function getMimeCategory(filename: string): MimeCategory | null {
   if (isMarkdown(filename)) return null
-  const ext = extname(filename).toLowerCase()
-  return EXTENSION_MAP[ext] ?? 'other'
+  return assetMimeCategory(filename) ?? 'other'
 }
 
 /** Check if a filename is a markdown file. */

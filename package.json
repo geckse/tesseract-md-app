@@ -138,6 +138,16 @@
     "publish": {
       "provider": "github"
     },
+    "fileAssociations": [
+      {
+        "ext": "md",
+        "name": "Tesseract.Markdown",
+        "description": "Markdown document",
+        "mimeType": "text/markdown",
+        "role": "Editor",
+        "rank": "Default"
+      }
+    ],
     "toolsets": {
       "appimage": "1.0.2"
     },

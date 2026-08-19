@@ -89,6 +89,7 @@
   let currentSelectedFilePath: string | null = $state(null)
   let currentScopedFileCount = $state(0)
   let currentActiveScopePath: string | null = $state(null)
+  let currentActiveShard: ShardInfo | null = $state(null)
   let currentShardsByCollection = $state<Record<string, ShardInfo[]>>({})
 
   type IndexRecoveryKind = 'missing' | 'corrupted'
@@ -127,6 +128,7 @@
   selectedFilePath.subscribe((v) => (currentSelectedFilePath = v))
   scopedFileCount.subscribe((v) => (currentScopedFileCount = v))
   activeScopePath.subscribe((v) => (currentActiveScopePath = v))
+  activeShard.subscribe((v) => (currentActiveShard = v))
   shardsByCollection.subscribe((v) => (currentShardsByCollection = v))
 
   let currentShardPaths = $derived(
@@ -166,6 +168,12 @@
   let typeaheadQuery = ''
   let lastTypeaheadAt = 0
 
+  // External OS drops copy files into the collection. Internal tree drags
+  // carry application/x-mdvdb-path and retain their existing link/open meaning.
+  let externalFileDragActive = $state(false)
+  let externalDropDirectory = $state('')
+  let importingDroppedFiles = $state(false)
+
   // Virtual list state
   const ITEM_HEIGHT = 28 // Fixed height for each tree row in pixels (matches FileTreeNode height)
   const BUFFER = 20 // Number of items to render above/below viewport
@@ -186,6 +194,10 @@
   function buildFlatNodeList(nodes: UnifiedTreeNode[], depth: number = 0): FlatNode[] {
     const result: FlatNode[] = []
     for (const node of nodes) {
+      // The CLI keeps indexed files as deleted tombstones until the next
+      // ingest removes them. They are useful for sync accounting, but there is
+      // no file on disk to open or act on, so omit them from the tree UI.
+      if (!node.is_dir && !node.isAsset && node.state === 'deleted') continue
       result.push({ path: node.path, isDir: node.is_dir, isAsset: node.isAsset, depth, node })
       if (node.is_dir && currentExpandedPaths.has(node.path)) {
         result.push(...buildFlatNodeList(node.children, depth + 1))
@@ -995,7 +1007,7 @@
   }
 
   function totalFiles(): number {
-    return currentScopedFileCount
+    return Math.max(0, currentScopedFileCount - currentFileStateCounts.deleted)
   }
 
   function handleIngest() {
@@ -1029,6 +1041,147 @@
 
   function handleFolderClick(path: string) {
     setGraphHighlightedFolder(path)
+  }
+
+  function resetTreePosition(): void {
+    focusedNodeIndex = -1
+    treeHasFocus = false
+    scrollTop = 0
+    treeContentElement?.scrollTo?.({ top: 0 })
+  }
+
+  async function handleShardOpen(path: string): Promise<void> {
+    if (!currentActiveCollectionId) return
+    const shard = (currentShardsByCollection[currentActiveCollectionId] ?? []).find(
+      (candidate) => candidate.path === path && candidate.exists
+    )
+    if (!shard) return
+
+    await setActiveShard(shard.id)
+    resetTreePosition()
+  }
+
+  async function handleReturnToCollection(): Promise<void> {
+    await setActiveShard(null)
+    resetTreePosition()
+  }
+
+  function isExternalFilesDrag(dataTransfer: DataTransfer | null): dataTransfer is DataTransfer {
+    if (!dataTransfer) return false
+    if (dataTransfer.types.includes('application/x-mdvdb-path')) return false
+    return dataTransfer.types.includes('Files')
+  }
+
+  function dropDirectoryForTarget(target: EventTarget | null): string {
+    const element = target instanceof Element ? target : null
+    const nodeElement = element?.closest<HTMLElement>('[data-tree-node]')
+    const nodePath = nodeElement?.dataset.treeNode
+    if (!nodePath) return currentActiveScopePath ?? ''
+
+    const node = flatNodes.find((candidate) => candidate.path === nodePath)
+    if (!node) return currentActiveScopePath ?? ''
+    if (node.isDir) return node.path
+    return node.path.split('/').slice(0, -1).join('/')
+  }
+
+  function externalDropDestinationLabel(directory: string): string {
+    return directory ? `“${directory}”` : 'the collection root'
+  }
+
+  function handleExternalFileDragOver(event: DragEvent): void {
+    if (
+      !currentActiveCollection ||
+      !currentActiveCollectionId ||
+      !isExternalFilesDrag(event.dataTransfer)
+    ) {
+      return
+    }
+
+    event.preventDefault()
+    event.stopPropagation()
+    event.dataTransfer.dropEffect = 'copy'
+    externalDropDirectory = dropDirectoryForTarget(event.target)
+    externalFileDragActive = true
+  }
+
+  function handleExternalFileDragLeave(event: DragEvent): void {
+    if (!externalFileDragActive) return
+    const nextTarget = event.relatedTarget
+    if (nextTarget instanceof Node && treeContentElement?.contains(nextTarget)) return
+    externalFileDragActive = false
+  }
+
+  async function handleExternalFileDrop(event: DragEvent): Promise<void> {
+    const dataTransfer = event.dataTransfer
+    if (
+      !currentActiveCollection ||
+      !currentActiveCollectionId ||
+      !isExternalFilesDrag(dataTransfer)
+    ) {
+      return
+    }
+
+    event.preventDefault()
+    event.stopPropagation()
+
+    // Snapshot both the files and destination before the first await. A native
+    // dialog may outlive the browser's DataTransfer object.
+    const droppedFiles = Array.from(dataTransfer.files)
+    const targetDirectory = dropDirectoryForTarget(event.target)
+    const collectionId = currentActiveCollectionId
+    const collectionPath = currentActiveCollection.path
+    const collectionName = currentActiveCollection.name
+    externalFileDragActive = false
+    externalDropDirectory = targetDirectory
+
+    if (droppedFiles.length === 0 || importingDroppedFiles) return
+
+    const destination = externalDropDestinationLabel(targetDirectory)
+    const confirmed = await requestConfirmation({
+      title:
+        droppedFiles.length === 1
+          ? `Copy “${droppedFiles[0].name}” into ${destination}?`
+          : `Copy ${droppedFiles.length} files into ${destination}?`,
+      message: `This will copy ${droppedFiles.length === 1 ? 'the file' : 'these files'} into the “${collectionName}” collection. The original${droppedFiles.length === 1 ? '' : 's'} will not be changed.`,
+      confirmLabel: droppedFiles.length === 1 ? 'Copy File' : 'Copy Files',
+      cancelLabel: 'Cancel'
+    })
+    if (!confirmed) return
+
+    importingDroppedFiles = true
+    try {
+      const imported = await window.api.importDroppedFiles(
+        droppedFiles,
+        collectionId,
+        targetDirectory
+      )
+
+      // The native prompt/import can span a collection switch. The main
+      // process remains bound to the captured collection id; only patch these
+      // renderer stores when they still describe that same collection.
+      if (
+        currentActiveCollectionId !== collectionId ||
+        currentActiveCollection?.path !== collectionPath
+      ) {
+        return
+      }
+
+      for (const file of imported) {
+        if (file.kind === 'markdown') {
+          insertFileNode(file.relativePath, 'new')
+        } else {
+          insertAssetNode(file.relativePath, file.mimeCategory ?? 'other', file.size)
+        }
+      }
+    } catch (error) {
+      await window.api.showMessage({
+        title: 'Copy to Collection Failed',
+        message: error instanceof Error ? error.message : String(error),
+        type: 'error'
+      })
+    } finally {
+      importingDroppedFiles = false
+    }
   }
 </script>
 
@@ -1111,6 +1264,21 @@
     </div>
   </div>
 
+  {#if currentActiveShard && currentActiveCollection}
+    <nav class="file-tree-scope-navigation" aria-label="Shard navigation">
+      <button
+        class="collection-root-link"
+        onclick={handleReturnToCollection}
+        title="Back to {currentActiveCollection.name} collection"
+        aria-label="Back to {currentActiveCollection.name} collection"
+      >
+        <span class="material-symbols-outlined" aria-hidden="true">arrow_back</span>
+        <span class="collection-root-name">{currentActiveCollection.name}</span>
+        <span class="collection-root-kind">Collection</span>
+      </button>
+    </nav>
+  {/if}
+
   <!-- Summary -->
   {#if currentFileTree}
     <div class="file-tree-summary">
@@ -1127,11 +1295,15 @@
   <!-- Content -->
   <div
     class="file-tree-content"
+    class:external-file-drag={externalFileDragActive}
     role="region"
     aria-label="File list"
     bind:this={treeContentElement}
     onscroll={handleScroll}
     oncontextmenu={handleTreeBackgroundContextMenu}
+    ondragover={handleExternalFileDragOver}
+    ondragleave={handleExternalFileDragLeave}
+    ondrop={handleExternalFileDrop}
   >
     {#if newFileInput && currentActiveCollection && !currentFileTreeLoading && !currentFileTreeError}
       <div class="new-file-input-row" style="padding-left: 12px;">
@@ -1220,7 +1392,7 @@
           </button>
         </div>
       {/if}
-    {:else if currentUnifiedTree && currentUnifiedTree.children.length === 0}
+    {:else if currentUnifiedTree && flatNodes.length === 0}
       <div
         class="empty-state"
         role="tree"
@@ -1260,6 +1432,7 @@
               oncontextmenu={handleNodeContextMenu}
               onfolderclick={handleFolderClick}
               onfolderopen={(path) => onfolderopen?.({ path })}
+              onshardopen={handleShardOpen}
               onnodefocus={(path) => focusNodeByPath(path)}
               focusedPath={treeHasFocus ? flatNodes[focusedNodeIndex]?.path : undefined}
               itemId={treeItemId(node.path)}
@@ -1283,6 +1456,12 @@
       </span>
     {/if}
   </div>
+  {#if externalFileDragActive}
+    <div class="external-drop-affordance" role="status" aria-live="polite">
+      <span class="material-symbols-outlined" aria-hidden="true">file_copy</span>
+      <span>Copy to {externalDropDestinationLabel(externalDropDirectory)}</span>
+    </div>
+  {/if}
 </div>
 
 <!-- File context menu -->
@@ -1434,6 +1613,7 @@
     height: 100%;
     overflow: hidden;
     outline: none;
+    position: relative;
   }
 
   .file-tree-header {
@@ -1616,6 +1796,61 @@
     border-bottom: 1px solid var(--color-border, #27272a);
   }
 
+  .file-tree-scope-navigation {
+    flex-shrink: 0;
+    padding: 5px 8px;
+    border-bottom: 1px solid var(--color-border, #27272a);
+    background: var(--color-surface, #161617);
+  }
+
+  .collection-root-link {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    min-width: 0;
+    height: 28px;
+    padding: 0 6px;
+    border: none;
+    border-radius: var(--radius-sm, 4px);
+    background: transparent;
+    color: var(--color-text-muted, #a1a1aa);
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .collection-root-link:hover {
+    background: var(--overlay-hover, rgba(255, 255, 255, 0.05));
+    color: var(--color-text, #fafafa);
+  }
+
+  .collection-root-link:focus-visible {
+    outline: 1px solid var(--color-primary, #00e5ff);
+    outline-offset: -1px;
+  }
+
+  .collection-root-link .material-symbols-outlined {
+    flex-shrink: 0;
+    font-size: 16px;
+  }
+
+  .collection-root-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .collection-root-kind {
+    margin-left: auto;
+    color: var(--color-text-dim, #71717a);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
   .summary-item {
     white-space: nowrap;
   }
@@ -1634,6 +1869,37 @@
     overflow-x: hidden;
     scrollbar-width: thin;
     scrollbar-color: var(--overlay-active, rgba(255, 255, 255, 0.1)) transparent;
+  }
+
+  .file-tree-content.external-file-drag {
+    background: color-mix(in srgb, var(--color-primary, #00e5ff) 7%, transparent);
+    box-shadow: inset 0 0 0 2px var(--color-primary, #00e5ff);
+  }
+
+  .external-drop-affordance {
+    position: absolute;
+    z-index: 40;
+    top: 50%;
+    left: 12px;
+    right: 12px;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 10px 12px;
+    border: 1px solid var(--color-primary, #00e5ff);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--color-surface, #161617) 92%, transparent);
+    color: var(--color-primary, #00e5ff);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    font-size: 12px;
+    font-weight: 600;
+    pointer-events: none;
+  }
+
+  .external-drop-affordance .material-symbols-outlined {
+    font-size: 18px;
   }
 
   .file-tree-content::-webkit-scrollbar {

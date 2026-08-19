@@ -3,11 +3,15 @@
   import { get } from 'svelte/store'
 
   interface Props {
-    filePath: string
+    filePath?: string
     collectionPath?: string
+    /** Renderer-owned object URL for an ephemeral file outside a collection. */
+    sourceUrl?: string
+    /** Sender-bound capability used for "Open in Default App". */
+    externalId?: string
   }
 
-  let { filePath, collectionPath }: Props = $props()
+  let { filePath = '', collectionPath, sourceUrl, externalId }: Props = $props()
 
   let loading = $state(true)
   let error = $state<string | null>(null)
@@ -21,16 +25,23 @@
     error = null
 
     try {
-      const collection = get(activeCollection)
-      const root = collectionPath || collection?.path
-      if (!root) throw new Error('No active collection')
+      let bytes: Uint8Array
+      if (sourceUrl) {
+        const response = await fetch(sourceUrl)
+        if (!response.ok) throw new Error(`Could not read PDF (${response.status})`)
+        bytes = new Uint8Array(await response.arrayBuffer())
+      } else {
+        const collection = get(activeCollection)
+        const root = collectionPath || collection?.path
+        if (!root) throw new Error('No active collection')
 
-      const absolutePath = `${root.replace(/\/+$/, '')}/${filePath.replace(/^\/+/, '')}`
-      const base64 = await window.api.readBinary(absolutePath)
-      const binaryString = atob(base64)
-      const bytes = new Uint8Array(binaryString.length)
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i)
+        const absolutePath = `${root.replace(/\/+$/, '')}/${filePath.replace(/^\/+/, '')}`
+        const base64 = await window.api.readBinary(absolutePath)
+        const binaryString = atob(base64)
+        bytes = new Uint8Array(binaryString.length)
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i)
+        }
       }
 
       // Dynamic import for pdfjs-dist
@@ -50,19 +61,55 @@
 
       for (let i = 1; i <= doc.numPages; i++) {
         const page = await doc.getPage(i)
-        const viewport = page.getViewport({ scale: 1.5 * zoom })
+        const naturalViewport = page.getViewport({ scale: 1 })
+        const viewerWidth = canvasContainer?.parentElement?.clientWidth ?? 0
+        const availableWidth = Math.max(0, viewerWidth - 48)
+        const fitScale =
+          availableWidth > 0 ? Math.min(1.5, availableWidth / naturalViewport.width) : 1.5
+        const viewport = page.getViewport({ scale: fitScale * zoom })
+
+        const pageContainer = document.createElement('div')
+        pageContainer.className = 'pdf-page'
+        pageContainer.dataset.page = String(i)
+        pageContainer.style.width = `${viewport.width}px`
+        pageContainer.style.height = `${viewport.height}px`
+        pageContainer.style.setProperty('--total-scale-factor', String(viewport.scale))
+        pageContainer.style.setProperty('--scale-round-x', '1px')
+        pageContainer.style.setProperty('--scale-round-y', '1px')
+
         const canvas = document.createElement('canvas')
         canvas.width = viewport.width
         canvas.height = viewport.height
-        canvas.className = 'pdf-page'
-        canvas.dataset.page = String(i)
+        canvas.className = 'pdf-page-canvas'
+
+        const textLayerContainer = document.createElement('div')
+        textLayerContainer.className = 'textLayer'
+        textLayerContainer.dataset.page = String(i)
+        textLayerContainer.setAttribute('aria-label', `Selectable text for page ${i}`)
+
+        pageContainer.append(canvas, textLayerContainer)
+        canvasContainer?.appendChild(pageContainer)
 
         const ctx = canvas.getContext('2d')
         if (ctx) {
           await page.render({ canvasContext: ctx, viewport }).promise
         }
 
-        canvasContainer?.appendChild(canvas)
+        try {
+          const textContent = await page.getTextContent({
+            includeMarkedContent: true,
+            disableNormalization: false
+          })
+          const textLayer = new pdfjsLib.TextLayer({
+            textContentSource: textContent,
+            container: textLayerContainer,
+            viewport
+          })
+          await textLayer.render()
+        } catch {
+          // Keep the rendered page usable when a malformed PDF has no extractable text layer.
+          textLayerContainer.remove()
+        }
       }
     } catch (err) {
       error = err instanceof Error ? err.message : String(err)
@@ -73,15 +120,15 @@
 
   function handleScroll() {
     if (!canvasContainer) return
-    const canvases = canvasContainer.querySelectorAll('canvas')
+    const pages = canvasContainer.querySelectorAll<HTMLElement>('.pdf-page')
     const containerTop = canvasContainer.scrollTop
     const containerMid = containerTop + canvasContainer.clientHeight / 2
 
-    for (const canvas of canvases) {
-      const top = canvas.offsetTop
-      const bottom = top + canvas.offsetHeight
+    for (const page of pages) {
+      const top = page.offsetTop
+      const bottom = top + page.offsetHeight
       if (containerMid >= top && containerMid < bottom) {
-        currentPage = parseInt(canvas.dataset.page ?? '1')
+        currentPage = parseInt(page.dataset.page ?? '1')
         break
       }
     }
@@ -90,8 +137,8 @@
   function goToPage(page: number) {
     const target = Math.max(1, Math.min(totalPages, page))
     currentPage = target
-    const canvas = canvasContainer?.querySelector(`canvas[data-page="${target}"]`)
-    canvas?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    const pageElement = canvasContainer?.querySelector(`.pdf-page[data-page="${target}"]`)
+    pageElement?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
   function zoomIn() {
@@ -105,6 +152,10 @@
   }
 
   function openInDefaultApp(): void {
+    if (externalId) {
+      void window.api.openExternalFile(externalId)
+      return
+    }
     const root = collectionPath || get(activeCollection)?.path
     if (!root) return
     const absolutePath = `${root.replace(/\/+$/, '')}/${filePath.replace(/^\/+/, '')}`
@@ -114,11 +165,13 @@
   $effect(() => {
     void filePath // track dependency
     void collectionPath
+    void sourceUrl
+    void externalId
     loadPdf()
   })
 </script>
 
-<div class="pdf-viewer">
+<div class="pdf-viewer" aria-label={sourceUrl ? 'External PDF preview' : 'PDF preview'}>
   {#if loading}
     <div class="loading">
       <span class="material-symbols-outlined spinning">progress_activity</span>
@@ -184,11 +237,13 @@
     flex-direction: column;
     height: 100%;
     background: var(--color-surface-dark, #0a0a0a);
+    user-select: text;
   }
 
   .canvas-container {
     flex: 1;
-    overflow-y: auto;
+    min-height: 0;
+    overflow: auto;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -201,10 +256,96 @@
   }
 
   .canvas-container :global(.pdf-page) {
+    position: relative;
+    flex: 0 0 auto;
+    overflow: hidden;
+    direction: ltr;
+    background: white;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
     border-radius: 2px;
-    max-width: 100%;
-    height: auto;
+  }
+
+  .canvas-container :global(.pdf-page-canvas) {
+    position: absolute;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  .canvas-container :global(.textLayer) {
+    --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+    --min-font-size-inv: calc(1 / var(--min-font-size));
+
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    overflow: clip;
+    color-scheme: only light;
+    line-height: 1;
+    text-align: initial;
+    text-size-adjust: none;
+    transform-origin: 0 0;
+    user-select: text;
+    forced-color-adjust: none;
+  }
+
+  .canvas-container :global(.textLayer span),
+  .canvas-container :global(.textLayer br) {
+    position: absolute;
+    color: transparent;
+    white-space: pre;
+    cursor: text;
+    transform-origin: 0 0;
+  }
+
+  .canvas-container :global(.textLayer > :not(.markedContent)),
+  .canvas-container :global(.textLayer .markedContent span:not(.markedContent)) {
+    --font-height: 0;
+    --scale-x: 1;
+    --rotate: 0deg;
+
+    z-index: 1;
+    font-size: calc(var(--text-scale-factor) * var(--font-height));
+    transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+  }
+
+  .canvas-container :global(.textLayer .markedContent) {
+    display: contents;
+  }
+
+  .canvas-container :global(.textLayer span[role='img']) {
+    cursor: default;
+    user-select: none;
+  }
+
+  .canvas-container :global(.textLayer ::selection) {
+    background: color-mix(in srgb, var(--color-primary, #00e5ff), transparent 65%);
+  }
+
+  .canvas-container :global(.textLayer br::selection) {
+    background: transparent;
+  }
+
+  .canvas-container :global(.textLayer[data-main-rotation='90']) {
+    transform: rotate(90deg) translateY(-100%);
+  }
+
+  .canvas-container :global(.textLayer[data-main-rotation='180']) {
+    transform: rotate(180deg) translate(-100%, -100%);
+  }
+
+  .canvas-container :global(.textLayer[data-main-rotation='270']) {
+    transform: rotate(270deg) translateX(-100%);
+  }
+
+  :global(.hiddenCanvasElement) {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: none;
+    width: 0;
+    height: 0;
   }
 
   .loading,

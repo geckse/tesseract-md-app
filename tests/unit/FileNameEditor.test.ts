@@ -3,6 +3,12 @@ import { render, screen, fireEvent } from '@testing-library/svelte'
 
 const openTableTab = vi.fn()
 const syncFileStoresFromTab = vi.fn()
+const renameFile = vi.fn()
+
+Object.defineProperty(globalThis, 'window', {
+  value: Object.assign(globalThis.window ?? {}, { api: { renameFile } }),
+  writable: true
+})
 
 vi.mock('../../src/renderer/stores/workspace.svelte', () => ({
   workspace: {
@@ -18,14 +24,15 @@ import FileNameEditor from '../../src/renderer/components/wysiwyg/FileNameEditor
 
 beforeEach(() => {
   vi.clearAllMocks()
+  renameFile.mockResolvedValue(undefined)
 })
 
-function renderEditor(filePath: string) {
+function renderEditor(filePath: string, onFileRenamed = vi.fn()) {
   render(FileNameEditor, {
     props: {
       filePath,
       collectionPath: '/vault',
-      onFileRenamed: vi.fn()
+      onFileRenamed
     }
   })
 }
@@ -59,5 +66,26 @@ describe('FileNameEditor folder breadcrumb', () => {
 
     expect(screen.queryByRole('navigation', { name: 'Folder path' })).toBeNull()
     expect(screen.getByText('root-note')).toBeTruthy()
+  })
+
+  it('renames only once when Enter is followed by the input blur', async () => {
+    const onFileRenamed = vi.fn()
+    renderEditor('notes/script.md', onFileRenamed)
+
+    await fireEvent.click(screen.getByRole('button', { name: 'script' }))
+    const input = screen.getByRole('textbox') as HTMLInputElement
+    await fireEvent.input(input, { target: { value: 'claude-watermark' } })
+    await fireEvent.keyDown(input, { key: 'Enter' })
+    await fireEvent.blur(input)
+
+    await vi.waitFor(() => {
+      expect(renameFile).toHaveBeenCalledTimes(1)
+      expect(renameFile).toHaveBeenCalledWith(
+        '/vault/notes/script.md',
+        '/vault/notes/claude-watermark.md'
+      )
+      expect(onFileRenamed).toHaveBeenCalledTimes(1)
+      expect(onFileRenamed).toHaveBeenCalledWith('notes/claude-watermark.md')
+    })
   })
 })

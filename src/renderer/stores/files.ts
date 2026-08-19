@@ -16,7 +16,7 @@ import { loadProperties, clearProperties, propertiesFileContent } from './proper
 import { editorMode, syncEditorStoresFromTab } from './editor'
 import { recordNavigation, syncNavigationStoresFromTab } from './navigation'
 import { syncGraphStoresFromTab } from './graph'
-import { workspace } from './workspace.svelte'
+import { workspace, type AssetTab, type DocumentTab } from './workspace.svelte'
 import { mergeTreeNodes } from '../lib/tree-merge'
 import { clearLoadedGraphStateCache } from '../lib/graph-view-loader'
 import {
@@ -227,16 +227,24 @@ export function syncFileStoresFromTab(): void {
   syncEditorStoresFromTab()
   syncNavigationStoresFromTab()
   syncGraphStoresFromTab()
-  // Keep propertiesFileContent in sync with the focused tab's content
+  // Keep the live Markdown mirror available for collection and non-collection
+  // documents. Indexed properties/backlinks remain collection-only below.
   const tab = workspace.focusedDocumentTab
   const collection = get(activeCollection)
-  propertiesFileContent.set(tab?.origin === 'collection' ? (tab.content ?? null) : null)
+  propertiesFileContent.set(
+    tab?.origin === 'collection' || tab?.origin === 'standalone' || tab?.origin === 'external'
+      ? (tab.content ?? null)
+      : null
+  )
 
   const propertiesContextKey =
     tab && tab.origin === 'collection' && collection
       ? `${collection.id}\0${tab.id}\0${tab.filePath}`
       : null
-  if (propertiesContextKey !== lastPropertiesContextKey) {
+  if (tab?.origin === 'standalone' || tab?.origin === 'external') {
+    lastPropertiesContextKey = null
+    clearProperties({ preserveFileContent: true })
+  } else if (propertiesContextKey !== lastPropertiesContextKey) {
     lastPropertiesContextKey = propertiesContextKey
     if (
       tab &&
@@ -327,9 +335,16 @@ async function _autoLoadTabContent(tabId: string, filePath: string): Promise<voi
   }
 }
 
+/** Any file-backed tab currently focused, including non-Markdown assets. */
+export const focusedFileTab = derived(_workspaceSync, (): DocumentTab | AssetTab | null => {
+  const tab = workspace.focusedTab
+  return tab?.kind === 'document' || tab?.kind === 'asset' ? tab : null
+})
+
 /** Currently selected file path — derived from focused pane's active document tab. */
 export const selectedFilePath = derived(_workspaceSync, () => {
-  return workspace.focusedDocumentTab?.filePath ?? null
+  const tab = workspace.focusedDocumentTab
+  return tab?.origin === 'collection' ? tab.filePath : null
 })
 
 /**

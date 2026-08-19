@@ -3,13 +3,15 @@ import { get } from 'svelte/store'
 
 const mockApi = {
   readFile: vi.fn(),
-  getAutoShowDiff: vi.fn().mockResolvedValue(false)
+  getAutoShowDiff: vi.fn().mockResolvedValue(false),
+  releaseExternalFile: vi.fn().mockResolvedValue(undefined)
 }
 Object.defineProperty(globalThis, 'window', { value: { api: mockApi }, writable: true })
 
 import { workspace, type DocumentTab } from '../../src/renderer/stores/workspace.svelte'
 import { collections, activeCollectionId } from '../../src/renderer/stores/collections'
-import { syncFileStoresFromTab } from '../../src/renderer/stores/files'
+import { selectedFilePath, syncFileStoresFromTab } from '../../src/renderer/stores/files'
+import { propertiesFileContent } from '../../src/renderer/stores/properties'
 import { conflicts, getConflict } from '../../src/renderer/stores/conflict'
 import {
   handleVaultFileEvent,
@@ -60,6 +62,34 @@ beforeEach(() => {
 })
 
 describe('file-sync routing', () => {
+  it('keeps standalone Markdown available to live editor-derived stores without collection reads', () => {
+    workspace.initAsStandalone({
+      standalonePath: '/outside/readme.md',
+      content: '# Outside\n'
+    })
+
+    syncFileStoresFromTab()
+
+    expect(get(propertiesFileContent)).toBe('# Outside\n')
+    expect(get(selectedFilePath)).toBeNull()
+    expect(mockApi.readFile).not.toHaveBeenCalled()
+  })
+
+  it('keeps dropped external Markdown in the live mirror without collection reads', () => {
+    workspace.openExternalDocumentTab({
+      id: 'grant-1',
+      path: '/outside/readme.md',
+      name: 'readme.md',
+      content: '# Dropped\n'
+    })
+
+    syncFileStoresFromTab()
+
+    expect(get(propertiesFileContent)).toBe('# Dropped\n')
+    expect(get(selectedFilePath)).toBeNull()
+    expect(mockApi.readFile).not.toHaveBeenCalled()
+  })
+
   it('live-applies disk content to a clean tab', async () => {
     const tab = openTab('a.md', 'original')
     mockApi.readFile.mockResolvedValue('from disk')

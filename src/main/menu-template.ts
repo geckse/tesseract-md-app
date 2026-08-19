@@ -22,7 +22,7 @@ import type { MenuState, MenuRecentEntry } from './menu-state'
 
 /** Callbacks the template dispatches into (injected for testability). */
 export interface MenuActions {
-  /** Send a `menu:command` {id, payload} to the focused (non-popup) window. */
+  /** Send a `menu:command` to the eligible focused window for that command. */
   sendCommand: (id: string, payload?: unknown) => void
   /** Open a recent file (existing `menu:open-recent` channel). */
   openRecent: (entry: { collectionId: string; filePath: string }) => void
@@ -48,6 +48,7 @@ const COLLECTION_SETTINGS_SECTIONS: { id: string; section: string; label: string
   { id: 'collection.settings.search', section: 'search', label: 'Search Defaults' },
   { id: 'collection.settings.chunking', section: 'chunking', label: 'Chunking' },
   { id: 'collection.settings.clusters', section: 'clusters', label: 'Topics' },
+  { id: 'collection.settings.skills', section: 'skills', label: 'Agent Skills' },
   { id: 'collection.settings.appearance', section: 'appearance', label: 'Appearance' }
 ]
 
@@ -301,15 +302,11 @@ export function buildTemplate(
   })
 
   // ─── View ────────────────────────────────────────────────────────────
-  const viewSubmenu: MenuItemConstructorOptions[] = []
+  const viewSubmenu: MenuItemConstructorOptions[] = [{ role: 'reload', accelerator: 'CmdOrCtrl+R' }]
   if (state.isDev) {
-    viewSubmenu.push(
-      { role: 'reload' },
-      { role: 'forceReload' },
-      { role: 'toggleDevTools' },
-      { type: 'separator' }
-    )
+    viewSubmenu.push({ role: 'forceReload' }, { role: 'toggleDevTools' })
   }
+  viewSubmenu.push({ type: 'separator' })
   viewSubmenu.push(
     {
       id: 'view.toggle-sidebar',

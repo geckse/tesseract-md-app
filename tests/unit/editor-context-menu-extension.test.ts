@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Editor } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import { TableKit } from '@tiptap/extension-table'
+import Image from '@tiptap/extension-image'
 import { NodeSelection } from '@tiptap/pm/state'
 import { EditorContextMenuExtension } from '@renderer/lib/tiptap/editor-context-menu-extension'
 import { TableUIExtension } from '@renderer/lib/tiptap/table-ui-extension'
@@ -23,7 +24,8 @@ function createEditor(content: string): Editor {
       TableKit,
       TableUIExtension,
       EditorContextMenuExtension,
-      Wikilink
+      Wikilink,
+      Image
     ]
   })
   editors.push(editor)
@@ -97,5 +99,17 @@ describe('EditorContextMenuExtension', () => {
     expect(editor.isActive('link')).toBe(true)
     expect(editor.getAttributes('link').href).toBe('https://example.com/cell')
     expect(document.querySelector('.table-context-menu')).toBeNull()
+  })
+
+  it('clears a stale image selection when coordinate mapping fails on ordinary content', () => {
+    const editor = createEditor('<p>Before</p><img src="diagram.png"><p>After</p>')
+    editor.commands.setNodeSelection(8)
+    expect(editor.isActive('image')).toBe(true)
+    vi.spyOn(editor.view, 'posAtCoords').mockReturnValue(null)
+
+    rightClick(editor.view.dom.querySelectorAll('p')[1])
+
+    expect(editor.state.selection).not.toBeInstanceOf(NodeSelection)
+    expect(editor.isActive('image')).toBe(false)
   })
 })

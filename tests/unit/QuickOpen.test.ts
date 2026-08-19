@@ -1,10 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/svelte'
-import type { FileTreeNode } from '@renderer/types/cli'
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte'
+import type { CollectionRow, FileTreeNode, JsonValue } from '@renderer/types/cli'
 
 // Mock functions that can be accessed in tests
 const mockSelectFile = vi.fn()
 const mockCloseQuickOpen = vi.fn()
+const mockOpenFile = vi.fn()
+const mockRecordNavigation = vi.fn()
+const mockSyncFileStores = vi.fn()
+const mockLoadFileTree = vi.fn().mockResolvedValue(undefined)
+const mockLoadAssetTree = vi.fn().mockResolvedValue(undefined)
+const mockSearch = vi.fn()
+const mockCollection = vi.fn()
+const mockSetActiveCollection = vi.fn().mockResolvedValue(undefined)
 
 // Mock the stores module with factory functions
 vi.mock('@renderer/stores/quickopen', () => {
@@ -51,7 +59,29 @@ vi.mock('@renderer/stores/files', () => {
         subscribers.forEach((cb) => cb(value))
       }
     },
-    selectFile: (path: string) => mockSelectFile(path)
+    selectFile: (path: string) => mockSelectFile(path),
+    syncFileStoresFromTab: () => mockSyncFileStores(),
+    loadFileTree: () => mockLoadFileTree(),
+    loadAssetTree: () => mockLoadAssetTree()
+  }
+})
+
+vi.mock('@renderer/stores/workspace.svelte', () => ({
+  workspace: { openFile: (path: string) => mockOpenFile(path) }
+}))
+
+vi.mock('@renderer/stores/navigation', () => ({
+  recordNavigation: (path: string) => mockRecordNavigation(path)
+}))
+
+Object.defineProperty(window, 'api', {
+  configurable: true,
+  value: {
+    search: mockSearch,
+    collection: mockCollection,
+    setActiveCollection: mockSetActiveCollection,
+    status: vi.fn().mockResolvedValue(null),
+    doctor: vi.fn().mockResolvedValue(null)
   }
 })
 
@@ -59,6 +89,23 @@ vi.mock('@renderer/stores/files', () => {
 import QuickOpen from '@renderer/components/QuickOpen.svelte'
 import { quickOpenModalOpen } from '@renderer/stores/quickopen'
 import { flatFileList } from '@renderer/stores/files'
+import { activeCollectionId, collections } from '@renderer/stores/collections'
+
+function collectionRow(path: string, frontmatter: Record<string, JsonValue>): CollectionRow {
+  return {
+    path,
+    title: path.split('/').pop()?.replace(/\.md$/, '') ?? path,
+    title_source: 'filename',
+    frontmatter,
+    computed_fields: {},
+    computed_field_errors: {},
+    content_hash: 'hash',
+    file_size: 100,
+    modified_at: 1,
+    indexed_at: 1,
+    state: 'indexed'
+  }
+}
 
 describe('QuickOpen component', () => {
   let mockFiles: FileTreeNode[]
@@ -74,8 +121,33 @@ describe('QuickOpen component', () => {
     // Reset stores
     vi.mocked(quickOpenModalOpen).set(false)
     vi.mocked(flatFileList).set(mockFiles)
+    collections.set([
+      { id: 'vault', name: 'Vault', path: '/vault', addedAt: 1, lastOpenedAt: 2 },
+      { id: 'archive', name: 'Archive', path: '/archive', addedAt: 1, lastOpenedAt: 1 }
+    ])
+    activeCollectionId.set('vault')
     mockSelectFile.mockClear()
     mockCloseQuickOpen.mockClear()
+    mockOpenFile.mockClear()
+    mockRecordNavigation.mockClear()
+    mockSyncFileStores.mockClear()
+    mockLoadFileTree.mockClear()
+    mockLoadAssetTree.mockClear()
+    mockSearch.mockReset()
+    mockSearch.mockResolvedValue({ results: [], query: '', total_results: 0 })
+    mockCollection.mockReset()
+    mockCollection.mockResolvedValue({
+      scope: '.',
+      recursive: true,
+      columns: [],
+      rows: [
+        collectionRow('people/alice.md', { company: 'Acme', role: 'Engineer' }),
+        collectionRow('projects/acme.md', { status: 'active' })
+      ],
+      total_rows: 2,
+      offset: 0
+    })
+    mockSetActiveCollection.mockClear()
   })
 
   it('does not render when modal is closed', () => {
@@ -91,6 +163,59 @@ describe('QuickOpen component', () => {
 
     expect(screen.getByRole('dialog')).toBeTruthy()
     expect(screen.getByPlaceholderText('Search files...')).toBeTruthy()
+  })
+
+  it('offers Documents, Data, and Collection as keyboard-navigable tabs', async () => {
+    vi.mocked(quickOpenModalOpen).set(true)
+    render(QuickOpen)
+
+    const documents = screen.getByRole('tab', { name: 'Documents' })
+    const data = screen.getByRole('tab', { name: 'Data' })
+    const collection = screen.getByRole('tab', { name: 'Collection' })
+    expect(documents.getAttribute('aria-selected')).toBe('true')
+
+    data.focus()
+    await fireEvent.keyDown(data, { key: 'ArrowRight' })
+    await waitFor(() => {
+      expect(collection.getAttribute('aria-selected')).toBe('true')
+      expect(document.activeElement).toBe(collection)
+    })
+  })
+
+  it('searches Data exclusively through frontmatter values and keys', async () => {
+    vi.mocked(quickOpenModalOpen).set(true)
+    render(QuickOpen)
+
+    await fireEvent.click(screen.getByRole('tab', { name: 'Data' }))
+    await waitFor(() =>
+      expect(mockCollection).toHaveBeenCalledWith('/vault', '', { recursive: true, limit: 0 })
+    )
+
+    const input = screen.getByPlaceholderText('Search frontmatter...')
+    await fireEvent.input(input, { target: { value: 'Engineer' } })
+    expect(await screen.findByText('people/alice.md')).toBeTruthy()
+    expect(screen.getByText('role: Engineer')).toBeTruthy()
+    expect(screen.queryByText('projects/acme.md')).toBeNull()
+
+    // A filename-only query must not match in Data.
+    await fireEvent.input(input, { target: { value: 'alice' } })
+    expect(await screen.findByText('No frontmatter matches found')).toBeTruthy()
+    expect(mockSearch).not.toHaveBeenCalled()
+  })
+
+  it('filters and switches collections from the Collection tab', async () => {
+    vi.mocked(quickOpenModalOpen).set(true)
+    render(QuickOpen)
+
+    await fireEvent.click(screen.getByRole('tab', { name: 'Collection' }))
+    const input = screen.getByPlaceholderText('Search collections...')
+    await fireEvent.input(input, { target: { value: 'archive' } })
+    await fireEvent.click(screen.getByRole('option', { name: /Archive/ }))
+
+    await waitFor(() => expect(mockSetActiveCollection).toHaveBeenCalledWith('archive'))
+    expect(mockLoadFileTree).toHaveBeenCalledOnce()
+    expect(mockLoadAssetTree).toHaveBeenCalledOnce()
+    expect(mockCloseQuickOpen).toHaveBeenCalledOnce()
   })
 
   it('displays file list when query is empty', () => {

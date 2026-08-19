@@ -47,7 +47,12 @@ interface DirtyInspection {
   blockers: ComputedEditorFlushBlocker[]
 }
 
-function snapshotsForTab(tabId: string): ComputedEditorSnapshot[] {
+/**
+ * Read the live content snapshots held by every mounted editor pool for a tab.
+ * Standalone-window save coordination uses the same adapters as computed-field
+ * flushing so switching between Source and Editor mode keeps one baseline.
+ */
+export function getEditorSnapshots(tabId: string): ComputedEditorSnapshot[] {
   const snapshots: ComputedEditorSnapshot[] = []
   for (const adapter of editorAdapters) {
     const snapshot = adapter.snapshot(tabId)
@@ -64,7 +69,7 @@ function inspectDirtyDocuments(): DirtyInspection {
   for (const candidate of Object.values(workspace.tabs)) {
     if (candidate.kind !== 'document' || candidate.origin !== 'collection') continue
     const tab = candidate as DocumentTab
-    const snapshots = snapshotsForTab(tab.id)
+    const snapshots = getEditorSnapshots(tab.id)
     const liveDirty = snapshots.some((snapshot) => snapshot.isDirty)
     if (!tab.isDirty && !liveDirty) continue
 
@@ -129,13 +134,14 @@ function responseFor(
 }
 
 function currentContentForTab(tab: DocumentTab): string | null {
-  const snapshots = snapshotsForTab(tab.id)
+  const snapshots = getEditorSnapshots(tab.id)
   const contents = new Set(snapshots.map((snapshot) => snapshot.content))
   if (contents.size > 1) return null
   return snapshots[0]?.content ?? tab.content
 }
 
-function markEditorSaved(tabId: string, content: string, clean: boolean): void {
+/** Update every mounted/serialized editor pool after an awaited disk write. */
+export function markEditorSaved(tabId: string, content: string, clean: boolean): void {
   for (const adapter of editorAdapters) adapter.markSaved(tabId, content, clean)
 }
 

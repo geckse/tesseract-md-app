@@ -4,6 +4,9 @@
   import type { Editor } from '@tiptap/core'
   import type { Plugin } from '@tiptap/pm/state'
   import type { MediaEmbed } from '../../lib/media-embed'
+  import { getSelectedMedia, shouldShowMediaBubbleMenu } from '../../lib/tiptap/media-selection'
+
+  const PLUGIN_KEY = 'mediaBubbleMenu'
 
   interface Props {
     editor: Editor
@@ -18,33 +21,29 @@
   let registeredEditor: Editor | null = null
 
   function currentMedia(): MediaEmbed | null {
-    if (editor.isActive('image')) {
-      const attrs = editor.getAttributes('image')
-      return { kind: 'image', src: attrs.src ?? '', alt: attrs.alt ?? '' }
-    }
-    if (editor.isActive('mediaEmbed')) {
-      const attrs = editor.getAttributes('mediaEmbed')
-      return {
-        kind: attrs.kind === 'audio' ? 'audio' : 'video',
-        src: attrs.src ?? '',
-        alt: attrs.alt ?? ''
-      }
-    }
-    return null
+    return getSelectedMedia(editor)
+  }
+
+  function hide(): void {
+    if (editor.isDestroyed) return
+    editor.view.dispatch(editor.state.tr.setMeta(PLUGIN_KEY, 'hide'))
   }
 
   function edit(): void {
     const media = currentMedia()
+    hide()
     if (media) onedit(media)
   }
 
   function openInTab(): void {
     const media = currentMedia()
+    hide()
     if (media) onopenintab(media)
   }
 
   function openExternal(): void {
     const media = currentMedia()
+    hide()
     if (media) onopenexternal(media)
   }
 
@@ -55,7 +54,7 @@
   function unregister(): void {
     if (!registeredEditor) return
     try {
-      registeredEditor.unregisterPlugin('mediaBubbleMenu')
+      registeredEditor.unregisterPlugin(PLUGIN_KEY)
     } catch {
       // The editor may already be destroyed during tab eviction.
     }
@@ -67,15 +66,24 @@
     if (!menuElement || !editor) return
     unregister()
     pluginInstance = BubbleMenuPlugin({
-      pluginKey: 'mediaBubbleMenu',
+      pluginKey: PLUGIN_KEY,
       editor,
       element: menuElement,
-      shouldShow: ({ editor: currentEditor }) =>
-        currentEditor.isActive('image') || currentEditor.isActive('mediaEmbed')
+      shouldShow: shouldShowMediaBubbleMenu
     })
     editor.registerPlugin(pluginInstance)
     registeredEditor = editor
-    return unregister
+
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && currentMedia()) hide()
+    }
+    window.addEventListener('keydown', dismissOnEscape)
+
+    const cleanup = () => {
+      window.removeEventListener('keydown', dismissOnEscape)
+      unregister()
+    }
+    return cleanup
   })
 
   onDestroy(unregister)

@@ -188,6 +188,40 @@ describe('Sidebar Shard tree', () => {
     ).toBe(true)
   })
 
+  it('filters collections and Shards from the search field and enters results by keyboard', async () => {
+    render(Sidebar)
+    const trigger = screen.getByRole('button', { name: /Vault/ })
+    await fireEvent.click(trigger)
+
+    const search = await screen.findByPlaceholderText('Search collections...')
+    const tree = screen.getByRole('tree', { name: 'Collections and Shards' })
+    const addCollection = screen.getByRole('button', { name: /Add Collection/ })
+    expect(tree.contains(addCollection)).toBe(false)
+    expect(addCollection.closest('.dropdown-footer')).toBeTruthy()
+
+    await fireEvent.input(search, { target: { value: 'notes' } })
+    const note = within(tree).getByRole('treeitem', { name: /Notes/ })
+    expect(within(tree).getAllByRole('treeitem')).toHaveLength(1)
+    expect(within(tree).queryByRole('treeitem', { name: /Vault/ })).toBeNull()
+
+    await fireEvent.keyDown(search, { key: 'ArrowDown' })
+    await waitFor(() => expect(document.activeElement).toBe(note))
+    await fireEvent.keyDown(note, { key: 'Enter' })
+    await waitFor(() => expect(shardActions.select).toHaveBeenCalledWith('notes'))
+  })
+
+  it('closes collection search with Escape and restores trigger focus', async () => {
+    render(Sidebar)
+    const trigger = screen.getByRole('button', { name: /Vault/ })
+    await fireEvent.click(trigger)
+    const search = await screen.findByPlaceholderText('Search collections...')
+
+    await fireEvent.keyDown(search, { key: 'Escape' })
+
+    await waitFor(() => expect(document.activeElement).toBe(trigger))
+    expect(screen.queryByRole('tree', { name: 'Collections and Shards' })).toBeNull()
+  })
+
   it('uses tree arrow keys to enter, leave, collapse, and restore nested branches', async () => {
     const rendered = await renderOpenTree()
     const { tree, collection } = rendered

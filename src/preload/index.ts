@@ -222,6 +222,35 @@ const api: MdvdbApi = {
     invoke('skills:set-collection-dismissed', collectionId, dismissed),
 
   // File operations
+  getStandaloneDocument: () => invoke('standalone:get-document'),
+  saveStandaloneDocument: (expectedContent, content) =>
+    invoke('standalone:save-document', expectedContent, content),
+  revealStandaloneDocument: () => invoke('standalone:reveal-document'),
+  openDroppedFile: async (file) => {
+    // Resolve while the OS-backed DOM File is still in the preload boundary.
+    // Electron returns an empty string for synthetic/non-disk File objects.
+    const nativePath = webUtils.getPathForFile(file)
+    if (!nativePath) throw new Error('The dropped file is not backed by a local filesystem path')
+    return invoke('external:open-dropped-file', nativePath)
+  },
+  readExternalDocument: (id) => invoke('external:read-document', id),
+  saveExternalDocument: (id, expectedContent, content) =>
+    invoke('external:save-document', id, expectedContent, content),
+  revealExternalFile: (id) => invoke('external:reveal-file', id),
+  openExternalFile: (id) => invoke('external:open-file', id),
+  releaseExternalFile: (id) => invoke('external:release-file', id),
+  importDroppedFiles: async (files, collectionId, targetDirectory) => {
+    // Resolve every path before the first await so the original drag payload,
+    // rather than a renderer-supplied path string, is the source of authority.
+    const nativePaths = files.map((file) => {
+      const nativePath = webUtils.getPathForFile(file)
+      if (!nativePath) {
+        throw new Error(`The dropped file "${file.name}" is not backed by a local filesystem path`)
+      }
+      return nativePath
+    })
+    return invoke('external:import-dropped-files', nativePaths, collectionId, targetDirectory)
+  },
   readFile: (absolutePath) => invoke('fs:read-file', absolutePath),
   writeFile: (absolutePath, content) => invoke('fs:write-file', absolutePath, content),
   writeFileIfUnchanged: (absolutePath, expectedContent, content) =>

@@ -92,6 +92,10 @@ describe('getMimeCategory', () => {
     expect(getMimeCategory('photo.PNG')).toBe('image')
     expect(getMimeCategory('doc.pdf')).toBe('pdf')
     expect(getMimeCategory('clip.mp4')).toBe('video')
+    expect(getMimeCategory('clip.M4V')).toBe('video')
+    expect(getMimeCategory('clip.ogv')).toBe('video')
+    expect(getMimeCategory('clip.mkv')).toBe('video')
+    expect(getMimeCategory('clip.mpeg')).toBe('video')
     expect(getMimeCategory('song.mp3')).toBe('audio')
   })
 

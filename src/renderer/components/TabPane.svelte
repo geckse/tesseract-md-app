@@ -13,7 +13,9 @@
   import LazyGraphView from './LazyGraphView.svelte'
   import ImageViewer from './ImageViewer.svelte'
   import PdfViewer from './PdfViewer.svelte'
+  import VideoViewer from './VideoViewer.svelte'
   import AssetInfoCard from './AssetInfoCard.svelte'
+  import ExternalAssetViewer from './ExternalAssetViewer.svelte'
   import SaveAsModal from './SaveAsModal.svelte'
   import Terminal from './Terminal.svelte'
   import TableView from './table/TableView.svelte'
@@ -21,11 +23,18 @@
   interface TabPaneProps {
     paneId: string
     onfocus?: (paneId: string) => void
+    /** Highlight the tab strip while an OS file is dragged over it. */
+    externalFileDragOverTabBar?: boolean
     /** Extra controls rendered at the right end of the tab bar. */
     trailingActions?: Snippet
   }
 
-  let { paneId, onfocus, trailingActions }: TabPaneProps = $props()
+  let {
+    paneId,
+    onfocus,
+    externalFileDragOverTabBar = false,
+    trailingActions
+  }: TabPaneProps = $props()
 
   // ── Reactive state from workspace ─────────────────────────────────
 
@@ -97,7 +106,7 @@
     }
 
     const closedTab = workspace.closeTab(tabId, paneId)
-    if (closedTab && closedTab.kind === 'document') {
+    if (closedTab && closedTab.kind === 'document' && closedTab.origin === 'collection') {
       closedTabs.push(closedTab, paneId)
     }
 
@@ -145,6 +154,7 @@
   <!-- Tab bar -->
   <TabBar
     {paneId}
+    externalFileDragOver={externalFileDragOverTabBar}
     onactivate={handleTabActivate}
     onclose={handleTabClose}
     onclosemany={handleTabCloseMany}
@@ -172,7 +182,19 @@
       {@const assetTab = activeTab?.kind === 'asset' ? activeTab : null}
       {#if assetTab}
         <div class="content-region" role="main" aria-label="Asset preview">
-          {#if assetTab.mimeCategory === 'image'}
+          {#if assetTab.origin === 'external' && assetTab.mimeCategory === 'pdf'}
+            <PdfViewer
+              sourceUrl={assetTab.externalUrl ?? undefined}
+              externalId={assetTab.externalId ?? undefined}
+            />
+          {:else if assetTab.origin === 'external' && assetTab.mimeCategory === 'video'}
+            <VideoViewer
+              sourceUrl={assetTab.externalUrl ?? undefined}
+              externalId={assetTab.externalId ?? undefined}
+            />
+          {:else if assetTab.origin === 'external'}
+            <ExternalAssetViewer tab={assetTab} />
+          {:else if assetTab.mimeCategory === 'image'}
             <ImageViewer
               tabId={assetTab.id}
               filePath={assetTab.filePath}
@@ -180,6 +202,8 @@
             />
           {:else if assetTab.mimeCategory === 'pdf'}
             <PdfViewer filePath={assetTab.filePath} />
+          {:else if assetTab.mimeCategory === 'video'}
+            <VideoViewer filePath={assetTab.filePath} />
           {:else}
             <AssetInfoCard
               filePath={assetTab.filePath}
@@ -203,7 +227,10 @@
         </div>
       {:else}
         <div class="content-region" role="main" aria-label="Editor">
-          <WysiwygEditor tabId={pane?.activeTabId ?? undefined} />
+          <WysiwygEditor
+            tabId={pane?.activeTabId ?? undefined}
+            standalone={activeTab?.kind === 'document' && activeTab.origin === 'external'}
+          />
         </div>
       {/if}
     {:else if tabKind === null}

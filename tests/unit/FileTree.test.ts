@@ -16,13 +16,17 @@ const mockApi = {
   graphData: vi.fn(),
   createFile: vi.fn(),
   createDirectory: vi.fn(),
+  importDroppedFiles: vi.fn(),
+  showConfirmation: vi.fn(),
+  showMessage: vi.fn(),
   readFile: vi.fn(),
   getCliVersion: vi.fn(),
   getFile: vi.fn(),
   backlinks: vi.fn(),
   links: vi.fn(),
   neighborhood: vi.fn(),
-  addRecent: vi.fn()
+  addRecent: vi.fn(),
+  setActiveShardId: vi.fn()
 }
 
 Object.defineProperty(globalThis, 'window', {
@@ -135,8 +139,12 @@ beforeEach(() => {
   vi.resetAllMocks()
   mockApi.createFile.mockResolvedValue(undefined)
   mockApi.createDirectory.mockResolvedValue(undefined)
+  mockApi.importDroppedFiles.mockResolvedValue([])
+  mockApi.showConfirmation.mockResolvedValue(true)
+  mockApi.showMessage.mockResolvedValue(undefined)
   mockApi.readFile.mockResolvedValue('')
   mockApi.getCliVersion.mockResolvedValue('0.2.0')
+  mockApi.setActiveShardId.mockResolvedValue(undefined)
 })
 
 describe('FileTree component', () => {
@@ -361,6 +369,68 @@ describe('FileTree component', () => {
     expect(screen.getByText('new-file.md')).toBeTruthy()
   })
 
+  it('does not show deleted files in the tree or file count', async () => {
+    setActiveCollection()
+    const treeWithDeleted = structuredClone(sampleTree)
+    treeWithDeleted.root.children[0].children.push({
+      name: 'removed-guide.md',
+      path: 'docs/removed-guide.md',
+      is_dir: false,
+      state: 'deleted',
+      children: []
+    })
+    treeWithDeleted.root.children.push({
+      name: 'removed-root.md',
+      path: 'removed-root.md',
+      is_dir: false,
+      state: 'deleted',
+      children: []
+    })
+    treeWithDeleted.total_files = 5
+    treeWithDeleted.deleted_count = 2
+    fileTree.set(treeWithDeleted)
+    expandedPaths.set(new Set(['docs']))
+
+    render(FileTree)
+
+    expect(screen.getByText('3 files')).toBeTruthy()
+    expect(screen.queryByText('removed-root.md')).toBeNull()
+    expect(screen.queryByText('removed-guide.md')).toBeNull()
+    expect(screen.getByText('guide.md')).toBeTruthy()
+  })
+
+  it('shows the empty state when the tree only contains deleted files', () => {
+    setActiveCollection()
+    fileTree.set({
+      root: {
+        name: '.',
+        path: '.',
+        is_dir: true,
+        state: null,
+        children: [
+          {
+            name: 'removed.md',
+            path: 'removed.md',
+            is_dir: false,
+            state: 'deleted',
+            children: []
+          }
+        ]
+      },
+      total_files: 1,
+      indexed_count: 0,
+      modified_count: 0,
+      new_count: 0,
+      deleted_count: 1
+    })
+
+    render(FileTree)
+
+    expect(screen.getByText('0 files')).toBeTruthy()
+    expect(screen.getByText('No markdown files found')).toBeTruthy()
+    expect(screen.queryByText('removed.md')).toBeNull()
+  })
+
   it('marks configured Shard folders without marking ordinary folders', () => {
     setActiveCollection()
     fileTree.set(sampleTree)
@@ -383,6 +453,44 @@ describe('FileTree component', () => {
       docsNode?.querySelector('.shard-indicator [data-shard-icon="faceted-gem-outline"]')
     ).toBeTruthy()
     expect(container.querySelectorAll('.shard-indicator')).toHaveLength(1)
+  })
+
+  it('opens a Shard from its icon and navigates back to the main collection', async () => {
+    setActiveCollection()
+    fileTree.set(sampleTree)
+    shardsByCollection.set({
+      '1': [
+        {
+          id: 'docs',
+          name: 'Docs',
+          path: 'docs',
+          parent_id: null,
+          exists: true
+        }
+      ]
+    })
+    const onfolderopen = vi.fn()
+
+    render(FileTree, { props: { onfolderopen } })
+
+    expect(screen.queryByRole('button', { name: 'Back to Test collection' })).toBeNull()
+    await fireEvent.click(screen.getByRole('button', { name: 'Open docs Shard' }))
+
+    await vi.waitFor(() => {
+      expect(get(activeShardId)).toBe('docs')
+      expect(mockApi.setActiveShardId).toHaveBeenCalledWith('1', 'docs')
+    })
+    expect(onfolderopen).not.toHaveBeenCalled()
+    expect(screen.queryByText('docs')).toBeNull()
+    expect(screen.getByText('guide.md')).toBeTruthy()
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Back to Test collection' }))
+
+    await vi.waitFor(() => {
+      expect(get(activeShardId)).toBeNull()
+      expect(mockApi.setActiveShardId).toHaveBeenLastCalledWith('1', null)
+    })
+    expect(screen.getByText('docs')).toBeTruthy()
   })
 
   it('calls loadFileTree on retry click', async () => {
@@ -648,5 +756,252 @@ describe('FileTree component', () => {
     expect(get(graphPathFilter)).toBe('docs')
     expect(workspace.focusedTab).toMatchObject({ kind: 'graph', graphPathFilter: 'docs' })
     expect(get(graphData)).toEqual(scopedGraphData)
+  })
+
+  describe('external file drops', () => {
+    function externalTransfer(files: File[]): DataTransfer {
+      return {
+        types: ['Files'],
+        files,
+        dropEffect: 'none',
+        getData: () => ''
+      } as unknown as DataTransfer
+    }
+
+    function internalTransfer(files: File[] = []): DataTransfer {
+      return {
+        types: ['text/plain', 'application/x-mdvdb-path', 'Files'],
+        files,
+        dropEffect: 'none',
+        getData: (type: string) =>
+          type === 'application/x-mdvdb-path' ? 'docs/guide.md' : '[[guide]]'
+      } as unknown as DataTransfer
+    }
+
+    function emptyAssetTree() {
+      assetTree.set({
+        root: { name: '', path: '', is_dir: true, children: [] },
+        totalAssets: 0,
+        scanDurationMs: 0
+      })
+    }
+
+    it('shows a copy affordance and cancellation performs no import', async () => {
+      setActiveCollection()
+      fileTree.set(structuredClone(sampleTree))
+      mockApi.showConfirmation.mockResolvedValue(false)
+      const note = new File(['# Outside'], 'outside.md', { type: 'text/markdown' })
+      const transfer = externalTransfer([note])
+
+      const { container } = render(FileTree)
+      const content = container.querySelector<HTMLElement>('.file-tree-content')!
+      const bubbledDrop = vi.fn()
+      container.addEventListener('drop', bubbledDrop)
+
+      await fireEvent.dragOver(content, { dataTransfer: transfer })
+      expect(content.classList.contains('external-file-drag')).toBe(true)
+      expect(screen.getByText('Copy to the collection root')).toBeTruthy()
+      expect(transfer.dropEffect).toBe('copy')
+
+      await fireEvent.drop(content, { dataTransfer: transfer })
+      await vi.waitFor(() => expect(mockApi.showConfirmation).toHaveBeenCalledTimes(1))
+
+      expect(mockApi.showConfirmation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Copy “outside.md” into the collection root?',
+          confirmLabel: 'Copy File',
+          cancelLabel: 'Cancel'
+        })
+      )
+      expect(mockApi.importDroppedFiles).not.toHaveBeenCalled()
+      expect(bubbledDrop).not.toHaveBeenCalled()
+      expect(content.classList.contains('external-file-drag')).toBe(false)
+    })
+
+    it('confirms before importing a background drop into the collection root', async () => {
+      setActiveCollection()
+      fileTree.set(structuredClone(sampleTree))
+      const note = new File(['# Outside'], 'outside.md', { type: 'text/markdown' })
+      const calls: string[] = []
+      mockApi.showConfirmation.mockImplementation(async () => {
+        calls.push('confirm')
+        expect(mockApi.importDroppedFiles).not.toHaveBeenCalled()
+        return true
+      })
+      mockApi.importDroppedFiles.mockImplementation(async () => {
+        calls.push('import')
+        return []
+      })
+
+      const { container } = render(FileTree)
+      const content = container.querySelector<HTMLElement>('.file-tree-content')!
+      await fireEvent.drop(content, { dataTransfer: externalTransfer([note]) })
+
+      await vi.waitFor(() => expect(mockApi.importDroppedFiles).toHaveBeenCalledTimes(1))
+      expect(mockApi.importDroppedFiles).toHaveBeenCalledWith([note], '1', '')
+      expect(calls).toEqual(['confirm', 'import'])
+    })
+
+    it('copies multiple files into a dropped-on folder with one prompt', async () => {
+      setActiveCollection()
+      fileTree.set(structuredClone(sampleTree))
+      const note = new File(['# Outside'], 'outside.md', { type: 'text/markdown' })
+      const image = new File(['image'], 'photo.png', { type: 'image/png' })
+
+      render(FileTree)
+      const folderRow = screen.getByText('docs').closest('button')!
+      await fireEvent.drop(folderRow, { dataTransfer: externalTransfer([note, image]) })
+
+      await vi.waitFor(() => expect(mockApi.importDroppedFiles).toHaveBeenCalledTimes(1))
+      expect(mockApi.showConfirmation).toHaveBeenCalledTimes(1)
+      expect(mockApi.showConfirmation).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Copy 2 files into “docs”?', confirmLabel: 'Copy Files' })
+      )
+      expect(mockApi.importDroppedFiles).toHaveBeenCalledWith([note, image], '1', 'docs')
+    })
+
+    it('uses the containing directory when files are dropped on a file row', async () => {
+      setActiveCollection()
+      fileTree.set(structuredClone(sampleTree))
+      expandedPaths.set(new Set(['docs']))
+      const image = new File(['image'], 'photo.png', { type: 'image/png' })
+
+      render(FileTree)
+      const fileRow = await screen.findByText('guide.md')
+      await fireEvent.drop(fileRow, { dataTransfer: externalTransfer([image]) })
+
+      await vi.waitFor(() => expect(mockApi.importDroppedFiles).toHaveBeenCalledTimes(1))
+      expect(mockApi.importDroppedFiles).toHaveBeenCalledWith([image], '1', 'docs')
+    })
+
+    it('ignores internal file-tree payloads even if a Files type is present', async () => {
+      setActiveCollection()
+      fileTree.set(structuredClone(sampleTree))
+      const file = new File(['# Existing'], 'guide.md', { type: 'text/markdown' })
+      const transfer = internalTransfer([file])
+
+      const { container } = render(FileTree)
+      const content = container.querySelector<HTMLElement>('.file-tree-content')!
+      await fireEvent.dragOver(content, { dataTransfer: transfer })
+      await fireEvent.drop(content, { dataTransfer: transfer })
+
+      expect(content.classList.contains('external-file-drag')).toBe(false)
+      expect(mockApi.showConfirmation).not.toHaveBeenCalled()
+      expect(mockApi.importDroppedFiles).not.toHaveBeenCalled()
+    })
+
+    it('patches Markdown, media, and generic asset results into the trees', async () => {
+      setActiveCollection()
+      fileTree.set(structuredClone(sampleTree))
+      emptyAssetTree()
+      const note = new File(['# Imported'], 'imported.md', { type: 'text/markdown' })
+      const image = new File(['image'], 'photo.png', { type: 'image/png' })
+      const archive = new File(['data'], 'bundle.zip', { type: 'application/zip' })
+      mockApi.importDroppedFiles.mockResolvedValue([
+        {
+          sourceName: 'imported.md',
+          relativePath: 'imported.md',
+          size: 10,
+          kind: 'markdown',
+          mimeCategory: 'other'
+        },
+        {
+          sourceName: 'photo.png',
+          relativePath: 'photo.png',
+          size: 20,
+          kind: 'asset',
+          mimeCategory: 'image'
+        },
+        {
+          sourceName: 'bundle.zip',
+          relativePath: 'bundle.zip',
+          size: 30,
+          kind: 'other',
+          mimeCategory: 'other'
+        }
+      ])
+
+      const { container } = render(FileTree)
+      await fireEvent.drop(container.querySelector('.file-tree-content')!, {
+        dataTransfer: externalTransfer([note, image, archive])
+      })
+
+      await vi.waitFor(() => {
+        expect(get(fileTree)?.root.children.some((node) => node.path === 'imported.md')).toBe(true)
+        expect(get(assetTree)?.root.children.some((node) => node.path === 'photo.png')).toBe(true)
+        expect(get(assetTree)?.root.children.some((node) => node.path === 'bundle.zip')).toBe(true)
+      })
+      expect(get(fileTree)?.root.children.find((node) => node.path === 'imported.md')?.state).toBe(
+        'new'
+      )
+      expect(get(assetTree)?.root.children.find((node) => node.path === 'photo.png')).toMatchObject(
+        {
+          mimeCategory: 'image',
+          fileSize: 20
+        }
+      )
+      expect(
+        get(assetTree)?.root.children.find((node) => node.path === 'bundle.zip')
+      ).toMatchObject({
+        mimeCategory: 'other',
+        fileSize: 30
+      })
+    })
+
+    it('surfaces import failures through the native message dialog', async () => {
+      setActiveCollection()
+      fileTree.set(structuredClone(sampleTree))
+      const note = new File(['# Outside'], 'outside.md', { type: 'text/markdown' })
+      mockApi.importDroppedFiles.mockRejectedValue(new Error('Destination is no longer available'))
+
+      const { container } = render(FileTree)
+      await fireEvent.drop(container.querySelector('.file-tree-content')!, {
+        dataTransfer: externalTransfer([note])
+      })
+
+      await vi.waitFor(() => {
+        expect(mockApi.showMessage).toHaveBeenCalledWith({
+          title: 'Copy to Collection Failed',
+          message: 'Destination is no longer available',
+          type: 'error'
+        })
+      })
+    })
+
+    it('does not patch the active tree if the collection changes while importing', async () => {
+      setActiveCollection()
+      fileTree.set(structuredClone(sampleTree))
+      const note = new File(['# Outside'], 'outside.md', { type: 'text/markdown' })
+      let finishImport!: (value: unknown[]) => void
+      mockApi.importDroppedFiles.mockReturnValue(
+        new Promise((resolve) => {
+          finishImport = resolve
+        })
+      )
+
+      const { container } = render(FileTree)
+      await fireEvent.drop(container.querySelector('.file-tree-content')!, {
+        dataTransfer: externalTransfer([note])
+      })
+      await vi.waitFor(() => expect(mockApi.importDroppedFiles).toHaveBeenCalledTimes(1))
+
+      collections.set([{ id: '2', name: 'Other', path: '/other', addedAt: 2, lastOpenedAt: 2 }])
+      activeCollectionId.set('2')
+      fileTree.set(structuredClone(sampleTree))
+      finishImport([
+        {
+          sourceName: 'outside.md',
+          relativePath: 'outside.md',
+          size: 10,
+          kind: 'markdown',
+          mimeCategory: 'other'
+        }
+      ])
+
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(get(fileTree)?.root.children.some((node) => node.path === 'outside.md')).toBe(false)
+      expect(mockApi.importDroppedFiles).toHaveBeenCalledWith([note], '1', '')
+    })
   })
 })

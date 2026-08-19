@@ -102,6 +102,7 @@ vi.mock('../../src/main/store', () => ({
     get: (_key: string, defaultValue?: unknown) => defaultValue,
     set: vi.fn()
   })),
+  getActiveCollection: vi.fn(() => null),
   setZoomLevel: vi.fn()
 }))
 

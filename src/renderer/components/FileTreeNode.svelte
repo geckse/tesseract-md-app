@@ -4,6 +4,7 @@
   import ShardIcon from './ShardIcon.svelte'
   import type { FileState, UnifiedTreeNode, MimeCategory } from '../types/cli'
   import { toggleExpanded } from '../stores/files'
+  import { detectAssetMime } from '../stores/workspace.svelte'
 
   interface FileTreeNodeProps {
     node: UnifiedTreeNode
@@ -24,6 +25,7 @@
     }) => void
     onfolderclick?: (folderPath: string) => void
     onfolderopen?: (folderPath: string) => void
+    onshardopen?: (folderPath: string) => void
     onnodefocus?: (path: string) => void
     focusedPath?: string
     itemId?: string
@@ -49,6 +51,7 @@
     oncontextmenu: onctx,
     onfolderclick: onfc,
     onfolderopen: onfo,
+    onshardopen: onso,
     onnodefocus: onnf,
     focusedPath,
     itemId,
@@ -87,6 +90,13 @@
     event.stopPropagation()
     onnf?.(node.path)
     onfo?.(node.path)
+  }
+
+  /** Open this configured Shard as the active collection scope. */
+  function handleOpenShard(event: MouseEvent) {
+    event.stopPropagation()
+    onnf?.(node.path)
+    onso?.(node.path)
   }
 
   /** Double-clicking a folder row opens it as a table (redundant with single click, kept as affordance). */
@@ -133,28 +143,7 @@
 
   /** Check if a filename has an asset extension (image, pdf, video, audio). */
   function isAssetByExtension(name: string): MimeCategory | null {
-    const ext = name.split('.').pop()?.toLowerCase() ?? ''
-    const map: Record<string, MimeCategory> = {
-      png: 'image',
-      jpg: 'image',
-      jpeg: 'image',
-      gif: 'image',
-      svg: 'image',
-      webp: 'image',
-      bmp: 'image',
-      ico: 'image',
-      avif: 'image',
-      pdf: 'pdf',
-      mp4: 'video',
-      webm: 'video',
-      mov: 'video',
-      avi: 'video',
-      mp3: 'audio',
-      wav: 'audio',
-      ogg: 'audio',
-      flac: 'audio'
-    }
-    return map[ext] ?? null
+    return detectAssetMime(name)
   }
 
   function handleClick() {
@@ -311,12 +300,6 @@
 
       <span class="node-name">{node.name}</span>
 
-      {#if isShardFolder}
-        <span class="shard-indicator" title="Shard" aria-hidden="true">
-          <ShardIcon size={16} />
-        </span>
-      {/if}
-
       {#if !node.is_dir && !node.isAsset && node.state}
         <span
           class="material-symbols-outlined state-indicator {stateClass(node.state)}"
@@ -325,6 +308,17 @@
           {stateIcon(node.state)}
         </span>
       {/if}
+    </button>
+  {/if}
+
+  {#if isShardFolder && !isRenaming}
+    <button
+      class="shard-indicator shard-action"
+      title="Open {node.name} Shard"
+      aria-label="Open {node.name} Shard"
+      onclick={handleOpenShard}
+    >
+      <ShardIcon size={16} />
     </button>
   {/if}
 
@@ -351,6 +345,7 @@
           oncontextmenu={onctx}
           onfolderclick={onfc}
           onfolderopen={onfo}
+          onshardopen={onso}
           onnodefocus={onnf}
           {focusedPath}
           {currentSelectedFilePath}
@@ -398,6 +393,10 @@
 
   .tree-node.shard-folder > .table-action {
     right: 26px;
+  }
+
+  .tree-node.shard-folder > button.tree-row {
+    padding-right: 54px;
   }
 
   .table-action:hover {
@@ -510,6 +509,29 @@
     height: 16px;
     flex-shrink: 0;
     color: var(--color-primary, #00e5ff);
+  }
+
+  .shard-action {
+    position: absolute;
+    z-index: 1;
+    top: 0;
+    right: 4px;
+    width: 22px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .shard-action:hover {
+    background: var(--color-surface-elevated);
+  }
+
+  .shard-action:focus-visible {
+    outline: 1px solid var(--color-primary);
+    outline-offset: -1px;
   }
 
   .tree-row.renaming {

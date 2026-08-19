@@ -51,7 +51,12 @@
 </script>
 
 {#if visible}
-  <div class="update-banner" class:update-error={currentState === 'error'}>
+  <div
+    class="update-banner"
+    class:update-error={currentState === 'error'}
+    role="status"
+    aria-live="polite"
+  >
     {#if currentState === 'update-available'}
       <span class="material-symbols-outlined update-icon">system_update</span>
       <span class="update-message">
@@ -93,20 +98,30 @@
     align-items: center;
     gap: 8px;
     padding: 6px 12px;
-    background: var(--color-primary, #00e5ff);
-    color: var(--color-surface-dark, #0a0a0a);
+    border-top: 1px solid color-mix(in srgb, var(--color-primary, #00e5ff) 22%, transparent);
+    background: color-mix(
+      in srgb,
+      var(--color-primary, #00e5ff) 10%,
+      var(--color-surface, #161617)
+    );
+    color: var(--color-text, #e4e4e7);
     font-size: 13px;
-    min-height: 32px;
+    min-height: 34px;
   }
 
   .update-banner.update-error {
-    background: var(--color-error, #e53935);
-    color: #fff;
+    border-top-color: color-mix(in srgb, var(--color-error, #e53935) 35%, transparent);
+    background: color-mix(in srgb, var(--color-error, #e53935) 10%, var(--color-surface, #161617));
   }
 
   .update-icon {
     font-size: 18px;
     flex-shrink: 0;
+    color: var(--color-primary, #00e5ff);
+  }
+
+  .update-error .update-icon {
+    color: var(--color-error, #e53935);
   }
 
   .update-message {
@@ -132,13 +147,14 @@
   }
 
   .update-btn-primary {
-    background: rgba(255, 255, 255, 0.25);
-    color: inherit;
+    border: 1px solid color-mix(in srgb, var(--color-primary, #00e5ff) 45%, transparent);
+    background: transparent;
+    color: var(--color-primary, #00e5ff);
     font-weight: 600;
   }
 
   .update-btn-primary:hover {
-    background: rgba(255, 255, 255, 0.4);
+    background: var(--overlay-hover, rgba(255, 255, 255, 0.08));
   }
 
   .update-btn-secondary {
@@ -150,6 +166,15 @@
   .update-btn-secondary:hover {
     background: var(--overlay-active, rgba(255, 255, 255, 0.15));
     opacity: 1;
+  }
+
+  .update-btn:focus-visible {
+    outline: 2px solid var(--color-primary, #00e5ff);
+    outline-offset: 2px;
+  }
+
+  .update-error .update-btn:focus-visible {
+    outline-color: #fff;
   }
 
   .update-progress-track {
@@ -178,6 +203,16 @@
     }
     to {
       transform: rotate(360deg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .update-progress-fill {
+      transition: none;
+    }
+
+    .spinning {
+      animation: none;
     }
   }
 </style>

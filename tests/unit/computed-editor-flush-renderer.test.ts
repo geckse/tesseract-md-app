@@ -3,8 +3,10 @@ import type { MdvdbApi } from '../../src/preload/api'
 import type { ComputedEditorFlushRequest } from '../../src/shared/computed-editor-flush'
 import { activeCollectionId, collections } from '../../src/renderer/stores/collections'
 import {
+  getEditorSnapshots,
   handleComputedSchemaApplied,
   handleComputedEditorFlushRequest,
+  markEditorSaved,
   registerComputedEditorAdapter
 } from '../../src/renderer/stores/computed-editor-flush'
 import { workspace, type DocumentTab } from '../../src/renderer/stores/workspace.svelte'
@@ -79,6 +81,23 @@ describe('renderer computed editor flush', () => {
     expect(readFile).not.toHaveBeenCalled()
     expect(writeFile).not.toHaveBeenCalled()
     expect(writeFileIfUnchanged).not.toHaveBeenCalled()
+  })
+
+  it('exposes editor snapshots and baseline updates for standalone save coordination', () => {
+    const markSaved = vi.fn()
+    unregisterAdapters.push(
+      registerComputedEditorAdapter({
+        snapshot: (tabId) =>
+          tabId === 'standalone-tab' ? { content: 'live edit', isDirty: true } : undefined,
+        markSaved
+      })
+    )
+
+    expect(getEditorSnapshots('standalone-tab')).toEqual([{ content: 'live edit', isDirty: true }])
+    expect(getEditorSnapshots('other-tab')).toEqual([])
+
+    markEditorSaved('standalone-tab', 'saved snapshot', false)
+    expect(markSaved).toHaveBeenCalledWith('standalone-tab', 'saved snapshot', false)
   })
 
   it('writes a verified dirty tab and marks both workspace and editor baseline clean', async () => {

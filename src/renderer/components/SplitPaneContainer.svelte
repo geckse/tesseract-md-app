@@ -4,6 +4,7 @@
   import { openDroppedPath } from '../lib/drop-payload'
   import { tabBarDropReceived } from './TabBar.svelte'
   import { BLOCK_DRAG_MIME } from '../lib/tiptap/block-drag-extension'
+  import { isExternalFileDrag, openExternalDroppedFiles } from '../lib/external-drop'
   import TabPane from './TabPane.svelte'
 
   // ── Container ref for pixel-based ratio calculations ──────────────
@@ -104,9 +105,54 @@
 
   /** Which zone of the container the drop overlay is showing on. */
   let dragOverSide: 'left' | 'right' | 'bottom' | null = $state(null)
+  let externalDragPaneId: string | null = $state(null)
+  let externalDragTabBarPaneId: string | null = $state(null)
 
   /** Height of the bottom drop band ("move into bottom panel"), px. */
   const BOTTOM_DROP_BAND = 56
+
+  function externalTargetPaneId(event: DragEvent): string {
+    for (const entry of event.composedPath()) {
+      if (entry instanceof HTMLElement && entry.dataset.externalDropPane) {
+        return entry.dataset.externalDropPane
+      }
+    }
+    return workspace.defaultEditorPaneId
+  }
+
+  function externalTargetIsTabBar(event: DragEvent): boolean {
+    return event
+      .composedPath()
+      .some((entry) => entry instanceof HTMLElement && entry.classList.contains('tab-bar'))
+  }
+
+  function handleExternalDragOverCapture(event: DragEvent): void {
+    if (!isExternalFileDrag(event.dataTransfer)) return
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+    externalDragPaneId = externalTargetPaneId(event)
+    externalDragTabBarPaneId = externalTargetIsTabBar(event) ? externalDragPaneId : null
+  }
+
+  function handleExternalDropCapture(event: DragEvent): void {
+    if (!isExternalFileDrag(event.dataTransfer)) return
+    const files = Array.from(event.dataTransfer?.files ?? [])
+    const paneId = externalTargetPaneId(event)
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    externalDragPaneId = null
+    externalDragTabBarPaneId = null
+    if (files.length > 0) void openExternalDroppedFiles(files, paneId)
+  }
+
+  function handleExternalDragLeaveCapture(event: DragEvent): void {
+    if (!isExternalFileDrag(event.dataTransfer)) return
+    const related = event.relatedTarget
+    if (related instanceof Node && containerEl?.contains(related)) return
+    externalDragPaneId = null
+    externalDragTabBarPaneId = null
+  }
 
   function handleContainerDragOver(e: DragEvent) {
     if (!e.dataTransfer) return
@@ -250,11 +296,23 @@
   ondragover={handleContainerDragOver}
   ondrop={handleContainerDrop}
   ondragleave={handleContainerDragLeave}
+  ondragovercapture={handleExternalDragOverCapture}
+  ondropcapture={handleExternalDropCapture}
+  ondragleavecapture={handleExternalDragLeaveCapture}
 >
   <!-- Primary (left) pane — always rendered -->
   {#if paneOrder[0]}
-    <div class="pane-wrapper" style={leftPaneStyle}>
-      <TabPane paneId={paneOrder[0]} onfocus={handlePaneFocus} />
+    <div
+      class="pane-wrapper"
+      class:external-file-drag={externalDragPaneId === paneOrder[0]}
+      data-external-drop-pane={paneOrder[0]}
+      style={leftPaneStyle}
+    >
+      <TabPane
+        paneId={paneOrder[0]}
+        onfocus={handlePaneFocus}
+        externalFileDragOverTabBar={externalDragTabBarPaneId === paneOrder[0]}
+      />
     </div>
   {/if}
 
@@ -271,8 +329,17 @@
       tabindex="-1"
     ></div>
 
-    <div class="pane-wrapper pane-secondary" style="flex: 1; min-width: {MIN_PANE_WIDTH}px;">
-      <TabPane paneId={paneOrder[1]} onfocus={handlePaneFocus} />
+    <div
+      class="pane-wrapper pane-secondary"
+      class:external-file-drag={externalDragPaneId === paneOrder[1]}
+      data-external-drop-pane={paneOrder[1]}
+      style="flex: 1; min-width: {MIN_PANE_WIDTH}px;"
+    >
+      <TabPane
+        paneId={paneOrder[1]}
+        onfocus={handlePaneFocus}
+        externalFileDragOverTabBar={externalDragTabBarPaneId === paneOrder[1]}
+      />
     </div>
   {/if}
 
@@ -313,6 +380,10 @@
     min-width: 0;
     min-height: 0;
     overflow: hidden;
+  }
+
+  .pane-wrapper.external-file-drag {
+    box-shadow: inset 0 0 0 2px var(--color-primary, #00e5ff);
   }
 
   /* ── Resize handle ───────────────────────────────────────────────── */

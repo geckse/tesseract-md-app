@@ -1,11 +1,20 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import {
   workspace,
+  detectAssetMime,
   loadDefaultGraphColoringMode,
   saveDefaultGraphColoringMode
 } from '@renderer/stores/workspace.svelte'
 import type { AssetTab, DocumentTab, GraphTab, TabState } from '@renderer/stores/workspace.svelte'
 import { activeShardId } from '@renderer/stores/shards'
+
+describe('asset detection', () => {
+  it('routes common video extensions to video tabs', () => {
+    for (const extension of ['mp4', 'webm', 'mov', 'm4v', 'ogv', 'avi', 'mkv', 'mpeg', 'mpg']) {
+      expect(detectAssetMime(`media/clip.${extension}`)).toBe('video')
+    }
+  })
+})
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -91,6 +100,7 @@ describe('WorkspaceStore', () => {
 
       const docTab = asDocTab(tab)
       expect(docTab.filePath).toBe('notes/readme.md')
+      expect(docTab.standalonePath).toBeNull()
       expect(docTab.title).toBe('readme.md')
       expect(docTab.isDirty).toBe(false)
       expect(docTab.editorMode).toBe('wysiwyg')
@@ -245,6 +255,59 @@ describe('WorkspaceStore', () => {
 
       await expect(workspace.detachTab(activityId)).resolves.toBeNull()
       expect(workspace.tabs[activityId]).toBeDefined()
+    })
+  })
+
+  describe('standalone documents', () => {
+    it('initializes one editable non-collection document with an exact path identity', () => {
+      const tabId = workspace.initAsStandalone({
+        standalonePath: '/outside/notes/readme.md',
+        content: '# Standalone\n'
+      })
+      const tab = asDocTab(workspace.tabs[tabId])
+
+      expect(workspace.isPopup).toBe(true)
+      expect(workspace.paneOrder).toEqual(['popup-pane'])
+      expect(workspace.panes['popup-pane'].tabOrder).toEqual([tabId])
+      expect(tab).toMatchObject({
+        origin: 'standalone',
+        standalonePath: '/outside/notes/readme.md',
+        filePath: 'readme.md',
+        title: 'readme.md',
+        content: '# Standalone\n',
+        savedContent: '# Standalone\n',
+        isDirty: false,
+        isUntitled: false,
+        readOnly: false
+      })
+      expect(tab.navigation.current).toBeNull()
+      expect(workspace.selectedFilePath).toBeNull()
+    })
+
+    it('retains an explicit saved baseline and reports dirty standalone content', () => {
+      const tabId = workspace.initAsStandalone({
+        standalonePath: 'C:\\Notes\\readme.md',
+        content: 'edited',
+        savedContent: 'on disk',
+        editorMode: 'editor'
+      })
+      const tab = asDocTab(workspace.tabs[tabId])
+
+      expect(tab.filePath).toBe('readme.md')
+      expect(tab.editorMode).toBe('editor')
+      expect(tab.isDirty).toBe(true)
+      expect(workspace.hasDirtyTabs).toBe(true)
+    })
+
+    it('does not serialize or transfer its capability path', () => {
+      const tabId = workspace.initAsStandalone({
+        standalonePath: '/private/secret/readme.md',
+        content: 'private content'
+      })
+
+      expect(workspace.serializeTab(tabId)).toBeNull()
+      expect(workspace.serializeSession().panes[0]).toEqual({ tabs: [], activeTabIndex: -1 })
+      expect(JSON.stringify(workspace.serializeSession())).not.toContain('/private/secret')
     })
   })
 

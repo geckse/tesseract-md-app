@@ -6,8 +6,18 @@
  */
 
 import { app, ipcMain, shell, clipboard, BrowserWindow, dialog } from 'electron'
-import { promises as fs } from 'node:fs'
-import { resolve as resolvePath } from 'node:path'
+import { constants as fsConstants, promises as fs } from 'node:fs'
+import {
+  basename,
+  dirname,
+  extname,
+  isAbsolute,
+  join,
+  parse,
+  relative,
+  resolve as resolvePath,
+  sep
+} from 'node:path'
 import {
   findCli,
   getCliVersion,
@@ -60,7 +70,9 @@ import type {
   TableColumnLayout,
   PropertyOpRequest,
   OverlayFieldPatch,
-  CollectionSkillsTargetId
+  CollectionSkillsTargetId,
+  ExternalDroppedFileDescriptor,
+  ImportedDroppedFile
 } from '../preload/api'
 import type { NativeConfirmationOptions, NativeMessageOptions } from '../preload/api'
 import type { PropertyValueColorSelection } from '../shared/value-colors'
@@ -152,9 +164,199 @@ import { withSerializedFileWrite } from './file-write-queue'
 import { assertComputedOutputKeyAbsentOnDisk } from './computed-output-preflight'
 import { IngestProcessManager } from './ingest-manager'
 import { ActivityLogStore } from './activity-log'
+import { getMimeCategory } from './asset-scanner'
 
 /** Ingest timeout: 5 minutes */
 const INGEST_TIMEOUT_MS = 300_000
+
+type ExternalFileKind = ExternalDroppedFileDescriptor['kind']
+type ExternalMimeCategory = ExternalDroppedFileDescriptor['mimeCategory']
+
+const FORBIDDEN_IMPORT_DIRECTORIES = new Set([
+  '.git',
+  '.markdownvdb',
+  '.obsidian',
+  'node_modules',
+  'dist',
+  'build',
+  'out',
+  'target'
+])
+
+interface SafeRegularFile {
+  path: string
+  metadata: Awaited<ReturnType<typeof fs.lstat>>
+}
+
+function pathIsWithin(root: string, candidate: string): boolean {
+  const child = relative(root, candidate)
+  return child === '' || (!child.startsWith('..') && !isAbsolute(child))
+}
+
+/** Resolve a user-dropped path once and reject link-based aliases/replacements. */
+async function safeRegularFile(candidate: unknown): Promise<SafeRegularFile> {
+  if (typeof candidate !== 'string' || candidate.trim() === '') {
+    throw new TypeError('Dropped file path must be a non-empty string')
+  }
+
+  const normalized = resolvePath(candidate)
+  const initial = await fs.lstat(normalized)
+  if (!initial.isFile() || initial.isSymbolicLink() || initial.nlink > 1) {
+    throw new Error('The dropped item is not a safe regular file')
+  }
+
+  const canonicalPath = await fs.realpath(normalized)
+  const metadata = await fs.lstat(canonicalPath)
+  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink > 1) {
+    throw new Error('The dropped item is not a safe regular file')
+  }
+  return { path: canonicalPath, metadata }
+}
+
+function classifyExternalFile(name: string): {
+  kind: ExternalFileKind
+  mimeCategory: ExternalMimeCategory
+} {
+  const extension = extname(name).toLowerCase()
+  if (extension === '.md' || extension === '.markdown') {
+    return { kind: 'markdown', mimeCategory: 'other' }
+  }
+
+  const mimeCategory = getMimeCategory(name) ?? 'other'
+  return {
+    kind: mimeCategory === 'other' ? 'other' : 'asset',
+    mimeCategory
+  }
+}
+
+async function collectionMembership(filePath: string): Promise<{
+  collectionId: string | null
+  relativePath: string | null
+}> {
+  let best: { id: string; root: string } | null = null
+  for (const collection of getCollections()) {
+    const root = await fs.realpath(resolvePath(collection.path)).catch(() => null)
+    if (!root || !pathIsWithin(root, filePath)) continue
+    if (!best || root.length > best.root.length) best = { id: collection.id, root }
+  }
+  if (!best) return { collectionId: null, relativePath: null }
+  return {
+    collectionId: best.id,
+    relativePath: relative(best.root, filePath).split(sep).join('/')
+  }
+}
+
+function requireExternalGrant(
+  windowManager: WindowManager,
+  senderId: number,
+  grantId: unknown
+): string {
+  if (typeof grantId !== 'string' || grantId === '') {
+    throw new TypeError('External file grant ID is required')
+  }
+  const grantedPath = windowManager.getExternalFilePath(senderId, grantId)
+  if (!grantedPath) throw new Error('Access denied: external file grant is unavailable')
+  return grantedPath
+}
+
+function normalizedImportSegments(targetDirectory: unknown): string[] {
+  if (typeof targetDirectory !== 'string') {
+    throw new TypeError('Collection target directory must be a string')
+  }
+  if (targetDirectory === '' || targetDirectory === '.') return []
+  if (
+    isAbsolute(targetDirectory) ||
+    /^[A-Za-z]:[\\/]/.test(targetDirectory) ||
+    targetDirectory.startsWith('\\\\')
+  ) {
+    throw new Error('Access denied: collection target directory must be relative')
+  }
+
+  const segments = targetDirectory.replace(/\\/g, '/').split('/')
+  if (
+    segments.some((segment) => {
+      const normalized = segment.toLowerCase()
+      return (
+        !segment ||
+        segment === '.' ||
+        segment === '..' ||
+        segment.startsWith('.') ||
+        FORBIDDEN_IMPORT_DIRECTORIES.has(normalized)
+      )
+    })
+  ) {
+    throw new Error('Access denied: invalid collection target directory')
+  }
+  return segments
+}
+
+/** Resolve an existing, non-symlinked folder below a registered collection. */
+async function safeImportDirectory(
+  collectionId: unknown,
+  targetDirectory: unknown
+): Promise<{
+  root: string
+  path: string
+}> {
+  if (typeof collectionId !== 'string' || collectionId === '') {
+    throw new TypeError('Collection ID is required')
+  }
+  const collection = getCollections().find((item) => item.id === collectionId)
+  if (!collection) throw new Error('Access denied: unknown collection')
+
+  const root = await fs.realpath(resolvePath(collection.path))
+  const rootMetadata = await fs.lstat(root)
+  if (!rootMetadata.isDirectory() || rootMetadata.isSymbolicLink()) {
+    throw new Error('Access denied: collection root is not a safe directory')
+  }
+
+  let target = root
+  for (const segment of normalizedImportSegments(targetDirectory)) {
+    target = join(target, segment)
+    const metadata = await fs.lstat(target)
+    if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
+      throw new Error('Access denied: collection target is not a safe directory')
+    }
+  }
+  if (!pathIsWithin(root, target)) {
+    throw new Error('Access denied: collection target escaped its collection')
+  }
+  return { root, path: target }
+}
+
+async function copyDroppedFileExclusively(
+  source: SafeRegularFile,
+  target: { root: string; path: string }
+): Promise<ImportedDroppedFile> {
+  const sourceName = basename(source.path)
+  const parsed = parse(sourceName)
+  const classification = classifyExternalFile(sourceName)
+
+  for (let suffix = 0; suffix < 10_000; suffix += 1) {
+    const filename = suffix === 0 ? sourceName : `${parsed.name}-${suffix}${parsed.ext}`
+    const destination = join(target.path, filename)
+    if (!pathIsWithin(target.root, destination)) {
+      throw new Error('Access denied: imported file escaped its collection')
+    }
+
+    const cancelOwnWrite = registerOwnWrite(destination, 'copy')
+    try {
+      await fs.copyFile(source.path, destination, fsConstants.COPYFILE_EXCL)
+      return {
+        sourceName,
+        relativePath: relative(target.root, destination).split(sep).join('/'),
+        size: source.metadata.size,
+        ...classification
+      }
+    } catch (error) {
+      cancelOwnWrite()
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue
+      throw error
+    }
+  }
+
+  throw new Error(`Could not find an available filename for "${sourceName}"`)
+}
 
 const graphMenuBooleanKeys = new Set<keyof GraphMenuContext>([
   'active',
@@ -1416,6 +1618,172 @@ export function registerIpcHandlers(windowManager: WindowManager, ptyManager?: P
   )
 
   // File reading (with security validation)
+  ipcMain.handle('standalone:get-document', (event) =>
+    wrapHandler(async () => {
+      const grantedPath = windowManager.getStandaloneFilePath(event.sender.id)
+      if (!grantedPath) throw new Error('Access denied: no standalone document is granted')
+
+      const metadata = await fs.lstat(grantedPath)
+      if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink > 1) {
+        throw new Error('The standalone document is no longer a safe regular file')
+      }
+
+      return {
+        path: grantedPath,
+        name: basename(grantedPath),
+        directory: dirname(grantedPath),
+        content: await fs.readFile(grantedPath, 'utf-8')
+      }
+    })
+  )
+
+  ipcMain.handle('standalone:save-document', (event, expectedContent: string, content: string) =>
+    wrapHandler(async () => {
+      if (typeof expectedContent !== 'string' || typeof content !== 'string') {
+        throw new TypeError('Standalone document content must be text')
+      }
+      const grantedPath = windowManager.getStandaloneFilePath(event.sender.id)
+      if (!grantedPath) throw new Error('Access denied: no standalone document is granted')
+
+      await withSerializedFileWrite(grantedPath, async () => {
+        const currentContent = await fs.readFile(grantedPath, 'utf-8')
+        if (currentContent !== expectedContent) {
+          throw new Error('The file changed on disk after this editor opened it')
+        }
+
+        await atomicWriteFile(grantedPath, content, {
+          allowedRoot: dirname(grantedPath),
+          beforeCommit: async () => {
+            const latestContent = await fs.readFile(grantedPath, 'utf-8')
+            if (latestContent !== expectedContent) {
+              throw new Error('The file changed on disk after this editor opened it')
+            }
+          }
+        })
+      })
+    })
+  )
+
+  ipcMain.handle('standalone:reveal-document', (event) =>
+    wrapHandler(async () => {
+      const grantedPath = windowManager.getStandaloneFilePath(event.sender.id)
+      if (!grantedPath) throw new Error('Access denied: no standalone document is granted')
+      shell.showItemInFolder(grantedPath)
+    })
+  )
+
+  // External OS drag capabilities. Only the initial open/import bridge accepts
+  // native paths; every follow-up is scoped to an opaque sender-owned grant.
+  ipcMain.handle('external:open-dropped-file', (event, candidate: string) =>
+    wrapHandler(async (): Promise<ExternalDroppedFileDescriptor> => {
+      const file = await safeRegularFile(candidate)
+      const name = basename(file.path)
+      const classification = classifyExternalFile(name)
+      const membership = await collectionMembership(file.path)
+      const content =
+        classification.kind === 'markdown' ? await fs.readFile(file.path, 'utf-8') : undefined
+      const id = windowManager.grantExternalFile(event.sender.id, file.path)
+
+      return {
+        id,
+        path: file.path,
+        name,
+        directory: dirname(file.path),
+        size: file.metadata.size,
+        ...classification,
+        ...(content === undefined ? {} : { content }),
+        ...membership
+      }
+    })
+  )
+
+  ipcMain.handle('external:read-document', (event, grantId: string) =>
+    wrapHandler(async () => {
+      const grantedPath = requireExternalGrant(windowManager, event.sender.id, grantId)
+      const file = await safeRegularFile(grantedPath)
+      if (classifyExternalFile(file.path).kind !== 'markdown') {
+        throw new Error('The external file is not a Markdown document')
+      }
+      return fs.readFile(file.path, 'utf-8')
+    })
+  )
+
+  ipcMain.handle(
+    'external:save-document',
+    (event, grantId: string, expectedContent: string, content: string) =>
+      wrapHandler(async () => {
+        if (typeof expectedContent !== 'string' || typeof content !== 'string') {
+          throw new TypeError('External document content must be text')
+        }
+        const grantedPath = requireExternalGrant(windowManager, event.sender.id, grantId)
+        const file = await safeRegularFile(grantedPath)
+        if (classifyExternalFile(file.path).kind !== 'markdown') {
+          throw new Error('The external file is not a Markdown document')
+        }
+
+        await withSerializedFileWrite(file.path, async () => {
+          const currentContent = await fs.readFile(file.path, 'utf-8')
+          if (currentContent !== expectedContent) {
+            throw new Error('The file changed on disk after this editor opened it')
+          }
+
+          await atomicWriteFile(file.path, content, {
+            allowedRoot: dirname(file.path),
+            beforeCommit: async () => {
+              const latestContent = await fs.readFile(file.path, 'utf-8')
+              if (latestContent !== expectedContent) {
+                throw new Error('The file changed on disk after this editor opened it')
+              }
+            }
+          })
+        })
+      })
+  )
+
+  ipcMain.handle('external:reveal-file', (event, grantId: string) =>
+    wrapHandler(async () => {
+      const grantedPath = requireExternalGrant(windowManager, event.sender.id, grantId)
+      const file = await safeRegularFile(grantedPath)
+      shell.showItemInFolder(file.path)
+    })
+  )
+
+  ipcMain.handle('external:open-file', (event, grantId: string) =>
+    wrapHandler(async () => {
+      const grantedPath = requireExternalGrant(windowManager, event.sender.id, grantId)
+      const file = await safeRegularFile(grantedPath)
+      const error = await shell.openPath(file.path)
+      if (error) throw new Error(error)
+    })
+  )
+
+  ipcMain.handle('external:release-file', (event, grantId: string) =>
+    wrapHandler(async () => {
+      if (typeof grantId !== 'string' || grantId === '') {
+        throw new TypeError('External file grant ID is required')
+      }
+      windowManager.releaseExternalFile(event.sender.id, grantId)
+    })
+  )
+
+  ipcMain.handle(
+    'external:import-dropped-files',
+    (_event, candidates: string[], collectionId: string, targetDirectory: string) =>
+      wrapHandler(async (): Promise<ImportedDroppedFile[]> => {
+        if (!Array.isArray(candidates)) throw new TypeError('Dropped files must be an array')
+        if (candidates.length > 100) throw new Error('Cannot import more than 100 files at once')
+
+        const target = await safeImportDirectory(collectionId, targetDirectory)
+        const imported: ImportedDroppedFile[] = []
+        for (const candidate of candidates) {
+          const source = await safeRegularFile(candidate)
+          imported.push(await copyDroppedFileExclusively(source, target))
+        }
+        return imported
+      })
+  )
+
+  // Collection-scoped file reading (with security validation)
   ipcMain.handle('fs:read-file', (_event, absolutePath: string) =>
     wrapHandler(async () => {
       const { resolve, sep } = await import('node:path')

@@ -133,14 +133,14 @@ export async function loadProperties(filePath: string): Promise<void> {
   propertiesLoading.set(false)
 }
 
-/** Clear all properties stores. */
-export function clearProperties(): void {
+/** Clear indexed/collection metadata, optionally retaining live editor text. */
+export function clearProperties(options?: { preserveFileContent?: boolean }): void {
   propertiesGeneration++
   documentInfo.set(null)
   backlinksInfo.set(null)
   linksInfo.set(null)
   neighborhoodInfo.set(null)
-  propertiesFileContent.set(null)
+  if (!options?.preserveFileContent) propertiesFileContent.set(null)
   propertiesLoading.set(false)
   propertiesError.set(null)
 }

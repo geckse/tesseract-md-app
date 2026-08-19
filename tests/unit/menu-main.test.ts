@@ -67,6 +67,7 @@ function windowStub(webContentsId: number) {
 describe('native menu window routing', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.focusedWindow = null
   })
 
   it('uses a focused graph popup only for graph-local commands and state', async () => {
@@ -74,6 +75,7 @@ describe('native menu window routing', () => {
     const popup = windowStub(22)
     const windowManager = {
       isPopup: (webContentsId: number) => webContentsId === 22,
+      isStandalone: () => false,
       getPrimaryWindowId: () => 101,
       getWindow: (windowId: number) => (windowId === 101 ? primary : undefined),
       getWindowCollectionId: () => 'col-1',
@@ -117,5 +119,140 @@ describe('native menu window routing', () => {
     })
 
     clearWindowMenuContext(22)
+  })
+
+  it('routes only document-safe commands to a focused standalone editor', () => {
+    const primary = windowStub(11)
+    const standalone = windowStub(33)
+    const windowManager = {
+      isPopup: (webContentsId: number) => webContentsId === 33,
+      isStandalone: (webContentsId: number) => webContentsId === 33,
+      getPrimaryWindowId: () => 101,
+      getWindow: (windowId: number) => (windowId === 101 ? primary : undefined),
+      getWindowCollectionId: () => 'col-1',
+      getAllWindows: () => [primary, standalone],
+      createWindow: vi.fn(),
+      openCollectionDocument: vi.fn(),
+      broadcastToAll: vi.fn()
+    }
+
+    mocks.focusedWindow = standalone
+    buildAppMenu(windowManager as never)
+    const actions = mocks.buildTemplate.mock.calls.at(-1)?.[1] as {
+      sendCommand: (id: string) => void
+      openRecent: (payload: { collectionId: string; filePath: string }) => void
+    }
+
+    for (const id of [
+      'file.save',
+      'file.reveal-current',
+      'view.toggle-editor-mode',
+      'view.zoom-in',
+      'view.zoom-out',
+      'view.zoom-reset',
+      'format.bold',
+      'structure.toc'
+    ]) {
+      actions.sendCommand(id)
+    }
+
+    for (const id of ['file.save-copy', 'edit.search', 'file.new-note', 'graph.open']) {
+      actions.sendCommand(id)
+    }
+    actions.openRecent({ collectionId: 'col-1', filePath: 'notes/recent.md' })
+
+    for (const id of [
+      'file.save',
+      'file.reveal-current',
+      'view.toggle-editor-mode',
+      'view.zoom-in',
+      'view.zoom-out',
+      'view.zoom-reset',
+      'format.bold',
+      'structure.toc'
+    ]) {
+      expect(standalone.webContents.send).toHaveBeenCalledWith('menu:command', {
+        id,
+        payload: undefined
+      })
+    }
+    expect(standalone.webContents.send).toHaveBeenCalledTimes(8)
+
+    for (const id of ['file.save-copy', 'edit.search', 'file.new-note', 'graph.open']) {
+      expect(primary.webContents.send).toHaveBeenCalledWith('menu:command', {
+        id,
+        payload: undefined
+      })
+    }
+    expect(primary.webContents.send).toHaveBeenCalledWith('menu:open-recent', {
+      collectionId: 'col-1',
+      filePath: 'notes/recent.md'
+    })
+  })
+
+  it('does not trust graph context reported by a standalone renderer', async () => {
+    const primary = windowStub(11)
+    const standalone = windowStub(33)
+    const windowManager = {
+      isPopup: (webContentsId: number) => webContentsId === 33,
+      isStandalone: (webContentsId: number) => webContentsId === 33,
+      getPrimaryWindowId: () => 101,
+      getWindow: (windowId: number) => (windowId === 101 ? primary : undefined),
+      getWindowCollectionId: () => 'col-1',
+      getAllWindows: () => [primary, standalone],
+      createWindow: vi.fn(),
+      openCollectionDocument: vi.fn(),
+      broadcastToAll: vi.fn()
+    }
+
+    mocks.focusedWindow = standalone
+    buildAppMenu(windowManager as never)
+    updateWindowMenuContext(33, { active: true, ready: true })
+    await Promise.resolve()
+
+    const latestState = mocks.buildTemplate.mock.calls.at(-1)?.[0] as {
+      graph: typeof defaultGraphContext
+    }
+    expect(latestState.graph).toEqual(defaultGraphContext)
+
+    const actions = mocks.buildTemplate.mock.calls.at(-1)?.[1] as {
+      sendCommand: (id: string) => void
+    }
+    actions.sendCommand('graph.screenshot')
+    expect(primary.webContents.send).toHaveBeenCalledWith('menu:command', {
+      id: 'graph.screenshot',
+      payload: undefined
+    })
+    expect(standalone.webContents.send).not.toHaveBeenCalled()
+
+    clearWindowMenuContext(33)
+  })
+
+  it('opens a recent collection document in a full window when only standalone is open', () => {
+    const standalone = windowStub(33)
+    const openCollectionDocument = vi.fn()
+    const windowManager = {
+      isPopup: (webContentsId: number) => webContentsId === 33,
+      isStandalone: (webContentsId: number) => webContentsId === 33,
+      getPrimaryWindowId: () => null,
+      getWindow: () => undefined,
+      getWindowCollectionId: () => undefined,
+      getAllWindows: () => [standalone],
+      createWindow: vi.fn(),
+      openCollectionDocument,
+      broadcastToAll: vi.fn()
+    }
+
+    mocks.focusedWindow = standalone
+    buildAppMenu(windowManager as never)
+    const actions = mocks.buildTemplate.mock.calls.at(-1)?.[1] as {
+      openRecent: (payload: { collectionId: string; filePath: string }) => void
+      sendCommand: (id: string) => void
+    }
+    actions.sendCommand('file.save-copy')
+    actions.openRecent({ collectionId: 'col-1', filePath: 'notes/recent.md' })
+
+    expect(openCollectionDocument).toHaveBeenCalledWith('col-1', 'notes/recent.md')
+    expect(standalone.webContents.send).not.toHaveBeenCalled()
   })
 })

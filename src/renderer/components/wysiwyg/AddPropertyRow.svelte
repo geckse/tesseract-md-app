@@ -11,12 +11,21 @@
     schema: Schema | null
     existingKeys: string[]
     onAdd: (key: string, type: PropertyTargetType, options?: { allowedValues?: string[] }) => void
+    /** Select/Relation/File properties require collection-backed schema or pickers. */
+    collectionFeaturesEnabled?: boolean
     /** Formula is a schema definition, so it follows a separate add flow. */
     onAddFormula?: (key: string) => void
     onAddComputed?: (kind: 'lookup' | 'rollup', key: string) => void
   }
 
-  let { schema, existingKeys, onAdd, onAddFormula, onAddComputed }: Props = $props()
+  let {
+    schema,
+    existingKeys,
+    onAdd,
+    collectionFeaturesEnabled = true,
+    onAddFormula,
+    onAddComputed
+  }: Props = $props()
 
   let mode = $state<'idle' | 'naming' | 'typing' | 'select-values'>('idle')
   let nameInput = $state('')
@@ -242,7 +251,11 @@
     {#if mode === 'typing' && typeAnchorEl}
       <TypePickerDropdown
         anchorEl={typeAnchorEl}
-        excludeTypes={cliFeatures.supportsFileFields ? [] : ['file']}
+        excludeTypes={collectionFeaturesEnabled
+          ? cliFeatures.supportsFileFields
+            ? []
+            : ['file']
+          : ['select', 'relation', 'file']}
         includeFormula={!!onAddFormula}
         includeLookupRollup={!!onAddComputed && cliFeatures.supportsLookupRollup}
         onSelect={handleTypeSelect}

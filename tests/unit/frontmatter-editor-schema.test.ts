@@ -93,6 +93,51 @@ describe('DocumentHeader schema integration', () => {
     expect(keyInput).toBeTruthy()
   })
 
+  it('edits standalone frontmatter locally without filename or collection schema actions', async () => {
+    const onFrontmatterUpdate = vi.fn()
+    const { container } = render(DocumentHeader, {
+      props: {
+        frontmatterYaml: null,
+        onFrontmatterUpdate,
+        schema: null,
+        collectionFeaturesEnabled: false,
+        showFileName: false,
+        ...defaultProps
+      }
+    })
+
+    expect(container.querySelector('.fne')).toBeNull()
+    await fireEvent.click(screen.getByRole('button', { name: /Add property/ }))
+    const nameInput = screen.getByPlaceholderText('Property name...')
+    await fireEvent.input(nameInput, { target: { value: 'summary' } })
+    await fireEvent.keyDown(nameInput, { key: 'Enter' })
+    expect(screen.queryByRole('option', { name: /^Select$/ })).toBeNull()
+    expect(screen.queryByRole('option', { name: /^Relation$/ })).toBeNull()
+    expect(screen.queryByRole('option', { name: /^File$/ })).toBeNull()
+    await fireEvent.mouseDown(screen.getByRole('option', { name: /Text/ }))
+
+    expect(onFrontmatterUpdate).toHaveBeenCalledWith('summary: ')
+    expect(propertyOpsMock.applyOverlayFieldPatch).not.toHaveBeenCalled()
+    expect(mockApi.listTableViews).not.toHaveBeenCalled()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByRole('button', { name: /Change type of summary/ })).toBeNull()
+  })
+
+  it('treats collection-shaped link lists as locally editable values when disabled', () => {
+    const { container } = render(DocumentHeader, {
+      props: {
+        frontmatterYaml: 'entries:\n  - one.md\n  - two.md',
+        onFrontmatterUpdate: vi.fn(),
+        schema: null,
+        collectionFeaturesEnabled: false,
+        ...defaultProps
+      }
+    })
+
+    expect(container.querySelectorAll('.rel-chip')).toHaveLength(0)
+    expect(container.querySelectorAll('.pr-tag')).toHaveLength(2)
+  })
+
   it('uses database column order for display without rewriting YAML key order', async () => {
     mockApi.getDefaultTableColumns.mockResolvedValue([
       { name: 'author', hidden: false, width: 180, order: 0 },

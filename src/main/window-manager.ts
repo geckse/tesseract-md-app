@@ -8,9 +8,10 @@
  */
 
 import { BrowserWindow, nativeTheme, shell } from 'electron'
-import { join } from 'path'
+import { randomUUID } from 'node:crypto'
+import { join, resolve } from 'node:path'
 import { is } from '@electron-toolkit/utils'
-import { initStore, setZoomLevel } from './store'
+import { getActiveCollection, initStore, setZoomLevel } from './store'
 import type { ImageEditDraft } from '../shared/image-edit'
 
 /**
@@ -22,6 +23,13 @@ function windowBackgroundColor(store: ReturnType<typeof initStore>): string {
   const mode = store.get('themeMode', 'dark')
   const dark = mode === 'dark' || (mode === 'auto' && nativeTheme.shouldUseDarkColors)
   return dark ? '#0f0f10' : '#e9e9e9'
+}
+
+/** Keep renderer/preload capabilities on the trusted application document. */
+function preventRendererNavigation(win: BrowserWindow): void {
+  win.webContents.on('will-navigate', (event) => {
+    event.preventDefault()
+  })
 }
 
 /**
@@ -101,6 +109,11 @@ export interface MainWindowOptions {
   shardId?: string
 }
 
+interface CollectionDocumentRequest {
+  collectionId: string
+  filePath: string
+}
+
 /** Data sent to popup renderer for dirty document or image transfer. */
 export interface PopupInitData {
   content: string | null
@@ -115,6 +128,18 @@ export class WindowManager {
 
   /** Set of webContents.id values that are popup windows. */
   private popups: Set<number> = new Set()
+
+  /** Exact canonical Markdown path granted to each standalone renderer. */
+  private standaloneFiles: Map<number, string> = new Map()
+
+  /** Opaque, exact-file capabilities created from OS-backed drag payloads. */
+  private externalFiles: Map<number, Map<string, string>> = new Map()
+
+  /** Full windows whose renderer has completed its initial navigation. */
+  private loadedMainWindows: Set<number> = new Set()
+
+  /** Collection documents waiting for a full renderer to finish loading. */
+  private pendingCollectionDocuments: Map<number, CollectionDocumentRequest[]> = new Map()
 
   /** Per-window active collection overrides (absent means use the persisted default). */
   private windowCollections: Map<number, string | null> = new Map()
@@ -296,15 +321,25 @@ export class WindowManager {
 
     const id = win.webContents.id
     this.windows.set(id, win)
-    if (options.collectionId !== undefined) {
-      this.windowCollections.set(id, options.collectionId)
+    const initialCollectionId = options.collectionId ?? getActiveCollection()?.id
+    if (initialCollectionId !== undefined) {
+      this.windowCollections.set(id, initialCollectionId)
     }
 
     this.installCloseGuard(win, id)
+    preventRendererNavigation(win)
+
+    win.webContents.on('did-finish-load', () => {
+      this.loadedMainWindows.add(id)
+      this.flushPendingCollectionDocuments(id)
+    })
 
     // Remove from tracking when the window is closed
     win.on('closed', () => {
       this.windows.delete(id)
+      this.externalFiles.delete(id)
+      this.loadedMainWindows.delete(id)
+      this.pendingCollectionDocuments.delete(id)
       this.forceClose.delete(id)
       this.windowCollections.delete(id)
       this.clearCloseTimer(id)
@@ -404,14 +439,14 @@ export class WindowManager {
    * @param options - What kind of content the popup should display
    * @returns The newly created popup BrowserWindow
    */
-  createPopupWindow(options: PopupWindowOptions): BrowserWindow {
+  createPopupWindow(options: PopupWindowOptions, standalone = false): BrowserWindow {
     const store = initStore()
 
     const win = new BrowserWindow({
-      width: 700,
-      height: 500,
-      minWidth: 400,
-      minHeight: 300,
+      width: standalone ? 960 : 700,
+      height: standalone ? 720 : 500,
+      minWidth: standalone ? 640 : 400,
+      minHeight: standalone ? 480 : 300,
       show: false,
       backgroundColor: windowBackgroundColor(store),
       ...titleBarOptions(store, 28),
@@ -431,10 +466,13 @@ export class WindowManager {
     }
 
     this.installCloseGuard(win, id)
+    preventRendererNavigation(win)
 
     win.on('closed', () => {
       this.windows.delete(id)
       this.popups.delete(id)
+      this.standaloneFiles.delete(id)
+      this.externalFiles.delete(id)
       this.forceClose.delete(id)
       this.windowCollections.delete(id)
       this.clearCloseTimer(id)
@@ -488,9 +526,11 @@ export class WindowManager {
 
     // Build query string from popup options
     const params = new URLSearchParams()
-    params.set('mode', 'popup')
+    params.set('mode', standalone ? 'standalone' : 'popup')
     params.set('kind', options.kind)
-    if (options.filePath) params.set('filePath', options.filePath)
+    // Standalone capabilities live only in main. Never disclose or trust an
+    // absolute filesystem path through renderer-controlled URL parameters.
+    if (!standalone && options.filePath) params.set('filePath', options.filePath)
     if (options.editorMode) params.set('editorMode', options.editorMode)
     if (options.isUntitled) params.set('isUntitled', 'true')
     if (options.collectionId) params.set('collectionId', options.collectionId)
@@ -535,6 +575,127 @@ export class WindowManager {
   }
 
   /**
+   * Open one non-collection Markdown file in a focused editor window. The
+   * exact path is retained in main and bound to this renderer's webContents.
+   * Reopening the same file focuses its existing window.
+   */
+  createStandaloneWindow(filePath: string): BrowserWindow {
+    const normalizedPath = resolve(filePath)
+    for (const [id, grantedPath] of this.standaloneFiles) {
+      if (grantedPath !== normalizedPath) continue
+      const existing = this.getWindow(id)
+      if (!existing) continue
+      if (existing.isMinimized()) existing.restore()
+      existing.show()
+      existing.focus()
+      return existing
+    }
+
+    const win = this.createPopupWindow({ kind: 'document' }, true)
+    this.standaloneFiles.set(win.webContents.id, normalizedPath)
+    return win
+  }
+
+  /**
+   * Open a collection-relative Markdown file in a full application window.
+   * Reuse a window already scoped to that collection when possible; requests
+   * made during initial navigation are queued until its renderer is ready.
+   */
+  openCollectionDocument(collectionId: string, filePath: string): BrowserWindow {
+    let target: BrowserWindow | undefined
+    let existing = false
+
+    for (const [id] of this.windows) {
+      if (this.popups.has(id) || this.windowCollections.get(id) !== collectionId) continue
+      target = this.getWindow(id)
+      if (target) {
+        existing = true
+        break
+      }
+    }
+
+    if (!target) target = this.createWindow({ collectionId })
+
+    const id = target.webContents.id
+    const request = { collectionId, filePath }
+    if (this.loadedMainWindows.has(id)) {
+      target.webContents.send('menu:open-recent', request)
+    } else {
+      const pending = this.pendingCollectionDocuments.get(id) ?? []
+      pending.push(request)
+      this.pendingCollectionDocuments.set(id, pending)
+    }
+
+    if (existing) {
+      if (target.isMinimized()) target.restore()
+      target.show()
+      target.focus()
+    }
+    return target
+  }
+
+  private flushPendingCollectionDocuments(webContentsId: number): void {
+    const pending = this.pendingCollectionDocuments.get(webContentsId)
+    if (!pending || pending.length === 0) return
+    this.pendingCollectionDocuments.delete(webContentsId)
+
+    const win = this.getWindow(webContentsId)
+    if (!win) return
+    for (const request of pending) {
+      win.webContents.send('menu:open-recent', request)
+    }
+  }
+
+  /** Exact standalone capability for a renderer, if it still owns one. */
+  getStandaloneFilePath(webContentsId: number): string | undefined {
+    if (!this.getWindow(webContentsId)) return undefined
+    return this.standaloneFiles.get(webContentsId)
+  }
+
+  /** Whether a renderer is a standalone Markdown document window. */
+  isStandalone(webContentsId: number): boolean {
+    return this.getStandaloneFilePath(webContentsId) !== undefined
+  }
+
+  /**
+   * Bind one validated external file to a renderer under an opaque ID. The
+   * absolute path remains main-owned after the initial OS-backed drop bridge.
+   * Re-registering the same canonical path in one window reuses its grant.
+   */
+  grantExternalFile(webContentsId: number, filePath: string): string {
+    if (!this.getWindow(webContentsId)) {
+      throw new Error('Access denied: the requesting window is no longer available')
+    }
+
+    const normalizedPath = resolve(filePath)
+    const grants = this.externalFiles.get(webContentsId) ?? new Map<string, string>()
+    for (const [id, grantedPath] of grants) {
+      if (grantedPath === normalizedPath) return id
+    }
+
+    const id = randomUUID()
+    grants.set(id, normalizedPath)
+    this.externalFiles.set(webContentsId, grants)
+    return id
+  }
+
+  /** Resolve one sender-owned external-file grant. */
+  getExternalFilePath(webContentsId: number, grantId: string): string | undefined {
+    if (!this.getWindow(webContentsId)) return undefined
+    return this.externalFiles.get(webContentsId)?.get(grantId)
+  }
+
+  /** Revoke one sender-owned external-file grant. */
+  releaseExternalFile(webContentsId: number, grantId: string): boolean {
+    if (!this.getWindow(webContentsId)) return false
+    const grants = this.externalFiles.get(webContentsId)
+    if (!grants) return false
+    const released = grants.delete(grantId)
+    if (grants.size === 0) this.externalFiles.delete(webContentsId)
+    return released
+  }
+
+  /**
    * Check if a tracked window is a popup window.
    *
    * @param id - The webContents.id of the window
@@ -573,6 +734,10 @@ export class WindowManager {
     if (win) {
       this.windows.delete(id)
       this.popups.delete(id)
+      this.standaloneFiles.delete(id)
+      this.externalFiles.delete(id)
+      this.loadedMainWindows.delete(id)
+      this.pendingCollectionDocuments.delete(id)
       this.windowCollections.delete(id)
     }
     return undefined
@@ -599,6 +764,10 @@ export class WindowManager {
     for (const id of stale) {
       this.windows.delete(id)
       this.popups.delete(id)
+      this.standaloneFiles.delete(id)
+      this.externalFiles.delete(id)
+      this.loadedMainWindows.delete(id)
+      this.pendingCollectionDocuments.delete(id)
       this.windowCollections.delete(id)
     }
 
@@ -632,6 +801,11 @@ export class WindowManager {
     // Clean up any stale entries
     for (const id of stale) {
       this.windows.delete(id)
+      this.popups.delete(id)
+      this.standaloneFiles.delete(id)
+      this.externalFiles.delete(id)
+      this.loadedMainWindows.delete(id)
+      this.pendingCollectionDocuments.delete(id)
       this.windowCollections.delete(id)
     }
   }
@@ -667,6 +841,10 @@ export class WindowManager {
     if (!win || win.isDestroyed()) {
       this.windows.delete(id)
       this.popups.delete(id)
+      this.standaloneFiles.delete(id)
+      this.externalFiles.delete(id)
+      this.loadedMainWindows.delete(id)
+      this.pendingCollectionDocuments.delete(id)
       this.windowCollections.delete(id)
       return
     }

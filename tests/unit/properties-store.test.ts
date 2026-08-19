@@ -316,6 +316,24 @@ describe('properties store', () => {
       expect(get(propertiesLoading)).toBe(false)
       expect(get(propertiesError)).toBeNull()
     })
+
+    it('can clear collection metadata while retaining standalone editor content', () => {
+      documentInfo.set(sampleDoc)
+      backlinksInfo.set(sampleBacklinks)
+      linksInfo.set(sampleLinks)
+      propertiesFileContent.set('# Standalone\n\n## Outline')
+
+      clearProperties({ preserveFileContent: true })
+
+      expect(get(documentInfo)).toBeNull()
+      expect(get(backlinksInfo)).toBeNull()
+      expect(get(linksInfo)).toBeNull()
+      expect(get(propertiesFileContent)).toBe('# Standalone\n\n## Outline')
+      expect(get(outline)).toEqual([
+        { level: 1, heading: 'Standalone', line: 1 },
+        { level: 2, heading: 'Outline', line: 3 }
+      ])
+    })
   })
 
   describe('frontmatter derived store', () => {

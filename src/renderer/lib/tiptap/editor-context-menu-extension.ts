@@ -64,15 +64,40 @@ export function selectContextTarget(view: EditorView, event: MouseEvent): void {
     }
   }
 
-  const position = view.posAtCoords({ left: event.clientX, top: event.clientY })
-  if (!position) return
+  let position: number | null = null
+  try {
+    position = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos ?? null
+  } catch {
+    // Fall back to the clicked DOM element below.
+  }
+
+  // posAtCoords can fail on editor padding, decorations, and in synthetic
+  // context-menu events. Do not leave a stale media NodeSelection active when
+  // the actual target is ordinary editor content.
+  if (position === null && target && view.dom.contains(target)) {
+    try {
+      position = view.posAtDOM(target, 0)
+    } catch {
+      // Keep the current selection only when neither mapping strategy works.
+    }
+  }
+  if (position === null) return
 
   const { selection } = view.state
-  // Preserve a range selection when the user right-clicks inside it.
-  if (!selection.empty && position.pos >= selection.from && position.pos <= selection.to) return
+  // Preserve a text range when the user right-clicks inside it. Node selections
+  // were handled by their matching DOM target above and must not leak into a
+  // context click on adjacent ordinary content.
+  if (
+    selection instanceof TextSelection &&
+    !selection.empty &&
+    position >= selection.from &&
+    position <= selection.to
+  ) {
+    return
+  }
 
   const resolvedPosition = view.state.doc.resolve(
-    Math.max(0, Math.min(position.pos, view.state.doc.content.size))
+    Math.max(0, Math.min(position, view.state.doc.content.size))
   )
   view.dispatch(view.state.tr.setSelection(TextSelection.near(resolvedPosition)))
 }

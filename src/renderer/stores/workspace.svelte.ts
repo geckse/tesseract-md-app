@@ -22,6 +22,7 @@ import type {
 import { createImageEditDraft, type ImageEditDraft } from '../../shared/image-edit'
 import { get } from 'svelte/store'
 import { activeShardId } from './shards'
+import { assetMimeCategory } from '../../shared/media-types'
 
 // Re-export shared table-view config types for renderer consumers.
 export type {
@@ -34,32 +35,9 @@ export type {
 
 // ─── Asset Detection ──────────────────────────────────────────────────
 
-/** Map of file extensions to MimeCategory for asset detection. */
-const ASSET_EXT_MAP: Record<string, MimeCategory> = {
-  png: 'image',
-  jpg: 'image',
-  jpeg: 'image',
-  gif: 'image',
-  svg: 'image',
-  webp: 'image',
-  bmp: 'image',
-  ico: 'image',
-  avif: 'image',
-  pdf: 'pdf',
-  mp4: 'video',
-  webm: 'video',
-  mov: 'video',
-  avi: 'video',
-  mp3: 'audio',
-  wav: 'audio',
-  ogg: 'audio',
-  flac: 'audio'
-}
-
 /** Detect if a file path is an asset by extension. Returns MimeCategory or null. */
 export function detectAssetMime(filePath: string): MimeCategory | null {
-  const ext = filePath.split('.').pop()?.toLowerCase() ?? ''
-  return ASSET_EXT_MAP[ext] ?? null
+  return assetMimeCategory(filePath)
 }
 
 // ─── Tab Types ─────────────────────────────────────────────────────────
@@ -104,7 +82,16 @@ export interface TabNavigation {
 export interface DocumentTab {
   id: string
   kind: 'document'
-  origin: 'collection' | 'activity-log'
+  origin: 'collection' | 'activity-log' | 'standalone' | 'external'
+  /**
+   * Exact main-process capability path for a non-collection document.
+   * Collection and activity-log documents deliberately leave this null.
+   */
+  standalonePath: string | null
+  /** Sender-bound main-process grant for an externally dropped document. */
+  externalId: string | null
+  /** Canonical path used only to deduplicate ephemeral external tabs. */
+  externalPath: string | null
   readOnly: boolean
   activityLog: { collectionId: string; date: string; revision: number } | null
   filePath: string
@@ -141,10 +128,17 @@ export interface GraphTab {
 export interface AssetTab {
   id: string
   kind: 'asset'
+  origin: 'collection' | 'external'
   filePath: string
   title: string
   mimeCategory: MimeCategory
   fileSize?: number
+  /** Sender-bound main-process grant for an externally dropped asset. */
+  externalId: string | null
+  /** Canonical path used only to deduplicate ephemeral external tabs. */
+  externalPath: string | null
+  /** Renderer-owned object URL. Never persisted or transferred. */
+  externalUrl: string | null
   isDirty: boolean
   imageEditDraft: ImageEditDraft
   /** Set when the backing image changed after the edit baseline was loaded. */
@@ -214,7 +208,7 @@ export const DEFAULT_BOTTOM_PANE_HEIGHT = 300
 
 /** Extract filename from a file path for use as tab title. */
 function fileNameFromPath(filePath: string): string {
-  const parts = filePath.split('/')
+  const parts = filePath.split(/[\\/]/)
   return parts[parts.length - 1] || filePath
 }
 
@@ -236,6 +230,9 @@ function createDocumentTab(filePath: string, isUntitled = false): DocumentTab {
     id: crypto.randomUUID(),
     kind: 'document',
     origin: 'collection',
+    standalonePath: null,
+    externalId: null,
+    externalPath: null,
     readOnly: false,
     activityLog: null,
     filePath,
@@ -270,10 +267,14 @@ function createAssetTab(
   return {
     id: crypto.randomUUID(),
     kind: 'asset',
+    origin: 'collection',
     filePath,
     title: parts[parts.length - 1] || filePath,
     mimeCategory,
     fileSize,
+    externalId: null,
+    externalPath: null,
+    externalUrl: null,
     isDirty: Boolean(imageEditDraft),
     imageEditDraft: imageEditDraft ?? createImageEditDraft(),
     diskChanged: false,
@@ -366,24 +367,22 @@ class WorkspaceStore {
    * each terminalId without a circular store import.
    */
   private _terminalSlotLookup:
-    | ((terminalId: string) => { shell: string; cwd: string } | null)
-    | null = null
+    ((terminalId: string) => { shell: string; cwd: string } | null) | null = null
 
   /**
    * Optional restore hook invoked for each persisted terminal tab during
    * restoreSession. Returns the terminalId that the tab should reference.
    */
   private _terminalSlotRestore:
-    | ((slot: { shell: string; cwd: string; title?: string }) => string | null)
-    | null = null
+    ((slot: { shell: string; cwd: string; title?: string }) => string | null) | null = null
 
   /**
    * Hook that adopts a terminal transferred from another window: registers
    * its meta in the terminal store and rebinds the live PTY to this window.
    */
   private _terminalAdopt:
-    | ((data: { terminalId: string; title: string; shell: string; cwd: string }) => void)
-    | null = null
+    ((data: { terminalId: string; title: string; shell: string; cwd: string }) => void) | null =
+    null
 
   /**
    * Hook that releases a terminal handed off to another window: drops the
@@ -566,6 +565,52 @@ class WorkspaceStore {
     return tab.id
   }
 
+  /**
+   * Open an editable Markdown document backed by an exact, sender-bound
+   * external-file grant. External tabs are ephemeral and deliberately carry
+   * no collection navigation identity.
+   */
+  openExternalDocumentTab(
+    options: {
+      id: string
+      path: string
+      name: string
+      content: string
+    },
+    paneId?: string
+  ): string {
+    const existingTabId = this.findExternalTabByPath(options.path)
+    if (existingTabId) {
+      const existingPaneId = this._findPaneForTab(existingTabId)
+      if (existingPaneId) {
+        this.switchTab(existingTabId, existingPaneId)
+        this.activePaneId = existingPaneId
+      }
+      return existingTabId
+    }
+
+    const targetPaneId = paneId ?? this.defaultEditorPaneId
+    const pane = this.panes[targetPaneId]
+    if (!pane) return ''
+
+    const tab = createDocumentTab(options.name)
+    tab.origin = 'external'
+    tab.externalId = options.id
+    tab.externalPath = options.path
+    tab.title = options.name
+    tab.content = options.content
+    tab.savedContent = options.content
+    tab.navigation.current = null
+
+    this.tabs[tab.id] = tab
+    this._insertTabBeforeGraph(pane, tab.id)
+    pane.activeTabId = tab.id
+    this.panes[targetPaneId] = { ...pane }
+    this.activePaneId = targetPaneId
+    this._scheduleSave()
+    return tab.id
+  }
+
   /** Open a managed, real Markdown activity file outside the collection. */
   openActivityLog(
     descriptor: import('../../preload/api').ActivityLogDescriptor,
@@ -575,7 +620,7 @@ class WorkspaceStore {
     const pane = this.panes[targetPaneId]
     if (!pane) return ''
     const filePath = `activity-log://${descriptor.collection_id}/${descriptor.date}.md`
-    const existingTabId = this._findTabByFilePath(filePath, targetPaneId)
+    const existingTabId = this._findTabByFilePath(filePath, targetPaneId, 'activity-log')
     if (existingTabId) {
       const existing = this.tabs[existingTabId]
       if (existing?.kind === 'document') {
@@ -638,6 +683,9 @@ class WorkspaceStore {
     activeTab.filePath = filePath
     activeTab.title = fileNameFromPath(filePath)
     activeTab.origin = 'collection'
+    activeTab.standalonePath = null
+    activeTab.externalId = null
+    activeTab.externalPath = null
     activeTab.readOnly = false
     activeTab.activityLog = null
     activeTab.isDirty = false
@@ -818,7 +866,7 @@ class WorkspaceStore {
     // Check if this asset is already open in this pane
     for (const tabId of pane.tabOrder) {
       const tab = this.tabs[tabId]
-      if (tab && tab.kind === 'asset' && tab.filePath === filePath) {
+      if (tab && tab.kind === 'asset' && tab.origin === 'collection' && tab.filePath === filePath) {
         this.switchTab(tabId, targetPaneId)
         return tabId
       }
@@ -843,6 +891,47 @@ class WorkspaceStore {
     pane.activeTabId = tab.id
     this.panes[targetPaneId] = { ...pane }
 
+    this._scheduleSave()
+    return tab.id
+  }
+
+  /** Open a read-only externally dropped asset from a renderer-owned object URL. */
+  openExternalAssetTab(
+    options: {
+      id: string
+      path: string
+      name: string
+      mimeCategory: MimeCategory
+      fileSize?: number
+      objectUrl: string | null
+    },
+    paneId?: string
+  ): string {
+    const existingTabId = this.findExternalTabByPath(options.path)
+    if (existingTabId) {
+      const existingPaneId = this._findPaneForTab(existingTabId)
+      if (existingPaneId) {
+        this.switchTab(existingTabId, existingPaneId)
+        this.activePaneId = existingPaneId
+      }
+      return existingTabId
+    }
+
+    const targetPaneId = paneId ?? this.defaultEditorPaneId
+    const pane = this.panes[targetPaneId]
+    if (!pane) return ''
+
+    const tab = createAssetTab(options.name, options.mimeCategory, options.fileSize)
+    tab.origin = 'external'
+    tab.externalId = options.id
+    tab.externalPath = options.path
+    tab.externalUrl = options.objectUrl
+
+    this.tabs[tab.id] = tab
+    this._insertTabBeforeGraph(pane, tab.id)
+    pane.activeTabId = tab.id
+    this.panes[targetPaneId] = { ...pane }
+    this.activePaneId = targetPaneId
     this._scheduleSave()
     return tab.id
   }
@@ -1087,7 +1176,10 @@ class WorkspaceStore {
       this._handleEmptiedPane(targetPaneId)
     }
 
-    if (closedTab) this._notifyTabClosed(closedTab)
+    if (closedTab) {
+      this._disposeExternalTab(closedTab)
+      this._notifyTabClosed(closedTab)
+    }
     this._scheduleSave()
     return closedTab
   }
@@ -1352,18 +1444,28 @@ class WorkspaceStore {
    */
   reset(): void {
     const survivingTerminals: TerminalTab[] = []
+    const externalTabs: TabState[] = []
     for (const paneId of Object.keys(this.panes)) {
       for (const tabId of this.panes[paneId].tabOrder) {
         const tab = this.tabs[tabId]
         if (tab?.kind === 'terminal') survivingTerminals.push(tab)
+        if (
+          (tab?.kind === 'document' && tab.origin === 'external') ||
+          (tab?.kind === 'asset' && tab.origin === 'external')
+        ) {
+          externalTabs.push(tab)
+        }
       }
     }
+
+    for (const tab of externalTabs) this._disposeExternalTab(tab)
 
     this.tabs = {}
     this.panes = {}
     this.paneOrder = []
     this.splitEnabled = false
     this.splitRatio = 0.5
+    this.isPopup = false
     this._initDefaultPane()
 
     const bottomPane = this.panes[BOTTOM_PANE_ID]
@@ -1409,7 +1511,21 @@ class WorkspaceStore {
   findTabByFilePath(filePath: string): string | null {
     for (const tabId of Object.keys(this.tabs)) {
       const tab = this.tabs[tabId]
-      if (tab.kind === 'document' && tab.filePath === filePath) {
+      if (tab.kind === 'document' && tab.origin === 'collection' && tab.filePath === filePath) {
+        return tabId
+      }
+    }
+    return null
+  }
+
+  /** Find an ephemeral external document or asset by its canonical path. */
+  findExternalTabByPath(path: string): string | null {
+    for (const [tabId, tab] of Object.entries(this.tabs)) {
+      if (
+        ((tab.kind === 'document' && tab.origin === 'external') ||
+          (tab.kind === 'asset' && tab.origin === 'external')) &&
+        tab.externalPath === path
+      ) {
         return tabId
       }
     }
@@ -1459,6 +1575,9 @@ class WorkspaceStore {
     if (!tab) return null
 
     if (tab.kind === 'document') {
+      // Standalone paths are sender-bound capabilities, not transferable tab
+      // data. A new standalone window must be opened by main instead.
+      if (tab.origin === 'standalone' || tab.origin === 'external') return null
       const includeContent = tab.isDirty || tab.isUntitled || tab.origin === 'activity-log'
       return {
         kind: 'document',
@@ -1476,6 +1595,7 @@ class WorkspaceStore {
     }
 
     if (tab.kind === 'asset') {
+      if (tab.origin === 'external') return null
       return {
         kind: 'asset',
         filePath: tab.filePath,
@@ -1536,7 +1656,11 @@ class WorkspaceStore {
       if (!data.filePath) return ''
 
       // Check if the file is already open in this pane — switch to it instead
-      const existingTabId = this._findTabByFilePath(data.filePath, targetPaneId)
+      const existingTabId = this._findTabByFilePath(
+        data.filePath,
+        targetPaneId,
+        data.documentOrigin === 'activity-log' ? 'activity-log' : 'collection'
+      )
       if (existingTabId) {
         this.switchTab(existingTabId, targetPaneId)
         return existingTabId
@@ -1757,8 +1881,10 @@ class WorkspaceStore {
       if (!tab) continue
 
       if (tab.kind === 'document') {
-        // Don't persist untitled tabs — they can't be restored from disk
-        if (tab.isUntitled) continue
+        // Untitled files cannot be restored from disk. Standalone files are
+        // owned by an ephemeral, sender-bound window capability and must not
+        // leak their absolute path into a collection window session.
+        if (tab.isUntitled || tab.origin === 'standalone' || tab.origin === 'external') continue
         if (tab.origin === 'activity-log' && tab.activityLog) {
           tabs.push({
             kind: 'document',
@@ -1773,6 +1899,7 @@ class WorkspaceStore {
       } else if (tab.kind === 'graph') {
         tabs.push({ kind: 'graph', graphLevel: tab.graphLevel })
       } else if (tab.kind === 'asset') {
+        if (tab.origin === 'external') continue
         tabs.push({ kind: 'asset', filePath: tab.filePath, mimeCategory: tab.mimeCategory })
       } else if (tab.kind === 'table') {
         tabs.push({
@@ -2270,7 +2397,62 @@ class WorkspaceStore {
     return tab.id
   }
 
+  /**
+   * Initialize an ephemeral workspace for one Markdown file outside every
+   * collection. The absolute path is retained only as the renderer-side
+   * identity for the main-process capability; collection navigation and
+   * session persistence remain disabled.
+   */
+  initAsStandalone(options: {
+    standalonePath: string
+    filePath?: string
+    title?: string
+    content: string
+    savedContent?: string
+    editorMode?: EditorMode
+  }): string {
+    const filePath = options.filePath ?? fileNameFromPath(options.standalonePath)
+    const savedContent = options.savedContent ?? options.content
+    const tabId = this.initAsPopup('document', {
+      filePath,
+      editorMode: options.editorMode,
+      content: options.content,
+      savedContent
+    })
+    const tab = this.tabs[tabId]
+    if (tab?.kind === 'document') {
+      tab.origin = 'standalone'
+      tab.standalonePath = options.standalonePath
+      tab.title = options.title ?? fileNameFromPath(filePath)
+      tab.navigation.current = null
+      tab.isDirty = options.content !== savedContent
+    }
+    return tabId
+  }
+
   // ── Private Helpers ────────────────────────────────────────────────
+
+  /** Revoke renderer/main capabilities owned by one ephemeral external tab. */
+  private _disposeExternalTab(tab: TabState): void {
+    const externalId =
+      tab.kind === 'document' && tab.origin === 'external'
+        ? tab.externalId
+        : tab.kind === 'asset' && tab.origin === 'external'
+          ? tab.externalId
+          : null
+    if (!externalId) return
+
+    if (tab.kind === 'asset' && tab.externalUrl) {
+      try {
+        URL.revokeObjectURL(tab.externalUrl)
+      } catch {
+        // Best-effort cleanup in environments without object-URL support.
+      }
+    }
+    void window.api.releaseExternalFile?.(externalId).catch(() => {
+      // Main also drops every grant when the owning renderer closes.
+    })
+  }
 
   /** Initialize with a single default editor pane (with graph tab) plus the bottom pane. */
   private _initDefaultPane(): void {
@@ -2288,13 +2470,17 @@ class WorkspaceStore {
   }
 
   /** Find a tab by file path in a specific pane. */
-  private _findTabByFilePath(filePath: string, paneId: string): string | null {
+  private _findTabByFilePath(
+    filePath: string,
+    paneId: string,
+    origin: DocumentTab['origin'] = 'collection'
+  ): string | null {
     const pane = this.panes[paneId]
     if (!pane) return null
 
     for (const tabId of pane.tabOrder) {
       const tab = this.tabs[tabId]
-      if (tab && tab.kind === 'document' && tab.filePath === filePath) {
+      if (tab && tab.kind === 'document' && tab.origin === origin && tab.filePath === filePath) {
         return tabId
       }
     }

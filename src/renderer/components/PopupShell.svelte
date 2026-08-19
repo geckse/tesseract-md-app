@@ -9,6 +9,7 @@
   import { terminalStore } from '../stores/terminal.svelte'
   import ImageViewer from './ImageViewer.svelte'
   import PdfViewer from './PdfViewer.svelte'
+  import VideoViewer from './VideoViewer.svelte'
   import AssetInfoCard from './AssetInfoCard.svelte'
   import SaveAsModal from './SaveAsModal.svelte'
   import { workspace } from '../stores/workspace.svelte'
@@ -57,11 +58,7 @@
   // svelte-ignore state_referenced_locally
   const params = urlParams
   const kind = (params.get('kind') ?? 'document') as
-    | 'document'
-    | 'asset'
-    | 'graph'
-    | 'table'
-    | 'terminal'
+    'document' | 'asset' | 'graph' | 'table' | 'terminal'
   const filePath = params.get('filePath') ?? ''
   const collectionId = params.get('collectionId') ?? ''
   const collectionPath = params.get('collectionPath') ?? ''
@@ -511,6 +508,8 @@
             <ImageViewer {filePath} {fileSize} {collectionPath} {tabId} />
           {:else if mimeCategory === 'pdf'}
             <PdfViewer {filePath} {collectionPath} />
+          {:else if mimeCategory === 'video'}
+            <VideoViewer {filePath} {collectionPath} />
           {:else}
             <AssetInfoCard {filePath} {mimeCategory} {fileSize} {collectionPath} />
           {/if}

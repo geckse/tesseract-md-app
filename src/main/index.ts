@@ -35,6 +35,7 @@ import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { installLocalMediaProtocol, registerLocalMediaScheme } from './media-protocol'
 import { configureShardManifestWatcher, destroyShardManifestWatcher } from './shard-watcher'
+import { markdownPathsFromArguments, openMarkdownPath } from './open-markdown'
 
 /** Singleton WindowManager for centralized multi-window lifecycle. */
 export const windowManager = new WindowManager()
@@ -80,14 +81,83 @@ async function prepareE2eExampleCollection(): Promise<void> {
   await execCommand('ingest', [], path, { timeout: 60_000 })
 }
 
+// OS file-open requests can arrive before Electron is ready (notably macOS).
+// Keep only normalized .md candidates here; validation happens immediately
+// before a window and its exact-file capability are created.
+const pendingMarkdownPaths = new Set(markdownPathsFromArguments(process.argv, process.cwd()))
+let markdownWindowsReady = false
+let markdownDrain: Promise<number> | null = null
+
+function enqueueMarkdownPaths(paths: string[]): void {
+  for (const path of paths) pendingMarkdownPaths.add(path)
+  if (markdownWindowsReady) {
+    void drainMarkdownPaths().catch((error: unknown) => {
+      console.error('Failed to open a Markdown document:', error)
+    })
+  }
+}
+
+function drainMarkdownPaths(): Promise<number> {
+  if (!markdownWindowsReady) return Promise.resolve(0)
+  if (markdownDrain) return markdownDrain
+
+  const run = (async (): Promise<number> => {
+    let opened = 0
+    while (pendingMarkdownPaths.size > 0) {
+      const batch = [...pendingMarkdownPaths]
+      pendingMarkdownPaths.clear()
+      const results = await Promise.all(
+        batch.map(async (path) => {
+          try {
+            return await openMarkdownPath(path, windowManager, getCollections())
+          } catch (error) {
+            console.error(`Failed to open Markdown document ${path}:`, error)
+            return false
+          }
+        })
+      )
+      opened += results.filter(Boolean).length
+    }
+    return opened
+  })()
+
+  markdownDrain = run
+  void run.then(
+    () => finishMarkdownDrain(run),
+    () => finishMarkdownDrain(run)
+  )
+  return run
+}
+
+function finishMarkdownDrain(completed: Promise<number>): void {
+  if (markdownDrain === completed) markdownDrain = null
+  if (pendingMarkdownPaths.size > 0) {
+    void drainMarkdownPaths().catch((error: unknown) => {
+      console.error('Failed to open a Markdown document:', error)
+    })
+  }
+}
+
+// Finder delivers document launches through this event, sometimes before
+// `whenReady()`. Register it at module load so cold-open requests are not lost.
+app.on('open-file', (event, filePath) => {
+  event.preventDefault()
+  enqueueMarkdownPaths(markdownPathsFromArguments([filePath], process.cwd()))
+})
+
 // Single-instance lock (data safety): two instances would race on the same
 // electron-store/session files and vault watchers. A second launch exits
 // immediately and the running instance's primary window is focused instead.
 if (!isE2e && !app.requestSingleInstanceLock()) {
   app.quit()
 } else if (!isE2e) {
-  app.on('second-instance', () => {
-    windowManager.focusPrimaryWindow()
+  app.on('second-instance', (_event, commandLine, workingDirectory) => {
+    const markdownPaths = markdownPathsFromArguments(commandLine, workingDirectory)
+    if (markdownPaths.length > 0) {
+      enqueueMarkdownPaths(markdownPaths)
+    } else {
+      windowManager.focusPrimaryWindow()
+    }
   })
 }
 
@@ -108,13 +178,18 @@ app
     })
 
     // Preload performs a synchronous theme read before the first page paints.
-    // Register only that bootstrap channel before creating the window, then
-    // install the full feature surface immediately after load has started.
+    // Register every renderer-facing channel before opening an OS-delivered
+    // document: a fast standalone renderer may invoke its exact-file API as
+    // soon as its page mounts.
     registerStartupIpcHandlers()
-
-    windowManager.createWindow()
     registerIpcHandlers(windowManager, ptyManager)
     registerTerminalHandlers(ptyManager)
+
+    markdownWindowsReady = true
+    const openedMarkdownFiles = await drainMarkdownPaths()
+    if (openedMarkdownFiles === 0 && windowManager.getAllWindows().length === 0) {
+      windowManager.createWindow()
+    }
     buildAppMenu(windowManager)
     await configureShardManifestWatcher(getCollections(), windowManager)
 

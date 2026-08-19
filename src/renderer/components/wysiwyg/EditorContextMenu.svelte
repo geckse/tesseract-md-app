@@ -7,6 +7,7 @@
     navigateLinkOtherPane
   } from '../../lib/link-navigation'
   import type { MediaEmbed } from '../../lib/media-embed'
+  import { getSelectedMedia } from '../../lib/tiptap/media-selection'
   import { workspace } from '../../stores/workspace.svelte'
   import { valueColorPalette } from '../../stores/value-colors'
 
@@ -42,7 +43,7 @@
   const highlightColor = $derived(
     () => (editor.getAttributes('highlight').color ?? null) as number | null
   )
-  const isOnMedia = $derived(() => editor.isActive('image') || editor.isActive('mediaEmbed'))
+  const isOnMedia = $derived(() => getSelectedMedia(editor) !== null)
 
   // ── Actions ───────────────────────────────────────────────────────────
 
@@ -100,30 +101,26 @@
     exec(() => editor.chain().focus().clearNodes().unsetAllMarks().run())
   }
 
-  function currentMedia(): MediaEmbed {
-    const attrs = editor.isActive('image')
-      ? { ...editor.getAttributes('image'), kind: 'image' as const }
-      : editor.getAttributes('mediaEmbed')
-    return {
-      kind: attrs.kind === 'audio' ? 'audio' : attrs.kind === 'video' ? 'video' : 'image',
-      src: attrs.src ?? '',
-      alt: attrs.alt ?? ''
-    }
+  function currentMedia(): MediaEmbed | null {
+    return getSelectedMedia(editor)
   }
 
   function handleEditMedia() {
+    const media = currentMedia()
     onclose()
-    oneditmedia?.(currentMedia())
+    if (media) oneditmedia?.(media)
   }
 
   function handleOpenMediaInTab() {
+    const media = currentMedia()
     onclose()
-    onopenmediaintab?.(currentMedia())
+    if (media) onopenmediaintab?.(media)
   }
 
   function handleOpenMediaExternal() {
+    const media = currentMedia()
     onclose()
-    onopenmediaexternal?.(currentMedia())
+    if (media) onopenmediaexternal?.(media)
   }
 
   function handleRemoveMedia() {

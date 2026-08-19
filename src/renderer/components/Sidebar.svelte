@@ -64,6 +64,9 @@
   let expandedShards: Set<string> = $state(new Set())
   let focusedSwitcherIndex = $state(0)
   let switcherTree: HTMLDivElement | null = $state(null)
+  let switcherSearchInput: HTMLInputElement | null = $state(null)
+  let switcherTrigger: HTMLButtonElement | null = $state(null)
+  let switcherQuery = $state('')
   const initializedExpandableShards = new Set<string>()
   let expandedActiveCollectionId: string | null = null
 
@@ -73,6 +76,7 @@
     { section: 'search', label: 'Search Defaults', icon: 'search' },
     { section: 'chunking', label: 'Chunking', icon: 'splitscreen' },
     { section: 'clusters', label: 'Topics', icon: 'category' },
+    { section: 'skills', label: 'Agent Skills', icon: 'school' },
     { section: 'appearance', label: 'Appearance', icon: 'palette' }
   ]
 
@@ -125,6 +129,24 @@
     return rows
   }
 
+  function flattenAllShardNodes(
+    collection: Collection,
+    nodes: ShardTreeNode[],
+    depth: number
+  ): SwitcherRow[] {
+    return nodes.flatMap((node) => [
+      {
+        key: `${collection.id}:${node.shard.id}`,
+        kind: 'shard' as const,
+        collection,
+        shard: node.shard,
+        depth,
+        hasChildren: node.children.length > 0
+      },
+      ...flattenAllShardNodes(collection, node.children, depth + 1)
+    ])
+  }
+
   let switcherRows = $derived.by<SwitcherRow[]>(() => {
     const rows: SwitcherRow[] = []
     for (const collection of currentCollections) {
@@ -140,6 +162,39 @@
       if (hasChildren && expandedCollections.has(collection.id)) {
         rows.push(...flattenShardNodes(collection, shardTree, 2))
       }
+    }
+    return rows
+  })
+
+  let visibleSwitcherRows = $derived.by<SwitcherRow[]>(() => {
+    const needle = switcherQuery.trim().toLocaleLowerCase()
+    if (!needle) return switcherRows
+
+    const rows: SwitcherRow[] = []
+    for (const collection of currentCollections) {
+      if (
+        collection.name.toLocaleLowerCase().includes(needle) ||
+        collection.path.toLocaleLowerCase().includes(needle)
+      ) {
+        rows.push({
+          key: collection.id,
+          kind: 'collection',
+          collection,
+          depth: 1,
+          hasChildren: (currentShardsByCollection[collection.id] ?? []).length > 0
+        })
+      }
+
+      const shardTree = buildShardTree(currentShardsByCollection[collection.id] ?? [])
+      rows.push(
+        ...flattenAllShardNodes(collection, shardTree, 2).filter((row) => {
+          const shard = row.shard
+          return (
+            shard?.name.toLocaleLowerCase().includes(needle) ||
+            shard?.path.toLocaleLowerCase().includes(needle)
+          )
+        })
+      )
     }
     return rows
   })
@@ -227,13 +282,16 @@
   function toggleDropdown() {
     dropdownOpen = !dropdownOpen
     if (dropdownOpen) {
+      switcherQuery = ''
+      focusedSwitcherIndex = 0
       void refreshAllShards()
-      requestAnimationFrame(() => focusSwitcherRow(focusedSwitcherIndex))
+      requestAnimationFrame(() => switcherSearchInput?.focus())
     }
   }
 
   function closeDropdown() {
     dropdownOpen = false
+    switcherQuery = ''
   }
 
   function closeTransientMenus() {
@@ -271,7 +329,8 @@
   }
 
   function focusSwitcherRow(index: number): void {
-    focusedSwitcherIndex = Math.max(0, Math.min(index, switcherRows.length - 1))
+    if (visibleSwitcherRows.length === 0) return
+    focusedSwitcherIndex = Math.max(0, Math.min(index, visibleSwitcherRows.length - 1))
     requestAnimationFrame(() => {
       switcherTree
         ?.querySelector<HTMLButtonElement>(`[data-switcher-index="${focusedSwitcherIndex}"]`)
@@ -280,7 +339,7 @@
   }
 
   function handleSwitcherKeydown(event: KeyboardEvent): void {
-    const row = switcherRows[focusedSwitcherIndex]
+    const row = visibleSwitcherRows[focusedSwitcherIndex]
     if (!row) return
     if (event.key === 'ArrowDown') {
       event.preventDefault()
@@ -293,7 +352,7 @@
       focusSwitcherRow(0)
     } else if (event.key === 'End') {
       event.preventDefault()
-      focusSwitcherRow(switcherRows.length - 1)
+      focusSwitcherRow(visibleSwitcherRows.length - 1)
     } else if (event.key === 'ArrowRight' && row.kind === 'collection') {
       event.preventDefault()
       if (!row.hasChildren) return
@@ -327,7 +386,7 @@
           return
         }
         const parentId = row.shard?.parent_id
-        const parentIndex = switcherRows.findIndex(
+        const parentIndex = visibleSwitcherRows.findIndex(
           (candidate) =>
             candidate.collection.id === row.collection.id &&
             (parentId
@@ -343,6 +402,25 @@
     } else if (event.key === 'Escape') {
       event.preventDefault()
       closeDropdown()
+    }
+  }
+
+  function handleSwitcherSearchKeydown(event: KeyboardEvent): void {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      focusSwitcherRow(0)
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      focusSwitcherRow(visibleSwitcherRows.length - 1)
+    } else if (event.key === 'Enter' && visibleSwitcherRows[0]) {
+      event.preventDefault()
+      const row = visibleSwitcherRows[0]
+      if (row.kind === 'collection') void handleDropdownSelect(row.collection)
+      else if (row.shard) void handleDropdownShardSelect(row.collection, row.shard)
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      closeDropdown()
+      requestAnimationFrame(() => switcherTrigger?.focus())
     }
   }
 
@@ -586,9 +664,12 @@
           </button>
         {:else}
           <button
+            bind:this={switcherTrigger}
             class="switcher-trigger"
             class:open={dropdownOpen}
             onclick={toggleDropdown}
+            aria-haspopup="tree"
+            aria-expanded={dropdownOpen}
             oncontextmenu={(e) => {
               if (currentActiveCollection) handleCollectionContextMenu(e, currentActiveCollection)
             }}
@@ -620,131 +701,168 @@
             <!-- svelte-ignore a11y_click_events_have_key_events -->
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <div class="dropdown-overlay" onclick={closeDropdown}></div>
-            <div
-              bind:this={switcherTree}
-              class="dropdown-menu"
-              role="tree"
-              aria-label="Collections and Shards"
-              tabindex="-1"
-              onkeydown={handleSwitcherKeydown}
-            >
-              {#each switcherRows as row, index (row.key)}
-                {#if row.kind === 'collection'}
-                  <div class="dropdown-tree-row" role="presentation">
-                    {#if row.hasChildren}
-                      <button
-                        class="dropdown-expand"
-                        aria-label={expandedCollections.has(row.collection.id)
-                          ? `Collapse ${row.collection.name}`
-                          : `Expand ${row.collection.name}`}
-                        tabindex="-1"
-                        onclick={(event) => {
-                          event.stopPropagation()
-                          toggleCollectionExpanded(row.collection.id)
-                        }}
-                      >
-                        <span class="material-symbols-outlined">
-                          {expandedCollections.has(row.collection.id)
-                            ? 'expand_more'
-                            : 'chevron_right'}
-                        </span>
-                      </button>
-                    {/if}
-                    <button
-                      class="dropdown-item collection-row"
-                      class:active={currentActiveCollectionId === row.collection.id &&
-                        !currentActiveShardId}
-                      role="treeitem"
-                      aria-level="1"
-                      aria-selected={currentActiveCollectionId === row.collection.id &&
-                        !currentActiveShardId}
-                      aria-expanded={row.hasChildren
-                        ? expandedCollections.has(row.collection.id)
-                        : undefined}
-                      data-switcher-index={index}
-                      tabindex={focusedSwitcherIndex === index ? 0 : -1}
-                      onfocus={() => (focusedSwitcherIndex = index)}
-                      onclick={() => handleDropdownSelect(row.collection)}
-                      oncontextmenu={(event) => handleCollectionContextMenu(event, row.collection)}
-                    >
-                      <span class="material-symbols-outlined dropdown-item-icon">
-                        {currentActiveCollectionId === row.collection.id ? 'folder_open' : 'folder'}
-                      </span>
-                      <span class="dropdown-item-label">{row.collection.name}</span>
-                      {#if currentActiveCollectionId === row.collection.id && !currentActiveShardId}
-                        <span class="material-symbols-outlined dropdown-check">check</span>
+            <div class="dropdown-menu">
+              <div class="dropdown-search">
+                <span class="material-symbols-outlined dropdown-search-icon">search</span>
+                <input
+                  bind:this={switcherSearchInput}
+                  bind:value={switcherQuery}
+                  type="search"
+                  placeholder="Search collections..."
+                  aria-label="Search collections and Shards"
+                  autocomplete="off"
+                  spellcheck="false"
+                  oninput={() => (focusedSwitcherIndex = 0)}
+                  onkeydown={handleSwitcherSearchKeydown}
+                />
+                {#if switcherQuery}
+                  <button
+                    class="dropdown-search-clear"
+                    aria-label="Clear collection search"
+                    onclick={() => {
+                      switcherQuery = ''
+                      focusedSwitcherIndex = 0
+                      switcherSearchInput?.focus()
+                    }}
+                  >
+                    <span class="material-symbols-outlined">close</span>
+                  </button>
+                {/if}
+              </div>
+              <div
+                bind:this={switcherTree}
+                class="dropdown-tree"
+                role="tree"
+                aria-label="Collections and Shards"
+                tabindex="-1"
+                onkeydown={handleSwitcherKeydown}
+              >
+                {#each visibleSwitcherRows as row, index (row.key)}
+                  {#if row.kind === 'collection'}
+                    <div class="dropdown-tree-row" role="presentation">
+                      {#if row.hasChildren}
+                        <button
+                          class="dropdown-expand"
+                          aria-label={expandedCollections.has(row.collection.id)
+                            ? `Collapse ${row.collection.name}`
+                            : `Expand ${row.collection.name}`}
+                          tabindex="-1"
+                          onclick={(event) => {
+                            event.stopPropagation()
+                            toggleCollectionExpanded(row.collection.id)
+                          }}
+                        >
+                          <span class="material-symbols-outlined">
+                            {expandedCollections.has(row.collection.id)
+                              ? 'expand_more'
+                              : 'chevron_right'}
+                          </span>
+                        </button>
                       {/if}
-                    </button>
-                  </div>
-                {:else if row.shard}
-                  <div class="dropdown-tree-row shard-tree-row" role="presentation">
-                    {#if row.hasChildren}
                       <button
-                        class="dropdown-expand"
-                        aria-label={expandedShards.has(`${row.collection.id}:${row.shard.id}`)
-                          ? `Collapse ${row.shard.name}`
-                          : `Expand ${row.shard.name}`}
-                        tabindex="-1"
-                        style:left={`${3 + (row.depth - 1) * 14}px`}
-                        onclick={(event) => {
-                          event.stopPropagation()
-                          toggleShardExpanded(row.collection.id, row.shard!.id)
-                        }}
+                        class="dropdown-item collection-row"
+                        class:active={currentActiveCollectionId === row.collection.id &&
+                          !currentActiveShardId}
+                        role="treeitem"
+                        aria-level="1"
+                        aria-selected={currentActiveCollectionId === row.collection.id &&
+                          !currentActiveShardId}
+                        aria-expanded={row.hasChildren
+                          ? expandedCollections.has(row.collection.id)
+                          : undefined}
+                        data-switcher-index={index}
+                        tabindex={focusedSwitcherIndex === index ? 0 : -1}
+                        onfocus={() => (focusedSwitcherIndex = index)}
+                        onclick={() => handleDropdownSelect(row.collection)}
+                        oncontextmenu={(event) =>
+                          handleCollectionContextMenu(event, row.collection)}
                       >
-                        <span class="material-symbols-outlined">
-                          {expandedShards.has(`${row.collection.id}:${row.shard.id}`)
-                            ? 'expand_more'
-                            : 'chevron_right'}
+                        <span class="material-symbols-outlined dropdown-item-icon">
+                          {currentActiveCollectionId === row.collection.id
+                            ? 'folder_open'
+                            : 'folder'}
                         </span>
+                        <span class="dropdown-item-label">{row.collection.name}</span>
+                        {#if currentActiveCollectionId === row.collection.id && !currentActiveShardId}
+                          <span class="material-symbols-outlined dropdown-check">check</span>
+                        {/if}
                       </button>
-                    {/if}
-                    <button
-                      class="dropdown-item shard-row"
-                      class:active={currentActiveCollectionId === row.collection.id &&
-                        currentActiveShardId === row.shard.id}
-                      class:missing={!row.shard.exists}
-                      role="treeitem"
-                      aria-level={row.depth}
-                      aria-selected={currentActiveCollectionId === row.collection.id &&
-                        currentActiveShardId === row.shard.id}
-                      aria-expanded={row.hasChildren
-                        ? expandedShards.has(`${row.collection.id}:${row.shard.id}`)
-                        : undefined}
-                      aria-disabled={!row.shard.exists}
-                      data-switcher-index={index}
-                      tabindex={focusedSwitcherIndex === index ? 0 : -1}
-                      style:padding-left={`${28 + (row.depth - 1) * 14}px`}
-                      onfocus={() => (focusedSwitcherIndex = index)}
-                      onclick={() => handleDropdownShardSelect(row.collection, row.shard!)}
-                      oncontextmenu={(event) =>
-                        handleShardContextMenu(event, row.collection, row.shard!)}
-                      title={row.shard.exists
-                        ? row.shard.path
-                        : `Missing folder: ${row.shard.path}`}
-                    >
-                      <span class="dropdown-item-icon shard-icon-slot">
-                        <ShardIcon size={16} />
-                      </span>
-                      <span class="dropdown-item-label">{row.shard.name}</span>
-                      {#if !row.shard.exists}
-                        <span class="material-symbols-outlined dropdown-warning">warning</span>
-                      {:else if currentActiveCollectionId === row.collection.id && currentActiveShardId === row.shard.id}
-                        <span class="material-symbols-outlined dropdown-check">check</span>
+                    </div>
+                  {:else if row.shard}
+                    <div class="dropdown-tree-row shard-tree-row" role="presentation">
+                      {#if row.hasChildren}
+                        <button
+                          class="dropdown-expand"
+                          aria-label={expandedShards.has(`${row.collection.id}:${row.shard.id}`)
+                            ? `Collapse ${row.shard.name}`
+                            : `Expand ${row.shard.name}`}
+                          tabindex="-1"
+                          style:left={`${3 + (row.depth - 1) * 14}px`}
+                          onclick={(event) => {
+                            event.stopPropagation()
+                            toggleShardExpanded(row.collection.id, row.shard!.id)
+                          }}
+                        >
+                          <span class="material-symbols-outlined">
+                            {expandedShards.has(`${row.collection.id}:${row.shard.id}`)
+                              ? 'expand_more'
+                              : 'chevron_right'}
+                          </span>
+                        </button>
                       {/if}
-                    </button>
+                      <button
+                        class="dropdown-item shard-row"
+                        class:active={currentActiveCollectionId === row.collection.id &&
+                          currentActiveShardId === row.shard.id}
+                        class:missing={!row.shard.exists}
+                        role="treeitem"
+                        aria-level={row.depth}
+                        aria-selected={currentActiveCollectionId === row.collection.id &&
+                          currentActiveShardId === row.shard.id}
+                        aria-expanded={row.hasChildren
+                          ? expandedShards.has(`${row.collection.id}:${row.shard.id}`)
+                          : undefined}
+                        aria-disabled={!row.shard.exists}
+                        data-switcher-index={index}
+                        tabindex={focusedSwitcherIndex === index ? 0 : -1}
+                        style:padding-left={`${28 + (row.depth - 1) * 14}px`}
+                        onfocus={() => (focusedSwitcherIndex = index)}
+                        onclick={() => handleDropdownShardSelect(row.collection, row.shard!)}
+                        oncontextmenu={(event) =>
+                          handleShardContextMenu(event, row.collection, row.shard!)}
+                        title={row.shard.exists
+                          ? row.shard.path
+                          : `Missing folder: ${row.shard.path}`}
+                      >
+                        <span class="dropdown-item-icon shard-icon-slot">
+                          <ShardIcon size={16} />
+                        </span>
+                        <span class="dropdown-item-label">{row.shard.name}</span>
+                        {#if !row.shard.exists}
+                          <span class="material-symbols-outlined dropdown-warning">warning</span>
+                        {:else if currentActiveCollectionId === row.collection.id && currentActiveShardId === row.shard.id}
+                          <span class="material-symbols-outlined dropdown-check">check</span>
+                        {/if}
+                      </button>
+                    </div>
+                  {/if}
+                {/each}
+                {#if visibleSwitcherRows.length === 0}
+                  <div class="dropdown-empty" role="status">No collections or Shards found</div>
+                {/if}
+                {#if Object.values(currentShardErrors).some(Boolean)}
+                  <div class="dropdown-error" role="status">
+                    Some Shards could not be loaded. Open the collection to retry.
                   </div>
                 {/if}
-              {/each}
-              {#if Object.values(currentShardErrors).some(Boolean)}
-                <div class="dropdown-error" role="status">
-                  Some Shards could not be loaded. Open the collection to retry.
-                </div>
-              {/if}
-              <div class="dropdown-separator"></div>
-              <button class="dropdown-item add-item" onclick={handleDropdownAdd}>
-                <span class="material-symbols-outlined dropdown-item-icon">create_new_folder</span>
-                <span class="dropdown-item-label">Add Collection</span>
-              </button>
+              </div>
+              <div class="dropdown-footer">
+                <button class="dropdown-item add-item" onclick={handleDropdownAdd}>
+                  <span class="material-symbols-outlined dropdown-item-icon">create_new_folder</span
+                  >
+                  <span class="dropdown-item-label">Add Collection</span>
+                </button>
+              </div>
             </div>
           {/if}
         {/if}
@@ -1159,13 +1277,85 @@
     background: var(--color-surface, #161617);
     border: 1px solid var(--color-border, #27272a);
     border-radius: 8px;
-    padding: 4px;
     z-index: 100;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-    max-height: 280px;
+    max-height: 340px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .dropdown-search {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex-shrink: 0;
+    padding: 8px;
+    border-bottom: 1px solid var(--color-border, #27272a);
+  }
+
+  .dropdown-search-icon {
+    flex-shrink: 0;
+    color: var(--color-text-dim, #71717a);
+    font-size: 17px;
+  }
+
+  .dropdown-search input {
+    min-width: 0;
+    flex: 1;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--color-text, #e4e4e7);
+    font: inherit;
+    font-size: 12px;
+  }
+
+  .dropdown-search input::placeholder {
+    color: var(--color-text-dim, #71717a);
+  }
+
+  .dropdown-search:focus-within {
+    box-shadow: inset 0 -1px var(--color-primary, #00e5ff);
+  }
+
+  .dropdown-search-clear {
+    display: grid;
+    width: 22px;
+    height: 22px;
+    flex-shrink: 0;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--color-text-dim, #71717a);
+    cursor: pointer;
+  }
+
+  .dropdown-search-clear:hover,
+  .dropdown-search-clear:focus-visible {
+    background: var(--color-surface-darker, #0a0a0a);
+    color: var(--color-text, #e4e4e7);
+  }
+
+  .dropdown-search-clear .material-symbols-outlined {
+    font-size: 16px;
+  }
+
+  .dropdown-tree {
+    min-height: 0;
     overflow-y: auto;
+    padding: 4px;
     scrollbar-width: thin;
     scrollbar-color: var(--overlay-active, rgba(255, 255, 255, 0.1)) transparent;
+  }
+
+  .dropdown-footer {
+    flex-shrink: 0;
+    padding: 4px;
+    border-top: 1px solid var(--color-border, #27272a);
+    background: var(--color-surface, #161617);
   }
 
   .dropdown-item {
@@ -1242,15 +1432,24 @@
     line-height: 1.35;
   }
 
+  .dropdown-empty {
+    padding: 20px 10px;
+    color: var(--color-text-dim, #71717a);
+    font-size: 11px;
+    text-align: center;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .dropdown-item {
       transition: none;
     }
   }
 
-  .dropdown-item:hover {
+  .dropdown-item:hover,
+  .dropdown-item:focus-visible {
     background: var(--color-surface-darker, #0a0a0a);
     color: var(--color-text-white, #fff);
+    outline: none;
   }
 
   .dropdown-item.active {
@@ -1278,12 +1477,6 @@
     font-size: 16px;
     color: var(--color-primary, #00e5ff);
     flex-shrink: 0;
-  }
-
-  .dropdown-separator {
-    height: 1px;
-    background: var(--color-border, #27272a);
-    margin: 4px 0;
   }
 
   .dropdown-item.add-item {

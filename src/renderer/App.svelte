@@ -113,6 +113,7 @@
   import { applyTheme } from './lib/apply-theme'
   import { workspace } from './stores/workspace.svelte'
   import PopupShell from './components/PopupShell.svelte'
+  import StandaloneShell from './components/StandaloneShell.svelte'
   import BottomPanel from './components/BottomPanel.svelte'
   import { terminalStore } from './stores/terminal.svelte'
   import { clearCollectionSkillsNotice, refreshCollectionSkills } from './stores/collection-skills'
@@ -133,8 +134,10 @@
   // ── Popup Mode Detection ──────────────────────────────────────────
   const popupParams = new URLSearchParams(window.location.search)
   const isPopupMode = popupParams.get('mode') === 'popup'
-  const initialCollectionId = isPopupMode ? null : popupParams.get('collectionId')
-  const initialShardId = isPopupMode ? null : popupParams.get('shardId')
+  const isStandaloneMode = popupParams.get('mode') === 'standalone'
+  const isAuxiliaryMode = isPopupMode || isStandaloneMode
+  const initialCollectionId = isAuxiliaryMode ? null : popupParams.get('collectionId')
+  const initialShardId = isAuxiliaryMode ? null : popupParams.get('shardId')
 
   let searchAreaEl: HTMLElement | undefined = $state(undefined)
 
@@ -146,6 +149,10 @@
   // Split pane state is managed by workspace + SplitPaneContainer
 
   onMount(() => {
+    // Standalone documents have their own exact-file capability and do not
+    // initialize collection, CLI, watcher, or session infrastructure.
+    if (isStandaloneMode) return
+
     // One aggregate listener per renderer coordinates all editor pools and
     // inactive workspace tabs before a computed-field transaction may start.
     const teardownComputedEditorFlush = setupComputedEditorFlushListener()
@@ -165,7 +172,7 @@
 
     // Load collections first, then restore tab session once the active collection is known.
     // restoreSession() validates file existence via the preload API, so it needs an active collection.
-    loadCollections(initialCollectionId).then(async () => {
+    const mainWindowReady = loadCollections(initialCollectionId).then(async () => {
       const collectionId = get(activeCollectionId)
       if (collectionId) await restoreShardForCollection(collectionId, initialShardId)
       // Load the navigation trees for the active collection. Graph data stays
@@ -279,13 +286,21 @@
 
     // Listen for native menu "Open Recent" clicks
     window.api.onMenuOpenRecent(({ collectionId, filePath }) => {
-      setActiveCollection(collectionId)
-      // Small delay to let collection switch propagate before opening tab
-      setTimeout(() => {
-        recordNavigation(filePath)
-        workspace.openFile(filePath)
-        syncFileStoresFromTab()
-      }, 50)
+      // Cold OS file opens can arrive as soon as the renderer loads. Wait for
+      // collection/session restoration so the requested document is not
+      // overwritten by startup state a few milliseconds later.
+      void mainWindowReady
+        .then(async () => {
+          if (get(activeCollectionId) !== collectionId) {
+            await setActiveCollection(collectionId)
+          }
+          recordNavigation(filePath)
+          workspace.openFile(filePath)
+          syncFileStoresFromTab()
+        })
+        .catch((error: unknown) => {
+          console.error('Failed to open collection document:', error)
+        })
     })
 
     // Native menu commands (File/Format/View/Graph/Collection/Help — phase 43)
@@ -811,7 +826,9 @@
   }
 </script>
 
-{#if isPopupMode}
+{#if isStandaloneMode}
+  <StandaloneShell />
+{:else if isPopupMode}
   <PopupShell urlParams={popupParams} />
 {:else if !$onboardingComplete}
   <Onboarding />
@@ -820,7 +837,6 @@
   <a href="#main-content" class="skip-link">Skip to main content</a>
 
   <div class="app-shell" style="--editor-font-size: {$editorFontSize}px">
-    <UpdateNotification />
     <ObsidianImportNotification />
     <div class="titlebar-region" bind:this={searchAreaEl}>
       <Titlebar onsearchresultclick={navigateToResult} />
@@ -861,6 +877,7 @@
 
         <BottomPanel />
 
+        <UpdateNotification />
         <CollectionSkillsNotification />
         <StatusBar />
       </main>

@@ -31,6 +31,9 @@
   const isTerminal = $derived(tab.kind === 'terminal')
   const isTable = $derived(tab.kind === 'table')
   const isActivityLog = $derived(tab.kind === 'document' && tab.origin === 'activity-log')
+  const isExternal = $derived(
+    (tab.kind === 'document' || tab.kind === 'asset') && tab.origin === 'external'
+  )
   const isDirty = $derived(
     (tab.kind === 'document' && tab.isDirty) ||
       (tab.kind === 'asset' && tab.mimeCategory === 'image' && tab.isDirty)
@@ -131,7 +134,7 @@
     const isOutsideWindow =
       clientX <= 0 || clientY <= 0 || clientX >= window.innerWidth || clientY >= window.innerHeight
 
-    if (isOutsideWindow) {
+    if (isOutsideWindow && !isExternal) {
       // Detach this tab to a popup window
       workspace.detachTab(tab.id).then(() => {
         syncFileStoresFromTab()

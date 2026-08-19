@@ -11,7 +11,6 @@
   import { softRender } from '../lib/soft-render'
   import { frontmatterDecoration } from '../lib/frontmatter-decoration'
   import { computeMinimalChanges } from '../lib/external-apply'
-  import { relativeToCollection } from '../lib/path'
   import { activeCollection } from '../stores/collections'
   import { workspace, type DocumentTab } from '../stores/workspace.svelte'
   import {
@@ -48,7 +47,6 @@
   import ClipboardImageSaveModal from './ClipboardImageSaveModal.svelte'
   import { dismissConflict } from '../stores/conflict'
   import { requestSaveAs, saveAsTabId } from '../stores/save-as'
-  import { requestConfirmation } from '../stores/confirmation'
   import { serializeMediaEmbed, type MediaEmbed } from '../lib/media-embed'
   import { insertAssetNode } from '../stores/files'
   import {
@@ -62,6 +60,7 @@
     type ClipboardImageDestination
   } from '../lib/clipboard-image'
   import { registerComputedEditorAdapter } from '../stores/computed-editor-flush'
+  import { saveExternalDocumentTab } from '../lib/external-document-save'
 
   // ── Props ─────────────────────────────────────────────────────────────
   interface EditorProps {
@@ -594,7 +593,7 @@
   // ── Save ──────────────────────────────────────────────────────────────
 
   function handleSave(): boolean {
-    if (!activeTabId || !currentActiveCollection) return true
+    if (!activeTabId) return true
     const entry = pool.get(activeTabId)
     if (!entry) return true
 
@@ -602,19 +601,24 @@
     if (!tab) return true
     if (tab.readOnly) return true
 
+    const content = entry.view.state.doc.toString()
+    if (tab.origin === 'external') {
+      if (tab.isDirty) void saveExternalDocumentTab(activeTabId, content)
+      return true
+    }
+    if (!currentActiveCollection) return true
+
     // Skip save if already clean (e.g., SaveAsModal already handled it)
     if (!tab.isDirty && !tab.isUntitled) return true
 
     // Untitled files need a "Save As" dialog to pick a filename
     if (tab.isUntitled) {
       // Update tab content before requesting save-as
-      const content = entry.view.state.doc.toString()
       tab.content = content
       requestSaveAs(activeTabId)
       return true
     }
 
-    const content = entry.view.state.doc.toString()
     const fullPath = `${currentActiveCollection.path}/${tab.filePath}`
 
     entry.lastSavedContent = content
@@ -919,17 +923,6 @@
   // ── Drag-and-drop (internal tree + external OS) ──────────────────────
 
   const CM_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico', 'avif'])
-  const CM_ASSET_EXTS = new Set([
-    ...CM_IMAGE_EXTS,
-    'pdf',
-    'mp4',
-    'webm',
-    'mov',
-    'mp3',
-    'wav',
-    'ogg'
-  ])
-
   function cmRelativePath(fromFile: string, toFile: string): string {
     const fromParts = fromFile.split('/')
     fromParts.pop()
@@ -947,15 +940,23 @@
   }
 
   function handleCmDragOver(e: DragEvent) {
-    if (activeDocTab?.readOnly) return
+    if (
+      activeDocTab?.readOnly ||
+      activeDocTab?.origin !== 'collection' ||
+      !e.dataTransfer?.types.includes('application/x-mdvdb-path')
+    )
+      return
     e.preventDefault()
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'link'
   }
 
-  async function handleCmDrop(e: DragEvent) {
-    if (activeDocTab?.readOnly) return
-    e.preventDefault()
+  function handleCmDrop(e: DragEvent) {
+    if (activeDocTab?.readOnly || activeDocTab?.origin !== 'collection') return
     if (!e.dataTransfer) return
+
+    const mdvdbPath = e.dataTransfer.getData('application/x-mdvdb-path')
+    if (!mdvdbPath) return
+    e.preventDefault()
 
     const view = activeTabId ? pool.get(activeTabId)?.view : undefined
     if (!view) return
@@ -975,80 +976,14 @@
       })
     }
 
-    // Case 1: Internal tree drag
-    const mdvdbPath = e.dataTransfer.getData('application/x-mdvdb-path')
-    if (mdvdbPath) {
-      const ext = mdvdbPath.split('.').pop()?.toLowerCase() ?? ''
-      const relPath = cmRelativePath(currentFile, mdvdbPath)
-      const name = mdvdbPath.split('/').pop() ?? mdvdbPath
+    const ext = mdvdbPath.split('.').pop()?.toLowerCase() ?? ''
+    const relPath = cmRelativePath(currentFile, mdvdbPath)
+    const name = mdvdbPath.split('/').pop() ?? mdvdbPath
 
-      if (CM_IMAGE_EXTS.has(ext)) {
-        insertText(`![${name}](${relPath})`)
-      } else {
-        insertText(`[${name}](${relPath})`)
-      }
-      return
-    }
-
-    // Case 2: External OS drag
-    const files = e.dataTransfer.files
-    if (files.length > 0) {
-      for (const file of files) {
-        const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
-        if (!CM_ASSET_EXTS.has(ext)) continue
-
-        const absolutePath = window.api.getPathForFile(file)
-        if (!absolutePath) continue
-
-        const checkResult = await window.api.isWithinCollection(absolutePath)
-
-        if (checkResult.within && checkResult.collectionPath === collection.path) {
-          const relToCollection = relativeToCollection(absolutePath, collection.path) ?? file.name
-          const relPath = cmRelativePath(currentFile, relToCollection)
-          const name = file.name
-
-          insertText(CM_IMAGE_EXTS.has(ext) ? `![${name}](${relPath})` : `[${name}](${relPath})`)
-        } else {
-          const confirmed = await requestConfirmation({
-            title: `Copy ${file.name} into this collection?`,
-            message:
-              'The file is outside your collection. Tesseract can copy it alongside the current document before inserting the link.',
-            confirmLabel: 'Copy and Insert'
-          })
-          if (!confirmed) continue
-
-          const currentDir = currentFile.split('/').slice(0, -1).join('/')
-          let destName = file.name
-          let destRelPath = currentDir ? `${currentDir}/${destName}` : destName
-          let destAbsPath = `${collection.path}/${destRelPath}`
-
-          try {
-            await window.api.fileInfo(destAbsPath)
-            const baseName = destName.replace(/\.[^.]+$/, '')
-            const extension = destName.includes('.') ? '.' + destName.split('.').pop() : ''
-            let suffix = 1
-            while (true) {
-              destName = `${baseName}-${suffix}${extension}`
-              destRelPath = currentDir ? `${currentDir}/${destName}` : destName
-              destAbsPath = `${collection.path}/${destRelPath}`
-              try {
-                await window.api.fileInfo(destAbsPath)
-                suffix++
-              } catch {
-                break
-              }
-            }
-          } catch {
-            /* good, doesn't exist */
-          }
-
-          await window.api.copyFile(absolutePath, destAbsPath)
-          const relPath = cmRelativePath(currentFile, destRelPath)
-          insertText(
-            CM_IMAGE_EXTS.has(ext) ? `![${destName}](${relPath})` : `[${destName}](${relPath})`
-          )
-        }
-      }
+    if (CM_IMAGE_EXTS.has(ext)) {
+      insertText(`![${name}](${relPath})`)
+    } else {
+      insertText(`[${name}](${relPath})`)
     }
   }
 </script>

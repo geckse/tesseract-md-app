@@ -61,4 +61,22 @@ describe('EditorContextMenu media actions', () => {
       delete (document as Document & { elementFromPoint?: unknown }).elementFromPoint
     }
   })
+
+  it('does not offer media actions for a text selection around an image', () => {
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const wysiwyg = createWysiwygEditor(host, 'Before\n\n![Diagram](diagram.png)\n\nAfter')
+    const editor = wysiwyg.editor
+    editor.commands.setTextSelection({ from: 1, to: 4 })
+
+    render(EditorContextMenu, {
+      props: { editor, x: 20, y: 20, onclose: vi.fn() }
+    })
+
+    expect(screen.queryByRole('menuitem', { name: /Change Media Source/ })).toBeNull()
+    expect(screen.queryByRole('menuitem', { name: 'Open in Tab' })).toBeNull()
+
+    wysiwyg.destroy()
+    host.remove()
+  })
 })

@@ -24,6 +24,10 @@ vi.mock('../../src/renderer/components/WysiwygEditor.svelte', stub)
 vi.mock('../../src/renderer/components/GraphView.svelte', stub)
 vi.mock('../../src/renderer/components/ImageViewer.svelte', stub)
 vi.mock('../../src/renderer/components/PdfViewer.svelte', stub)
+vi.mock('../../src/renderer/components/VideoViewer.svelte', async () => {
+  const mod = await import('./stubs/VideoViewerStub.svelte')
+  return { default: mod.default }
+})
 vi.mock('../../src/renderer/components/AssetInfoCard.svelte', stub)
 vi.mock('../../src/renderer/components/SaveAsModal.svelte', stub)
 vi.mock('../../src/renderer/components/ModeBar.svelte', stub)
@@ -106,6 +110,17 @@ describe('TabPane terminal keep-alive frames', () => {
     workspace.closeTab(term, paneId)
     await tick()
     expect(container.querySelectorAll('.terminal-frame')).toHaveLength(0)
+  })
+
+  it('renders collection videos in the video viewer instead of the generic asset card', () => {
+    const paneId = workspace.paneOrder[0]
+    workspace.openAssetTab('media/demo.mp4', 'video', 2048, paneId)
+
+    const { container } = render(TabPane, { props: { paneId } })
+
+    expect(
+      container.querySelector('[data-testid="video-viewer"]')?.getAttribute('data-file-path')
+    ).toBe('media/demo.mp4')
   })
 
   it('promotes a table preview when its content or tab is used', async () => {
